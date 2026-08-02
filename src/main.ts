@@ -14,7 +14,9 @@ async function bootstrap(): Promise<void> {
     throw new Error("Canvas element #canvas was not found.");
   }
 
-  const runtimeConfig = await new RuntimeConfigLoader().load();
+  const runtimeConfig = await new RuntimeConfigLoader().load(
+    `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+  );
   const profile = resolveRuntimeProfile(runtimeConfig);
   document.documentElement.dataset.viewport = profile.compact
     ? "compact"
