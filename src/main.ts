@@ -33,7 +33,7 @@ async function bootstrap(): Promise<void> {
   if (sceneElement) {
     sceneElement.textContent =
       sceneMode === "world"
-        ? "Frame Guard · Octahedral LOD"
+        ? "v0.7.2 Visuals · Frame Guard"
         : "Island Regression";
   }
   document.title = `FluffyGrass ${APP_VERSION} · ${sceneMode}`;
