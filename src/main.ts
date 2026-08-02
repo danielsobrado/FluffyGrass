@@ -7,7 +7,6 @@ import { GrassSystem } from "./grass/GrassSystem";
 
 export class FluffyGrass {
   private readonly loadingManager: THREE.LoadingManager;
-  private readonly textureLoader: THREE.TextureLoader;
   private readonly gltfLoader: GLTFLoader;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
@@ -29,7 +28,6 @@ export class FluffyGrass {
 
   constructor(canvas: HTMLCanvasElement) {
     this.loadingManager = new THREE.LoadingManager();
-    this.textureLoader = new THREE.TextureLoader(this.loadingManager);
     this.gltfLoader = new GLTFLoader(this.loadingManager);
     this.canvas = canvas;
     this.gui = new dat.GUI();
@@ -73,11 +71,7 @@ export class FluffyGrass {
       color: this.sceneProps.terrainColor,
     });
 
-    this.grassSystem = new GrassSystem({
-      scene: this.scene,
-      textureLoader: this.textureLoader,
-      gltfLoader: this.gltfLoader,
-    });
+    this.grassSystem = new GrassSystem({ scene: this.scene });
 
     this.initialize();
   }
