@@ -6,15 +6,19 @@ import { SeededRandom } from "./internal/SeededRandom";
 const TWO_PI = Math.PI * 2;
 const MAX_SAMPLE_ATTEMPTS_MULTIPLIER = 32;
 
+export interface GrassPlacement {
+  matrix: THREE.Matrix4;
+  position: THREE.Vector3;
+  variation: readonly [number, number, number, number];
+}
+
 export class GrassDistribution {
-  populate(
-    target: THREE.InstancedMesh,
+  generate(
     surface: THREE.Mesh,
     instanceCount: number,
     config: GrassDistributionConfig,
-    variantIndex: number,
-  ): number {
-    const random = new SeededRandom(config.seed + variantIndex * 104729);
+  ): GrassPlacement[] {
+    const random = new SeededRandom(config.seed);
     const sampler = new MeshSurfaceSampler(surface)
       .setWeightAttribute("color")
       .setRandomGenerator(() => random.next())
@@ -31,14 +35,15 @@ export class GrassDistribution {
     const yawRotation = new THREE.Quaternion();
     const matrix = new THREE.Matrix4();
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(surface.matrixWorld);
-    const minimumUpDot = Math.cos(THREE.MathUtils.degToRad(config.maxSlopeDegrees));
-    const instanceVariation = new Float32Array(instanceCount * 4);
+    const minimumUpDot = Math.cos(
+      THREE.MathUtils.degToRad(config.maxSlopeDegrees),
+    );
     const maximumAttempts = instanceCount * MAX_SAMPLE_ATTEMPTS_MULTIPLIER;
-    let placedCount = 0;
+    const placements: GrassPlacement[] = [];
 
     for (
       let attempt = 0;
-      attempt < maximumAttempts && placedCount < instanceCount;
+      attempt < maximumAttempts && placements.length < instanceCount;
       attempt += 1
     ) {
       sampler.sample(position, normal);
@@ -63,38 +68,34 @@ export class GrassDistribution {
       const heightScale = 1 + random.range(-config.heightVariation, config.heightVariation);
       scale.set(widthScale, heightScale, widthScale);
       matrix.compose(position, alignRotation, scale);
-      target.setMatrixAt(placedCount, matrix);
 
-      const variationOffset = placedCount * 4;
-      instanceVariation[variationOffset] = random.next();
-      instanceVariation[variationOffset + 1] = random.range(0.72, 1.18);
-      instanceVariation[variationOffset + 2] = random.range(0.9, 1.04);
-      instanceVariation[variationOffset + 3] = THREE.MathUtils.clamp(
-        (1 - density) * 0.7 + random.range(0, 0.18),
-        0,
-        1,
-      );
-      placedCount += 1;
+      placements.push({
+        matrix: matrix.clone(),
+        position: position.clone(),
+        variation: [
+          random.next(),
+          random.range(0.72, 1.18),
+          random.range(0.9, 1.04),
+          THREE.MathUtils.clamp(
+            (1 - density) * 0.7 + random.range(0, 0.18),
+            0,
+            1,
+          ),
+        ],
+      });
     }
 
-    if (placedCount === 0) {
+    if (placements.length === 0) {
       throw new Error("Grass distribution could not place any clumps on the surface.");
     }
 
-    if (placedCount < instanceCount) {
+    if (placements.length < instanceCount) {
       console.warn(
-        `[FluffyGrass] Placed ${placedCount}/${instanceCount} grass clumps for variant ${variantIndex}.`,
+        `[FluffyGrass] Placed ${placements.length}/${instanceCount} grass clumps.`,
       );
     }
 
-    target.count = placedCount;
-    target.geometry.setAttribute(
-      "instanceVariation",
-      new THREE.InstancedBufferAttribute(instanceVariation, 4),
-    );
-    target.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    target.instanceMatrix.needsUpdate = true;
-    return placedCount;
+    return placements;
   }
 
   private sampleDensity(
