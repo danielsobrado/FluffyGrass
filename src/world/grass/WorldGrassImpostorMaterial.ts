@@ -146,18 +146,24 @@ vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
   return texture2D(uAtlas, pixel / uAtlasSize);
 }
 
+float coverageNoise(vec2 position, float seed) {
+  vec3 value = fract(vec3(position.xyx) * 0.1031 + seed);
+  value += dot(value, value.yzx + 33.33);
+  return fract((value.x + value.y) * value.z);
+}
+
 void main() {
   float aerialVisibility = 1.0 - smoothstep(
     uAerialFadeStart,
     uAerialFadeEnd,
     vViewElevation
   );
-  float terrainDither = fract(vInstanceSeed * 0.754877666 + 0.438289);
-  float effectiveCoverage = vTerrainCoverage * aerialVisibility;
+  float effectiveCoverage =
+    vFarEntry * vTerrainCoverage * aerialVisibility;
+  float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
   if (
     effectiveCoverage <= 0.001 ||
-    vInstanceSeed > vFarEntry ||
-    terrainDither > effectiveCoverage
+    dither > effectiveCoverage
   ) {
     discard;
   }

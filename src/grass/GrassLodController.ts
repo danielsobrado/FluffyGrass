@@ -68,6 +68,7 @@ export class GrassLodController {
       this.config.midMaxDistance + this.config.transitionDistance;
     const terrainFadeEnd =
       this.config.farMaxDistance + this.config.transitionDistance;
+    const farAerialVisible = this.isFarAeriallyVisible();
 
     patch.nearMesh.visible =
       patch.inFrustum && patch.distance < nearFadeEnd;
@@ -78,7 +79,8 @@ export class GrassLodController {
     farMesh.visible =
       patch.inFrustum &&
       farthestDistance > farEntryStart &&
-      patch.distance < terrainFadeEnd;
+      patch.distance < terrainFadeEnd &&
+      farAerialVisible;
 
     patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
     patch.nearMesh.userData.grassDistanceFade = 1;
@@ -86,6 +88,31 @@ export class GrassLodController {
     patch.midMesh.userData.grassDistanceFade =
       patch.nearCoverage > VISIBILITY_EPSILON ? 1 : patch.midCoverage;
     farMesh.userData.grassImpostorCoverage = patch.farCoverage;
+  }
+
+  private isFarAeriallyVisible(): boolean {
+    const fadeEnd = this.config.farAerialFadeEnd;
+    if (fadeEnd === undefined) {
+      return true;
+    }
+
+    const sphere = this.boundingSphere;
+    const horizontalDistance = Math.hypot(
+      this.cameraPosition.x - sphere.center.x,
+      this.cameraPosition.z - sphere.center.z,
+    );
+    const minimumVerticalDistance = Math.max(
+      0,
+      Math.abs(this.cameraPosition.y - sphere.center.y) - sphere.radius,
+    );
+    const maximumHorizontalDistance = horizontalDistance + sphere.radius;
+    const minimumElevation =
+      minimumVerticalDistance /
+      Math.max(
+        Math.hypot(minimumVerticalDistance, maximumHorizontalDistance),
+        VISIBILITY_EPSILON,
+      );
+    return minimumElevation < fadeEnd;
   }
 
   private updateLegacyPatch(patch: GrassPatch): void {

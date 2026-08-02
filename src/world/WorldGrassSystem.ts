@@ -16,6 +16,7 @@ import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
 import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
+import { IMPOSTOR_AERIAL_FADE_END } from "./grass/WorldGrassImpostorTuning";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
 
 interface WorldGrassPatch extends GrassPatch {
@@ -41,8 +42,9 @@ interface GrassChunkBuildJob {
   originZ: number;
   nextCell: number;
   random: SeededRandom;
-  matrices: THREE.Matrix4[];
-  variations: number[];
+  matrixValues: Float32Array;
+  variations: Float32Array;
+  instanceCount: number;
   up: THREE.Vector3;
   normal: THREE.Vector3;
   align: THREE.Quaternion;
@@ -82,6 +84,8 @@ export interface WorldGrassDiagnostics {
 
 const TWO_PI = Math.PI * 2;
 const MID_WIND_SCALE = 0.62;
+const MID_COLOR_SCALE = 0.82;
+const HOMOGENEOUS_VARIANT_INDEX = 0;
 const FIELD_COVERAGE_MIN = 0.16;
 const FIELD_COVERAGE_FULL = 0.5;
 const COMPACT_BUILD_COOLDOWN_FRAMES = 2;
@@ -156,6 +160,7 @@ export class WorldGrassSystem {
       farMaxDistance: this.worldConfig.grassFarDistance,
       transitionDistance: this.worldConfig.grassTransitionDistance,
       hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+      farAerialFadeEnd: IMPOSTOR_AERIAL_FADE_END,
     };
     this.material.configureLod(lodConfig);
 
@@ -437,8 +442,9 @@ export class WorldGrassSystem {
       random: new SeededRandom(
         this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
       ),
-      matrices: [],
-      variations: [],
+      matrixValues: new Float32Array(patchesPerAxis * patchesPerAxis * 16),
+      variations: new Float32Array(patchesPerAxis * patchesPerAxis * 4),
+      instanceCount: 0,
       up: new THREE.Vector3(0, 1, 0),
       normal: new THREE.Vector3(),
       align: new THREE.Quaternion(),
@@ -515,33 +521,38 @@ export class WorldGrassSystem {
         );
       job.scale.set(horizontalScale, heightScale, horizontalScale);
       job.matrix.compose(job.position, job.align, job.scale);
-      job.matrices.push(job.matrix.clone());
+      const instanceIndex = job.instanceCount;
+      job.matrix.toArray(job.matrixValues, instanceIndex * 16);
       job.bounds.expandByPoint(job.position);
-      job.variations.push(
-        job.random.next(),
-        job.random.range(0.82, 1.14),
-        job.random.range(0.97, 1.04),
-        THREE.MathUtils.clamp(
-          (1 - suitability) * 0.34 + job.random.range(0, 0.09),
-          0,
-          1,
-        ),
+      const variationOffset = instanceIndex * 4;
+      job.variations[variationOffset] = job.random.next();
+      job.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
+      job.variations[variationOffset + 2] = job.random.range(0.97, 1.04);
+      job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
+        (1 - suitability) * 0.34 + job.random.range(0, 0.09),
+        0,
+        1,
       );
+      job.instanceCount += 1;
     }
   }
 
   private advancePatchFinalize(job: GrassChunkBuildJob): GrassChunkFinalizeResult {
-    const { request, grassConfig, matrices, variations } = job;
+    const { request, grassConfig, matrixValues, variations, instanceCount } = job;
 
-    if (matrices.length === 0) {
+    if (instanceCount === 0) {
       return { complete: true };
     }
 
     if (!job.variationValues || job.variantIndex === undefined) {
-      job.variationValues = new Float32Array(variations);
-      job.variantIndex =
-        this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed + 97) %
-        grassConfig.geometry.variantCount;
+      job.variationValues = variations.subarray(0, instanceCount * 4);
+      // A single variant per 64 m chunk creates obvious square tiles from an
+      // aerial view. Per-instance transforms and material variation already
+      // provide enough diversity without chunk-coherent atlas changes.
+      job.variantIndex = Math.min(
+        HOMOGENEOUS_VARIANT_INDEX,
+        grassConfig.geometry.variantCount - 1,
+      );
       const impostorRadius =
         this.impostorMaterials[job.variantIndex].atlas.radius;
       const bladeExtent =
@@ -562,7 +573,8 @@ export class WorldGrassSystem {
         `world-grass-near-${request.key}`,
         this.nearGeometries[variantIndex],
         this.material.material,
-        matrices,
+        matrixValues,
+        instanceCount,
         variationValues,
         job.meshBounds,
       );
@@ -574,7 +586,8 @@ export class WorldGrassSystem {
         `world-grass-mid-${request.key}`,
         this.midGeometries[variantIndex],
         this.material.material,
-        matrices,
+        matrixValues,
+        instanceCount,
         variationValues,
         job.meshBounds,
       );
@@ -588,7 +601,8 @@ export class WorldGrassSystem {
         `world-grass-far-${request.key}`,
         impostorMaterial.atlas.geometry,
         impostorMaterial.material,
-        matrices,
+        matrixValues,
+        instanceCount,
         variationValues,
         job.meshBounds,
       );
@@ -610,8 +624,15 @@ export class WorldGrassSystem {
       request.chunkZ,
       this.worldConfig.seed + 193,
     );
-    this.material.bindMesh(nearMesh, ditherSeed, false, 1, true);
-    this.material.bindMesh(midMesh, ditherSeed, true, MID_WIND_SCALE, true);
+    this.material.bindMesh(nearMesh, ditherSeed, false, 1, true, 1);
+    this.material.bindMesh(
+      midMesh,
+      ditherSeed,
+      true,
+      MID_WIND_SCALE,
+      true,
+      MID_COLOR_SCALE,
+    );
     impostorMaterial.bindMesh(farMesh, ditherSeed);
 
     const bounds = job.meshBounds?.clone() ?? job.bounds.clone();
@@ -624,7 +645,7 @@ export class WorldGrassSystem {
       nearMesh,
       midMesh,
       farMesh,
-      instanceCount: matrices.length,
+      instanceCount,
       lod: GrassLodLevel.Near,
       distance: 0,
       inFrustum: true,
@@ -638,7 +659,8 @@ export class WorldGrassSystem {
     name: string,
     sourceGeometry: THREE.BufferGeometry,
     material: THREE.Material,
-    matrices: THREE.Matrix4[],
+    matrixValues: Float32Array,
+    instanceCount: number,
     variationValues: Float32Array,
     bounds?: THREE.Box3,
   ): THREE.InstancedMesh {
@@ -649,15 +671,15 @@ export class WorldGrassSystem {
     const mesh = new THREE.InstancedMesh(
       geometry,
       material,
-      matrices.length,
+      instanceCount,
     );
     mesh.name = name;
     mesh.castShadow = false;
     mesh.receiveShadow = this.profile.shadows;
     mesh.frustumCulled = false;
-    matrices.forEach((instanceMatrix, index) => {
-      mesh.setMatrixAt(index, instanceMatrix);
-    });
+    mesh.instanceMatrix.array.set(
+      matrixValues.subarray(0, instanceCount * 16),
+    );
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     mesh.instanceMatrix.needsUpdate = true;
     if (bounds) {

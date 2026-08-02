@@ -30,7 +30,6 @@ varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 varying float vGrassDither;
-varying float vGrassInstanceDither;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
 `;
@@ -72,7 +71,6 @@ vGrassDither = fract(
   instanceVariation.x +
   uGrassDitherSeed
 );
-vGrassInstanceDither = fract(instanceVariation.x + uGrassDitherSeed);
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
 vGrassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
@@ -97,12 +95,12 @@ uniform float uGrassLodThreshold;
 uniform float uGrassLodInvert;
 uniform float uGrassDistanceFade;
 uniform float uGrassUseWorldLod;
+uniform float uGrassLodColorScale;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 varying float vGrassDither;
-varying float vGrassInstanceDither;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
 `;
@@ -115,7 +113,7 @@ if (uGrassUseWorldLod > 0.5) {
   grassKeepLod = uGrassLodInvert < 0.5
     ? grassDither <= vGrassNearCoverage
     : grassDither > vGrassNearCoverage &&
-      vGrassInstanceDither > vGrassFarEntry;
+      grassDither > vGrassFarEntry;
 } else {
   grassKeepLod = uGrassLodInvert < 0.5
     ? grassDither <= uGrassLodThreshold
@@ -138,6 +136,7 @@ float grassRootLight = mix(
 );
 float grassBladeVariation = mix(0.72, 1.13, vGrassShade);
 diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRootAo;
+diffuseColor.rgb *= uGrassLodColorScale;
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
@@ -189,6 +188,7 @@ export class GrassNearMaterial {
     uGrassNearDistance: { value: 0 },
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
+    uGrassLodColorScale: { value: 1 },
   };
 
   constructor() {
@@ -219,7 +219,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v5";
+    this.material.customProgramCacheKey = () => "grass-near-material-v6";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -255,6 +255,7 @@ export class GrassNearMaterial {
     invertLodCoverage: boolean,
     windScale: number,
     useWorldLod = false,
+    lodColorScale = 1,
   ): void {
     mesh.userData.grassLodThreshold = 1;
     mesh.userData.grassDistanceFade = 1;
@@ -267,6 +268,7 @@ export class GrassNearMaterial {
       this.uniforms.uGrassDitherSeed.value = ditherSeed / 4294967296;
       this.uniforms.uGrassWindLodScale.value = windScale;
       this.uniforms.uGrassUseWorldLod.value = useWorldLod ? 1 : 0;
+      this.uniforms.uGrassLodColorScale.value = lodColorScale;
     };
   }
 

@@ -38,10 +38,10 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-grassNearDistance: 28
-grassMidDistance: 48
+grassNearDistance: 32
+grassMidDistance: 80
 grassFarDistance: 220
-grassTransitionDistance: 10
+grassTransitionDistance: 16
 grassHysteresisDistance: 3
 
 flySpeed: 45

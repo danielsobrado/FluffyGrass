@@ -77,6 +77,10 @@ export class WorldApp {
 
     this.field = new TerrainField(config);
     const spawn = new DenseSpawnLocator(this.field, config).find();
+    if (new URLSearchParams(window.location.search).get("view") === "aerial") {
+      spawn.position.y += 48;
+      spawn.pitch = THREE.MathUtils.degToRad(-34);
+    }
     this.terrain = new TerrainStreamer(
       this.scene,
       this.field,
