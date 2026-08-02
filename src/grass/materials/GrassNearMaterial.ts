@@ -2,6 +2,8 @@ import type { GUI } from "dat.gui";
 import * as THREE from "three";
 import type { GrassMaterialConfig, GrassWindConfig } from "../GrassConfig";
 
+const COMPACT_VIEWPORT_MAX_WIDTH = 820;
+
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
 attribute float grassPhase;
@@ -192,7 +194,11 @@ export class GrassNearMaterial {
     uGrassWindLodScale: { value: 1 },
   };
 
-  constructor(private readonly lowPower = false) {
+  constructor(
+    private readonly lowPower =
+      typeof window !== "undefined" &&
+      window.innerWidth <= COMPACT_VIEWPORT_MAX_WIDTH,
+  ) {
     const parameters: THREE.MeshBasicMaterialParameters = {
       side: THREE.DoubleSide,
       color: 0xffffff,
