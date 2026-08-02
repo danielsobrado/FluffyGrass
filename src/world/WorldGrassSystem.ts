@@ -23,6 +23,7 @@ interface WorldGrassPatch extends GrassPatch {
   farMesh: THREE.InstancedMesh;
   midCoverage: number;
   farCoverage: number;
+  streamCoverage: number;
 }
 
 interface GrassChunkRequest {
@@ -92,6 +93,9 @@ const COMPACT_BUILD_COOLDOWN_FRAMES = 2;
 const CHUNK_BUILD_WARNING_MS = 24;
 const DESKTOP_BUILD_BUDGET_MS = 4;
 const COMPACT_BUILD_BUDGET_MS = 2.5;
+const CENTER_BUILD_BUDGET_MS = 6;
+const STREAM_LOOKAHEAD_CHUNKS = 2;
+const STREAM_FADE_SECONDS = 0.35;
 const RETIREMENTS_PER_FRAME = 2;
 
 export class WorldGrassSystem {
@@ -108,6 +112,7 @@ export class WorldGrassSystem {
   private readonly retirementQueue: string[] = [];
   private readonly retiring = new Set<string>();
   private readonly cameraPosition = new THREE.Vector3();
+  private readonly previousReconcilePosition = new THREE.Vector2();
   private nearGeometries: THREE.BufferGeometry[] = [];
   private midGeometries: THREE.BufferGeometry[] = [];
   private grassConfig?: GrassConfig;
@@ -116,6 +121,7 @@ export class WorldGrassSystem {
   private midBladesPerPatch = 0;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
+  private hasPreviousReconcilePosition = false;
   private buildCooldownFrames = 0;
   private activeBuild?: GrassChunkBuildJob;
   private lastBuildMs = 0;
@@ -212,6 +218,7 @@ export class WorldGrassSystem {
 
     this.processRetirementQueue();
     this.processBuildQueue();
+    this.updateStreamCoverage(deltaSeconds);
     this.lodController.update(camera, this.patches.values());
   }
 
@@ -324,9 +331,14 @@ export class WorldGrassSystem {
     } else {
       this.advancePatchBuild(
         job,
-        this.profile.compact
-          ? COMPACT_BUILD_BUDGET_MS
-          : DESKTOP_BUILD_BUDGET_MS,
+        job.request.distance <= 0
+          ? Math.min(
+              CENTER_BUILD_BUDGET_MS,
+              this.profile.compact ? 4 : CENTER_BUILD_BUDGET_MS,
+            )
+          : this.profile.compact
+            ? COMPACT_BUILD_BUDGET_MS
+            : DESKTOP_BUILD_BUDGET_MS,
       );
     }
 
@@ -364,33 +376,99 @@ export class WorldGrassSystem {
     }
   }
 
+  private updateStreamCoverage(deltaSeconds: number): void {
+    const coverageStep = deltaSeconds / STREAM_FADE_SECONDS;
+    for (const patch of this.patches.values()) {
+      if (patch.streamCoverage >= 1) {
+        continue;
+      }
+      patch.streamCoverage = Math.min(1, patch.streamCoverage + coverageStep);
+      patch.nearMesh.userData.grassStreamCoverage = patch.streamCoverage;
+      patch.midMesh.userData.grassStreamCoverage = patch.streamCoverage;
+      patch.farMesh.userData.grassStreamCoverage = patch.streamCoverage;
+    }
+  }
+
   private reconcile(): void {
     const radius = this.profile.compact
       ? this.worldConfig.grassRadiusCompact
       : this.worldConfig.grassRadiusDesktop;
     const halfWorld = this.worldConfig.worldSize * 0.5;
+    const chunkSize = this.worldConfig.chunkSize;
+    const currentX = this.cameraPosition.x;
+    const currentZ = this.cameraPosition.z;
+    let predictedX = currentX;
+    let predictedZ = currentZ;
+    if (this.hasPreviousReconcilePosition) {
+      const travelX = currentX - this.previousReconcilePosition.x;
+      const travelZ = currentZ - this.previousReconcilePosition.y;
+      const travelLength = Math.hypot(travelX, travelZ);
+      if (travelLength > 0.001) {
+        const lookahead = Math.min(
+          chunkSize * STREAM_LOOKAHEAD_CHUNKS,
+          this.worldConfig.grassFarDistance * 0.65,
+        );
+        predictedX += (travelX / travelLength) * lookahead;
+        predictedZ += (travelZ / travelLength) * lookahead;
+      }
+    }
+    this.previousReconcilePosition.set(currentX, currentZ);
+    this.hasPreviousReconcilePosition = true;
+    const preloadDistance = Math.min(
+      radius * chunkSize,
+      this.worldConfig.grassFarDistance +
+        this.worldConfig.grassTransitionDistance +
+        chunkSize,
+    );
     this.desired.clear();
 
     for (let dz = -radius; dz <= radius; dz += 1) {
       for (let dx = -radius; dx <= radius; dx += 1) {
         const chunkX = this.centerChunkX + dx;
         const chunkZ = this.centerChunkZ + dz;
-        const originX = chunkX * this.worldConfig.chunkSize;
-        const originZ = chunkZ * this.worldConfig.chunkSize;
+        const originX = chunkX * chunkSize;
+        const originZ = chunkZ * chunkSize;
         if (
           originX < -halfWorld ||
           originZ < -halfWorld ||
-          originX + this.worldConfig.chunkSize > halfWorld ||
-          originZ + this.worldConfig.chunkSize > halfWorld
+          originX + chunkSize > halfWorld ||
+          originZ + chunkSize > halfWorld
         ) {
           continue;
         }
+        const currentDistance = this.horizontalDistanceToChunk(
+          currentX,
+          currentZ,
+          originX,
+          originZ,
+          chunkSize,
+        );
+        const predictedDistance = this.horizontalDistanceToChunk(
+          predictedX,
+          predictedZ,
+          originX,
+          originZ,
+          chunkSize,
+        );
+        if (Math.min(currentDistance, predictedDistance) > preloadDistance) {
+          continue;
+        }
         const key = `${chunkX}:${chunkZ}`;
+        const isCameraChunk =
+          chunkX === this.centerChunkX && chunkZ === this.centerChunkZ;
         this.desired.set(key, {
           key,
           chunkX,
           chunkZ,
-          distance: Math.max(Math.abs(dx), Math.abs(dz)),
+          // The current camera chunk must never wait behind work that was
+          // selected before a high-speed chunk crossing. A modest lookahead
+          // then fills the direction of travel before the remaining ring.
+          distance: isCameraChunk
+            ? -1
+            : Math.min(
+                currentDistance,
+                predictedDistance + chunkSize * 0.2,
+              ),
         });
       }
     }
@@ -406,6 +484,20 @@ export class WorldGrassSystem {
       this.retiring.delete(key);
     }
 
+    const centerKey = `${this.centerChunkX}:${this.centerChunkZ}`;
+    if (
+      this.desired.has(centerKey) &&
+      !this.patches.has(centerKey) &&
+      this.activeBuild &&
+      this.activeBuild.request.key !== centerKey
+    ) {
+      // At maximum flight speed a job can remain inside the desired radius
+      // for several crossings while the camera outruns it. Preempt that stale
+      // work so the ground below the camera cannot turn into a square hole.
+      this.discardPatchBuild(this.activeBuild);
+      this.activeBuild = undefined;
+    }
+
     this.queue.length = 0;
     for (const request of this.desired.values()) {
       if (
@@ -416,6 +508,18 @@ export class WorldGrassSystem {
       }
     }
     this.queue.sort((left, right) => left.distance - right.distance);
+  }
+
+  private horizontalDistanceToChunk(
+    x: number,
+    z: number,
+    originX: number,
+    originZ: number,
+    chunkSize: number,
+  ): number {
+    const distanceX = Math.max(originX - x, 0, x - (originX + chunkSize));
+    const distanceZ = Math.max(originZ - z, 0, z - (originZ + chunkSize));
+    return Math.hypot(distanceX, distanceZ);
   }
 
   private beginPatchBuild(request: GrassChunkRequest): GrassChunkBuildJob | undefined {
@@ -624,7 +728,7 @@ export class WorldGrassSystem {
       request.chunkZ,
       this.worldConfig.seed + 193,
     );
-    this.material.bindMesh(nearMesh, ditherSeed, false, 1, true, 1);
+    this.material.bindMesh(nearMesh, ditherSeed, false, 1, true, 1, 0);
     this.material.bindMesh(
       midMesh,
       ditherSeed,
@@ -632,6 +736,7 @@ export class WorldGrassSystem {
       MID_WIND_SCALE,
       true,
       MID_COLOR_SCALE,
+      0,
     );
     impostorMaterial.bindMesh(farMesh, ditherSeed);
 
@@ -652,6 +757,7 @@ export class WorldGrassSystem {
       nearCoverage: 1,
       midCoverage: 0,
       farCoverage: 0,
+      streamCoverage: 0,
     } };
   }
 

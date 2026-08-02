@@ -96,6 +96,7 @@ uniform float uGrassLodInvert;
 uniform float uGrassDistanceFade;
 uniform float uGrassUseWorldLod;
 uniform float uGrassLodColorScale;
+uniform float uGrassStreamCoverage;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -119,7 +120,11 @@ if (uGrassUseWorldLod > 0.5) {
     ? grassDither <= uGrassLodThreshold
     : grassDither > uGrassLodThreshold;
 }
-if (!grassKeepLod || grassDither > uGrassDistanceFade) {
+if (
+  !grassKeepLod ||
+  grassDither > uGrassDistanceFade ||
+  grassDither > uGrassStreamCoverage
+) {
   discard;
 }
 float grassTipBlend = smoothstep(0.08, 1.0, vGrassProgress);
@@ -189,6 +194,7 @@ export class GrassNearMaterial {
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
     uGrassLodColorScale: { value: 1 },
+    uGrassStreamCoverage: { value: 1 },
   };
 
   constructor() {
@@ -219,7 +225,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v6";
+    this.material.customProgramCacheKey = () => "grass-near-material-v7";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -256,9 +262,11 @@ export class GrassNearMaterial {
     windScale: number,
     useWorldLod = false,
     lodColorScale = 1,
+    initialStreamCoverage = 1,
   ): void {
     mesh.userData.grassLodThreshold = 1;
     mesh.userData.grassDistanceFade = 1;
+    mesh.userData.grassStreamCoverage = initialStreamCoverage;
     mesh.onBeforeRender = () => {
       this.uniforms.uGrassLodThreshold.value =
         mesh.userData.grassLodThreshold ?? 1;
@@ -269,6 +277,8 @@ export class GrassNearMaterial {
       this.uniforms.uGrassWindLodScale.value = windScale;
       this.uniforms.uGrassUseWorldLod.value = useWorldLod ? 1 : 0;
       this.uniforms.uGrassLodColorScale.value = lodColorScale;
+      this.uniforms.uGrassStreamCoverage.value =
+        mesh.userData.grassStreamCoverage ?? 1;
     };
   }
 

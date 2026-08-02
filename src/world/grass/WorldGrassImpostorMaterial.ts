@@ -106,6 +106,7 @@ uniform float uBlendViews;
 uniform float uAerialFadeStart;
 uniform float uAerialFadeEnd;
 uniform float uBaseColorBlend;
+uniform float uStreamCoverage;
 uniform vec3 uBaseColor;
 uniform vec3 uDryColor;
 varying vec2 vUv;
@@ -159,7 +160,7 @@ void main() {
     vViewElevation
   );
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage * aerialVisibility;
+    vFarEntry * vTerrainCoverage * aerialVisibility * uStreamCoverage;
   float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
   if (
     effectiveCoverage <= 0.001 ||
@@ -264,6 +265,7 @@ export class WorldGrassImpostorMaterial {
       uAerialFadeStart: { value: IMPOSTOR_AERIAL_FADE_START },
       uAerialFadeEnd: { value: IMPOSTOR_AERIAL_FADE_END },
       uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
+      uStreamCoverage: { value: 1 },
       uDitherSeed: { value: 0 },
       uMidDistance: { value: lodConfig.midMaxDistance },
       uFarDistance: { value: lodConfig.farMaxDistance },
@@ -294,8 +296,11 @@ export class WorldGrassImpostorMaterial {
   }
 
   bindMesh(mesh: THREE.InstancedMesh, ditherSeed: number): void {
+    mesh.userData.grassStreamCoverage = 0;
     mesh.onBeforeRender = () => {
       this.uniforms.uDitherSeed.value = ditherSeed / 4294967296;
+      this.uniforms.uStreamCoverage.value =
+        mesh.userData.grassStreamCoverage ?? 1;
     };
   }
 
