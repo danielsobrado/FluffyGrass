@@ -31,6 +31,8 @@ interface GrassChunkRequest {
 }
 
 export interface WorldGrassDiagnostics {
+  ready: boolean;
+  status: string;
   activePatches: number;
   queuedPatches: number;
   visibleNearPatches: number;
@@ -39,12 +41,16 @@ export interface WorldGrassDiagnostics {
   clumps: number;
   blades: number;
   impostors: number;
+  lastBuildMs: number;
+  maxBuildMs: number;
 }
 
 const TWO_PI = Math.PI * 2;
 const MID_WIND_SCALE = 0.62;
 const FIELD_COVERAGE_MIN = 0.16;
 const FIELD_COVERAGE_FULL = 0.5;
+const COMPACT_BUILD_COOLDOWN_FRAMES = 2;
+const CHUNK_BUILD_WARNING_MS = 24;
 
 export class WorldGrassSystem {
   private readonly configLoader = new GrassConfigLoader();
@@ -66,6 +72,10 @@ export class WorldGrassSystem {
   private midBladesPerPatch = 0;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
+  private buildCooldownFrames = 0;
+  private lastBuildMs = 0;
+  private maxBuildMs = 0;
+  private status = "Waiting for grass initialization";
   private initialized = false;
 
   constructor(
@@ -80,7 +90,11 @@ export class WorldGrassSystem {
       return;
     }
 
+    this.status = "Loading grass configuration";
     const grassConfig = await this.configLoader.load();
+    await this.yieldToBrowser();
+
+    this.status = "Creating blade geometry";
     const variants = this.patchGeometryFactory.createLodVariants(
       grassConfig.geometry,
       this.worldConfig,
@@ -94,9 +108,11 @@ export class WorldGrassSystem {
     this.midBladesPerPatch = variants.midBladesPerPatch;
     this.material.configure(grassConfig.material, grassConfig.wind);
 
-    for (const bladeVariant of variants.bladeVariants) {
+    for (let index = 0; index < variants.bladeVariants.length; index += 1) {
+      this.status = `Creating impostor atlas ${index + 1}/${variants.bladeVariants.length}`;
+      await this.yieldToBrowser();
       const atlas = this.impostorAtlasFactory.create(
-        bladeVariant,
+        variants.bladeVariants[index],
         grassConfig.geometry,
         grassConfig.material,
         this.worldConfig.grassPatchSize,
@@ -107,6 +123,7 @@ export class WorldGrassSystem {
           atlas,
           grassConfig.material,
           grassConfig.wind,
+          !this.profile.compact,
         ),
       );
     }
@@ -118,6 +135,7 @@ export class WorldGrassSystem {
       transitionDistance: this.worldConfig.grassTransitionDistance,
       hysteresisDistance: this.worldConfig.grassHysteresisDistance,
     });
+    this.status = "Grass ready";
     this.initialized = true;
   }
 
@@ -141,22 +159,7 @@ export class WorldGrassSystem {
       this.reconcile();
     }
 
-    for (
-      let index = 0;
-      index < this.worldConfig.grassChunksPerFrame && this.queue.length > 0;
-      index += 1
-    ) {
-      const request = this.queue.shift();
-      if (!request || !this.desired.has(request.key)) {
-        continue;
-      }
-      const patch = this.createPatch(request);
-      if (patch) {
-        this.patches.set(request.key, patch);
-        this.scene.add(patch.nearMesh, patch.midMesh, patch.farMesh);
-      }
-    }
-
+    this.processBuildQueue();
     this.lodController.update(camera, this.patches.values());
   }
 
@@ -185,6 +188,8 @@ export class WorldGrassSystem {
     }
 
     return {
+      ready: this.initialized,
+      status: this.status,
       activePatches: this.patches.size,
       queuedPatches: this.queue.length,
       visibleNearPatches,
@@ -193,6 +198,8 @@ export class WorldGrassSystem {
       clumps: bladePatches,
       blades,
       impostors,
+      lastBuildMs: this.lastBuildMs,
+      maxBuildMs: this.maxBuildMs,
     };
   }
 
@@ -213,6 +220,45 @@ export class WorldGrassSystem {
       impostorMaterial.dispose();
     }
     this.impostorMaterials.length = 0;
+  }
+
+  private processBuildQueue(): void {
+    if (this.buildCooldownFrames > 0) {
+      this.buildCooldownFrames -= 1;
+      return;
+    }
+
+    const buildLimit = this.profile.compact
+      ? 1
+      : this.worldConfig.grassChunksPerFrame;
+    let builtChunks = 0;
+
+    for (let index = 0; index < buildLimit && this.queue.length > 0; index += 1) {
+      const request = this.queue.shift();
+      if (!request || !this.desired.has(request.key)) {
+        continue;
+      }
+
+      const startedAt = performance.now();
+      const patch = this.createPatch(request);
+      this.lastBuildMs = performance.now() - startedAt;
+      this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
+      if (this.lastBuildMs > CHUNK_BUILD_WARNING_MS) {
+        console.warn(
+          `[FluffyGrass] Grass chunk ${request.key} took ${this.lastBuildMs.toFixed(1)} ms to build.`,
+        );
+      }
+
+      if (patch) {
+        this.patches.set(request.key, patch);
+        this.scene.add(patch.nearMesh, patch.midMesh, patch.farMesh);
+      }
+      builtChunks += 1;
+    }
+
+    if (this.profile.compact && builtChunks > 0) {
+      this.buildCooldownFrames = COMPACT_BUILD_COOLDOWN_FRAMES;
+    }
   }
 
   private reconcile(): void {
@@ -392,6 +438,9 @@ export class WorldGrassSystem {
     if (midMesh.boundingBox) {
       bounds.union(midMesh.boundingBox);
     }
+    if (farMesh.boundingBox) {
+      bounds.union(farMesh.boundingBox);
+    }
     bounds.expandByScalar(
       Math.max(
         grassConfig.wind.strength +
@@ -460,5 +509,11 @@ export class WorldGrassSystem {
     let value = Math.imul(x, 374761393) + Math.imul(z, 668265263) + seed;
     value = Math.imul(value ^ (value >>> 13), 1274126177);
     return (value ^ (value >>> 16)) >>> 0;
+  }
+
+  private yieldToBrowser(): Promise<void> {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
   }
 }

@@ -16,13 +16,14 @@ export class WorldApp {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly clock = new THREE.Clock();
-  private readonly stats = new Stats({ minimal: true });
+  private readonly stats?: Stats;
   private readonly field: TerrainField;
   private readonly terrain: TerrainStreamer;
   private readonly grass: WorldGrassSystem;
   private readonly controls: FlyController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
   private hudElapsed = 0;
+  private grassInitializationError?: string;
 
   private constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -36,11 +37,14 @@ export class WorldApp {
       5000,
     );
     this.scene.background = new THREE.Color("#bfd4df");
-    this.scene.fog = new THREE.FogExp2("#bfd4df", profile.compact ? 0.0016 : 0.00105);
+    this.scene.fog = new THREE.FogExp2(
+      "#bfd4df",
+      profile.compact ? 0.0016 : 0.00105,
+    );
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: !profile.compact,
       alpha: false,
       precision: "highp",
       powerPreference: "high-performance",
@@ -53,6 +57,9 @@ export class WorldApp {
       Math.min(window.devicePixelRatio, profile.maxPixelRatio),
     );
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    if (!profile.compact) {
+      this.stats = new Stats({ minimal: true });
+    }
 
     this.field = new TerrainField(config);
     const spawn = new DenseSpawnLocator(this.field, config).find();
@@ -91,7 +98,7 @@ export class WorldApp {
   ): Promise<WorldApp> {
     const config = await new WorldConfigLoader().load();
     const app = new WorldApp(canvas, profile, config);
-    await app.grass.initialize();
+    void app.initializeGrass();
     return app;
   }
 
@@ -105,7 +112,17 @@ export class WorldApp {
     this.terrain.dispose();
     this.grass.dispose();
     this.renderer.dispose();
-    this.stats.dom.remove();
+    this.stats?.dom.remove();
+  }
+
+  private async initializeGrass(): Promise<void> {
+    try {
+      await this.grass.initialize();
+    } catch (error) {
+      console.error("[FluffyGrass] Grass initialization failed.", error);
+      this.grassInitializationError =
+        error instanceof Error ? error.message : String(error);
+    }
   }
 
   private render = (): void => {
@@ -115,7 +132,7 @@ export class WorldApp {
     this.terrain.update(this.camera.position);
     this.grass.update(deltaSeconds, this.camera);
     this.renderer.render(this.scene, this.camera);
-    this.stats.update();
+    this.stats?.update();
     this.updateHud(deltaSeconds);
     requestAnimationFrame(this.render);
   };
@@ -138,6 +155,9 @@ export class WorldApp {
   }
 
   private setupStats(): void {
+    if (!this.stats) {
+      return;
+    }
     this.stats.init(this.renderer);
     this.stats.dom.style.display = "none";
     document.body.appendChild(this.stats.dom);
@@ -182,12 +202,17 @@ export class WorldApp {
       this.camera.position.x,
       this.camera.position.z,
     );
+    const grassStatus = this.grassInitializationError
+      ? `Grass error: ${this.grassInitializationError}`
+      : grass.status;
     this.hud.textContent = [
       `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
       `Terrain ${terrain.activeChunks} +${terrain.queuedChunks}`,
-      `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades`,
-      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()}`,
+      grass.ready
+        ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
+        : grassStatus,
+      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Build ${grass.lastBuildMs.toFixed(1)} ms`,
     ].join("\n");
   }
 

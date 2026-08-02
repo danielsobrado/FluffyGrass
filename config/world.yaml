@@ -4,9 +4,9 @@ worldSize: 2048
 chunkSize: 64
 
 terrainRadiusDesktop: 6
-terrainRadiusCompact: 4
-grassRadiusDesktop: 6
-grassRadiusCompact: 4
+terrainRadiusCompact: 3
+grassRadiusDesktop: 5
+grassRadiusCompact: 3
 
 terrainNearResolution: 25
 terrainMidResolution: 13
@@ -14,8 +14,8 @@ terrainFarResolution: 7
 terrainChunksPerFrame: 2
 grassChunksPerFrame: 1
 
-# Dense mesh-blade patches preserve coverage; far range uses hemi-octahedral impostors.
-grassPatchSize: 2
+# Four-metre patches preserve blade density while reducing instance and impostor counts.
+grassPatchSize: 4
 grassBladesPerSquareMeterDesktop: 32
 grassBladesPerSquareMeterCompact: 24
 grassMidBladeFraction: 0.42
@@ -38,9 +38,9 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-grassNearDistance: 24
-grassMidDistance: 38
-grassFarDistance: 250
+grassNearDistance: 28
+grassMidDistance: 48
+grassFarDistance: 220
 grassTransitionDistance: 10
 grassHysteresisDistance: 3
 

@@ -74,6 +74,7 @@ uniform float uPadding;
 uniform float uAtlasSize;
 uniform float uCoverage;
 uniform float uAlphaCutoff;
+uniform float uBlendViews;
 uniform vec3 uDryColor;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
@@ -123,32 +124,43 @@ void main() {
     vec2(1.0)
   );
   vec2 framePosition = octahedralUv * uViewsPerAxis - 0.5;
-  vec2 frameBase = floor(framePosition);
-  vec2 frameBlend = fract(framePosition);
   float maximumFrame = uViewsPerAxis - 1.0;
-  vec2 frame00 = clamp(frameBase, vec2(0.0), vec2(maximumFrame));
-  vec2 frame11 = min(frame00 + vec2(1.0), vec2(maximumFrame));
+  vec4 atlasColor;
 
-  if (frameBase.x < 0.0 || frameBase.x >= maximumFrame) {
-    frameBlend.x = 0.0;
-    frame11.x = frame00.x;
-  }
-  if (frameBase.y < 0.0 || frameBase.y >= maximumFrame) {
-    frameBlend.y = 0.0;
-    frame11.y = frame00.y;
-  }
+  if (uBlendViews < 0.5) {
+    vec2 nearestFrame = clamp(
+      floor(framePosition + 0.5),
+      vec2(0.0),
+      vec2(maximumFrame)
+    );
+    atlasColor = sampleFrame(nearestFrame, vUv);
+  } else {
+    vec2 frameBase = floor(framePosition);
+    vec2 frameBlend = fract(framePosition);
+    vec2 frame00 = clamp(frameBase, vec2(0.0), vec2(maximumFrame));
+    vec2 frame11 = min(frame00 + vec2(1.0), vec2(maximumFrame));
 
-  vec4 color00 = sampleFrame(frame00, vUv);
-  vec4 color10 = sampleFrame(vec2(frame11.x, frame00.y), vUv);
-  vec4 color01 = sampleFrame(vec2(frame00.x, frame11.y), vUv);
-  vec4 color11 = sampleFrame(frame11, vUv);
-  color00.rgb *= color00.a;
-  color10.rgb *= color10.a;
-  color01.rgb *= color01.a;
-  color11.rgb *= color11.a;
-  vec4 color0 = mix(color00, color10, frameBlend.x);
-  vec4 color1 = mix(color01, color11, frameBlend.x);
-  vec4 atlasColor = mix(color0, color1, frameBlend.y);
+    if (frameBase.x < 0.0 || frameBase.x >= maximumFrame) {
+      frameBlend.x = 0.0;
+      frame11.x = frame00.x;
+    }
+    if (frameBase.y < 0.0 || frameBase.y >= maximumFrame) {
+      frameBlend.y = 0.0;
+      frame11.y = frame00.y;
+    }
+
+    vec4 color00 = sampleFrame(frame00, vUv);
+    vec4 color10 = sampleFrame(vec2(frame11.x, frame00.y), vUv);
+    vec4 color01 = sampleFrame(vec2(frame00.x, frame11.y), vUv);
+    vec4 color11 = sampleFrame(frame11, vUv);
+    color00.rgb *= color00.a;
+    color10.rgb *= color10.a;
+    color01.rgb *= color01.a;
+    color11.rgb *= color11.a;
+    vec4 color0 = mix(color00, color10, frameBlend.x);
+    vec4 color1 = mix(color01, color11, frameBlend.x);
+    atlasColor = mix(color0, color1, frameBlend.y);
+  }
 
   if (atlasColor.a < uAlphaCutoff) {
     discard;
@@ -173,6 +185,7 @@ export class WorldGrassImpostorMaterial {
     readonly atlas: WorldGrassImpostorAtlas,
     materialConfig: GrassMaterialConfig,
     windConfig: GrassWindConfig,
+    blendViews: boolean,
   ) {
     this.uniforms = {
       uAtlas: { value: atlas.texture },
@@ -183,6 +196,7 @@ export class WorldGrassImpostorMaterial {
       uCenterHeight: { value: atlas.centerHeight },
       uCoverage: { value: 0 },
       uAlphaCutoff: { value: 0.12 },
+      uBlendViews: { value: blendViews ? 1 : 0 },
       uDitherSeed: { value: 0 },
       uTime: { value: 0 },
       uWindDirection: {
