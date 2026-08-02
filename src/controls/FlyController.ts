@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { WorldConfig } from "../world/WorldConfig";
 
-interface TouchState {
+interface PointerState {
   pointerId: number;
   startX: number;
   startY: number;
@@ -18,6 +18,8 @@ export interface FlySpawn {
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_TOUCH_DISTANCE = 70;
+const POINTER_LOOK_SENSITIVITY = 0.004;
+const MOUSE_LOOK_SENSITIVITY = 0.0022;
 
 export class FlyController {
   private readonly keys = new Set<string>();
@@ -26,15 +28,18 @@ export class FlyController {
   private readonly movement = new THREE.Vector3();
   private readonly touchMovement = new THREE.Vector2();
   private readonly spawnPosition = new THREE.Vector3();
+  private readonly usesPointerEvents = typeof window.PointerEvent !== "undefined";
   private yaw = 0;
   private pitch = -0.28;
   private spawnYaw = 0;
   private spawnPitch = -0.28;
   private speed: number;
   private verticalTouch = 0;
-  private moveTouch?: TouchState;
-  private lookTouch?: TouchState;
+  private movePointer?: PointerState;
+  private lookPointer?: PointerState;
   private mobileControls?: HTMLElement;
+  private inputEventCount = 0;
+  private lastInputType = "idle";
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -114,9 +119,7 @@ export class FlyController {
     this.camera.position.copy(this.spawnPosition);
     this.yaw = this.spawnYaw;
     this.pitch = this.spawnPitch;
-    this.verticalTouch = 0;
-    this.moveTouch = undefined;
-    this.lookTouch = undefined;
+    this.clearTransientInput();
     this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
   }
 
@@ -124,29 +127,79 @@ export class FlyController {
     return this.speed;
   }
 
+  getInputDiagnostics(): string {
+    const movement = this.resolveTouchMovement();
+    const active = [
+      this.movePointer ? `move ${movement.x.toFixed(2)}/${movement.y.toFixed(2)}` : "",
+      this.lookPointer ? "look" : "",
+      this.verticalTouch !== 0 ? `vertical ${this.verticalTouch}` : "",
+    ].filter(Boolean);
+    return `${active.join(" + ") || this.lastInputType} · events ${this.inputEventCount}`;
+  }
+
   dispose(): void {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
+    window.removeEventListener("blur", this.handleWindowBlur);
     window.removeEventListener("mousemove", this.handleMouseMove);
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.canvas.removeEventListener("click", this.handleCanvasClick);
     this.canvas.removeEventListener("wheel", this.handleWheel);
-    this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
-    this.canvas.removeEventListener("pointermove", this.handlePointerMove);
-    this.canvas.removeEventListener("pointerup", this.handlePointerUp);
-    this.canvas.removeEventListener("pointercancel", this.handlePointerUp);
+    this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
+
+    if (this.usesPointerEvents) {
+      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+      window.removeEventListener("pointermove", this.handlePointerMove);
+      window.removeEventListener("pointerup", this.handlePointerUp);
+      window.removeEventListener("pointercancel", this.handlePointerUp);
+    } else {
+      this.canvas.removeEventListener("touchstart", this.handleTouchStart);
+      window.removeEventListener("touchmove", this.handleTouchMove);
+      window.removeEventListener("touchend", this.handleTouchEnd);
+      window.removeEventListener("touchcancel", this.handleTouchEnd);
+    }
+
     this.mobileControls?.remove();
   }
 
   private bindEvents(): void {
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
+    window.addEventListener("blur", this.handleWindowBlur);
     window.addEventListener("mousemove", this.handleMouseMove);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
     this.canvas.addEventListener("click", this.handleCanvasClick);
     this.canvas.addEventListener("wheel", this.handleWheel, { passive: false });
-    this.canvas.addEventListener("pointerdown", this.handlePointerDown);
-    this.canvas.addEventListener("pointermove", this.handlePointerMove);
-    this.canvas.addEventListener("pointerup", this.handlePointerUp);
-    this.canvas.addEventListener("pointercancel", this.handlePointerUp);
+    this.canvas.addEventListener("contextmenu", this.handleContextMenu);
+
+    if (this.usesPointerEvents) {
+      this.canvas.addEventListener("pointerdown", this.handlePointerDown, {
+        passive: false,
+      });
+      window.addEventListener("pointermove", this.handlePointerMove, {
+        passive: false,
+      });
+      window.addEventListener("pointerup", this.handlePointerUp, {
+        passive: false,
+      });
+      window.addEventListener("pointercancel", this.handlePointerUp, {
+        passive: false,
+      });
+    } else {
+      this.canvas.addEventListener("touchstart", this.handleTouchStart, {
+        passive: false,
+      });
+      window.addEventListener("touchmove", this.handleTouchMove, {
+        passive: false,
+      });
+      window.addEventListener("touchend", this.handleTouchEnd, {
+        passive: false,
+      });
+      window.addEventListener("touchcancel", this.handleTouchEnd, {
+        passive: false,
+      });
+    }
+
     this.canvas.style.touchAction = "none";
   }
 
@@ -164,6 +217,9 @@ export class FlyController {
     );
     resetButton?.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      event.stopPropagation();
+      this.inputEventCount += 1;
+      this.lastInputType = "reset";
       this.reset();
     });
 
@@ -173,10 +229,14 @@ export class FlyController {
       const value = Number(button.dataset.flightVertical);
       const activate = (event: Event): void => {
         event.preventDefault();
+        event.stopPropagation();
+        this.inputEventCount += 1;
+        this.lastInputType = "button";
         this.verticalTouch = value;
       };
       const deactivate = (event: Event): void => {
         event.preventDefault();
+        event.stopPropagation();
         if (this.verticalTouch === value) {
           this.verticalTouch = 0;
         }
@@ -191,24 +251,99 @@ export class FlyController {
   }
 
   private resolveTouchMovement(): THREE.Vector2 {
-    if (!this.moveTouch) {
+    if (!this.movePointer) {
       return this.touchMovement.set(0, 0);
     }
     const x = THREE.MathUtils.clamp(
-      (this.moveTouch.currentX - this.moveTouch.startX) / MAX_TOUCH_DISTANCE,
+      (this.movePointer.currentX - this.movePointer.startX) /
+        MAX_TOUCH_DISTANCE,
       -1,
       1,
     );
     const y = THREE.MathUtils.clamp(
-      (this.moveTouch.startY - this.moveTouch.currentY) / MAX_TOUCH_DISTANCE,
+      (this.movePointer.startY - this.movePointer.currentY) /
+        MAX_TOUCH_DISTANCE,
       -1,
       1,
     );
     return this.touchMovement.set(x, y);
   }
 
+  private assignPointer(
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+    inputType: string,
+  ): void {
+    const state: PointerState = {
+      pointerId,
+      startX: clientX,
+      startY: clientY,
+      currentX: clientX,
+      currentY: clientY,
+    };
+    if (clientX < window.innerWidth * 0.5 && !this.movePointer) {
+      this.movePointer = state;
+      this.lastInputType = `${inputType}-move`;
+    } else if (!this.lookPointer) {
+      this.lookPointer = state;
+      this.lastInputType = `${inputType}-look`;
+    }
+    this.inputEventCount += 1;
+  }
+
+  private updatePointer(
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+  ): boolean {
+    if (this.movePointer?.pointerId === pointerId) {
+      this.movePointer.currentX = clientX;
+      this.movePointer.currentY = clientY;
+      this.inputEventCount += 1;
+      return true;
+    }
+    if (this.lookPointer?.pointerId === pointerId) {
+      const deltaX = clientX - this.lookPointer.currentX;
+      const deltaY = clientY - this.lookPointer.currentY;
+      this.lookPointer.currentX = clientX;
+      this.lookPointer.currentY = clientY;
+      this.rotate(deltaX, deltaY, POINTER_LOOK_SENSITIVITY);
+      this.inputEventCount += 1;
+      return true;
+    }
+    return false;
+  }
+
+  private releasePointer(pointerId: number): boolean {
+    let released = false;
+    if (this.movePointer?.pointerId === pointerId) {
+      this.movePointer = undefined;
+      released = true;
+    }
+    if (this.lookPointer?.pointerId === pointerId) {
+      this.lookPointer = undefined;
+      released = true;
+    }
+    if (released) {
+      this.inputEventCount += 1;
+      this.lastInputType = "idle";
+    }
+    return released;
+  }
+
+  private clearTransientInput(): void {
+    this.verticalTouch = 0;
+    this.movePointer = undefined;
+    this.lookPointer = undefined;
+    this.keys.clear();
+    this.lastInputType = "idle";
+  }
+
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     this.keys.add(event.code);
+    this.lastInputType = "keyboard";
+    this.inputEventCount += 1;
     if (event.code === "KeyF") {
       this.reset();
     }
@@ -216,6 +351,16 @@ export class FlyController {
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
     this.keys.delete(event.code);
+  };
+
+  private readonly handleWindowBlur = (): void => {
+    this.clearTransientInput();
+  };
+
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) {
+      this.clearTransientInput();
+    }
   };
 
   private readonly handleCanvasClick = (): void => {
@@ -228,7 +373,7 @@ export class FlyController {
     if (document.pointerLockElement !== this.canvas) {
       return;
     }
-    this.rotate(event.movementX, event.movementY, 0.0022);
+    this.rotate(event.movementX, event.movementY, MOUSE_LOOK_SENSITIVITY);
   };
 
   private readonly handleWheel = (event: WheelEvent): void => {
@@ -241,46 +386,61 @@ export class FlyController {
     );
   };
 
+  private readonly handleContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+  };
+
   private readonly handlePointerDown = (event: PointerEvent): void => {
-    if (event.pointerType === "mouse") {
+    if (!this.profile.compact && event.pointerType === "mouse") {
       return;
     }
-    this.canvas.setPointerCapture(event.pointerId);
-    const state: TouchState = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      currentX: event.clientX,
-      currentY: event.clientY,
-    };
-    if (event.clientX < window.innerWidth * 0.5 && !this.moveTouch) {
-      this.moveTouch = state;
-    } else if (!this.lookTouch) {
-      this.lookTouch = state;
-    }
+    event.preventDefault();
+    this.assignPointer(
+      event.pointerId,
+      event.clientX,
+      event.clientY,
+      event.pointerType || "pointer",
+    );
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
-    if (this.moveTouch?.pointerId === event.pointerId) {
-      this.moveTouch.currentX = event.clientX;
-      this.moveTouch.currentY = event.clientY;
-      return;
-    }
-    if (this.lookTouch?.pointerId === event.pointerId) {
-      const deltaX = event.clientX - this.lookTouch.currentX;
-      const deltaY = event.clientY - this.lookTouch.currentY;
-      this.lookTouch.currentX = event.clientX;
-      this.lookTouch.currentY = event.clientY;
-      this.rotate(deltaX, deltaY, 0.004);
+    if (this.updatePointer(event.pointerId, event.clientX, event.clientY)) {
+      event.preventDefault();
     }
   };
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
-    if (this.moveTouch?.pointerId === event.pointerId) {
-      this.moveTouch = undefined;
+    if (this.releasePointer(event.pointerId)) {
+      event.preventDefault();
     }
-    if (this.lookTouch?.pointerId === event.pointerId) {
-      this.lookTouch = undefined;
+  };
+
+  private readonly handleTouchStart = (event: TouchEvent): void => {
+    event.preventDefault();
+    for (const touch of Array.from(event.changedTouches)) {
+      this.assignPointer(touch.identifier, touch.clientX, touch.clientY, "touch");
+    }
+  };
+
+  private readonly handleTouchMove = (event: TouchEvent): void => {
+    let handled = false;
+    for (const touch of Array.from(event.changedTouches)) {
+      handled =
+        this.updatePointer(touch.identifier, touch.clientX, touch.clientY) ||
+        handled;
+    }
+    if (handled) {
+      event.preventDefault();
+    }
+  };
+
+  private readonly handleTouchEnd = (event: TouchEvent): void => {
+    let handled = false;
+    for (const touch of Array.from(event.changedTouches)) {
+      handled = this.releasePointer(touch.identifier) || handled;
+    }
+    if (handled) {
+      event.preventDefault();
     }
   };
 

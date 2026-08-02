@@ -2,24 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  />
-  <meta
-    name="description"
-    content="FluffyGrass mobile-safe large-world grass streaming benchmark."
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="FluffyGrass frame-guard large-world grass benchmark." />
   <meta name="theme-color" content="#9eb8c5" />
-  <title>FluffyGrass v0.7.3-mobile-safe</title>
-  <link rel="stylesheet" href="./src/style.css" />
+  <title>FluffyGrass v0.7.4-frame-guard</title>
+  <link rel="stylesheet" href="./src/style.css?v=0.7.4" />
   <script src="https://cdn.jsdelivr.net/npm/typescript@5.8.3/lib/typescript.js"></script>
 </head>
 <body>
   <header class="app-title">
     <strong>FluffyGrass World PoC</strong>
-    <span id="scene-mode">Mobile-Safe Streaming · Octahedral LOD</span>
-    <span id="build-version">v0.7.3-mobile-safe · 2026-08-02</span>
+    <span id="scene-mode">Frame Guard · Octahedral LOD</span>
+    <span id="build-version">v0.7.4-frame-guard · 2026-08-02</span>
   </header>
   <pre id="world-stats">Loading world…</pre>
   <div class="flight-help">
@@ -27,14 +21,11 @@
     Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude
   </div>
   <nav>
-    <a
-      href="https://github.com/danielsobrado/FluffyGrass"
-      aria-label="View FluffyGrass on GitHub"
-    >
+    <a href="https://github.com/danielsobrado/FluffyGrass" aria-label="View FluffyGrass on GitHub">
       <img src="./github-mark.svg" alt="" />
     </a>
   </nav>
   <canvas id="canvas"></canvas>
-  <script type="module" src="./bootstrap.js?v=0.7.3"></script>
+  <script type="module" src="./bootstrap.js?v=0.7.4"></script>
 </body>
 </html>

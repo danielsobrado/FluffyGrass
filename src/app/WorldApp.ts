@@ -11,11 +11,11 @@ import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
-const COMPACT_MIN_PIXEL_RATIO = 0.6;
-const COMPACT_FRAME_TIME_LIMIT_MS = 30;
-const COMPACT_QUALITY_CHECK_FRAMES = 30;
-const COMPACT_PIXEL_RATIO_STEP = 0.1;
-const FRAME_TIME_EMA_WEIGHT = 0.08;
+const ERROR_MESSAGE_MAX_LENGTH = 180;
+const FRAME_WATCHDOG_INTERVAL_MS = 500;
+const FRAME_STALL_THRESHOLD_MS = 1500;
+
+type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
 
 export class WorldApp {
   private readonly scene = new THREE.Scene();
@@ -28,10 +28,17 @@ export class WorldApp {
   private readonly grass: WorldGrassSystem;
   private readonly controls: FlyController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
-  private currentPixelRatio: number;
-  private frameTimeEmaMs = 1000 / 60;
-  private qualityCheckFrames = COMPACT_QUALITY_CHECK_FRAMES;
+  private readonly pixelRatio: number;
+  private frameHandle = 0;
+  private watchdogHandle = 0;
+  private frameCount = 0;
+  private lastFrameTimestamp = performance.now();
   private hudElapsed = 0;
+  private running = false;
+  private terrainEnabled = true;
+  private grassEnabled = true;
+  private rendererEnabled = true;
+  private runtimeError?: string;
   private grassInitializationError?: string;
 
   private constructor(
@@ -55,17 +62,14 @@ export class WorldApp {
       canvas,
       antialias: !profile.compact,
       alpha: false,
-      precision: profile.compact ? "mediump" : "highp",
+      precision: "highp",
       powerPreference: "high-performance",
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.currentPixelRatio = Math.min(
-      window.devicePixelRatio,
-      profile.maxPixelRatio,
-    );
+    this.pixelRatio = Math.min(window.devicePixelRatio, profile.maxPixelRatio);
     this.applyRendererSize();
     if (!profile.compact) {
       this.stats = new Stats({ minimal: true });
@@ -99,7 +103,7 @@ export class WorldApp {
     );
     this.addLights();
     this.setupStats();
-    window.addEventListener("resize", this.handleResize);
+    this.bindRuntimeEvents();
   }
 
   static async create(
@@ -115,11 +119,28 @@ export class WorldApp {
   }
 
   start(): void {
-    this.render();
+    if (this.running) {
+      return;
+    }
+    this.running = true;
+    this.clock.start();
+    this.lastFrameTimestamp = performance.now();
+    this.frameHandle = requestAnimationFrame(this.render);
+    this.watchdogHandle = window.setInterval(
+      this.checkFrameHeartbeat,
+      FRAME_WATCHDOG_INTERVAL_MS,
+    );
   }
 
   dispose(): void {
+    this.running = false;
+    cancelAnimationFrame(this.frameHandle);
+    window.clearInterval(this.watchdogHandle);
     window.removeEventListener("resize", this.handleResize);
+    window.removeEventListener("error", this.handleWindowError);
+    window.removeEventListener("unhandledrejection", this.handleUnhandledRejection);
+    this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.controls.dispose();
     this.terrain.dispose();
     this.grass.dispose();
@@ -127,65 +148,114 @@ export class WorldApp {
     this.stats?.dom.remove();
   }
 
+  private bindRuntimeEvents(): void {
+    window.addEventListener("resize", this.handleResize);
+    window.addEventListener("error", this.handleWindowError);
+    window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
+    this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
+  }
+
   private async initializeGrass(): Promise<void> {
     try {
       await this.grass.initialize();
     } catch (error) {
       console.error("[FluffyGrass] Grass initialization failed.", error);
-      this.grassInitializationError =
-        error instanceof Error ? error.message : String(error);
+      this.grassInitializationError = this.formatError(error);
+      this.grassEnabled = false;
     }
   }
 
   private render = (): void => {
+    if (!this.running) {
+      return;
+    }
+
+    // Schedule first so an exception in any subsystem cannot terminate animation.
+    this.frameHandle = requestAnimationFrame(this.render);
+    this.lastFrameTimestamp = performance.now();
+    this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
-    this.updateDynamicResolution(deltaSeconds);
-    this.controls.update(deltaSeconds);
-    this.constrainCamera();
-    this.terrain.update(this.camera.position);
-    this.grass.update(deltaSeconds, this.camera);
-    this.renderer.render(this.scene, this.camera);
-    this.stats?.update();
-    this.updateHud(deltaSeconds);
-    requestAnimationFrame(this.render);
+
+    this.runFrameSubsystem("controls", () => {
+      this.controls.update(deltaSeconds);
+      this.constrainCamera();
+    });
+
+    if (this.terrainEnabled) {
+      this.runFrameSubsystem("terrain", () => {
+        this.terrain.update(this.camera.position);
+      });
+    }
+
+    if (this.grassEnabled) {
+      this.runFrameSubsystem("grass", () => {
+        this.grass.update(deltaSeconds, this.camera);
+      });
+    }
+
+    if (this.rendererEnabled) {
+      this.runFrameSubsystem("renderer", () => {
+        this.renderer.render(this.scene, this.camera);
+        this.stats?.update();
+      });
+    }
+
+    this.runFrameSubsystem("hud", () => {
+      this.updateHud(deltaSeconds);
+    });
   };
 
-  private updateDynamicResolution(deltaSeconds: number): void {
-    if (!this.profile.compact) {
+  private readonly checkFrameHeartbeat = (): void => {
+    if (!this.running || document.hidden) {
+      return;
+    }
+    const stalledForMs = performance.now() - this.lastFrameTimestamp;
+    if (stalledForMs < FRAME_STALL_THRESHOLD_MS) {
       return;
     }
 
-    const frameTimeMs = Math.min(deltaSeconds * 1000, 100);
-    this.frameTimeEmaMs = THREE.MathUtils.lerp(
-      this.frameTimeEmaMs,
-      frameTimeMs,
-      FRAME_TIME_EMA_WEIGHT,
-    );
-    this.qualityCheckFrames -= 1;
-    if (this.qualityCheckFrames > 0) {
+    this.runtimeError = `watchdog: restarted after ${Math.round(stalledForMs)} ms`;
+    this.lastFrameTimestamp = performance.now();
+    this.clock.stop();
+    this.clock.start();
+    this.frameHandle = requestAnimationFrame(this.render);
+  };
+
+  private runFrameSubsystem(
+    subsystem: FrameSubsystem,
+    callback: () => void,
+  ): void {
+    try {
+      callback();
+    } catch (error) {
+      this.recordRuntimeError(subsystem, error);
+      if (subsystem === "terrain") {
+        this.terrainEnabled = false;
+      } else if (subsystem === "grass") {
+        this.grassEnabled = false;
+      } else if (subsystem === "renderer") {
+        this.rendererEnabled = false;
+      }
+    }
+  }
+
+  private recordRuntimeError(subsystem: FrameSubsystem, error: unknown): void {
+    const message = `${subsystem}: ${this.formatError(error)}`;
+    if (this.runtimeError === message) {
       return;
     }
-    this.qualityCheckFrames = COMPACT_QUALITY_CHECK_FRAMES;
+    this.runtimeError = message;
+    console.error(`[FluffyGrass] ${subsystem} frame failure.`, error);
+  }
 
-    if (
-      this.frameTimeEmaMs <= COMPACT_FRAME_TIME_LIMIT_MS ||
-      this.currentPixelRatio <= COMPACT_MIN_PIXEL_RATIO
-    ) {
-      return;
-    }
-
-    this.currentPixelRatio = Math.max(
-      COMPACT_MIN_PIXEL_RATIO,
-      this.currentPixelRatio - COMPACT_PIXEL_RATIO_STEP,
-    );
-    this.applyRendererSize();
-    console.info(
-      `[FluffyGrass] Compact render scale reduced to ${this.currentPixelRatio.toFixed(2)} after ${this.frameTimeEmaMs.toFixed(1)} ms average frame time.`,
-    );
+  private formatError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/\s+/g, " ").slice(0, ERROR_MESSAGE_MAX_LENGTH);
   }
 
   private applyRendererSize(): void {
-    this.renderer.setPixelRatio(this.currentPixelRatio);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
@@ -258,24 +328,45 @@ export class WorldApp {
       ? `Grass error: ${this.grassInitializationError}`
       : grass.status;
     this.hud.textContent = [
+      `Frame ${this.frameCount.toLocaleString()} · ${this.runtimeError ? "DEGRADED" : "running"}`,
       `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
+      `Input ${this.controls.getInputDiagnostics()}`,
       `Terrain ${terrain.activeChunks} +${terrain.queuedChunks}`,
       grass.ready
         ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
         : grassStatus,
-      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.currentPixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} ms`,
-    ].join("\n");
+      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.pixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} ms`,
+      this.runtimeError ? `Error ${this.runtimeError}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
+
+  private readonly handleWindowError = (event: ErrorEvent): void => {
+    this.runtimeError = `window: ${this.formatError(event.error ?? event.message)}`;
+  };
+
+  private readonly handleUnhandledRejection = (
+    event: PromiseRejectionEvent,
+  ): void => {
+    this.runtimeError = `promise: ${this.formatError(event.reason)}`;
+  };
+
+  private readonly handleContextLost = (event: Event): void => {
+    event.preventDefault();
+    this.rendererEnabled = false;
+    this.runtimeError = "renderer: WebGL context lost";
+  };
+
+  private readonly handleContextRestored = (): void => {
+    this.rendererEnabled = true;
+    this.runtimeError = undefined;
+  };
 
   private readonly handleResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.currentPixelRatio = Math.min(
-      this.currentPixelRatio,
-      window.devicePixelRatio,
-      this.profile.maxPixelRatio,
-    );
     this.applyRendererSize();
   };
 }
