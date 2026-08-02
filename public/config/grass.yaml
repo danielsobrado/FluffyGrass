@@ -1,4 +1,4 @@
-# Phase 3 spatial-patch and geometric-LOD configuration.
+# Phase 4 deterministic QA and octahedral impostor baker foundation.
 instanceCount: 1400
 patchSize: 4
 variantCount: 4
@@ -44,3 +44,9 @@ midMaxDistance: 30
 farMaxDistance: 80
 hysteresisDistance: 1.25
 transitionDistance: 2.5
+qaWarmupSeconds: 1.5
+qaSampleSeconds: 4
+impostorViewsPerAxis: 8
+impostorFrameResolution: 120
+impostorPadding: 4
+impostorCameraMargin: 1.12

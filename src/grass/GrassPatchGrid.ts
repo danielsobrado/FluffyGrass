@@ -14,6 +14,7 @@ export interface GrassPatch {
   bounds: THREE.Box3;
   nearMesh: THREE.InstancedMesh;
   midMesh: THREE.InstancedMesh;
+  instanceCount: number;
   lod: GrassLodLevel;
   distance: number;
   inFrustum: boolean;

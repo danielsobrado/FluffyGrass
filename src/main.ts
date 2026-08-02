@@ -3,6 +3,7 @@ import Stats from "stats-gl";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as dat from "dat.gui";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GrassDevelopmentController } from "./dev/GrassDevelopmentController";
 import { GrassSystem } from "./grass/GrassSystem";
 
 export class FluffyGrass {
@@ -16,6 +17,7 @@ export class FluffyGrass {
   private readonly orbitControls: OrbitControls;
   private readonly gui: dat.GUI;
   private readonly grassSystem: GrassSystem;
+  private readonly developmentController: GrassDevelopmentController;
   private readonly clock = new THREE.Clock();
   private readonly terrainMaterial: THREE.MeshPhongMaterial;
   private sceneGui!: dat.GUI;
@@ -72,6 +74,13 @@ export class FluffyGrass {
     });
 
     this.grassSystem = new GrassSystem({ scene: this.scene });
+    this.developmentController = new GrassDevelopmentController({
+      renderer: this.renderer,
+      scene: this.scene,
+      camera: this.camera,
+      controls: this.orbitControls,
+      grassSystem: this.grassSystem,
+    });
 
     this.initialize();
   }
@@ -111,7 +120,7 @@ export class FluffyGrass {
   private loadModels(): void {
     this.sceneGui
       .addColor(this.sceneProps, "terrainColor")
-      .onChange((value) => this.terrainMaterial.color.set(value));
+      .onChange((value: string) => this.terrainMaterial.color.set(value));
 
     this.gltfLoader.load(
       "/island.glb",
@@ -133,9 +142,16 @@ export class FluffyGrass {
           return;
         }
 
-        void this.grassSystem.initialize(terrainMesh).catch((error) => {
-          console.error("[FluffyGrass] Grass initialization failed.", error);
-        });
+        void this.grassSystem
+          .initialize(terrainMesh)
+          .then(() => {
+            void this.developmentController.run().catch((error) => {
+              console.error("[FluffyGrass] Development tools failed.", error);
+            });
+          })
+          .catch((error) => {
+            console.error("[FluffyGrass] Grass initialization failed.", error);
+          });
       },
       undefined,
       (error) => console.error("[FluffyGrass] Island model failed to load.", error),
@@ -175,13 +191,13 @@ export class FluffyGrass {
     this.sceneGui.add(this.orbitControls, "autoRotate").name("Auto Rotate");
     this.sceneGui
       .add(this.sceneProps, "fogDensity", 0, 0.05, 0.000001)
-      .onChange((value) => {
+      .onChange((value: number) => {
         const fog = this.scene.fog;
         if (fog instanceof THREE.FogExp2) {
           fog.density = value;
         }
       });
-    this.sceneGui.addColor(this.sceneProps, "fogColor").onChange((value) => {
+    this.sceneGui.addColor(this.sceneProps, "fogColor").onChange((value: string) => {
       this.scene.fog?.color.set(value);
       this.scene.background = new THREE.Color(value);
     });
