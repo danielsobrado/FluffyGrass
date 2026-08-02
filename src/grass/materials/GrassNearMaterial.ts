@@ -16,10 +16,12 @@ uniform float uGrassFlutterStrength;
 uniform float uGrassFlutterSpeed;
 uniform float uGrassNormalUp;
 uniform float uGrassWindLodScale;
+uniform float uGrassDitherSeed;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
+varying float vGrassDither;
 `;
 
 const VERTEX_WIND = `
@@ -52,6 +54,7 @@ vGrassProgress = grassProgress;
 vGrassShade = grassBladeShade;
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
+vGrassDither = fract(instanceVariation.x + uGrassDitherSeed);
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -64,19 +67,16 @@ uniform float uGrassBacklightStrength;
 uniform float uGrassLodThreshold;
 uniform float uGrassLodInvert;
 uniform float uGrassDistanceFade;
-uniform float uGrassDitherSeed;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
+varying float vGrassDither;
 `;
 
 const FRAGMENT_COLOR = `
 #include <color_fragment>
-vec2 grassPixel = floor(gl_FragCoord.xy);
-float grassDither = fract(
-  sin(dot(grassPixel, vec2(12.9898, 78.233)) + uGrassDitherSeed) * 43758.5453
-);
+float grassDither = vGrassDither;
 bool grassKeepLod = uGrassLodInvert < 0.5
   ? grassDither <= uGrassLodThreshold
   : grassDither > uGrassLodThreshold;
@@ -212,7 +212,7 @@ export class GrassNearMaterial {
       this.uniforms.uGrassLodInvert.value = invertLodCoverage ? 1 : 0;
       this.uniforms.uGrassDistanceFade.value =
         mesh.userData.grassDistanceFade ?? 1;
-      this.uniforms.uGrassDitherSeed.value = ditherSeed;
+      this.uniforms.uGrassDitherSeed.value = ditherSeed / 4294967296;
       this.uniforms.uGrassWindLodScale.value = windScale;
     };
   }
