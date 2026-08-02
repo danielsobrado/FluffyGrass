@@ -1,6 +1,5 @@
 import type { GUI } from "dat.gui";
 import * as THREE from "three";
-import type { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { GrassConfigLoader } from "./internal/GrassConfigLoader";
 import { GrassDistribution } from "./GrassDistribution";
 import { GrassGeometryFactory } from "./GrassGeometryFactory";
@@ -11,8 +10,6 @@ import { WindField } from "./wind/WindField";
 
 interface GrassSystemDependencies {
   scene: THREE.Scene;
-  textureLoader: THREE.TextureLoader;
-  gltfLoader: GLTFLoader;
 }
 
 export class GrassSystem {
@@ -21,9 +18,9 @@ export class GrassSystem {
   private readonly geometryFactory = new GrassGeometryFactory();
   private readonly material = new GrassNearMaterial();
   private readonly wind = new WindField();
+  private readonly meshes: THREE.InstancedMesh[] = [];
   private patchGrid?: GrassPatchGrid;
   private lodController?: GrassLodController;
-  private mesh?: THREE.InstancedMesh;
   private initialization?: Promise<void>;
 
   constructor(private readonly dependencies: GrassSystemDependencies) {}
@@ -48,51 +45,62 @@ export class GrassSystem {
   }
 
   dispose(): void {
-    if (this.mesh) {
-      this.dependencies.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      this.mesh = undefined;
+    for (const mesh of this.meshes) {
+      this.dependencies.scene.remove(mesh);
+      mesh.geometry.dispose();
     }
-
+    this.meshes.length = 0;
     this.material.material.dispose();
     this.patchGrid?.clear();
   }
 
   private async createGrass(surface: THREE.Mesh): Promise<void> {
     const config = await this.configLoader.load();
-    const [geometry, alphaTexture, noiseTexture] = await Promise.all([
-      this.geometryFactory.load(
-        this.dependencies.gltfLoader,
-        config.modelPath,
-        config.geometryName,
-        config.geometryScale,
-      ),
-      this.dependencies.textureLoader.loadAsync(config.alphaTexturePath),
-      this.dependencies.textureLoader.loadAsync(config.noiseTexturePath),
-    ]);
-
-    noiseTexture.wrapS = THREE.RepeatWrapping;
-    noiseTexture.wrapT = THREE.RepeatWrapping;
-    this.material.setupTextures(alphaTexture, noiseTexture);
-
-    const mesh = new THREE.InstancedMesh(
-      geometry,
-      this.material.material,
-      config.instanceCount,
+    const geometries = this.geometryFactory.createVariants(
+      config.geometry,
+      config.distribution.seed,
     );
-    mesh.name = "grass-near";
-    mesh.receiveShadow = true;
-    mesh.castShadow = false;
 
-    this.distribution.populate(mesh, surface, config.instanceCount);
-    mesh.computeBoundingBox();
-    mesh.computeBoundingSphere();
-
+    this.material.configure(config.material, config.wind);
     this.patchGrid = new GrassPatchGrid(config.patchSize);
-    this.patchGrid.register("grass-root", mesh, surface);
     this.lodController = new GrassLodController(config.lod);
 
-    this.mesh = mesh;
-    this.dependencies.scene.add(mesh);
+    const baseCount = Math.floor(
+      config.instanceCount / config.geometry.variantCount,
+    );
+    let remaining = config.instanceCount;
+
+    geometries.forEach((geometry, variantIndex) => {
+      const variantsLeft = geometries.length - variantIndex;
+      const requestedCount =
+        variantIndex === geometries.length - 1
+          ? remaining
+          : Math.min(baseCount, remaining - (variantsLeft - 1));
+      remaining -= requestedCount;
+
+      const mesh = new THREE.InstancedMesh(
+        geometry,
+        this.material.material,
+        requestedCount,
+      );
+      mesh.name = `grass-near-${variantIndex}`;
+      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.frustumCulled = true;
+
+      this.distribution.populate(
+        mesh,
+        surface,
+        requestedCount,
+        config.distribution,
+        variantIndex,
+      );
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+
+      this.patchGrid?.register(`grass-root-${variantIndex}`, mesh, surface);
+      this.meshes.push(mesh);
+      this.dependencies.scene.add(mesh);
+    });
   }
 }
