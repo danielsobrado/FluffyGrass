@@ -1,4 +1,4 @@
-# Phase 2 near-grass configuration. Keep this file flat until a full YAML parser is introduced.
+# Phase 3 spatial-patch and geometric-LOD configuration.
 instanceCount: 1400
 patchSize: 4
 variantCount: 4
@@ -11,6 +11,12 @@ bladeWidthMin: 0.035
 bladeWidthMax: 0.085
 bladeLeanMin: 0.08
 bladeLeanMax: 0.42
+midBladesPerClump: 3
+midBladeSegments: 2
+midRadiusScale: 1.08
+midHeightScale: 0.96
+midWidthScale: 1.65
+midLeanScale: 0.72
 seed: 1337
 rootSink: 0.03
 maxSlopeDegrees: 48
@@ -36,3 +42,5 @@ backlightStrength: 0.16
 nearMaxDistance: 12
 midMaxDistance: 30
 farMaxDistance: 80
+hysteresisDistance: 1.25
+transitionDistance: 2.5
