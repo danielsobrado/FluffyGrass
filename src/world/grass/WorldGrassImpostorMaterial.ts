@@ -4,6 +4,14 @@ import type {
   GrassWindConfig,
 } from "../../grass/GrassConfig";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
+import {
+  IMPOSTOR_AERIAL_FADE_END,
+  IMPOSTOR_AERIAL_FADE_START,
+  IMPOSTOR_ALPHA_CUTOFF,
+  IMPOSTOR_BASE_COLOR_BLEND,
+  IMPOSTOR_ROOT_LIGHT_MAX,
+  IMPOSTOR_ROOT_LIGHT_MIN,
+} from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
 attribute vec4 instanceVariation;
@@ -17,6 +25,7 @@ varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
+varying float vViewElevation;
 #include <fog_pars_vertex>
 
 void main() {
@@ -45,31 +54,12 @@ void main() {
     uTime * 0.7 +
     instanceVariation.x * 6.28318530718
   );
-  vec3 windOffset = vec3(windDirection.x, 0.0, windDirection.y) *
+  center += vec3(windDirection.x, 0.0, windDirection.y) *
     gust * uWindStrength * 0.22;
-  center += windOffset;
 
-  vec3 billboardPosition = center +
+  vec3 worldPosition = center +
     billboardRight * position.x * scaleX +
     billboardUp * position.y * scaleY;
-
-  vec3 groundForward = billboardUp - basisY * dot(billboardUp, basisY);
-  float groundForwardLength = length(groundForward);
-  groundForward = groundForwardLength < 0.001
-    ? basisZ
-    : groundForward / groundForwardLength;
-  vec3 groundPosition = rootCenter + windOffset * 0.35 +
-    billboardRight * position.x * scaleX +
-    groundForward * position.y * scaleZ +
-    basisY * 0.045;
-
-  float viewElevation = abs(dot(toCamera, basisY));
-  float groundProjectionBlend = smoothstep(0.58, 0.84, viewElevation);
-  vec3 worldPosition = mix(
-    billboardPosition,
-    groundPosition,
-    groundProjectionBlend
-  );
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
@@ -79,6 +69,7 @@ void main() {
     dot(toCamera, basisZ)
   );
   vLocalViewDirection = normalize(localViewDirection);
+  vViewElevation = abs(dot(toCamera, basisY));
   vUv = uv;
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
@@ -96,12 +87,17 @@ uniform float uAtlasSize;
 uniform float uCoverage;
 uniform float uAlphaCutoff;
 uniform float uBlendViews;
+uniform float uAerialFadeStart;
+uniform float uAerialFadeEnd;
+uniform float uBaseColorBlend;
+uniform vec3 uBaseColor;
 uniform vec3 uDryColor;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
+varying float vViewElevation;
 #include <fog_pars_fragment>
 
 vec2 encodeHemiOctahedral(vec3 direction) {
@@ -139,8 +135,14 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
+  float aerialVisibility = 1.0 - smoothstep(
+    uAerialFadeStart,
+    uAerialFadeEnd,
+    vViewElevation
+  );
+  float effectiveCoverage = uCoverage * aerialVisibility;
   float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
-  if (dither > uCoverage) {
+  if (effectiveCoverage <= 0.001 || dither > effectiveCoverage) {
     discard;
   }
 
@@ -194,8 +196,14 @@ void main() {
   }
 
   vec3 color = atlasColor.rgb / max(atlasColor.a, 0.001);
-  color = mix(color, uDryColor, vDryness * 0.18);
-  color *= mix(0.9, 1.04, vRootAo);
+  float terrainMatch = mix(
+    uBaseColorBlend,
+    1.0,
+    smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
+  );
+  color = mix(color, uBaseColor, terrainMatch);
+  color = mix(color, uDryColor, vDryness * 0.12);
+  color *= mix(${IMPOSTOR_ROOT_LIGHT_MIN.toFixed(2)}, ${IMPOSTOR_ROOT_LIGHT_MAX.toFixed(2)}, vRootAo);
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -216,6 +224,10 @@ export class WorldGrassImpostorMaterial {
     windConfig: GrassWindConfig,
     blendViews: boolean,
   ) {
+    atlas.texture.generateMipmaps = false;
+    atlas.texture.minFilter = THREE.LinearFilter;
+    atlas.texture.needsUpdate = true;
+
     this.uniforms = {
       ...(THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as ShaderUniforms),
       uAtlas: { value: atlas.texture },
@@ -225,8 +237,11 @@ export class WorldGrassImpostorMaterial {
       uAtlasSize: { value: atlas.atlasSize },
       uCenterHeight: { value: atlas.centerHeight },
       uCoverage: { value: 0 },
-      uAlphaCutoff: { value: 0.12 },
+      uAlphaCutoff: { value: IMPOSTOR_ALPHA_CUTOFF },
       uBlendViews: { value: blendViews ? 1 : 0 },
+      uAerialFadeStart: { value: IMPOSTOR_AERIAL_FADE_START },
+      uAerialFadeEnd: { value: IMPOSTOR_AERIAL_FADE_END },
+      uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
       uDitherSeed: { value: 0 },
       uTime: { value: 0 },
       uWindDirection: {
@@ -236,6 +251,7 @@ export class WorldGrassImpostorMaterial {
         ).normalize(),
       },
       uWindStrength: { value: windConfig.strength },
+      uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },
       uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
     };
     this.material = new THREE.ShaderMaterial({
