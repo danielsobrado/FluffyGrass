@@ -13,6 +13,11 @@ export interface WorldConfig {
   grassChunksPerFrame: number;
   grassClumpsPerChunkDesktop: number;
   grassClumpsPerChunkCompact: number;
+  spawnSearchRadius: number;
+  spawnSearchStep: number;
+  spawnNeighborhoodRadius: number;
+  spawnEyeHeight: number;
+  spawnPitchDegrees: number;
   baseHeight: number;
   rollingHeight: number;
   mountainHeight: number;

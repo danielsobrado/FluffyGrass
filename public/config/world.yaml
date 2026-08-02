@@ -14,8 +14,14 @@ terrainFarResolution: 7
 terrainChunksPerFrame: 2
 grassChunksPerFrame: 1
 
-grassClumpsPerChunkDesktop: 90
-grassClumpsPerChunkCompact: 45
+grassClumpsPerChunkDesktop: 900
+grassClumpsPerChunkCompact: 512
+
+spawnSearchRadius: 640
+spawnSearchStep: 24
+spawnNeighborhoodRadius: 18
+spawnEyeHeight: 2.2
+spawnPitchDegrees: -8
 
 baseHeight: 2
 rollingHeight: 34

@@ -33,6 +33,14 @@ export class WorldConfigLoader {
         values,
         "grassClumpsPerChunkCompact",
       ),
+      spawnSearchRadius: this.positive(values, "spawnSearchRadius"),
+      spawnSearchStep: this.positive(values, "spawnSearchStep"),
+      spawnNeighborhoodRadius: this.positive(
+        values,
+        "spawnNeighborhoodRadius",
+      ),
+      spawnEyeHeight: this.positive(values, "spawnEyeHeight"),
+      spawnPitchDegrees: this.range(values, "spawnPitchDegrees", -45, 15),
       baseHeight: this.number(values, "baseHeight"),
       rollingHeight: this.nonNegative(values, "rollingHeight"),
       mountainHeight: this.nonNegative(values, "mountainHeight"),
@@ -82,6 +90,18 @@ export class WorldConfigLoader {
     }
     if (config.flyMinSpeed > config.flySpeed || config.flySpeed > config.flyMaxSpeed) {
       throw new Error("flySpeed must be between flyMinSpeed and flyMaxSpeed.");
+    }
+    if (config.spawnSearchStep > config.spawnSearchRadius) {
+      throw new Error("spawnSearchStep must not exceed spawnSearchRadius.");
+    }
+    if (config.spawnNeighborhoodRadius >= config.chunkSize * 0.5) {
+      throw new Error("spawnNeighborhoodRadius must be lower than half a chunk.");
+    }
+    if (
+      config.spawnSearchRadius >
+      config.worldSize * 0.5 - config.chunkSize
+    ) {
+      throw new Error("spawnSearchRadius must remain inside the world bounds.");
     }
   }
 

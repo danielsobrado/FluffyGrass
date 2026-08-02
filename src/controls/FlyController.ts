@@ -10,6 +10,12 @@ interface TouchState {
   currentY: number;
 }
 
+export interface FlySpawn {
+  position: THREE.Vector3;
+  yaw: number;
+  pitch: number;
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_TOUCH_DISTANCE = 70;
 
@@ -19,8 +25,11 @@ export class FlyController {
   private readonly right = new THREE.Vector3();
   private readonly movement = new THREE.Vector3();
   private readonly touchMovement = new THREE.Vector2();
+  private readonly spawnPosition = new THREE.Vector3();
   private yaw = 0;
   private pitch = -0.28;
+  private spawnYaw = 0;
+  private spawnPitch = -0.28;
   private speed: number;
   private verticalTouch = 0;
   private moveTouch?: TouchState;
@@ -32,8 +41,12 @@ export class FlyController {
     private readonly canvas: HTMLCanvasElement,
     private readonly config: WorldConfig,
     private readonly profile: RuntimeProfile,
+    spawn: FlySpawn,
   ) {
     this.speed = config.flySpeed;
+    this.spawnPosition.copy(spawn.position);
+    this.spawnYaw = spawn.yaw;
+    this.spawnPitch = spawn.pitch;
     this.reset();
     this.bindEvents();
     if (profile.compact) {
@@ -98,13 +111,12 @@ export class FlyController {
   }
 
   reset(): void {
-    this.camera.position.set(
-      0,
-      this.config.initialAltitude,
-      this.config.initialDistance,
-    );
-    this.yaw = 0;
-    this.pitch = -0.28;
+    this.camera.position.copy(this.spawnPosition);
+    this.yaw = this.spawnYaw;
+    this.pitch = this.spawnPitch;
+    this.verticalTouch = 0;
+    this.moveTouch = undefined;
+    this.lookTouch = undefined;
     this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
   }
 
@@ -142,10 +154,22 @@ export class FlyController {
     const controls = document.createElement("div");
     controls.className = "mobile-flight-controls";
     controls.innerHTML = `
+      <button type="button" data-flight-reset aria-label="Return to dense field">⌂</button>
       <button type="button" data-flight-vertical="1" aria-label="Fly up">▲</button>
       <button type="button" data-flight-vertical="-1" aria-label="Fly down">▼</button>
     `;
-    for (const button of controls.querySelectorAll<HTMLButtonElement>("button")) {
+
+    const resetButton = controls.querySelector<HTMLButtonElement>(
+      "[data-flight-reset]",
+    );
+    resetButton?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.reset();
+    });
+
+    for (const button of controls.querySelectorAll<HTMLButtonElement>(
+      "[data-flight-vertical]",
+    )) {
       const value = Number(button.dataset.flightVertical);
       const activate = (event: Event): void => {
         event.preventDefault();
