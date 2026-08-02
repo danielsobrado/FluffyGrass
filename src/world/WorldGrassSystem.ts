@@ -13,6 +13,7 @@ import { WindField } from "../grass/wind/WindField";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
+import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
 
 interface GrassChunkRequest {
   key: string;
@@ -27,15 +28,18 @@ export interface WorldGrassDiagnostics {
   visibleNearPatches: number;
   visibleMidPatches: number;
   clumps: number;
+  blades: number;
 }
 
 const TWO_PI = Math.PI * 2;
-const PLACEMENT_JITTER = 0.82;
 const MID_WIND_SCALE = 0.62;
+const FIELD_COVERAGE_MIN = 0.16;
+const FIELD_COVERAGE_FULL = 0.5;
 
 export class WorldGrassSystem {
   private readonly configLoader = new GrassConfigLoader();
   private readonly geometryFactory = new GrassGeometryFactory();
+  private readonly patchGeometryFactory = new WorldGrassPatchGeometryFactory();
   private readonly material = new GrassNearMaterial();
   private readonly wind = new WindField();
   private readonly patches = new Map<string, GrassPatch>();
@@ -46,6 +50,8 @@ export class WorldGrassSystem {
   private midGeometries: THREE.BufferGeometry[] = [];
   private grassConfig?: GrassConfig;
   private lodController?: GrassLodController;
+  private nearBladesPerPatch = 0;
+  private midBladesPerPatch = 0;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private initialized = false;
@@ -63,13 +69,17 @@ export class WorldGrassSystem {
     }
 
     const grassConfig = await this.configLoader.load();
-    const variants = this.geometryFactory.createLodVariants(
+    const variants = this.patchGeometryFactory.createLodVariants(
       grassConfig.geometry,
+      this.worldConfig,
+      this.profile.compact,
       this.worldConfig.seed,
     );
     this.grassConfig = grassConfig;
     this.nearGeometries = variants.near;
     this.midGeometries = variants.mid;
+    this.nearBladesPerPatch = variants.nearBladesPerPatch;
+    this.midBladesPerPatch = variants.midBladesPerPatch;
     this.material.configure(grassConfig.material, grassConfig.wind);
     this.lodController = new GrassLodController({
       nearMaxDistance: this.worldConfig.grassNearDistance,
@@ -118,12 +128,22 @@ export class WorldGrassSystem {
   getDiagnostics(): WorldGrassDiagnostics {
     let visibleNearPatches = 0;
     let visibleMidPatches = 0;
-    let clumps = 0;
+    let bladePatches = 0;
+    let blades = 0;
 
     for (const patch of this.patches.values()) {
-      clumps += patch.instanceCount;
+      bladePatches += patch.instanceCount;
       visibleNearPatches += patch.nearMesh.visible ? 1 : 0;
       visibleMidPatches += patch.midMesh.visible ? 1 : 0;
+      const nearWeight = patch.nearMesh.visible ? patch.nearCoverage : 0;
+      const midWeight = patch.midMesh.visible
+        ? (1 - patch.nearCoverage) * patch.midDistanceFade
+        : 0;
+      blades += Math.round(
+        patch.instanceCount *
+          (nearWeight * this.nearBladesPerPatch +
+            midWeight * this.midBladesPerPatch),
+      );
     }
 
     return {
@@ -131,7 +151,8 @@ export class WorldGrassSystem {
       queuedPatches: this.queue.length,
       visibleNearPatches,
       visibleMidPatches,
-      clumps,
+      clumps: bladePatches,
+      blades,
     };
   }
 
@@ -203,15 +224,12 @@ export class WorldGrassSystem {
       return undefined;
     }
 
-    const density = this.profile.compact
-      ? this.worldConfig.grassClumpsPerSquareMeterCompact
-      : this.worldConfig.grassClumpsPerSquareMeterDesktop;
-    const cellsPerAxis = Math.max(
-      1,
-      Math.round(this.worldConfig.chunkSize * Math.sqrt(density)),
+    const patchesPerAxis = Math.round(
+      this.worldConfig.chunkSize / this.worldConfig.grassPatchSize,
     );
-    const cellSize = this.worldConfig.chunkSize / cellsPerAxis;
-    const jitterRadius = cellSize * PLACEMENT_JITTER * 0.5;
+    const cellSize = this.worldConfig.chunkSize / patchesPerAxis;
+    const jitterRadius =
+      cellSize * this.worldConfig.grassPatchJitter * 0.5;
     const random = new SeededRandom(
       this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
     );
@@ -227,15 +245,15 @@ export class WorldGrassSystem {
     const originX = request.chunkX * this.worldConfig.chunkSize;
     const originZ = request.chunkZ * this.worldConfig.chunkSize;
 
-    for (let cellZ = 0; cellZ < cellsPerAxis; cellZ += 1) {
-      for (let cellX = 0; cellX < cellsPerAxis; cellX += 1) {
+    for (let patchZ = 0; patchZ < patchesPerAxis; patchZ += 1) {
+      for (let patchX = 0; patchX < patchesPerAxis; patchX += 1) {
         const x =
           originX +
-          (cellX + 0.5) * cellSize +
+          (patchX + 0.5) * cellSize +
           random.range(-jitterRadius, jitterRadius);
         const z =
           originZ +
-          (cellZ + 0.5) * cellSize +
+          (patchZ + 0.5) * cellSize +
           random.range(-jitterRadius, jitterRadius);
         const height = this.field.sampleHeight(x, z);
         this.field.sampleNormal(x, z, normal);
@@ -245,7 +263,12 @@ export class WorldGrassSystem {
           height,
           normal,
         );
-        if (random.next() > suitability) {
+        const coverage = THREE.MathUtils.smoothstep(
+          suitability,
+          FIELD_COVERAGE_MIN,
+          FIELD_COVERAGE_FULL,
+        );
+        if (random.next() > coverage) {
           continue;
         }
 
@@ -253,27 +276,22 @@ export class WorldGrassSystem {
         align.setFromUnitVectors(up, normal);
         yaw.setFromAxisAngle(up, random.range(0, TWO_PI));
         align.multiply(yaw);
-        const widthScale =
-          1 +
-          random.range(
-            -grassConfig.distribution.widthVariation,
-            grassConfig.distribution.widthVariation,
-          );
+        const horizontalScale = random.range(0.96, 1.04);
         const heightScale =
           1 +
           random.range(
             -grassConfig.distribution.heightVariation,
             grassConfig.distribution.heightVariation,
           );
-        scale.set(widthScale, heightScale, widthScale);
+        scale.set(horizontalScale, heightScale, horizontalScale);
         matrix.compose(position, align, scale);
         matrices.push(matrix.clone());
         variations.push(
           random.next(),
           random.range(0.82, 1.14),
-          random.range(0.96, 1.05),
+          random.range(0.97, 1.04),
           THREE.MathUtils.clamp(
-            (1 - suitability) * 0.36 + random.range(0, 0.1),
+            (1 - suitability) * 0.34 + random.range(0, 0.09),
             0,
             1,
           ),
