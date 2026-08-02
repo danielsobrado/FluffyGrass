@@ -59,6 +59,7 @@ uniform vec3 uGrassTipColor;
 uniform vec3 uGrassDryColor;
 uniform float uGrassRootDarkening;
 uniform float uGrassAmbientBoost;
+uniform float uGrassBacklightStrength;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -84,6 +85,21 @@ diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRoo
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
+const FRAGMENT_OUTPUT = `
+float grassBackLight = 0.0;
+#if NUM_DIR_LIGHTS > 0
+  grassBackLight = pow(
+    saturate(dot(-normalize(vViewPosition), directionalLights[0].direction)),
+    2.0
+  ) * smoothstep(0.18, 1.0, vGrassProgress);
+#endif
+vec3 outgoingLight =
+  reflectedLight.directDiffuse +
+  reflectedLight.indirectDiffuse +
+  totalEmissiveRadiance +
+  uGrassTipColor * grassBackLight * uGrassBacklightStrength;
+`;
+
 export class GrassNearMaterial {
   readonly material: THREE.MeshLambertMaterial;
 
@@ -107,6 +123,7 @@ export class GrassNearMaterial {
     uGrassRootDarkening: { value: 0.55 },
     uGrassNormalUp: { value: 0.45 },
     uGrassAmbientBoost: { value: 0.12 },
+    uGrassBacklightStrength: { value: 0.16 },
   };
 
   constructor() {
@@ -131,7 +148,11 @@ export class GrassNearMaterial {
         );
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>${FRAGMENT_DECLARATIONS}`)
-        .replace("#include <color_fragment>", FRAGMENT_COLOR);
+        .replace("#include <color_fragment>", FRAGMENT_COLOR)
+        .replace(
+          "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
+          FRAGMENT_OUTPUT,
+        );
     };
     this.material.customProgramCacheKey = () => "grass-near-material-v2";
   }
@@ -146,6 +167,7 @@ export class GrassNearMaterial {
     this.uniforms.uGrassRootDarkening.value = material.rootDarkening;
     this.uniforms.uGrassNormalUp.value = material.normalUp;
     this.uniforms.uGrassAmbientBoost.value = material.ambientBoost;
+    this.uniforms.uGrassBacklightStrength.value = material.backlightStrength;
     this.uniforms.uGrassWindDirection.value
       .set(wind.directionX, wind.directionZ)
       .normalize();
@@ -183,6 +205,9 @@ export class GrassNearMaterial {
     folder
       .add(this.uniforms.uGrassAmbientBoost, "value", 0, 0.4, 0.01)
       .name("Ambient Boost");
+    folder
+      .add(this.uniforms.uGrassBacklightStrength, "value", 0, 0.5, 0.01)
+      .name("Backlight");
     folder.open();
   }
 }
