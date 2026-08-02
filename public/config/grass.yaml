@@ -1,0 +1,11 @@
+# Runtime grass configuration. Keep this file flat until a full YAML parser is introduced.
+modelPath: ./grassLODs.glb
+geometryName: LOD00
+instanceCount: 8000
+geometryScale: 5
+patchSize: 4
+alphaTexturePath: ./grass.jpeg
+noiseTexturePath: ./perlinnoise.webp
+nearMaxDistance: 12
+midMaxDistance: 30
+farMaxDistance: 80
