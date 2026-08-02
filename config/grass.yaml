@@ -1,4 +1,4 @@
-# Dense opaque mesh blades for world patches and island regression.
+# Dense opaque mesh blades with runtime hemi-octahedral far impostors.
 instanceCount: 1400
 patchSize: 4
 variantCount: 4
@@ -47,6 +47,6 @@ transitionDistance: 2.5
 qaWarmupSeconds: 1.5
 qaSampleSeconds: 4
 impostorViewsPerAxis: 8
-impostorFrameResolution: 120
+impostorFrameResolution: 56
 impostorPadding: 4
 impostorCameraMargin: 1.12

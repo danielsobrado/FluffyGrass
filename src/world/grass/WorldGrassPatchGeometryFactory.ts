@@ -3,7 +3,7 @@ import type { GrassGeometryConfig } from "../../grass/GrassConfig";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import type { WorldConfig } from "../WorldConfig";
 
-interface BladeSpec {
+export interface WorldGrassBladeSpec {
   rootX: number;
   rootZ: number;
   facingAngle: number;
@@ -19,6 +19,7 @@ interface BladeSpec {
 export interface WorldGrassPatchGeometryVariants {
   near: THREE.BufferGeometry[];
   mid: THREE.BufferGeometry[];
+  bladeVariants: readonly (readonly WorldGrassBladeSpec[])[];
   nearBladesPerPatch: number;
   midBladesPerPatch: number;
 }
@@ -49,6 +50,7 @@ export class WorldGrassPatchGeometryFactory {
     );
     const near: THREE.BufferGeometry[] = [];
     const mid: THREE.BufferGeometry[] = [];
+    const bladeVariants: WorldGrassBladeSpec[][] = [];
 
     for (let variant = 0; variant < grass.variantCount; variant += 1) {
       const specs = this.createBladeSpecs(
@@ -58,6 +60,7 @@ export class WorldGrassPatchGeometryFactory {
         seed + variant * VARIANT_SEED_STEP,
         grass,
       );
+      bladeVariants.push(specs);
       near.push(this.createGeometry(specs, grass, false));
       mid.push(
         this.createGeometry(
@@ -73,6 +76,7 @@ export class WorldGrassPatchGeometryFactory {
     return {
       near,
       mid,
+      bladeVariants,
       nearBladesPerPatch,
       midBladesPerPatch,
     };
@@ -84,14 +88,14 @@ export class WorldGrassPatchGeometryFactory {
     underlayerFraction: number,
     seed: number,
     grass: GrassGeometryConfig,
-  ): BladeSpec[] {
+  ): WorldGrassBladeSpec[] {
     const random = new SeededRandom(seed);
     const columns = Math.ceil(Math.sqrt(count));
     const rows = Math.ceil(count / columns);
     const cellWidth = patchSize / columns;
     const cellDepth = patchSize / rows;
     const halfPatch = patchSize * 0.5;
-    const specs: BladeSpec[] = [];
+    const specs: WorldGrassBladeSpec[] = [];
 
     for (let index = 0; index < count; index += 1) {
       const column = index % columns;
@@ -134,7 +138,7 @@ export class WorldGrassPatchGeometryFactory {
   }
 
   private createGeometry(
-    specs: BladeSpec[],
+    specs: readonly WorldGrassBladeSpec[],
     grass: GrassGeometryConfig,
     mid: boolean,
   ): THREE.BufferGeometry {
