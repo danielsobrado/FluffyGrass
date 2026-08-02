@@ -176,10 +176,12 @@ void main() {
 }
 `;
 
+type ShaderUniforms = Record<string, { value: unknown }>;
+
 export class WorldGrassImpostorMaterial {
   readonly material: THREE.ShaderMaterial;
 
-  private readonly uniforms: Record<string, { value: unknown }>;
+  private readonly uniforms: ShaderUniforms;
 
   constructor(
     readonly atlas: WorldGrassImpostorAtlas,
@@ -187,27 +189,30 @@ export class WorldGrassImpostorMaterial {
     windConfig: GrassWindConfig,
     blendViews: boolean,
   ) {
-    this.uniforms = {
-      uAtlas: { value: atlas.texture },
-      uViewsPerAxis: { value: atlas.viewsPerAxis },
-      uFrameResolution: { value: atlas.frameResolution },
-      uPadding: { value: atlas.padding },
-      uAtlasSize: { value: atlas.atlasSize },
-      uCenterHeight: { value: atlas.centerHeight },
-      uCoverage: { value: 0 },
-      uAlphaCutoff: { value: 0.12 },
-      uBlendViews: { value: blendViews ? 1 : 0 },
-      uDitherSeed: { value: 0 },
-      uTime: { value: 0 },
-      uWindDirection: {
-        value: new THREE.Vector2(
-          windConfig.directionX,
-          windConfig.directionZ,
-        ).normalize(),
+    this.uniforms = THREE.UniformsUtils.merge([
+      THREE.UniformsLib.fog,
+      {
+        uAtlas: { value: atlas.texture },
+        uViewsPerAxis: { value: atlas.viewsPerAxis },
+        uFrameResolution: { value: atlas.frameResolution },
+        uPadding: { value: atlas.padding },
+        uAtlasSize: { value: atlas.atlasSize },
+        uCenterHeight: { value: atlas.centerHeight },
+        uCoverage: { value: 0 },
+        uAlphaCutoff: { value: 0.12 },
+        uBlendViews: { value: blendViews ? 1 : 0 },
+        uDitherSeed: { value: 0 },
+        uTime: { value: 0 },
+        uWindDirection: {
+          value: new THREE.Vector2(
+            windConfig.directionX,
+            windConfig.directionZ,
+          ).normalize(),
+        },
+        uWindStrength: { value: windConfig.strength },
+        uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
       },
-      uWindStrength: { value: windConfig.strength },
-      uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
-    };
+    ]) as ShaderUniforms;
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: VERTEX_SHADER,
