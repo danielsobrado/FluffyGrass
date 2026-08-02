@@ -20,21 +20,100 @@ export class GrassConfigLoader {
 
   private parse(source: string): GrassConfig {
     const values = this.parseFlatYaml(source);
-
-    return Object.freeze({
-      modelPath: this.readString(values, "modelPath"),
-      geometryName: this.readString(values, "geometryName"),
+    const config: GrassConfig = {
       instanceCount: this.readPositiveInteger(values, "instanceCount"),
-      geometryScale: this.readPositiveNumber(values, "geometryScale"),
       patchSize: this.readPositiveNumber(values, "patchSize"),
-      alphaTexturePath: this.readString(values, "alphaTexturePath"),
-      noiseTexturePath: this.readString(values, "noiseTexturePath"),
-      lod: Object.freeze({
+      geometry: {
+        variantCount: this.readPositiveInteger(values, "variantCount"),
+        bladesPerClump: this.readPositiveInteger(values, "bladesPerClump"),
+        bladeSegments: this.readPositiveInteger(values, "bladeSegments"),
+        clumpRadius: this.readPositiveNumber(values, "clumpRadius"),
+        bladeHeightMin: this.readPositiveNumber(values, "bladeHeightMin"),
+        bladeHeightMax: this.readPositiveNumber(values, "bladeHeightMax"),
+        bladeWidthMin: this.readPositiveNumber(values, "bladeWidthMin"),
+        bladeWidthMax: this.readPositiveNumber(values, "bladeWidthMax"),
+        bladeLeanMin: this.readNonNegativeNumber(values, "bladeLeanMin"),
+        bladeLeanMax: this.readNonNegativeNumber(values, "bladeLeanMax"),
+      },
+      distribution: {
+        seed: this.readInteger(values, "seed"),
+        rootSink: this.readNonNegativeNumber(values, "rootSink"),
+        maxSlopeDegrees: this.readRange(values, "maxSlopeDegrees", 0, 89),
+        heightVariation: this.readRange(values, "heightVariation", 0, 0.95),
+        widthVariation: this.readRange(values, "widthVariation", 0, 0.95),
+        densityMin: this.readRange(values, "densityMin", 0, 1),
+        densityMax: this.readRange(values, "densityMax", 0, 1),
+        densityScale: this.readPositiveNumber(values, "densityScale"),
+      },
+      wind: {
+        directionX: this.readNumber(values, "windDirectionX"),
+        directionZ: this.readNumber(values, "windDirectionZ"),
+        strength: this.readNonNegativeNumber(values, "windStrength"),
+        gustScale: this.readPositiveNumber(values, "gustScale"),
+        gustSpeed: this.readNonNegativeNumber(values, "gustSpeed"),
+        flutterStrength: this.readNonNegativeNumber(values, "flutterStrength"),
+        flutterSpeed: this.readNonNegativeNumber(values, "flutterSpeed"),
+      },
+      material: {
+        baseColor: this.readString(values, "baseColor"),
+        tipColor: this.readString(values, "tipColor"),
+        dryColor: this.readString(values, "dryColor"),
+        rootDarkening: this.readRange(values, "rootDarkening", 0, 1),
+        normalUp: this.readRange(values, "normalUp", 0, 1),
+        ambientBoost: this.readRange(values, "ambientBoost", 0, 1),
+      },
+      lod: {
         nearMaxDistance: this.readPositiveNumber(values, "nearMaxDistance"),
         midMaxDistance: this.readPositiveNumber(values, "midMaxDistance"),
         farMaxDistance: this.readPositiveNumber(values, "farMaxDistance"),
-      }),
+      },
+    };
+
+    this.validate(config);
+    return Object.freeze({
+      ...config,
+      geometry: Object.freeze(config.geometry),
+      distribution: Object.freeze(config.distribution),
+      wind: Object.freeze(config.wind),
+      material: Object.freeze(config.material),
+      lod: Object.freeze(config.lod),
     });
+  }
+
+  private validate(config: GrassConfig): void {
+    if (config.geometry.variantCount > config.instanceCount) {
+      throw new Error("variantCount must not exceed instanceCount.");
+    }
+    if (config.geometry.bladesPerClump < 3) {
+      throw new Error("bladesPerClump must be at least 3.");
+    }
+    if (config.geometry.bladeSegments < 2) {
+      throw new Error("bladeSegments must be at least 2.");
+    }
+    if (config.geometry.bladeHeightMin > config.geometry.bladeHeightMax) {
+      throw new Error("bladeHeightMin must be less than or equal to bladeHeightMax.");
+    }
+    if (config.geometry.bladeWidthMin > config.geometry.bladeWidthMax) {
+      throw new Error("bladeWidthMin must be less than or equal to bladeWidthMax.");
+    }
+    if (config.geometry.bladeLeanMin > config.geometry.bladeLeanMax) {
+      throw new Error("bladeLeanMin must be less than or equal to bladeLeanMax.");
+    }
+    if (config.distribution.densityMin > config.distribution.densityMax) {
+      throw new Error("densityMin must be less than or equal to densityMax.");
+    }
+    if (
+      config.lod.nearMaxDistance >= config.lod.midMaxDistance ||
+      config.lod.midMaxDistance >= config.lod.farMaxDistance
+    ) {
+      throw new Error("Grass LOD distances must increase from near to far.");
+    }
+    if (
+      Math.hypot(config.wind.directionX, config.wind.directionZ) <
+      Number.EPSILON
+    ) {
+      throw new Error("Grass wind direction must not be zero.");
+    }
   }
 
   private parseFlatYaml(source: string): ParsedConfig {
@@ -82,6 +161,15 @@ export class GrassConfigLoader {
     return value;
   }
 
+  private readInteger(values: ParsedConfig, key: string): number {
+    const value = this.readNumber(values, key);
+    if (!Number.isInteger(value)) {
+      throw new Error(`Grass config value ${key} must be an integer.`);
+    }
+
+    return value;
+  }
+
   private readPositiveInteger(values: ParsedConfig, key: string): number {
     const value = this.readPositiveNumber(values, key);
     if (!Number.isInteger(value)) {
@@ -92,10 +180,44 @@ export class GrassConfigLoader {
   }
 
   private readPositiveNumber(values: ParsedConfig, key: string): number {
+    const value = this.readNumber(values, key);
+    if (value <= 0) {
+      throw new Error(`Grass config value ${key} must be positive.`);
+    }
+
+    return value;
+  }
+
+  private readNonNegativeNumber(values: ParsedConfig, key: string): number {
+    const value = this.readNumber(values, key);
+    if (value < 0) {
+      throw new Error(`Grass config value ${key} must not be negative.`);
+    }
+
+    return value;
+  }
+
+  private readRange(
+    values: ParsedConfig,
+    key: string,
+    minimum: number,
+    maximum: number,
+  ): number {
+    const value = this.readNumber(values, key);
+    if (value < minimum || value > maximum) {
+      throw new Error(
+        `Grass config value ${key} must be between ${minimum} and ${maximum}.`,
+      );
+    }
+
+    return value;
+  }
+
+  private readNumber(values: ParsedConfig, key: string): number {
     const rawValue = this.readString(values, key);
     const value = Number(rawValue);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new Error(`Grass config value ${key} must be a positive number.`);
+    if (!Number.isFinite(value)) {
+      throw new Error(`Grass config value ${key} must be a number.`);
     }
 
     return value;
