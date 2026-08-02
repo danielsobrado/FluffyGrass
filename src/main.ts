@@ -33,7 +33,7 @@ async function bootstrap(): Promise<void> {
   if (sceneElement) {
     sceneElement.textContent =
       sceneMode === "world"
-        ? "v0.7.2 Visuals · Corrected Distant LOD"
+        ? "v0.7.2 Visuals · Hybrid Far LOD"
         : "Island Regression";
   }
   document.title = `FluffyGrass ${APP_VERSION} · ${sceneMode}`;
