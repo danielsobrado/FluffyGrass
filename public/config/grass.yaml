@@ -32,6 +32,7 @@ dryColor: "#a8a06a"
 rootDarkening: 0.55
 normalUp: 0.45
 ambientBoost: 0.12
+backlightStrength: 0.16
 nearMaxDistance: 12
 midMaxDistance: 30
 farMaxDistance: 80
