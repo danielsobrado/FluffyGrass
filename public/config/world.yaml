@@ -14,9 +14,13 @@ terrainFarResolution: 7
 terrainChunksPerFrame: 2
 grassChunksPerFrame: 1
 
-# Coverage is defined per square metre. LODs reduce geometry, not placement density.
-grassClumpsPerSquareMeterDesktop: 1.2
-grassClumpsPerSquareMeterCompact: 0.95
+# Dense mesh-blade patches preserve visual coverage while LODs reduce blade count.
+grassPatchSize: 2
+grassBladesPerSquareMeterDesktop: 32
+grassBladesPerSquareMeterCompact: 24
+grassMidBladeFraction: 0.28
+grassUnderlayerFraction: 0.24
+grassPatchJitter: 0.3
 
 spawnSearchRadius: 640
 spawnSearchStep: 24
@@ -34,10 +38,10 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-grassNearDistance: 30
-grassMidDistance: 110
+grassNearDistance: 24
+grassMidDistance: 100
 grassFarDistance: 280
-grassTransitionDistance: 10
+grassTransitionDistance: 7
 grassHysteresisDistance: 3
 
 flySpeed: 45
