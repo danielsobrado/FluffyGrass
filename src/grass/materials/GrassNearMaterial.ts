@@ -63,6 +63,36 @@ vGrassDither = fract(
 );
 `;
 
+const VERTEX_WIND_LOW_POWER = `
+vec4 grassWorldRoot = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+vec2 grassWindDirection = normalize(uGrassWindDirection);
+float grassGust = sin(
+  dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
+  uGrassTime * uGrassGustSpeed +
+  instanceVariation.x * 6.28318530718
+);
+float grassBend = grassGust * uGrassWindStrength * instanceVariation.y *
+  grassProgress * grassProgress * uGrassWindLodScale;
+mat3 grassInstanceBasis = mat3(instanceMatrix);
+vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
+vec3 grassLocalWind = vec3(
+  dot(grassWorldWind, grassInstanceBasis[0]),
+  0.0,
+  dot(grassWorldWind, grassInstanceBasis[2])
+);
+transformed += grassLocalWind * grassBend;
+vGrassProgress = grassProgress;
+vGrassShade = grassBladeShade;
+vGrassDryness = instanceVariation.w;
+vGrassRootAo = instanceVariation.z;
+vGrassDither = fract(
+  grassBladeShade * 0.754877666 +
+  grassPhase * 0.569840296 +
+  instanceVariation.x +
+  uGrassDitherSeed
+);
+`;
+
 const FRAGMENT_DECLARATIONS = `
 uniform vec3 uGrassBaseColor;
 uniform vec3 uGrassTipColor;
@@ -80,8 +110,7 @@ varying float vGrassRootAo;
 varying float vGrassDither;
 `;
 
-const FRAGMENT_COLOR = `
-#include <color_fragment>
+const FRAGMENT_COLOR_COMMON = `
 float grassDither = vGrassDither;
 bool grassKeepLod = uGrassLodInvert < 0.5
   ? grassDither <= uGrassLodThreshold
@@ -103,7 +132,18 @@ float grassRootLight = mix(
 );
 float grassBladeVariation = mix(0.72, 1.13, vGrassShade);
 diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRootAo;
+`;
+
+const FRAGMENT_COLOR_LIT = `
+#include <color_fragment>
+${FRAGMENT_COLOR_COMMON}
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
+`;
+
+const FRAGMENT_COLOR_LOW_POWER = `
+#include <color_fragment>
+${FRAGMENT_COLOR_COMMON}
+diffuseColor.rgb *= 1.0 + uGrassAmbientBoost * 0.35;
 `;
 
 const FRAGMENT_OUTPUT = `
@@ -122,7 +162,7 @@ vec3 outgoingLight =
 `;
 
 export class GrassNearMaterial {
-  readonly material: THREE.MeshLambertMaterial;
+  readonly material: THREE.MeshLambertMaterial | THREE.MeshBasicMaterial;
 
   private readonly colorControls = {
     baseColor: "#273f22",
@@ -152,35 +192,51 @@ export class GrassNearMaterial {
     uGrassWindLodScale: { value: 1 },
   };
 
-  constructor() {
-    this.material = new THREE.MeshLambertMaterial({
+  constructor(private readonly lowPower = false) {
+    const parameters: THREE.MeshBasicMaterialParameters = {
       side: THREE.DoubleSide,
       color: 0xffffff,
       transparent: false,
       depthWrite: true,
-    });
-    this.material.name = "grass-near-material";
+    };
+    this.material = lowPower
+      ? new THREE.MeshBasicMaterial(parameters)
+      : new THREE.MeshLambertMaterial(parameters);
+    this.material.name = lowPower
+      ? "grass-near-material-compact"
+      : "grass-near-material";
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.uniforms);
-      shader.vertexShader = shader.vertexShader
+      let vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>${VERTEX_DECLARATIONS}`)
         .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>${lowPower ? VERTEX_WIND_LOW_POWER : VERTEX_WIND}`,
+        );
+      if (!lowPower) {
+        vertexShader = vertexShader.replace(
           "#include <beginnormal_vertex>",
           `#include <beginnormal_vertex>\nobjectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp));`,
-        )
-        .replace(
-          "#include <begin_vertex>",
-          `#include <begin_vertex>${VERTEX_WIND}`,
         );
-      shader.fragmentShader = shader.fragmentShader
+      }
+      shader.vertexShader = vertexShader;
+
+      let fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>${FRAGMENT_DECLARATIONS}`)
-        .replace("#include <color_fragment>", FRAGMENT_COLOR)
         .replace(
+          "#include <color_fragment>",
+          lowPower ? FRAGMENT_COLOR_LOW_POWER : FRAGMENT_COLOR_LIT,
+        );
+      if (!lowPower) {
+        fragmentShader = fragmentShader.replace(
           "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
           FRAGMENT_OUTPUT,
         );
+      }
+      shader.fragmentShader = fragmentShader;
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v4";
+    this.material.customProgramCacheKey = () =>
+      lowPower ? "grass-near-material-compact-v1" : "grass-near-material-v5";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
