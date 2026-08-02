@@ -85,6 +85,22 @@ export class GrassConfigLoader {
           "transitionDistance",
         ),
       },
+      qa: {
+        warmupSeconds: this.readNonNegativeNumber(values, "qaWarmupSeconds"),
+        sampleSeconds: this.readPositiveNumber(values, "qaSampleSeconds"),
+      },
+      impostor: {
+        viewsPerAxis: this.readPositiveInteger(
+          values,
+          "impostorViewsPerAxis",
+        ),
+        frameResolution: this.readPositiveInteger(
+          values,
+          "impostorFrameResolution",
+        ),
+        padding: this.readNonNegativeInteger(values, "impostorPadding"),
+        cameraMargin: this.readPositiveNumber(values, "impostorCameraMargin"),
+      },
     };
 
     this.validate(config);
@@ -95,6 +111,8 @@ export class GrassConfigLoader {
       wind: Object.freeze(config.wind),
       material: Object.freeze(config.material),
       lod: Object.freeze(config.lod),
+      qa: Object.freeze(config.qa),
+      impostor: Object.freeze(config.impostor),
     });
   }
 
@@ -121,13 +139,19 @@ export class GrassConfigLoader {
       throw new Error("midBladeSegments must be lower than bladeSegments.");
     }
     if (config.geometry.bladeHeightMin > config.geometry.bladeHeightMax) {
-      throw new Error("bladeHeightMin must be less than or equal to bladeHeightMax.");
+      throw new Error(
+        "bladeHeightMin must be less than or equal to bladeHeightMax.",
+      );
     }
     if (config.geometry.bladeWidthMin > config.geometry.bladeWidthMax) {
-      throw new Error("bladeWidthMin must be less than or equal to bladeWidthMax.");
+      throw new Error(
+        "bladeWidthMin must be less than or equal to bladeWidthMax.",
+      );
     }
     if (config.geometry.bladeLeanMin > config.geometry.bladeLeanMax) {
-      throw new Error("bladeLeanMin must be less than or equal to bladeLeanMax.");
+      throw new Error(
+        "bladeLeanMin must be less than or equal to bladeLeanMax.",
+      );
     }
     if (config.distribution.densityMin > config.distribution.densityMax) {
       throw new Error("densityMin must be less than or equal to densityMax.");
@@ -152,6 +176,24 @@ export class GrassConfigLoader {
       Number.EPSILON
     ) {
       throw new Error("Grass wind direction must not be zero.");
+    }
+    if (config.impostor.viewsPerAxis < 2) {
+      throw new Error("impostorViewsPerAxis must be at least 2.");
+    }
+    if (config.impostor.viewsPerAxis > 16) {
+      throw new Error("impostorViewsPerAxis must not exceed 16.");
+    }
+    if (config.impostor.frameResolution < 32) {
+      throw new Error("impostorFrameResolution must be at least 32.");
+    }
+    const atlasSize =
+      (config.impostor.frameResolution + config.impostor.padding * 2) *
+      config.impostor.viewsPerAxis;
+    if (atlasSize > 4096) {
+      throw new Error("Impostor atlas size must not exceed 4096 pixels.");
+    }
+    if (config.impostor.cameraMargin < 1) {
+      throw new Error("impostorCameraMargin must be at least 1.");
     }
   }
 
@@ -211,6 +253,15 @@ export class GrassConfigLoader {
 
   private readPositiveInteger(values: ParsedConfig, key: string): number {
     const value = this.readPositiveNumber(values, key);
+    if (!Number.isInteger(value)) {
+      throw new Error(`Grass config value ${key} must be an integer.`);
+    }
+
+    return value;
+  }
+
+  private readNonNegativeInteger(values: ParsedConfig, key: string): number {
+    const value = this.readNonNegativeNumber(values, key);
     if (!Number.isInteger(value)) {
       throw new Error(`Grass config value ${key} must be an integer.`);
     }

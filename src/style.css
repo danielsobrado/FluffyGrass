@@ -1,94 +1,184 @@
-*{
-  padding: 0;
-  margin: 0;
+* {
   box-sizing: border-box;
-}
-body,html{
-  background-color: #f1f1f1;
-  font-family: 'Helvetica', sans-serif;
-  overflow: hidden;
-  display: flex;
-  padding: 0;
   margin: 0;
+  padding: 0;
 }
-#canvas{
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #9eb8c5;
+  color: #f7f7f2;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+button,
+canvas {
+  -webkit-tap-highlight-color: transparent;
+}
+
+#canvas {
+  position: fixed;
+  inset: 0;
   width: 100vw;
-  height: 100vh;
-  position: fixed;
-  top: 0;
-  left: 0;
-}
-nav{
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  z-index: 100;
-}
-nav a{
-  color: #fff;
-  text-decoration: none;
-  font-size: 1rem;
-  font-weight: 600;
-  border-radius: 5px;
-  transition: all 0.3s ease;
-}
-nav a:hover{
-  opacity: 0.7;
-  transform: scale(1.2);
-}
-nav a img{
-  width: 30px;
-  height: 30px;
+  height: 100dvh;
+  display: block;
+  touch-action: none;
 }
 
-.credits{
+.app-title {
   position: fixed;
-  top: 0;
-  right: 0;
-  padding: 20px;
+  top: max(14px, env(safe-area-inset-top));
+  left: max(14px, env(safe-area-inset-left));
+  z-index: 100;
+  display: grid;
+  gap: 2px;
+  padding: 10px 13px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  background: rgb(18 24 22 / 72%);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.app-title strong {
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.app-title span {
+  font-size: 11px;
+  color: #bed6b0;
+}
+
+#scene-mode {
   color: #ffffff;
-  font-size: 1rem;
-  font-weight: 100;
-  z-index: 100;
-}
-.credits a{
-  color: #5b5b5b;
-  text-decoration: none;
-  transition: all 0.3s ease;
-}
-.credits a:hover{
-  color: #718f74;
-  opacity: 0.7;
-  transform: scale(1.2);
+  opacity: 0.78;
 }
 
-.randomizeButton{
-  display: none;
+#world-stats {
   position: fixed;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 5px 30px;
-  margin: 20px;
-  color: #f2f2f2;
-  font-size: 1rem;
-  font-weight: 100;
-  height: 50px;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
   z-index: 100;
-  border-radius: 50px;
-  border: none;
-  background-color: #000000;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  min-width: 210px;
+  padding: 10px 12px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 10px;
+  background: rgb(18 24 22 / 68%);
+  color: #eaf0e6;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-line;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
 }
-.randomizeButton:hover{
-  color: #718f74;
+
+.flight-help {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 100;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgb(18 24 22 / 68%);
+  color: rgb(255 255 255 / 82%);
+  font-size: 11px;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
 }
-.randomizeButton:active{
-  background-color: #000000;
-  opacity: 0.7;
+
+nav {
+  position: fixed;
+  right: max(15px, env(safe-area-inset-right));
+  bottom: max(15px, env(safe-area-inset-bottom));
+  z-index: 110;
+}
+
+nav img {
+  width: 32px;
+  height: 32px;
+  filter: drop-shadow(0 3px 8px rgb(0 0 0 / 28%));
+}
+
+.mobile-flight-controls {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 55px);
+  z-index: 120;
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-flight-controls button {
+  width: 50px;
+  height: 50px;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 50%;
+  background: rgb(18 24 22 / 62%);
+  color: #fff;
+  font-size: 18px;
+  backdrop-filter: blur(8px);
+  touch-action: none;
+}
+
+.mobile-flight-controls button:active {
+  background: rgb(111 145 86 / 78%);
+}
+
+.startup-error {
+  position: fixed;
+  inset: 1rem;
+  z-index: 10000;
+  overflow: auto;
+  padding: 1rem;
+  background: #181818;
+  color: #fff;
+  white-space: pre-wrap;
+}
+
+html[data-viewport="compact"] .app-title {
+  max-width: calc(100vw - 28px);
+}
+
+html[data-viewport="compact"] #world-stats {
+  top: auto;
+  right: auto;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 4px);
+  min-width: 0;
+  max-width: 62vw;
+  font-size: 9px;
+}
+
+html[data-viewport="compact"] .flight-help {
+  top: calc(max(14px, env(safe-area-inset-top)) + 70px);
+  bottom: auto;
+  width: calc(100vw - 28px);
+  text-align: center;
+  white-space: normal;
+}
+
+html[data-viewport="compact"] nav {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .app-title strong {
+    font-size: 13px;
+  }
+
+  .app-title span {
+    font-size: 10px;
+  }
+}
+
+body[data-scene="island"] #world-stats,
+body[data-scene="island"] .flight-help {
+  display: none;
 }

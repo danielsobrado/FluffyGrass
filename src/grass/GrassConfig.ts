@@ -56,6 +56,18 @@ export interface GrassMaterialConfig {
   backlightStrength: number;
 }
 
+export interface GrassQaConfig {
+  warmupSeconds: number;
+  sampleSeconds: number;
+}
+
+export interface GrassImpostorConfig {
+  viewsPerAxis: number;
+  frameResolution: number;
+  padding: number;
+  cameraMargin: number;
+}
+
 export interface GrassConfig {
   instanceCount: number;
   patchSize: number;
@@ -64,4 +76,6 @@ export interface GrassConfig {
   wind: GrassWindConfig;
   material: GrassMaterialConfig;
   lod: GrassLodConfig;
+  qa: GrassQaConfig;
+  impostor: GrassImpostorConfig;
 }

@@ -1,6 +1,11 @@
 import type { GUI } from "dat.gui";
 import * as THREE from "three";
-import type { GrassConfig } from "./GrassConfig";
+import type {
+  GrassConfig,
+  GrassImpostorConfig,
+  GrassLodConfig,
+  GrassQaConfig,
+} from "./GrassConfig";
 import { GrassConfigLoader } from "./internal/GrassConfigLoader";
 import {
   GrassDistribution,
@@ -30,6 +35,22 @@ interface PatchBucket {
   placements: GrassPlacement[];
 }
 
+export interface GrassDiagnostics {
+  patchCount: number;
+  patchesInFrustum: number;
+  visibleNearPatches: number;
+  visibleMidPatches: number;
+  totalClumps: number;
+  submittedNearClumps: number;
+  submittedMidClumps: number;
+}
+
+export interface GrassImpostorBakeTarget {
+  patchId: string;
+  object: THREE.InstancedMesh;
+  bounds: THREE.Box3;
+}
+
 const MID_WIND_SCALE = 0.62;
 
 export class GrassSystem {
@@ -40,8 +61,10 @@ export class GrassSystem {
   private readonly wind = new WindField();
   private readonly meshes: THREE.InstancedMesh[] = [];
   private readonly sourceGeometries: THREE.BufferGeometry[] = [];
+  private readonly worldBounds = new THREE.Box3();
   private patchGrid?: GrassPatchGrid;
   private lodController?: GrassLodController;
+  private config?: GrassConfig;
   private initialization?: Promise<void>;
 
   constructor(private readonly dependencies: GrassSystemDependencies) {}
@@ -65,6 +88,80 @@ export class GrassSystem {
     }
   }
 
+  getBounds(): THREE.Box3 {
+    this.assertReady();
+    return this.worldBounds.clone();
+  }
+
+  getLodConfig(): GrassLodConfig {
+    return this.assertReady().lod;
+  }
+
+  getQaConfig(): GrassQaConfig {
+    return this.assertReady().qa;
+  }
+
+  getImpostorConfig(): GrassImpostorConfig {
+    return this.assertReady().impostor;
+  }
+
+  getDiagnostics(): GrassDiagnostics {
+    let patchCount = 0;
+    let patchesInFrustum = 0;
+    let visibleNearPatches = 0;
+    let visibleMidPatches = 0;
+    let totalClumps = 0;
+    let submittedNearClumps = 0;
+    let submittedMidClumps = 0;
+
+    if (this.patchGrid) {
+      for (const patch of this.patchGrid.values()) {
+        patchCount += 1;
+        totalClumps += patch.instanceCount;
+        if (patch.inFrustum) {
+          patchesInFrustum += 1;
+        }
+        if (patch.nearMesh.visible) {
+          visibleNearPatches += 1;
+          submittedNearClumps += patch.instanceCount;
+        }
+        if (patch.midMesh.visible) {
+          visibleMidPatches += 1;
+          submittedMidClumps += patch.instanceCount;
+        }
+      }
+    }
+
+    return {
+      patchCount,
+      patchesInFrustum,
+      visibleNearPatches,
+      visibleMidPatches,
+      totalClumps,
+      submittedNearClumps,
+      submittedMidClumps,
+    };
+  }
+
+  getImpostorBakeTarget(): GrassImpostorBakeTarget | undefined {
+    let selected: GrassPatch | undefined;
+    if (this.patchGrid) {
+      for (const patch of this.patchGrid.values()) {
+        if (!selected || patch.instanceCount > selected.instanceCount) {
+          selected = patch;
+        }
+      }
+    }
+
+    return selected
+      ? {
+          patchId: selected.id.replace(":", "-"),
+          object: selected.nearMesh,
+          bounds: selected.bounds.clone(),
+        }
+      : undefined;
+  }
+
   dispose(): void {
     for (const mesh of this.meshes) {
       this.dependencies.scene.remove(mesh);
@@ -79,10 +176,13 @@ export class GrassSystem {
 
     this.material.material.dispose();
     this.patchGrid?.clear();
+    this.worldBounds.makeEmpty();
+    this.config = undefined;
   }
 
   private async createGrass(surface: THREE.Mesh): Promise<void> {
     const config = await this.configLoader.load();
+    this.config = config;
     const variants = this.geometryFactory.createLodVariants(
       config.geometry,
       config.distribution.seed,
@@ -92,6 +192,7 @@ export class GrassSystem {
     this.material.configure(config.material, config.wind);
     this.patchGrid = new GrassPatchGrid(config.patchSize);
     this.lodController = new GrassLodController(config.lod);
+    this.worldBounds.makeEmpty();
 
     const placements = this.distribution.generate(
       surface,
@@ -103,6 +204,7 @@ export class GrassSystem {
     for (const bucket of buckets.values()) {
       const patch = this.createPatch(bucket, variants, config);
       this.patchGrid.register(patch);
+      this.worldBounds.union(patch.bounds);
       this.dependencies.scene.add(patch.nearMesh, patch.midMesh);
       this.meshes.push(patch.nearMesh, patch.midMesh);
     }
@@ -184,6 +286,7 @@ export class GrassSystem {
       bounds,
       nearMesh,
       midMesh,
+      instanceCount: bucket.placements.length,
       lod: GrassLodLevel.Near,
       distance: 0,
       inFrustum: true,
@@ -234,5 +337,12 @@ export class GrassSystem {
     let value = Math.imul(gridX, 374761393) + Math.imul(gridZ, 668265263) + seed;
     value = Math.imul(value ^ (value >>> 13), 1274126177);
     return (value ^ (value >>> 16)) >>> 0;
+  }
+
+  private assertReady(): GrassConfig {
+    if (!this.config || this.worldBounds.isEmpty()) {
+      throw new Error("GrassSystem is not initialized.");
+    }
+    return this.config;
   }
 }

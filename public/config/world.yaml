@@ -1,0 +1,41 @@
+# FluffyGrass large-world performance benchmark.
+seed: 42017
+worldSize: 2048
+chunkSize: 64
+
+terrainRadiusDesktop: 6
+terrainRadiusCompact: 3
+grassRadiusDesktop: 4
+grassRadiusCompact: 2
+
+terrainNearResolution: 25
+terrainMidResolution: 13
+terrainFarResolution: 7
+terrainChunksPerFrame: 2
+grassChunksPerFrame: 1
+
+grassClumpsPerChunkDesktop: 90
+grassClumpsPerChunkCompact: 45
+
+baseHeight: 2
+rollingHeight: 34
+mountainHeight: 210
+mountainScale: 0.00115
+detailScale: 0.0055
+
+grassMinAltitude: -20
+grassMaxAltitude: 118
+grassMaxSlopeDegrees: 44
+
+grassNearDistance: 28
+grassMidDistance: 96
+grassFarDistance: 260
+grassTransitionDistance: 8
+grassHysteresisDistance: 3
+
+flySpeed: 45
+flyBoostMultiplier: 4
+flyMinSpeed: 8
+flyMaxSpeed: 240
+initialAltitude: 85
+initialDistance: 180

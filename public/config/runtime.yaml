@@ -1,0 +1,22 @@
+# Responsive rendering and presentation profile.
+compactMaxWidth: 820
+
+desktopCameraFov: 60
+desktopCameraMargin: 1.18
+desktopCameraElevation: 0.72
+desktopMaxPixelRatio: 2
+desktopAutoRotate: true
+desktopShadows: true
+desktopShadowMapSize: 2048
+desktopShowGui: true
+desktopShowDecorativeText: true
+
+compactCameraFov: 56
+compactCameraMargin: 1.28
+compactCameraElevation: 1.05
+compactMaxPixelRatio: 1.35
+compactAutoRotate: false
+compactShadows: false
+compactShadowMapSize: 1024
+compactShowGui: false
+compactShowDecorativeText: false

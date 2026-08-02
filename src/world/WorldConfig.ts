@@ -1,0 +1,35 @@
+export interface WorldConfig {
+  seed: number;
+  worldSize: number;
+  chunkSize: number;
+  terrainRadiusDesktop: number;
+  terrainRadiusCompact: number;
+  grassRadiusDesktop: number;
+  grassRadiusCompact: number;
+  terrainNearResolution: number;
+  terrainMidResolution: number;
+  terrainFarResolution: number;
+  terrainChunksPerFrame: number;
+  grassChunksPerFrame: number;
+  grassClumpsPerChunkDesktop: number;
+  grassClumpsPerChunkCompact: number;
+  baseHeight: number;
+  rollingHeight: number;
+  mountainHeight: number;
+  mountainScale: number;
+  detailScale: number;
+  grassMinAltitude: number;
+  grassMaxAltitude: number;
+  grassMaxSlopeDegrees: number;
+  grassNearDistance: number;
+  grassMidDistance: number;
+  grassFarDistance: number;
+  grassTransitionDistance: number;
+  grassHysteresisDistance: number;
+  flySpeed: number;
+  flyBoostMultiplier: number;
+  flyMinSpeed: number;
+  flyMaxSpeed: number;
+  initialAltitude: number;
+  initialDistance: number;
+}
