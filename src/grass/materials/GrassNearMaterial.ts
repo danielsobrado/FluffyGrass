@@ -38,10 +38,11 @@ float grassFlutter = sin(
   uGrassTime * uGrassFlutterSpeed +
   grassPhase * 6.28318530718
 );
+float grassStiffness = mix(0.76, 1.12, fract(grassPhase * 1.61803398875));
 float grassBend = (
   grassGust * uGrassWindStrength +
   grassFlutter * uGrassFlutterStrength
-) * instanceVariation.y * pow(grassProgress, 1.65) * uGrassWindLodScale;
+) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) * uGrassWindLodScale;
 mat3 grassInstanceBasis = mat3(instanceMatrix);
 vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
 vec3 grassLocalWind = vec3(
@@ -54,7 +55,12 @@ vGrassProgress = grassProgress;
 vGrassShade = grassBladeShade;
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
-vGrassDither = fract(instanceVariation.x + uGrassDitherSeed);
+vGrassDither = fract(
+  grassBladeShade * 0.754877666 +
+  grassPhase * 0.569840296 +
+  instanceVariation.x +
+  uGrassDitherSeed
+);
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -95,7 +101,7 @@ float grassRootLight = mix(
   1.0,
   smoothstep(0.0, 0.34, vGrassProgress)
 );
-float grassBladeVariation = mix(0.86, 1.12, vGrassShade);
+float grassBladeVariation = mix(0.72, 1.13, vGrassShade);
 diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRootAo;
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
@@ -174,7 +180,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v3";
+    this.material.customProgramCacheKey = () => "grass-near-material-v4";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
