@@ -9,9 +9,16 @@ export enum GrassLodLevel {
 
 export interface GrassPatch {
   id: string;
+  gridX: number;
+  gridZ: number;
   bounds: THREE.Box3;
-  mesh: THREE.InstancedMesh;
+  nearMesh: THREE.InstancedMesh;
+  midMesh: THREE.InstancedMesh;
   lod: GrassLodLevel;
+  distance: number;
+  inFrustum: boolean;
+  nearCoverage: number;
+  midDistanceFade: number;
 }
 
 export class GrassPatchGrid {
@@ -19,27 +26,26 @@ export class GrassPatchGrid {
 
   constructor(readonly patchSize: number) {}
 
-  register(
-    id: string,
-    mesh: THREE.InstancedMesh,
-    surface: THREE.Mesh,
-  ): GrassPatch {
-    surface.geometry.computeBoundingBox();
-    surface.updateWorldMatrix(true, false);
+  keyFor(position: THREE.Vector3): string {
+    return this.key(
+      Math.floor(position.x / this.patchSize),
+      Math.floor(position.z / this.patchSize),
+    );
+  }
 
-    const bounds = surface.geometry.boundingBox
-      ? surface.geometry.boundingBox.clone().applyMatrix4(surface.matrixWorld)
-      : new THREE.Box3().setFromObject(surface);
+  coordinatesFor(position: THREE.Vector3): readonly [number, number] {
+    return [
+      Math.floor(position.x / this.patchSize),
+      Math.floor(position.z / this.patchSize),
+    ];
+  }
 
-    const patch: GrassPatch = {
-      id,
-      bounds,
-      mesh,
-      lod: GrassLodLevel.Near,
-    };
+  register(patch: GrassPatch): void {
+    if (this.patches.has(patch.id)) {
+      throw new Error(`Grass patch ${patch.id} is already registered.`);
+    }
 
-    this.patches.set(id, patch);
-    return patch;
+    this.patches.set(patch.id, patch);
   }
 
   values(): IterableIterator<GrassPatch> {
@@ -48,5 +54,9 @@ export class GrassPatchGrid {
 
   clear(): void {
     this.patches.clear();
+  }
+
+  private key(gridX: number, gridZ: number): string {
+    return `${gridX}:${gridZ}`;
   }
 }
