@@ -26,10 +26,12 @@ void main() {
   vec3 instanceAxisZ = instanceModel[2].xyz;
   float scaleX = max(length(instanceAxisX), 0.0001);
   float scaleY = max(length(instanceAxisY), 0.0001);
+  float scaleZ = max(length(instanceAxisZ), 0.0001);
   vec3 basisX = instanceAxisX / scaleX;
   vec3 basisY = normalize(instanceAxisY);
-  vec3 basisZ = normalize(instanceAxisZ);
-  vec3 center = (instanceModel * vec4(0.0, uCenterHeight, 0.0, 1.0)).xyz;
+  vec3 basisZ = instanceAxisZ / scaleZ;
+  vec3 rootCenter = (instanceModel * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vec3 center = rootCenter + basisY * uCenterHeight * scaleY;
   vec3 toCamera = normalize(cameraPosition - center);
   vec3 billboardRight = cross(basisY, toCamera);
   float billboardRightLength = length(billboardRight);
@@ -43,12 +45,31 @@ void main() {
     uTime * 0.7 +
     instanceVariation.x * 6.28318530718
   );
-  center += vec3(windDirection.x, 0.0, windDirection.y) *
+  vec3 windOffset = vec3(windDirection.x, 0.0, windDirection.y) *
     gust * uWindStrength * 0.22;
+  center += windOffset;
 
-  vec3 worldPosition = center +
+  vec3 billboardPosition = center +
     billboardRight * position.x * scaleX +
     billboardUp * position.y * scaleY;
+
+  vec3 groundForward = billboardUp - basisY * dot(billboardUp, basisY);
+  float groundForwardLength = length(groundForward);
+  groundForward = groundForwardLength < 0.001
+    ? basisZ
+    : groundForward / groundForwardLength;
+  vec3 groundPosition = rootCenter + windOffset * 0.35 +
+    billboardRight * position.x * scaleX +
+    groundForward * position.y * scaleZ +
+    basisY * 0.045;
+
+  float viewElevation = abs(dot(toCamera, basisY));
+  float groundProjectionBlend = smoothstep(0.58, 0.84, viewElevation);
+  vec3 worldPosition = mix(
+    billboardPosition,
+    groundPosition,
+    groundProjectionBlend
+  );
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
@@ -99,10 +120,15 @@ vec2 encodeHemiOctahedral(vec3 direction) {
 
 vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
   float cellSize = uFrameResolution + uPadding * 2.0;
+  vec2 safeUv = clamp(
+    localUv,
+    vec2(0.5 / uFrameResolution),
+    vec2(1.0 - 0.5 / uFrameResolution)
+  );
   vec2 pixel =
     frameIndex * cellSize +
     vec2(uPadding) +
-    localUv * uFrameResolution;
+    safeUv * uFrameResolution;
   return texture2D(uAtlas, pixel / uAtlasSize);
 }
 
@@ -134,6 +160,7 @@ void main() {
       vec2(maximumFrame)
     );
     atlasColor = sampleFrame(nearestFrame, vUv);
+    atlasColor.rgb *= atlasColor.a;
   } else {
     vec2 frameBase = floor(framePosition);
     vec2 frameBlend = fract(framePosition);
