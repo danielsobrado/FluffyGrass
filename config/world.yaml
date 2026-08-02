@@ -16,10 +16,10 @@ grassChunksPerFrame: 1
 
 # Four-metre patches preserve blade density while reducing instance and impostor counts.
 grassPatchSize: 4
-grassBladesPerSquareMeterDesktop: 32
-grassBladesPerSquareMeterCompact: 24
-grassMidBladeFraction: 0.42
-grassUnderlayerFraction: 0.24
+grassBladesPerSquareMeterDesktop: 36
+grassBladesPerSquareMeterCompact: 26
+grassMidBladeFraction: 0.5
+grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
 
 spawnSearchRadius: 640

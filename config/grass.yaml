@@ -7,8 +7,8 @@ bladeSegments: 3
 clumpRadius: 0.72
 bladeHeightMin: 0.48
 bladeHeightMax: 0.95
-bladeWidthMin: 0.018
-bladeWidthMax: 0.042
+bladeWidthMin: 0.021
+bladeWidthMax: 0.048
 bladeLeanMin: 0.02
 bladeLeanMax: 0.22
 midBladesPerClump: 4
