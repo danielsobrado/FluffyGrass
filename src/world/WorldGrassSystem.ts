@@ -11,6 +11,7 @@ import { SeededRandom } from "../grass/internal/SeededRandom";
 import { GrassNearMaterial } from "../grass/materials/GrassNearMaterial";
 import { WindField } from "../grass/wind/WindField";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import { APP_VERSION } from "../version";
 import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
@@ -91,7 +92,9 @@ export class WorldGrassSystem {
     }
 
     this.status = "Loading grass configuration";
-    const grassConfig = await this.configLoader.load();
+    const grassConfig = await this.configLoader.load(
+      `./config/grass.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+    );
     await this.yieldToBrowser();
 
     this.status = "Creating blade geometry";
