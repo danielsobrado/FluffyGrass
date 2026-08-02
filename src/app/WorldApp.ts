@@ -2,6 +2,7 @@ import * as THREE from "three";
 import Stats from "stats-gl";
 import { FlyController } from "../controls/FlyController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
 import { TerrainField } from "../world/TerrainField";
 import { TerrainStreamer } from "../world/TerrainStreamer";
@@ -96,7 +97,9 @@ export class WorldApp {
     canvas: HTMLCanvasElement,
     profile: RuntimeProfile,
   ): Promise<WorldApp> {
-    const config = await new WorldConfigLoader().load();
+    const config = await new WorldConfigLoader().load(
+      `./config/world.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+    );
     const app = new WorldApp(canvas, profile, config);
     void app.initializeGrass();
     return app;
