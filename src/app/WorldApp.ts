@@ -11,6 +11,9 @@ import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
+const ERROR_MESSAGE_MAX_LENGTH = 180;
+
+type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
 
 export class WorldApp {
   private readonly scene = new THREE.Scene();
@@ -24,7 +27,14 @@ export class WorldApp {
   private readonly controls: FlyController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
   private readonly pixelRatio: number;
+  private frameHandle = 0;
+  private frameCount = 0;
   private hudElapsed = 0;
+  private running = false;
+  private terrainEnabled = true;
+  private grassEnabled = true;
+  private rendererEnabled = true;
+  private runtimeError?: string;
   private grassInitializationError?: string;
 
   private constructor(
@@ -89,7 +99,7 @@ export class WorldApp {
     );
     this.addLights();
     this.setupStats();
-    window.addEventListener("resize", this.handleResize);
+    this.bindRuntimeEvents();
   }
 
   static async create(
@@ -105,11 +115,22 @@ export class WorldApp {
   }
 
   start(): void {
-    this.render();
+    if (this.running) {
+      return;
+    }
+    this.running = true;
+    this.clock.start();
+    this.frameHandle = requestAnimationFrame(this.render);
   }
 
   dispose(): void {
+    this.running = false;
+    cancelAnimationFrame(this.frameHandle);
     window.removeEventListener("resize", this.handleResize);
+    window.removeEventListener("error", this.handleWindowError);
+    window.removeEventListener("unhandledrejection", this.handleUnhandledRejection);
+    this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.controls.dispose();
     this.terrain.dispose();
     this.grass.dispose();
@@ -117,27 +138,94 @@ export class WorldApp {
     this.stats?.dom.remove();
   }
 
+  private bindRuntimeEvents(): void {
+    window.addEventListener("resize", this.handleResize);
+    window.addEventListener("error", this.handleWindowError);
+    window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
+    this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
+  }
+
   private async initializeGrass(): Promise<void> {
     try {
       await this.grass.initialize();
     } catch (error) {
       console.error("[FluffyGrass] Grass initialization failed.", error);
-      this.grassInitializationError =
-        error instanceof Error ? error.message : String(error);
+      this.grassInitializationError = this.formatError(error);
+      this.grassEnabled = false;
     }
   }
 
   private render = (): void => {
+    if (!this.running) {
+      return;
+    }
+
+    // Schedule first so an exception in any subsystem cannot terminate animation.
+    this.frameHandle = requestAnimationFrame(this.render);
+    this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
-    this.controls.update(deltaSeconds);
-    this.constrainCamera();
-    this.terrain.update(this.camera.position);
-    this.grass.update(deltaSeconds, this.camera);
-    this.renderer.render(this.scene, this.camera);
-    this.stats?.update();
-    this.updateHud(deltaSeconds);
-    requestAnimationFrame(this.render);
+
+    this.runFrameSubsystem("controls", () => {
+      this.controls.update(deltaSeconds);
+      this.constrainCamera();
+    });
+
+    if (this.terrainEnabled) {
+      this.runFrameSubsystem("terrain", () => {
+        this.terrain.update(this.camera.position);
+      });
+    }
+
+    if (this.grassEnabled) {
+      this.runFrameSubsystem("grass", () => {
+        this.grass.update(deltaSeconds, this.camera);
+      });
+    }
+
+    if (this.rendererEnabled) {
+      this.runFrameSubsystem("renderer", () => {
+        this.renderer.render(this.scene, this.camera);
+        this.stats?.update();
+      });
+    }
+
+    this.runFrameSubsystem("hud", () => {
+      this.updateHud(deltaSeconds);
+    });
   };
+
+  private runFrameSubsystem(
+    subsystem: FrameSubsystem,
+    callback: () => void,
+  ): void {
+    try {
+      callback();
+    } catch (error) {
+      this.recordRuntimeError(subsystem, error);
+      if (subsystem === "terrain") {
+        this.terrainEnabled = false;
+      } else if (subsystem === "grass") {
+        this.grassEnabled = false;
+      } else if (subsystem === "renderer") {
+        this.rendererEnabled = false;
+      }
+    }
+  }
+
+  private recordRuntimeError(subsystem: FrameSubsystem, error: unknown): void {
+    const message = `${subsystem}: ${this.formatError(error)}`;
+    if (this.runtimeError === message) {
+      return;
+    }
+    this.runtimeError = message;
+    console.error(`[FluffyGrass] ${subsystem} frame failure.`, error);
+  }
+
+  private formatError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/\s+/g, " ").slice(0, ERROR_MESSAGE_MAX_LENGTH);
+  }
 
   private applyRendererSize(): void {
     this.renderer.setPixelRatio(this.pixelRatio);
@@ -213,6 +301,7 @@ export class WorldApp {
       ? `Grass error: ${this.grassInitializationError}`
       : grass.status;
     this.hud.textContent = [
+      `Frame ${this.frameCount.toLocaleString()} · ${this.runtimeError ? "DEGRADED" : "running"}`,
       `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
       `Input ${this.controls.getInputDiagnostics()}`,
@@ -221,8 +310,32 @@ export class WorldApp {
         ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
         : grassStatus,
       `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.pixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} ms`,
-    ].join("\n");
+      this.runtimeError ? `Error ${this.runtimeError}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
+
+  private readonly handleWindowError = (event: ErrorEvent): void => {
+    this.runtimeError = `window: ${this.formatError(event.error ?? event.message)}`;
+  };
+
+  private readonly handleUnhandledRejection = (
+    event: PromiseRejectionEvent,
+  ): void => {
+    this.runtimeError = `promise: ${this.formatError(event.reason)}`;
+  };
+
+  private readonly handleContextLost = (event: Event): void => {
+    event.preventDefault();
+    this.rendererEnabled = false;
+    this.runtimeError = "renderer: WebGL context lost";
+  };
+
+  private readonly handleContextRestored = (): void => {
+    this.rendererEnabled = true;
+    this.runtimeError = undefined;
+  };
 
   private readonly handleResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
