@@ -1,4 +1,8 @@
-const ENTRY_URL = new URL("./src/main.ts", document.baseURI).href;
+const BUILD_VERSION = "v0.7.1-octahedral-impostors";
+const ENTRY_URL = new URL(
+  `./src/main.ts?v=${encodeURIComponent(BUILD_VERSION)}`,
+  document.baseURI,
+).href;
 const TYPESCRIPT_EXTENSION = ".ts";
 const ASSET_PATTERN = /(["'`])\/([^"'`]+\.(?:avif|bin|exr|gif|glb|gltf|hdr|jpe?g|ktx2|mp3|ogg|png|svg|wav|webp))\1/g;
 const IMPORT_PATTERN = /((?:\bimport|\bexport)\s+(?:[^"']*?\s+from\s*)?)(["'])([^"']+)\2/g;
@@ -38,6 +42,7 @@ function resolveLocal(specifier, parentUrl) {
   if (!fileName.includes(".")) {
     resolved.pathname += TYPESCRIPT_EXTENSION;
   }
+  resolved.searchParams.set("v", BUILD_VERSION);
   return resolved.href;
 }
 
@@ -73,7 +78,7 @@ function transpile(source, fileName) {
 }
 
 async function readSource(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Unable to load ${url}: HTTP ${response.status}`);
   }

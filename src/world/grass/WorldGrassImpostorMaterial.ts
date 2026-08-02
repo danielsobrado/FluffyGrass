@@ -112,7 +112,7 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
-  float dither = coverageNoise(floor(gl_FragCoord.xy), vInstanceSeed * 97.0);
+  float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
   if (dither > uCoverage) {
     discard;
   }
