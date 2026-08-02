@@ -10,12 +10,14 @@ import {
   IMPOSTOR_AERIAL_FADE_START,
   IMPOSTOR_ALPHA_CUTOFF,
   IMPOSTOR_BASE_COLOR_BLEND,
+  IMPOSTOR_COLOR_SCALE,
   IMPOSTOR_ROOT_LIGHT_MAX,
   IMPOSTOR_ROOT_LIGHT_MIN,
 } from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
 attribute vec4 instanceVariation;
+attribute float instanceCoverage;
 uniform float uCenterHeight;
 uniform float uTime;
 uniform vec2 uWindDirection;
@@ -32,6 +34,7 @@ varying float vRootAo;
 varying float vFarEntry;
 varying float vTerrainCoverage;
 varying float vViewElevation;
+varying float vFieldCoverage;
 #include <fog_pars_vertex>
 
 void main() {
@@ -80,6 +83,7 @@ void main() {
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
   vRootAo = instanceVariation.z;
+  vFieldCoverage = instanceCoverage;
   float cameraDistance = distance(cameraPosition, center);
   vFarEntry = smoothstep(
     uMidDistance - uTransitionDistance,
@@ -117,6 +121,7 @@ varying float vRootAo;
 varying float vFarEntry;
 varying float vTerrainCoverage;
 varying float vViewElevation;
+varying float vFieldCoverage;
 #include <fog_pars_fragment>
 
 vec2 encodeHemiOctahedral(vec3 direction) {
@@ -160,7 +165,8 @@ void main() {
     vViewElevation
   );
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage * aerialVisibility * uStreamCoverage;
+    vFarEntry * vTerrainCoverage * aerialVisibility *
+    uStreamCoverage * vFieldCoverage;
   float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
   if (
     effectiveCoverage <= 0.001 ||
@@ -226,6 +232,7 @@ void main() {
   );
   color = mix(color, uBaseColor, terrainMatch);
   color = mix(color, uDryColor, vDryness * 0.12);
+  color *= ${IMPOSTOR_COLOR_SCALE.toFixed(2)};
   color *= mix(${IMPOSTOR_ROOT_LIGHT_MIN.toFixed(2)}, ${IMPOSTOR_ROOT_LIGHT_MAX.toFixed(2)}, vRootAo);
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>

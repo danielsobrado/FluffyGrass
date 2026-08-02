@@ -16,7 +16,10 @@ import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
 import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
-import { IMPOSTOR_AERIAL_FADE_END } from "./grass/WorldGrassImpostorTuning";
+import {
+  IMPOSTOR_AERIAL_FADE_END,
+  IMPOSTOR_AERIAL_FADE_START,
+} from "./grass/WorldGrassImpostorTuning";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
 
 interface WorldGrassPatch extends GrassPatch {
@@ -45,6 +48,7 @@ interface GrassChunkBuildJob {
   random: SeededRandom;
   matrixValues: Float32Array;
   variations: Float32Array;
+  coverages: Float32Array;
   instanceCount: number;
   up: THREE.Vector3;
   normal: THREE.Vector3;
@@ -166,6 +170,7 @@ export class WorldGrassSystem {
       farMaxDistance: this.worldConfig.grassFarDistance,
       transitionDistance: this.worldConfig.grassTransitionDistance,
       hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+      farAerialFadeStart: IMPOSTOR_AERIAL_FADE_START,
       farAerialFadeEnd: IMPOSTOR_AERIAL_FADE_END,
     };
     this.material.configureLod(lodConfig);
@@ -548,6 +553,7 @@ export class WorldGrassSystem {
       ),
       matrixValues: new Float32Array(patchesPerAxis * patchesPerAxis * 16),
       variations: new Float32Array(patchesPerAxis * patchesPerAxis * 4),
+      coverages: new Float32Array(patchesPerAxis * patchesPerAxis),
       instanceCount: 0,
       up: new THREE.Vector3(0, 1, 0),
       normal: new THREE.Vector3(),
@@ -604,7 +610,7 @@ export class WorldGrassSystem {
         FIELD_COVERAGE_MIN,
         FIELD_COVERAGE_FULL,
       );
-      if (job.random.next() > coverage) {
+      if (coverage <= 0.02) {
         continue;
       }
 
@@ -637,12 +643,20 @@ export class WorldGrassSystem {
         0,
         1,
       );
+      job.coverages[instanceIndex] = coverage;
       job.instanceCount += 1;
     }
   }
 
   private advancePatchFinalize(job: GrassChunkBuildJob): GrassChunkFinalizeResult {
-    const { request, grassConfig, matrixValues, variations, instanceCount } = job;
+    const {
+      request,
+      grassConfig,
+      matrixValues,
+      variations,
+      coverages,
+      instanceCount,
+    } = job;
 
     if (instanceCount === 0) {
       return { complete: true };
@@ -670,6 +684,7 @@ export class WorldGrassSystem {
         .expandByScalar(Math.max(impostorRadius, bladeExtent));
     }
     const variationValues = job.variationValues;
+    const coverageValues = coverages.subarray(0, instanceCount);
     const variantIndex = job.variantIndex;
 
     if (job.finalizeStage === 0) {
@@ -680,6 +695,7 @@ export class WorldGrassSystem {
         matrixValues,
         instanceCount,
         variationValues,
+        coverageValues,
         job.meshBounds,
       );
       job.finalizeStage += 1;
@@ -693,6 +709,7 @@ export class WorldGrassSystem {
         matrixValues,
         instanceCount,
         variationValues,
+        coverageValues,
         job.meshBounds,
       );
       job.finalizeStage += 1;
@@ -708,6 +725,7 @@ export class WorldGrassSystem {
         matrixValues,
         instanceCount,
         variationValues,
+        coverageValues,
         job.meshBounds,
       );
       job.finalizeStage += 1;
@@ -768,11 +786,13 @@ export class WorldGrassSystem {
     matrixValues: Float32Array,
     instanceCount: number,
     variationValues: Float32Array,
+    coverageValues: Float32Array,
     bounds?: THREE.Box3,
   ): THREE.InstancedMesh {
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
       variationValues,
+      coverageValues,
     );
     const mesh = new THREE.InstancedMesh(
       geometry,

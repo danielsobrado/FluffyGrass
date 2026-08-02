@@ -52,6 +52,7 @@ export class GrassGeometryFactory {
   createInstancedGeometry(
     source: THREE.BufferGeometry,
     variationValues: Float32Array,
+    coverageValues?: Float32Array,
   ): THREE.InstancedBufferGeometry {
     const geometry = new THREE.InstancedBufferGeometry();
     if (source.index) {
@@ -66,6 +67,13 @@ export class GrassGeometryFactory {
       "instanceVariation",
       new THREE.InstancedBufferAttribute(variationValues, 4),
     );
+    const instanceCount = variationValues.length / 4;
+    const resolvedCoverage =
+      coverageValues ?? new Float32Array(instanceCount).fill(1);
+    geometry.setAttribute(
+      "instanceCoverage",
+      new THREE.InstancedBufferAttribute(resolvedCoverage, 1),
+    );
     geometry.boundingBox = source.boundingBox?.clone() ?? null;
     geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
     return geometry;
@@ -74,11 +82,11 @@ export class GrassGeometryFactory {
   disposeInstancedMesh(mesh: THREE.InstancedMesh): void {
     const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
 
-    // All attributes except instanceVariation, plus the index, are borrowed
-    // from a shared LOD variant. Detach them before disposal so streaming one
-    // chunk out cannot invalidate the GPU buffers used by every other chunk.
+    // Base attributes and the index are borrowed from a shared LOD variant.
+    // Detach them before disposal so streaming one chunk out cannot
+    // invalidate the GPU buffers used by every other chunk.
     for (const name of Object.keys(geometry.attributes)) {
-      if (name !== "instanceVariation") {
+      if (name !== "instanceVariation" && name !== "instanceCoverage") {
         geometry.deleteAttribute(name);
       }
     }

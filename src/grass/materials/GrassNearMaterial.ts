@@ -11,6 +11,7 @@ attribute float grassProgress;
 attribute float grassPhase;
 attribute float grassBladeShade;
 attribute vec4 instanceVariation;
+attribute float instanceCoverage;
 uniform float uGrassTime;
 uniform vec2 uGrassWindDirection;
 uniform float uGrassWindStrength;
@@ -25,11 +26,15 @@ uniform float uGrassUseWorldLod;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
+uniform float uGrassFarAerialFadeStart;
+uniform float uGrassFarAerialFadeEnd;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 varying float vGrassDither;
+varying float vGrassFieldDither;
+varying float vGrassFieldCoverage;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
 `;
@@ -71,16 +76,37 @@ vGrassDither = fract(
   instanceVariation.x +
   uGrassDitherSeed
 );
+vGrassFieldDither = fract(
+  grassBladeShade * 0.438289 +
+  grassPhase * 0.819173 +
+  instanceVariation.x * 0.347193 +
+  uGrassDitherSeed * 1.618034
+);
+vGrassFieldCoverage = instanceCoverage;
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
 vGrassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
   uGrassNearDistance + uGrassTransitionDistance,
   grassCameraDistance
 );
-vGrassFarEntry = smoothstep(
+float grassFarDistanceEntry = smoothstep(
   uGrassMidDistance - uGrassTransitionDistance,
   uGrassMidDistance + uGrassTransitionDistance,
   grassCameraDistance
+);
+vec3 grassToCamera = normalize(cameraPosition - grassWorldRoot.xyz);
+float grassViewElevation = abs(
+  dot(grassToCamera, normalize(grassInstanceBasis[1]))
+);
+float grassFarAerialVisibility = 1.0 - smoothstep(
+  uGrassFarAerialFadeStart,
+  uGrassFarAerialFadeEnd,
+  grassViewElevation
+);
+vGrassFarEntry = grassFarDistanceEntry * mix(
+  1.0,
+  grassFarAerialVisibility,
+  uGrassUseWorldLod
 );
 `;
 
@@ -102,6 +128,8 @@ varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 varying float vGrassDither;
+varying float vGrassFieldDither;
+varying float vGrassFieldCoverage;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
 `;
@@ -122,6 +150,7 @@ if (uGrassUseWorldLod > 0.5) {
 }
 if (
   !grassKeepLod ||
+  vGrassFieldDither > vGrassFieldCoverage ||
   grassDither > uGrassDistanceFade ||
   grassDither > uGrassStreamCoverage
 ) {
@@ -193,6 +222,8 @@ export class GrassNearMaterial {
     uGrassNearDistance: { value: 0 },
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
+    uGrassFarAerialFadeStart: { value: 1 },
+    uGrassFarAerialFadeEnd: { value: 1.01 },
     uGrassLodColorScale: { value: 1 },
     uGrassStreamCoverage: { value: 1 },
   };
@@ -225,7 +256,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v7";
+    this.material.customProgramCacheKey = () => "grass-near-material-v8";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -253,6 +284,10 @@ export class GrassNearMaterial {
     this.uniforms.uGrassNearDistance.value = config.nearMaxDistance;
     this.uniforms.uGrassMidDistance.value = config.midMaxDistance;
     this.uniforms.uGrassTransitionDistance.value = config.transitionDistance;
+    this.uniforms.uGrassFarAerialFadeStart.value =
+      config.farAerialFadeStart ?? 1;
+    this.uniforms.uGrassFarAerialFadeEnd.value =
+      config.farAerialFadeEnd ?? 1.01;
   }
 
   bindMesh(

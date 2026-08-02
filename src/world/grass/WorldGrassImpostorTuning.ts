@@ -4,6 +4,7 @@ export const IMPOSTOR_ALPHA_CUTOFF = 0.18;
 // tiled aerial ring while the real mid mesh covers the foreground.
 export const IMPOSTOR_AERIAL_FADE_START = 0.12;
 export const IMPOSTOR_AERIAL_FADE_END = 0.28;
-export const IMPOSTOR_BASE_COLOR_BLEND = 0.74;
+export const IMPOSTOR_BASE_COLOR_BLEND = 0.92;
+export const IMPOSTOR_COLOR_SCALE = 0.86;
 export const IMPOSTOR_ROOT_LIGHT_MIN = 0.88;
 export const IMPOSTOR_ROOT_LIGHT_MAX = 1.01;
