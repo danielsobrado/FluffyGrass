@@ -25,18 +25,32 @@ export class WorldConfigLoader {
       terrainFarResolution: this.resolution(values, "terrainFarResolution"),
       terrainChunksPerFrame: this.positiveInteger(values, "terrainChunksPerFrame"),
       grassChunksPerFrame: this.positiveInteger(values, "grassChunksPerFrame"),
-      grassClumpsPerSquareMeterDesktop: this.range(
+      grassPatchSize: this.positive(values, "grassPatchSize"),
+      grassBladesPerSquareMeterDesktop: this.range(
         values,
-        "grassClumpsPerSquareMeterDesktop",
-        0.05,
+        "grassBladesPerSquareMeterDesktop",
         4,
+        160,
       ),
-      grassClumpsPerSquareMeterCompact: this.range(
+      grassBladesPerSquareMeterCompact: this.range(
         values,
-        "grassClumpsPerSquareMeterCompact",
-        0.05,
+        "grassBladesPerSquareMeterCompact",
         4,
+        160,
       ),
+      grassMidBladeFraction: this.range(
+        values,
+        "grassMidBladeFraction",
+        0.05,
+        0.8,
+      ),
+      grassUnderlayerFraction: this.range(
+        values,
+        "grassUnderlayerFraction",
+        0,
+        0.6,
+      ),
+      grassPatchJitter: this.range(values, "grassPatchJitter", 0, 0.9),
       spawnSearchRadius: this.positive(values, "spawnSearchRadius"),
       spawnSearchStep: this.positive(values, "spawnSearchStep"),
       spawnNeighborhoodRadius: this.positive(
@@ -108,12 +122,16 @@ export class WorldConfigLoader {
       throw new Error("spawnSearchRadius must remain inside the world bounds.");
     }
     if (
-      config.grassClumpsPerSquareMeterCompact >
-      config.grassClumpsPerSquareMeterDesktop
+      config.grassBladesPerSquareMeterCompact >
+      config.grassBladesPerSquareMeterDesktop
     ) {
       throw new Error(
-        "Compact grass density must not exceed desktop grass density.",
+        "Compact grass blade density must not exceed desktop density.",
       );
+    }
+    const patchesPerChunk = config.chunkSize / config.grassPatchSize;
+    if (Math.abs(patchesPerChunk - Math.round(patchesPerChunk)) > 1e-6) {
+      throw new Error("grassPatchSize must divide chunkSize exactly.");
     }
   }
 
