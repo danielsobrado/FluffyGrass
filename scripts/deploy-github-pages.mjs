@@ -95,13 +95,11 @@ function deploy() {
   let worktreeAdded = false;
 
   try {
-    const remoteBranchExists = hasRemoteBranch();
-    const sourceRef = remoteBranchExists
-      ? `${CONFIG.remote}/${CONFIG.branch}`
-      : "HEAD";
+    let sourceRef = "HEAD";
 
-    if (remoteBranchExists) {
+    if (hasRemoteBranch()) {
       run("git", ["fetch", CONFIG.remote, CONFIG.branch]);
+      sourceRef = "FETCH_HEAD";
     }
 
     run("git", ["worktree", "add", "--detach", deploymentDirectory, sourceRef]);
