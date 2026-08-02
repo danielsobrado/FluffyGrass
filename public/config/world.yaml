@@ -14,8 +14,9 @@ terrainFarResolution: 7
 terrainChunksPerFrame: 2
 grassChunksPerFrame: 1
 
-grassClumpsPerChunkDesktop: 900
-grassClumpsPerChunkCompact: 512
+# Visual density is defined per square metre. LODs reduce geometry, not coverage.
+grassClumpsPerSquareMeterDesktop: 0.75
+grassClumpsPerSquareMeterCompact: 0.55
 
 spawnSearchRadius: 640
 spawnSearchStep: 24
@@ -33,10 +34,10 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-grassNearDistance: 28
-grassMidDistance: 96
-grassFarDistance: 260
-grassTransitionDistance: 8
+grassNearDistance: 32
+grassMidDistance: 110
+grassFarDistance: 280
+grassTransitionDistance: 10
 grassHysteresisDistance: 3
 
 flySpeed: 45

@@ -25,13 +25,17 @@ export class WorldConfigLoader {
       terrainFarResolution: this.resolution(values, "terrainFarResolution"),
       terrainChunksPerFrame: this.positiveInteger(values, "terrainChunksPerFrame"),
       grassChunksPerFrame: this.positiveInteger(values, "grassChunksPerFrame"),
-      grassClumpsPerChunkDesktop: this.positiveInteger(
+      grassClumpsPerSquareMeterDesktop: this.range(
         values,
-        "grassClumpsPerChunkDesktop",
+        "grassClumpsPerSquareMeterDesktop",
+        0.05,
+        4,
       ),
-      grassClumpsPerChunkCompact: this.positiveInteger(
+      grassClumpsPerSquareMeterCompact: this.range(
         values,
-        "grassClumpsPerChunkCompact",
+        "grassClumpsPerSquareMeterCompact",
+        0.05,
+        4,
       ),
       spawnSearchRadius: this.positive(values, "spawnSearchRadius"),
       spawnSearchStep: this.positive(values, "spawnSearchStep"),
@@ -102,6 +106,14 @@ export class WorldConfigLoader {
       config.worldSize * 0.5 - config.chunkSize
     ) {
       throw new Error("spawnSearchRadius must remain inside the world bounds.");
+    }
+    if (
+      config.grassClumpsPerSquareMeterCompact >
+      config.grassClumpsPerSquareMeterDesktop
+    ) {
+      throw new Error(
+        "Compact grass density must not exceed desktop grass density.",
+      );
     }
   }
 
