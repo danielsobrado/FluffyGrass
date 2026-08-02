@@ -34,6 +34,15 @@ export class GrassConfigLoader {
         bladeWidthMax: this.readPositiveNumber(values, "bladeWidthMax"),
         bladeLeanMin: this.readNonNegativeNumber(values, "bladeLeanMin"),
         bladeLeanMax: this.readNonNegativeNumber(values, "bladeLeanMax"),
+        midBladesPerClump: this.readPositiveInteger(
+          values,
+          "midBladesPerClump",
+        ),
+        midBladeSegments: this.readPositiveInteger(values, "midBladeSegments"),
+        midRadiusScale: this.readPositiveNumber(values, "midRadiusScale"),
+        midHeightScale: this.readPositiveNumber(values, "midHeightScale"),
+        midWidthScale: this.readPositiveNumber(values, "midWidthScale"),
+        midLeanScale: this.readNonNegativeNumber(values, "midLeanScale"),
       },
       distribution: {
         seed: this.readInteger(values, "seed"),
@@ -67,6 +76,14 @@ export class GrassConfigLoader {
         nearMaxDistance: this.readPositiveNumber(values, "nearMaxDistance"),
         midMaxDistance: this.readPositiveNumber(values, "midMaxDistance"),
         farMaxDistance: this.readPositiveNumber(values, "farMaxDistance"),
+        hysteresisDistance: this.readNonNegativeNumber(
+          values,
+          "hysteresisDistance",
+        ),
+        transitionDistance: this.readPositiveNumber(
+          values,
+          "transitionDistance",
+        ),
       },
     };
 
@@ -91,6 +108,18 @@ export class GrassConfigLoader {
     if (config.geometry.bladeSegments < 2) {
       throw new Error("bladeSegments must be at least 2.");
     }
+    if (config.geometry.midBladesPerClump < 2) {
+      throw new Error("midBladesPerClump must be at least 2.");
+    }
+    if (config.geometry.midBladeSegments < 1) {
+      throw new Error("midBladeSegments must be at least 1.");
+    }
+    if (config.geometry.midBladesPerClump >= config.geometry.bladesPerClump) {
+      throw new Error("midBladesPerClump must be lower than bladesPerClump.");
+    }
+    if (config.geometry.midBladeSegments >= config.geometry.bladeSegments) {
+      throw new Error("midBladeSegments must be lower than bladeSegments.");
+    }
     if (config.geometry.bladeHeightMin > config.geometry.bladeHeightMax) {
       throw new Error("bladeHeightMin must be less than or equal to bladeHeightMax.");
     }
@@ -108,6 +137,15 @@ export class GrassConfigLoader {
       config.lod.midMaxDistance >= config.lod.farMaxDistance
     ) {
       throw new Error("Grass LOD distances must increase from near to far.");
+    }
+    if (config.lod.transitionDistance >= config.lod.nearMaxDistance) {
+      throw new Error("transitionDistance must be lower than nearMaxDistance.");
+    }
+    if (
+      config.lod.hysteresisDistance >=
+      config.lod.nearMaxDistance - config.lod.transitionDistance
+    ) {
+      throw new Error("hysteresisDistance is too large for the near LOD band.");
     }
     if (
       Math.hypot(config.wind.directionX, config.wind.directionZ) <
