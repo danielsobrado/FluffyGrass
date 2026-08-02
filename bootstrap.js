@@ -1,4 +1,4 @@
-const BUILD_VERSION = "v0.7.1-octahedral-impostors";
+const BUILD_VERSION = "v0.7.2-responsive-streaming";
 const ENTRY_URL = new URL(
   `./src/main.ts?v=${encodeURIComponent(BUILD_VERSION)}`,
   document.baseURI,
