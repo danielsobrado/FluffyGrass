@@ -1,42 +1,39 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
-  <link rel="stylesheet" href="/src/style.css">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fluffy Grass Three.js</title>
-  <meta name="description"
-    content="Fluffiest Grass on the internet. Built using threejs. Grass Material by thebenezer." />
-  <meta name="keywords" content="Three.js, grass material, tutorial, thebenezer, Zero x Infinity" />
+  <meta name="description" content="Fluffiest Grass on the internet. Built using Three.js." />
+  <meta name="keywords" content="Three.js, grass material, tutorial, FluffyGrass" />
   <meta property="og:title" content="Fluffy Grass Three.js" />
-  <meta property="og:description"
-    content="Fluffiest Grass on the internet. Built using threejs. Grass Material by thebenezer." />
-  <meta property="og:image" content="/social2.webp" />
-  <meta property="og:url" content="https://fluffygrass.vercel.app" />
-  <!-- twitter -->
+  <meta property="og:description" content="Fluffiest Grass on the internet. Built using Three.js." />
+  <meta property="og:image" content="./social2.webp" />
+  <meta property="og:url" content="https://danielsobrado.github.io/FluffyGrass/" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" content="@th_ebenezer" />
-  <meta name="twitter:creator" content="@th_ebenezer" />
-  <meta name="twitter:title" content="Fluffy Grass Three.js" />
-  <meta name="twitter:description"
-    content="Fluffiest Grass on the internet. Built using threejs. Grass Material by thebenezer." />
-  <meta name="twitter:image" content="/social2.webp" />
-
+  <link rel="stylesheet" href="./src/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://esm.sh/three@0.159.0",
+        "three/": "https://esm.sh/three@0.159.0/",
+        "stats-gl": "https://esm.sh/stats-gl@2.0.1",
+        "dat.gui": "https://esm.sh/dat.gui@0.7.9"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/typescript@5.2.2/lib/typescript.js"></script>
 </head>
-
 <body>
   <nav>
-    <a href="https://github.com/thebenezer/FluffyGrass">
-      <img src="/github-mark.svg" alt="GitHub" />
+    <a href="https://github.com/danielsobrado/FluffyGrass" aria-label="View source on GitHub">
+      <img src="./github-mark.svg" alt="GitHub" />
     </a>
   </nav>
   <div class="credits">
-    <p>Created by <a href="https://twitter.com/th_ebenezer">thebenezer</a></p>
+    <p>FluffyGrass</p>
   </div>
   <canvas id="canvas"></canvas>
-  <!-- <button class="randomizeButton">Randomize</button> -->
-  <script type="module" src="/src/main.ts"></script>
+  <script type="module" src="./bootstrap.js"></script>
 </body>
-
 </html>
