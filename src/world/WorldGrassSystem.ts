@@ -13,7 +13,15 @@ import { WindField } from "../grass/wind/WindField";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
+import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
+import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
+
+interface WorldGrassPatch extends GrassPatch {
+  farMesh: THREE.InstancedMesh;
+  midCoverage: number;
+  farCoverage: number;
+}
 
 interface GrassChunkRequest {
   key: string;
@@ -27,8 +35,10 @@ export interface WorldGrassDiagnostics {
   queuedPatches: number;
   visibleNearPatches: number;
   visibleMidPatches: number;
+  visibleFarPatches: number;
   clumps: number;
   blades: number;
+  impostors: number;
 }
 
 const TWO_PI = Math.PI * 2;
@@ -40,9 +50,11 @@ export class WorldGrassSystem {
   private readonly configLoader = new GrassConfigLoader();
   private readonly geometryFactory = new GrassGeometryFactory();
   private readonly patchGeometryFactory = new WorldGrassPatchGeometryFactory();
+  private readonly impostorAtlasFactory = new WorldGrassImpostorAtlasFactory();
   private readonly material = new GrassNearMaterial();
+  private readonly impostorMaterials: WorldGrassImpostorMaterial[] = [];
   private readonly wind = new WindField();
-  private readonly patches = new Map<string, GrassPatch>();
+  private readonly patches = new Map<string, WorldGrassPatch>();
   private readonly queue: GrassChunkRequest[] = [];
   private readonly desired = new Map<string, GrassChunkRequest>();
   private readonly cameraPosition = new THREE.Vector3();
@@ -81,6 +93,24 @@ export class WorldGrassSystem {
     this.nearBladesPerPatch = variants.nearBladesPerPatch;
     this.midBladesPerPatch = variants.midBladesPerPatch;
     this.material.configure(grassConfig.material, grassConfig.wind);
+
+    for (const bladeVariant of variants.bladeVariants) {
+      const atlas = this.impostorAtlasFactory.create(
+        bladeVariant,
+        grassConfig.geometry,
+        grassConfig.material,
+        this.worldConfig.grassPatchSize,
+        grassConfig.impostor,
+      );
+      this.impostorMaterials.push(
+        new WorldGrassImpostorMaterial(
+          atlas,
+          grassConfig.material,
+          grassConfig.wind,
+        ),
+      );
+    }
+
     this.lodController = new GrassLodController({
       nearMaxDistance: this.worldConfig.grassNearDistance,
       midMaxDistance: this.worldConfig.grassMidDistance,
@@ -96,7 +126,12 @@ export class WorldGrassSystem {
       return;
     }
 
-    this.material.update(this.wind.update(deltaSeconds));
+    const elapsedSeconds = this.wind.update(deltaSeconds);
+    this.material.update(elapsedSeconds);
+    for (const impostorMaterial of this.impostorMaterials) {
+      impostorMaterial.update(elapsedSeconds);
+    }
+
     camera.getWorldPosition(this.cameraPosition);
     const chunkX = Math.floor(this.cameraPosition.x / this.worldConfig.chunkSize);
     const chunkZ = Math.floor(this.cameraPosition.z / this.worldConfig.chunkSize);
@@ -118,7 +153,7 @@ export class WorldGrassSystem {
       const patch = this.createPatch(request);
       if (patch) {
         this.patches.set(request.key, patch);
-        this.scene.add(patch.nearMesh, patch.midMesh);
+        this.scene.add(patch.nearMesh, patch.midMesh, patch.farMesh);
       }
     }
 
@@ -128,22 +163,25 @@ export class WorldGrassSystem {
   getDiagnostics(): WorldGrassDiagnostics {
     let visibleNearPatches = 0;
     let visibleMidPatches = 0;
+    let visibleFarPatches = 0;
     let bladePatches = 0;
     let blades = 0;
+    let impostors = 0;
 
     for (const patch of this.patches.values()) {
       bladePatches += patch.instanceCount;
       visibleNearPatches += patch.nearMesh.visible ? 1 : 0;
       visibleMidPatches += patch.midMesh.visible ? 1 : 0;
-      const nearWeight = patch.nearMesh.visible ? patch.nearCoverage : 0;
-      const midWeight = patch.midMesh.visible
-        ? (1 - patch.nearCoverage) * patch.midDistanceFade
-        : 0;
+      visibleFarPatches += patch.farMesh.visible ? 1 : 0;
       blades += Math.round(
         patch.instanceCount *
-          (nearWeight * this.nearBladesPerPatch +
-            midWeight * this.midBladesPerPatch),
+          (patch.nearCoverage * this.nearBladesPerPatch +
+            patch.midCoverage * this.midBladesPerPatch +
+            patch.farCoverage * this.nearBladesPerPatch),
       );
+      if (patch.farMesh.visible) {
+        impostors += patch.instanceCount;
+      }
     }
 
     return {
@@ -151,8 +189,10 @@ export class WorldGrassSystem {
       queuedPatches: this.queue.length,
       visibleNearPatches,
       visibleMidPatches,
+      visibleFarPatches,
       clumps: bladePatches,
       blades,
+      impostors,
     };
   }
 
@@ -169,6 +209,10 @@ export class WorldGrassSystem {
     this.nearGeometries = [];
     this.midGeometries = [];
     this.material.material.dispose();
+    for (const impostorMaterial of this.impostorMaterials) {
+      impostorMaterial.dispose();
+    }
+    this.impostorMaterials.length = 0;
   }
 
   private reconcile(): void {
@@ -218,7 +262,7 @@ export class WorldGrassSystem {
     this.queue.sort((left, right) => left.distance - right.distance);
   }
 
-  private createPatch(request: GrassChunkRequest): GrassPatch | undefined {
+  private createPatch(request: GrassChunkRequest): WorldGrassPatch | undefined {
     const grassConfig = this.grassConfig;
     if (!grassConfig) {
       return undefined;
@@ -310,16 +354,27 @@ export class WorldGrassSystem {
     const nearMesh = this.createMesh(
       `world-grass-near-${request.key}`,
       this.nearGeometries[variantIndex],
+      this.material.material,
       matrices,
       variationValues,
     );
     const midMesh = this.createMesh(
       `world-grass-mid-${request.key}`,
       this.midGeometries[variantIndex],
+      this.material.material,
+      matrices,
+      variationValues,
+    );
+    const impostorMaterial = this.impostorMaterials[variantIndex];
+    const farMesh = this.createMesh(
+      `world-grass-far-${request.key}`,
+      impostorMaterial.atlas.geometry,
+      impostorMaterial.material,
       matrices,
       variationValues,
     );
     midMesh.visible = false;
+    farMesh.visible = false;
 
     const ditherSeed = this.hash(
       request.chunkX,
@@ -328,6 +383,7 @@ export class WorldGrassSystem {
     );
     this.material.bindMesh(nearMesh, ditherSeed, false, 1);
     this.material.bindMesh(midMesh, ditherSeed, true, MID_WIND_SCALE);
+    impostorMaterial.bindMesh(farMesh, ditherSeed ^ 0x85ebca6b);
 
     const bounds = new THREE.Box3();
     if (nearMesh.boundingBox) {
@@ -337,9 +393,12 @@ export class WorldGrassSystem {
       bounds.union(midMesh.boundingBox);
     }
     bounds.expandByScalar(
-      grassConfig.wind.strength +
-        grassConfig.wind.flutterStrength +
-        grassConfig.geometry.bladeLeanMax,
+      Math.max(
+        grassConfig.wind.strength +
+          grassConfig.wind.flutterStrength +
+          grassConfig.geometry.bladeLeanMax,
+        impostorMaterial.atlas.radius * 0.25,
+      ),
     );
 
     return {
@@ -349,18 +408,21 @@ export class WorldGrassSystem {
       bounds,
       nearMesh,
       midMesh,
+      farMesh,
       instanceCount: matrices.length,
       lod: GrassLodLevel.Near,
       distance: 0,
       inFrustum: true,
       nearCoverage: 1,
-      midDistanceFade: 1,
+      midCoverage: 0,
+      farCoverage: 0,
     };
   }
 
   private createMesh(
     name: string,
     sourceGeometry: THREE.BufferGeometry,
+    material: THREE.Material,
     matrices: THREE.Matrix4[],
     variationValues: Float32Array,
   ): THREE.InstancedMesh {
@@ -370,7 +432,7 @@ export class WorldGrassSystem {
     );
     const mesh = new THREE.InstancedMesh(
       geometry,
-      this.material.material,
+      material,
       matrices.length,
     );
     mesh.name = name;
@@ -387,10 +449,11 @@ export class WorldGrassSystem {
     return mesh;
   }
 
-  private removePatch(patch: GrassPatch): void {
-    this.scene.remove(patch.nearMesh, patch.midMesh);
+  private removePatch(patch: WorldGrassPatch): void {
+    this.scene.remove(patch.nearMesh, patch.midMesh, patch.farMesh);
     patch.nearMesh.geometry.dispose();
     patch.midMesh.geometry.dispose();
+    patch.farMesh.geometry.dispose();
   }
 
   private hash(x: number, z: number, seed: number): number {

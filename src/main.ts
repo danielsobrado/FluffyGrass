@@ -31,7 +31,7 @@ async function bootstrap(): Promise<void> {
   if (sceneElement) {
     sceneElement.textContent =
       sceneMode === "world"
-        ? "Dense Mesh Blades · Large World LOD"
+        ? "Dense Blades · Hemi-Octahedral Far LOD"
         : "Island Regression";
   }
   document.title = `FluffyGrass ${APP_VERSION} · ${sceneMode}`;

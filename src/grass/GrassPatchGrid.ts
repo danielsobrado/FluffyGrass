@@ -14,12 +14,15 @@ export interface GrassPatch {
   bounds: THREE.Box3;
   nearMesh: THREE.InstancedMesh;
   midMesh: THREE.InstancedMesh;
+  farMesh?: THREE.InstancedMesh;
   instanceCount: number;
   lod: GrassLodLevel;
   distance: number;
   inFrustum: boolean;
   nearCoverage: number;
-  midDistanceFade: number;
+  midCoverage?: number;
+  farCoverage?: number;
+  midDistanceFade?: number;
 }
 
 export class GrassPatchGrid {
