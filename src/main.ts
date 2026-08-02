@@ -33,7 +33,7 @@ async function bootstrap(): Promise<void> {
   if (sceneElement) {
     sceneElement.textContent =
       sceneMode === "world"
-        ? "Mobile-Safe Streaming · Octahedral LOD"
+        ? "Frame Guard · Octahedral LOD"
         : "Island Regression";
   }
   document.title = `FluffyGrass ${APP_VERSION} · ${sceneMode}`;
