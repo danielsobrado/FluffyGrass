@@ -186,7 +186,7 @@ export class WorldApp {
       `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
       `Terrain ${terrain.activeChunks} +${terrain.queuedChunks}`,
-      `Grass ${grass.clumps} clumps in ${grass.activePatches} patches`,
+      `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades`,
       `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()}`,
     ].join("\n");
   }
