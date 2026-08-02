@@ -11,8 +11,8 @@ export interface WorldConfig {
   terrainFarResolution: number;
   terrainChunksPerFrame: number;
   grassChunksPerFrame: number;
-  grassClumpsPerChunkDesktop: number;
-  grassClumpsPerChunkCompact: number;
+  grassClumpsPerSquareMeterDesktop: number;
+  grassClumpsPerSquareMeterCompact: number;
   spawnSearchRadius: number;
   spawnSearchStep: number;
   spawnNeighborhoodRadius: number;

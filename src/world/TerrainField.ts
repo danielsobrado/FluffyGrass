@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import type { WorldConfig } from "./WorldConfig";
 
-const COLOR_GRASS = new THREE.Color("#557a43");
-const COLOR_DRY_GRASS = new THREE.Color("#71845a");
+const COLOR_GRASS = new THREE.Color("#466f3a");
+const COLOR_DRY_GRASS = new THREE.Color("#66794f");
 const COLOR_ROCK = new THREE.Color("#696b64");
 const COLOR_HIGH_ROCK = new THREE.Color("#85857f");
-const COLOR_DIRT = new THREE.Color("#6b5d45");
+const COLOR_DIRT = new THREE.Color("#665b45");
 const COLOR_SCRATCH = new THREE.Color();
 
 export class TerrainField {
@@ -89,7 +89,11 @@ export class TerrainField {
     const slopeLimit = Math.cos(
       THREE.MathUtils.degToRad(this.config.grassMaxSlopeDegrees),
     );
-    const slopeMask = THREE.MathUtils.smoothstep(normal.y, slopeLimit, 0.94);
+    const slopeMask = THREE.MathUtils.smoothstep(
+      normal.y,
+      slopeLimit,
+      Math.min(0.98, slopeLimit + 0.2),
+    );
     const lowAltitude = THREE.MathUtils.smoothstep(
       height,
       this.config.grassMinAltitude,
@@ -102,35 +106,44 @@ export class TerrainField {
         this.config.grassMaxAltitude - 28,
         this.config.grassMaxAltitude,
       );
-    const moisture = this.fbm(
-      x * 0.0042,
-      z * 0.0042,
+
+    // Broad biome noise creates coherent grasslands and coherent bare regions.
+    const biome = this.fbm(
+      x * 0.0017,
+      z * 0.0017,
       4,
       this.config.seed + 401,
     );
-    const clearings = this.fbm(
-      x * 0.011,
-      z * 0.011,
+    const biomeMask = THREE.MathUtils.smoothstep(biome, 0.34, 0.5);
+
+    // Fine noise changes density inside a field without breaking it into tufts.
+    const densityNoise = this.fbm(
+      x * 0.0065,
+      z * 0.0065,
       3,
       this.config.seed + 509,
     );
-    const moistureMask = THREE.MathUtils.smoothstep(moisture, 0.28, 0.76);
-    const clearingMask = THREE.MathUtils.smoothstep(clearings, 0.34, 0.58);
-    const exposedRidge =
-      1 -
-      THREE.MathUtils.smoothstep(
-        this.valueNoise(x * 0.002, z * 0.002, this.config.seed + 613),
-        0.68,
-        0.88,
-      );
+    const localDensity = THREE.MathUtils.lerp(
+      0.78,
+      1,
+      THREE.MathUtils.smoothstep(densityNoise, 0.22, 0.78),
+    );
+
+    const exposedRidge = this.valueNoise(
+      x * 0.002,
+      z * 0.002,
+      this.config.seed + 613,
+    );
+    const ridgeMask =
+      1 - THREE.MathUtils.smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
 
     return THREE.MathUtils.clamp(
       slopeMask *
         lowAltitude *
         highAltitude *
-        moistureMask *
-        clearingMask *
-        exposedRidge,
+        biomeMask *
+        localDensity *
+        ridgeMask,
       0,
       1,
     );
@@ -151,7 +164,7 @@ export class TerrainField {
       this.config.grassMaxAltitude + 50,
     );
     const dry = this.valueNoise(x * 0.006, z * 0.006, this.config.seed + 701);
-    target.copy(COLOR_GRASS).lerp(COLOR_DRY_GRASS, dry * 0.55);
+    target.copy(COLOR_GRASS).lerp(COLOR_DRY_GRASS, dry * 0.42);
     target.lerp(COLOR_DIRT, 1 - grassSuitability);
     const rockAmount = Math.max(
       THREE.MathUtils.smoothstep(steepness, 0.12, 0.42),

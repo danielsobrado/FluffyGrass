@@ -203,9 +203,13 @@ export class WorldGrassSystem {
       return undefined;
     }
 
-    const requestedCount = this.profile.compact
-      ? this.worldConfig.grassClumpsPerChunkCompact
-      : this.worldConfig.grassClumpsPerChunkDesktop;
+    const density = this.profile.compact
+      ? this.worldConfig.grassClumpsPerSquareMeterCompact
+      : this.worldConfig.grassClumpsPerSquareMeterDesktop;
+    const requestedCount = Math.max(
+      1,
+      Math.round(this.worldConfig.chunkSize ** 2 * density),
+    );
     const random = new SeededRandom(
       this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
     );
@@ -262,10 +266,10 @@ export class WorldGrassSystem {
       matrices.push(matrix.clone());
       variations.push(
         random.next(),
-        random.range(0.72, 1.18),
-        random.range(0.9, 1.04),
+        random.range(0.78, 1.16),
+        random.range(0.94, 1.05),
         THREE.MathUtils.clamp(
-          (1 - suitability) * 0.65 + random.range(0, 0.2),
+          (1 - suitability) * 0.42 + random.range(0, 0.14),
           0,
           1,
         ),
