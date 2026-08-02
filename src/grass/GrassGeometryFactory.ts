@@ -5,18 +5,84 @@ import { SeededRandom } from "./internal/SeededRandom";
 const TWO_PI = Math.PI * 2;
 const GEOMETRY_SEED_OFFSET = 0x9e3779b9;
 
+interface ClumpShapeConfig {
+  bladesPerClump: number;
+  bladeSegments: number;
+  clumpRadius: number;
+  bladeHeightMin: number;
+  bladeHeightMax: number;
+  bladeWidthMin: number;
+  bladeWidthMax: number;
+  bladeLeanMin: number;
+  bladeLeanMax: number;
+}
+
+export interface GrassGeometryVariants {
+  near: THREE.BufferGeometry[];
+  mid: THREE.BufferGeometry[];
+}
+
 export class GrassGeometryFactory {
-  createVariants(
+  createLodVariants(
     config: GrassGeometryConfig,
     seed: number,
+  ): GrassGeometryVariants {
+    const midConfig: ClumpShapeConfig = {
+      bladesPerClump: config.midBladesPerClump,
+      bladeSegments: config.midBladeSegments,
+      clumpRadius: config.clumpRadius * config.midRadiusScale,
+      bladeHeightMin: config.bladeHeightMin * config.midHeightScale,
+      bladeHeightMax: config.bladeHeightMax * config.midHeightScale,
+      bladeWidthMin: config.bladeWidthMin * config.midWidthScale,
+      bladeWidthMax: config.bladeWidthMax * config.midWidthScale,
+      bladeLeanMin: config.bladeLeanMin * config.midLeanScale,
+      bladeLeanMax: config.bladeLeanMax * config.midLeanScale,
+    };
+
+    return {
+      near: this.createVariants(config, config.variantCount, seed),
+      mid: this.createVariants(
+        midConfig,
+        config.variantCount,
+        seed ^ GEOMETRY_SEED_OFFSET,
+      ),
+    };
+  }
+
+  createInstancedGeometry(
+    source: THREE.BufferGeometry,
+    variationValues: Float32Array,
+  ): THREE.InstancedBufferGeometry {
+    const geometry = new THREE.InstancedBufferGeometry();
+    if (source.index) {
+      geometry.setIndex(source.index);
+    }
+
+    for (const [name, attribute] of Object.entries(source.attributes)) {
+      geometry.setAttribute(name, attribute);
+    }
+
+    geometry.setAttribute(
+      "instanceVariation",
+      new THREE.InstancedBufferAttribute(variationValues, 4),
+    );
+    geometry.boundingBox = source.boundingBox?.clone() ?? null;
+    geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
+    return geometry;
+  }
+
+  private createVariants(
+    config: ClumpShapeConfig,
+    variantCount: number,
+    seed: number,
   ): THREE.BufferGeometry[] {
-    return Array.from({ length: config.variantCount }, (_, variantIndex) =>
+    return Array.from({ length: variantCount }, (_, variantIndex) =>
       this.createClump(config, seed + variantIndex * GEOMETRY_SEED_OFFSET),
     );
   }
 
   private createClump(
-    config: GrassGeometryConfig,
+    config: ClumpShapeConfig,
     seed: number,
   ): THREE.BufferGeometry {
     const random = new SeededRandom(seed);
