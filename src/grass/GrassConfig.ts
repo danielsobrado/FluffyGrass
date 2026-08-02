@@ -45,6 +45,7 @@ export interface GrassMaterialConfig {
   rootDarkening: number;
   normalUp: number;
   ambientBoost: number;
+  backlightStrength: number;
 }
 
 export interface GrassConfig {
