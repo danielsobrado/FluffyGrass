@@ -1,6 +1,10 @@
 import type { GUI } from "dat.gui";
 import * as THREE from "three";
-import type { GrassMaterialConfig, GrassWindConfig } from "../GrassConfig";
+import type {
+  GrassLodConfig,
+  GrassMaterialConfig,
+  GrassWindConfig,
+} from "../GrassConfig";
 
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
@@ -17,11 +21,18 @@ uniform float uGrassFlutterSpeed;
 uniform float uGrassNormalUp;
 uniform float uGrassWindLodScale;
 uniform float uGrassDitherSeed;
+uniform float uGrassUseWorldLod;
+uniform float uGrassNearDistance;
+uniform float uGrassMidDistance;
+uniform float uGrassTransitionDistance;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 varying float vGrassDither;
+varying float vGrassInstanceDither;
+varying float vGrassNearCoverage;
+varying float vGrassFarEntry;
 `;
 
 const VERTEX_WIND = `
@@ -61,6 +72,18 @@ vGrassDither = fract(
   instanceVariation.x +
   uGrassDitherSeed
 );
+vGrassInstanceDither = fract(instanceVariation.x + uGrassDitherSeed);
+float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
+vGrassNearCoverage = 1.0 - smoothstep(
+  uGrassNearDistance - uGrassTransitionDistance,
+  uGrassNearDistance + uGrassTransitionDistance,
+  grassCameraDistance
+);
+vGrassFarEntry = smoothstep(
+  uGrassMidDistance - uGrassTransitionDistance,
+  uGrassMidDistance + uGrassTransitionDistance,
+  grassCameraDistance
+);
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -73,19 +96,31 @@ uniform float uGrassBacklightStrength;
 uniform float uGrassLodThreshold;
 uniform float uGrassLodInvert;
 uniform float uGrassDistanceFade;
+uniform float uGrassUseWorldLod;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 varying float vGrassDither;
+varying float vGrassInstanceDither;
+varying float vGrassNearCoverage;
+varying float vGrassFarEntry;
 `;
 
 const FRAGMENT_COLOR = `
 #include <color_fragment>
 float grassDither = vGrassDither;
-bool grassKeepLod = uGrassLodInvert < 0.5
-  ? grassDither <= uGrassLodThreshold
-  : grassDither > uGrassLodThreshold;
+bool grassKeepLod;
+if (uGrassUseWorldLod > 0.5) {
+  grassKeepLod = uGrassLodInvert < 0.5
+    ? grassDither <= vGrassNearCoverage
+    : grassDither > vGrassNearCoverage &&
+      vGrassInstanceDither > vGrassFarEntry;
+} else {
+  grassKeepLod = uGrassLodInvert < 0.5
+    ? grassDither <= uGrassLodThreshold
+    : grassDither > uGrassLodThreshold;
+}
 if (!grassKeepLod || grassDither > uGrassDistanceFade) {
   discard;
 }
@@ -150,6 +185,10 @@ export class GrassNearMaterial {
     uGrassDistanceFade: { value: 1 },
     uGrassDitherSeed: { value: 0 },
     uGrassWindLodScale: { value: 1 },
+    uGrassUseWorldLod: { value: 0 },
+    uGrassNearDistance: { value: 0 },
+    uGrassMidDistance: { value: 0 },
+    uGrassTransitionDistance: { value: 1 },
   };
 
   constructor() {
@@ -180,7 +219,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v4";
+    this.material.customProgramCacheKey = () => "grass-near-material-v5";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -204,11 +243,18 @@ export class GrassNearMaterial {
     this.uniforms.uGrassFlutterSpeed.value = wind.flutterSpeed;
   }
 
+  configureLod(config: GrassLodConfig): void {
+    this.uniforms.uGrassNearDistance.value = config.nearMaxDistance;
+    this.uniforms.uGrassMidDistance.value = config.midMaxDistance;
+    this.uniforms.uGrassTransitionDistance.value = config.transitionDistance;
+  }
+
   bindMesh(
     mesh: THREE.InstancedMesh,
     ditherSeed: number,
     invertLodCoverage: boolean,
     windScale: number,
+    useWorldLod = false,
   ): void {
     mesh.userData.grassLodThreshold = 1;
     mesh.userData.grassDistanceFade = 1;
@@ -220,6 +266,7 @@ export class GrassNearMaterial {
         mesh.userData.grassDistanceFade ?? 1;
       this.uniforms.uGrassDitherSeed.value = ditherSeed / 4294967296;
       this.uniforms.uGrassWindLodScale.value = windScale;
+      this.uniforms.uGrassUseWorldLod.value = useWorldLod ? 1 : 0;
     };
   }
 

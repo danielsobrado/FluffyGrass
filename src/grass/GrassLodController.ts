@@ -9,6 +9,7 @@ export class GrassLodController {
   private readonly closestPoint = new THREE.Vector3();
   private readonly projectionViewMatrix = new THREE.Matrix4();
   private readonly frustum = new THREE.Frustum();
+  private readonly boundingSphere = new THREE.Sphere();
 
   constructor(private readonly config: GrassLodConfig) {}
 
@@ -53,12 +54,31 @@ export class GrassLodController {
       farEntry,
     );
 
+    patch.bounds.getBoundingSphere(this.boundingSphere);
+    const farthestDistance =
+      this.cameraPosition.distanceTo(this.boundingSphere.center) +
+      this.boundingSphere.radius;
+    const nearFadeStart =
+      this.config.nearMaxDistance - this.config.transitionDistance;
+    const nearFadeEnd =
+      this.config.nearMaxDistance + this.config.transitionDistance;
+    const farEntryStart =
+      this.config.midMaxDistance - this.config.transitionDistance;
+    const farEntryEnd =
+      this.config.midMaxDistance + this.config.transitionDistance;
+    const terrainFadeEnd =
+      this.config.farMaxDistance + this.config.transitionDistance;
+
     patch.nearMesh.visible =
-      patch.inFrustum && patch.nearCoverage > VISIBILITY_EPSILON;
+      patch.inFrustum && patch.distance < nearFadeEnd;
     patch.midMesh.visible =
-      patch.inFrustum && patch.midCoverage > VISIBILITY_EPSILON;
+      patch.inFrustum &&
+      farthestDistance > nearFadeStart &&
+      patch.distance < farEntryEnd;
     farMesh.visible =
-      patch.inFrustum && patch.farCoverage > VISIBILITY_EPSILON;
+      patch.inFrustum &&
+      farthestDistance > farEntryStart &&
+      patch.distance < terrainFadeEnd;
 
     patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
     patch.nearMesh.userData.grassDistanceFade = 1;

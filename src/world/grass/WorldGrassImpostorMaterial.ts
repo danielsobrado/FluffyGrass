@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type {
+  GrassLodConfig,
   GrassMaterialConfig,
   GrassWindConfig,
 } from "../../grass/GrassConfig";
@@ -12,11 +13,16 @@ uniform float uTime;
 uniform vec2 uWindDirection;
 uniform float uWindStrength;
 uniform float uDitherSeed;
+uniform float uMidDistance;
+uniform float uFarDistance;
+uniform float uTransitionDistance;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
+varying float vFarEntry;
+varying float vTerrainCoverage;
 #include <fog_pars_vertex>
 
 void main() {
@@ -62,6 +68,17 @@ void main() {
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
   vRootAo = instanceVariation.z;
+  float cameraDistance = distance(cameraPosition, center);
+  vFarEntry = smoothstep(
+    uMidDistance - uTransitionDistance,
+    uMidDistance + uTransitionDistance,
+    cameraDistance
+  );
+  vTerrainCoverage = 1.0 - smoothstep(
+    uFarDistance - uTransitionDistance,
+    uFarDistance + uTransitionDistance,
+    cameraDistance
+  );
   #include <fog_vertex>
 }
 `;
@@ -72,7 +89,6 @@ uniform float uViewsPerAxis;
 uniform float uFrameResolution;
 uniform float uPadding;
 uniform float uAtlasSize;
-uniform float uCoverage;
 uniform float uAlphaCutoff;
 uniform float uBlendViews;
 uniform vec3 uDryColor;
@@ -81,6 +97,8 @@ varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
+varying float vFarEntry;
+varying float vTerrainCoverage;
 #include <fog_pars_fragment>
 
 vec2 encodeHemiOctahedral(vec3 direction) {
@@ -106,15 +124,9 @@ vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
   return texture2D(uAtlas, pixel / uAtlasSize);
 }
 
-float coverageNoise(vec2 position, float seed) {
-  vec3 value = fract(vec3(position.xyx) * 0.1031 + seed);
-  value += dot(value, value.yzx + 33.33);
-  return fract((value.x + value.y) * value.z);
-}
-
 void main() {
-  float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
-  if (dither > uCoverage) {
+  float terrainDither = fract(vInstanceSeed * 0.754877666 + 0.438289);
+  if (vInstanceSeed > vFarEntry || terrainDither > vTerrainCoverage) {
     discard;
   }
 
@@ -185,19 +197,23 @@ export class WorldGrassImpostorMaterial {
     readonly atlas: WorldGrassImpostorAtlas,
     materialConfig: GrassMaterialConfig,
     windConfig: GrassWindConfig,
+    lodConfig: GrassLodConfig,
     blendViews: boolean,
   ) {
     this.uniforms = {
+      ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
       uAtlas: { value: atlas.texture },
       uViewsPerAxis: { value: atlas.viewsPerAxis },
       uFrameResolution: { value: atlas.frameResolution },
       uPadding: { value: atlas.padding },
       uAtlasSize: { value: atlas.atlasSize },
       uCenterHeight: { value: atlas.centerHeight },
-      uCoverage: { value: 0 },
       uAlphaCutoff: { value: 0.12 },
       uBlendViews: { value: blendViews ? 1 : 0 },
       uDitherSeed: { value: 0 },
+      uMidDistance: { value: lodConfig.midMaxDistance },
+      uFarDistance: { value: lodConfig.farMaxDistance },
+      uTransitionDistance: { value: lodConfig.transitionDistance },
       uTime: { value: 0 },
       uWindDirection: {
         value: new THREE.Vector2(
@@ -223,10 +239,7 @@ export class WorldGrassImpostorMaterial {
   }
 
   bindMesh(mesh: THREE.InstancedMesh, ditherSeed: number): void {
-    mesh.userData.grassImpostorCoverage = 0;
     mesh.onBeforeRender = () => {
-      this.uniforms.uCoverage.value =
-        mesh.userData.grassImpostorCoverage ?? 0;
       this.uniforms.uDitherSeed.value = ditherSeed / 4294967296;
     };
   }

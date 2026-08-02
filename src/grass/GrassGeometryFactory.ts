@@ -71,6 +71,22 @@ export class GrassGeometryFactory {
     return geometry;
   }
 
+  disposeInstancedMesh(mesh: THREE.InstancedMesh): void {
+    const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
+
+    // All attributes except instanceVariation, plus the index, are borrowed
+    // from a shared LOD variant. Detach them before disposal so streaming one
+    // chunk out cannot invalidate the GPU buffers used by every other chunk.
+    for (const name of Object.keys(geometry.attributes)) {
+      if (name !== "instanceVariation") {
+        geometry.deleteAttribute(name);
+      }
+    }
+    geometry.setIndex(null);
+    geometry.dispose();
+    mesh.dispose();
+  }
+
   private createVariants(
     config: ClumpShapeConfig,
     variantCount: number,

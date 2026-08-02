@@ -31,6 +31,40 @@ interface GrassChunkRequest {
   distance: number;
 }
 
+interface GrassChunkBuildJob {
+  request: GrassChunkRequest;
+  grassConfig: GrassConfig;
+  patchesPerAxis: number;
+  cellSize: number;
+  jitterRadius: number;
+  originX: number;
+  originZ: number;
+  nextCell: number;
+  random: SeededRandom;
+  matrices: THREE.Matrix4[];
+  variations: number[];
+  up: THREE.Vector3;
+  normal: THREE.Vector3;
+  align: THREE.Quaternion;
+  yaw: THREE.Quaternion;
+  scale: THREE.Vector3;
+  position: THREE.Vector3;
+  matrix: THREE.Matrix4;
+  bounds: THREE.Box3;
+  meshBounds?: THREE.Box3;
+  finalizeStage: number;
+  variationValues?: Float32Array;
+  variantIndex?: number;
+  nearMesh?: THREE.InstancedMesh;
+  midMesh?: THREE.InstancedMesh;
+  farMesh?: THREE.InstancedMesh;
+}
+
+interface GrassChunkFinalizeResult {
+  complete: boolean;
+  patch?: WorldGrassPatch;
+}
+
 export interface WorldGrassDiagnostics {
   ready: boolean;
   status: string;
@@ -52,6 +86,9 @@ const FIELD_COVERAGE_MIN = 0.16;
 const FIELD_COVERAGE_FULL = 0.5;
 const COMPACT_BUILD_COOLDOWN_FRAMES = 2;
 const CHUNK_BUILD_WARNING_MS = 24;
+const DESKTOP_BUILD_BUDGET_MS = 4;
+const COMPACT_BUILD_BUDGET_MS = 2.5;
+const RETIREMENTS_PER_FRAME = 2;
 
 export class WorldGrassSystem {
   private readonly configLoader = new GrassConfigLoader();
@@ -64,6 +101,8 @@ export class WorldGrassSystem {
   private readonly patches = new Map<string, WorldGrassPatch>();
   private readonly queue: GrassChunkRequest[] = [];
   private readonly desired = new Map<string, GrassChunkRequest>();
+  private readonly retirementQueue: string[] = [];
+  private readonly retiring = new Set<string>();
   private readonly cameraPosition = new THREE.Vector3();
   private nearGeometries: THREE.BufferGeometry[] = [];
   private midGeometries: THREE.BufferGeometry[] = [];
@@ -74,6 +113,7 @@ export class WorldGrassSystem {
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private buildCooldownFrames = 0;
+  private activeBuild?: GrassChunkBuildJob;
   private lastBuildMs = 0;
   private maxBuildMs = 0;
   private status = "Waiting for grass initialization";
@@ -110,6 +150,14 @@ export class WorldGrassSystem {
     this.nearBladesPerPatch = variants.nearBladesPerPatch;
     this.midBladesPerPatch = variants.midBladesPerPatch;
     this.material.configure(grassConfig.material, grassConfig.wind);
+    const lodConfig = {
+      nearMaxDistance: this.worldConfig.grassNearDistance,
+      midMaxDistance: this.worldConfig.grassMidDistance,
+      farMaxDistance: this.worldConfig.grassFarDistance,
+      transitionDistance: this.worldConfig.grassTransitionDistance,
+      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+    };
+    this.material.configureLod(lodConfig);
 
     for (let index = 0; index < variants.bladeVariants.length; index += 1) {
       this.status = `Creating impostor atlas ${index + 1}/${variants.bladeVariants.length}`;
@@ -126,18 +174,13 @@ export class WorldGrassSystem {
           atlas,
           grassConfig.material,
           grassConfig.wind,
+          lodConfig,
           !this.profile.compact,
         ),
       );
     }
 
-    this.lodController = new GrassLodController({
-      nearMaxDistance: this.worldConfig.grassNearDistance,
-      midMaxDistance: this.worldConfig.grassMidDistance,
-      farMaxDistance: this.worldConfig.grassFarDistance,
-      transitionDistance: this.worldConfig.grassTransitionDistance,
-      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-    });
+    this.lodController = new GrassLodController(lodConfig);
     this.status = "Grass ready";
     this.initialized = true;
   }
@@ -162,6 +205,7 @@ export class WorldGrassSystem {
       this.reconcile();
     }
 
+    this.processRetirementQueue();
     this.processBuildQueue();
     this.lodController.update(camera, this.patches.values());
   }
@@ -194,7 +238,7 @@ export class WorldGrassSystem {
       ready: this.initialized,
       status: this.status,
       activePatches: this.patches.size,
-      queuedPatches: this.queue.length,
+      queuedPatches: this.queue.length + (this.activeBuild ? 1 : 0),
       visibleNearPatches,
       visibleMidPatches,
       visibleFarPatches,
@@ -212,6 +256,12 @@ export class WorldGrassSystem {
     }
     this.patches.clear();
     this.queue.length = 0;
+    this.retirementQueue.length = 0;
+    this.retiring.clear();
+    if (this.activeBuild) {
+      this.discardPatchBuild(this.activeBuild);
+    }
+    this.activeBuild = undefined;
     this.desired.clear();
     for (const geometry of [...this.nearGeometries, ...this.midGeometries]) {
       geometry.dispose();
@@ -231,36 +281,81 @@ export class WorldGrassSystem {
       return;
     }
 
-    const buildLimit = this.profile.compact
-      ? 1
-      : this.worldConfig.grassChunksPerFrame;
-    let builtChunks = 0;
-
-    for (let index = 0; index < buildLimit && this.queue.length > 0; index += 1) {
+    while (!this.activeBuild && this.queue.length > 0) {
       const request = this.queue.shift();
-      if (!request || !this.desired.has(request.key)) {
-        continue;
+      if (request && this.desired.has(request.key)) {
+        this.activeBuild = this.beginPatchBuild(request);
       }
-
-      const startedAt = performance.now();
-      const patch = this.createPatch(request);
-      this.lastBuildMs = performance.now() - startedAt;
-      this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
-      if (this.lastBuildMs > CHUNK_BUILD_WARNING_MS) {
-        console.warn(
-          `[FluffyGrass] Grass chunk ${request.key} took ${this.lastBuildMs.toFixed(1)} ms to build.`,
-        );
-      }
-
-      if (patch) {
-        this.patches.set(request.key, patch);
-        this.scene.add(patch.nearMesh, patch.midMesh, patch.farMesh);
-      }
-      builtChunks += 1;
     }
 
-    if (this.profile.compact && builtChunks > 0) {
+    const job = this.activeBuild;
+    if (!job) {
+      return;
+    }
+    if (!this.desired.has(job.request.key)) {
+      this.discardPatchBuild(job);
+      this.activeBuild = undefined;
+      return;
+    }
+
+    const startedAt = performance.now();
+    const totalCells = job.patchesPerAxis * job.patchesPerAxis;
+    const readyToFinalize = job.nextCell >= totalCells;
+    let completedChunk = false;
+    if (readyToFinalize) {
+      const result = this.advancePatchFinalize(job);
+      if (result.complete) {
+        if (result.patch) {
+          this.patches.set(job.request.key, result.patch);
+          this.scene.add(
+            result.patch.nearMesh,
+            result.patch.midMesh,
+            result.patch.farMesh,
+          );
+        }
+        this.activeBuild = undefined;
+        completedChunk = true;
+      }
+    } else {
+      this.advancePatchBuild(
+        job,
+        this.profile.compact
+          ? COMPACT_BUILD_BUDGET_MS
+          : DESKTOP_BUILD_BUDGET_MS,
+      );
+    }
+
+    this.lastBuildMs = performance.now() - startedAt;
+    this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
+    if (this.lastBuildMs > CHUNK_BUILD_WARNING_MS) {
+      console.warn(
+        `[FluffyGrass] Grass build slice took ${this.lastBuildMs.toFixed(1)} ms.`,
+      );
+    }
+
+    if (this.profile.compact && completedChunk) {
       this.buildCooldownFrames = COMPACT_BUILD_COOLDOWN_FRAMES;
+    }
+  }
+
+  private processRetirementQueue(): void {
+    let retired = 0;
+    while (retired < RETIREMENTS_PER_FRAME && this.retirementQueue.length > 0) {
+      const key = this.retirementQueue.shift();
+      if (!key) {
+        continue;
+      }
+      if (this.desired.has(key)) {
+        this.retiring.delete(key);
+        continue;
+      }
+      const patch = this.patches.get(key);
+      if (patch) {
+        this.removePatch(patch);
+        this.patches.delete(key);
+      }
+      this.retiring.delete(key);
+      retired += 1;
     }
   }
 
@@ -296,22 +391,29 @@ export class WorldGrassSystem {
     }
 
     for (const [key, patch] of this.patches) {
-      if (!this.desired.has(key)) {
-        this.removePatch(patch);
-        this.patches.delete(key);
+      if (!this.desired.has(key) && !this.retiring.has(key)) {
+        this.retiring.add(key);
+        this.retirementQueue.push(key);
       }
+    }
+
+    for (const key of this.desired.keys()) {
+      this.retiring.delete(key);
     }
 
     this.queue.length = 0;
     for (const request of this.desired.values()) {
-      if (!this.patches.has(request.key)) {
+      if (
+        !this.patches.has(request.key) &&
+        this.activeBuild?.request.key !== request.key
+      ) {
         this.queue.push(request);
       }
     }
     this.queue.sort((left, right) => left.distance - right.distance);
   }
 
-  private createPatch(request: GrassChunkRequest): WorldGrassPatch | undefined {
+  private beginPatchBuild(request: GrassChunkRequest): GrassChunkBuildJob | undefined {
     const grassConfig = this.grassConfig;
     if (!grassConfig) {
       return undefined;
@@ -323,105 +425,183 @@ export class WorldGrassSystem {
     const cellSize = this.worldConfig.chunkSize / patchesPerAxis;
     const jitterRadius =
       cellSize * this.worldConfig.grassPatchJitter * 0.5;
-    const random = new SeededRandom(
-      this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
-    );
-    const matrices: THREE.Matrix4[] = [];
-    const variations: number[] = [];
-    const up = new THREE.Vector3(0, 1, 0);
-    const normal = new THREE.Vector3();
-    const align = new THREE.Quaternion();
-    const yaw = new THREE.Quaternion();
-    const scale = new THREE.Vector3();
-    const position = new THREE.Vector3();
-    const matrix = new THREE.Matrix4();
-    const originX = request.chunkX * this.worldConfig.chunkSize;
-    const originZ = request.chunkZ * this.worldConfig.chunkSize;
+    return {
+      request,
+      grassConfig,
+      patchesPerAxis,
+      cellSize,
+      jitterRadius,
+      originX: request.chunkX * this.worldConfig.chunkSize,
+      originZ: request.chunkZ * this.worldConfig.chunkSize,
+      nextCell: 0,
+      random: new SeededRandom(
+        this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
+      ),
+      matrices: [],
+      variations: [],
+      up: new THREE.Vector3(0, 1, 0),
+      normal: new THREE.Vector3(),
+      align: new THREE.Quaternion(),
+      yaw: new THREE.Quaternion(),
+      scale: new THREE.Vector3(),
+      position: new THREE.Vector3(),
+      matrix: new THREE.Matrix4(),
+      bounds: new THREE.Box3(),
+      finalizeStage: 0,
+    };
+  }
 
-    for (let patchZ = 0; patchZ < patchesPerAxis; patchZ += 1) {
-      for (let patchX = 0; patchX < patchesPerAxis; patchX += 1) {
-        const x =
-          originX +
-          (patchX + 0.5) * cellSize +
-          random.range(-jitterRadius, jitterRadius);
-        const z =
-          originZ +
-          (patchZ + 0.5) * cellSize +
-          random.range(-jitterRadius, jitterRadius);
-        const height = this.field.sampleHeight(x, z);
-        this.field.sampleNormal(x, z, normal);
-        const suitability = this.field.sampleGrassSuitability(
-          x,
-          z,
-          height,
-          normal,
-        );
-        const coverage = THREE.MathUtils.smoothstep(
-          suitability,
-          FIELD_COVERAGE_MIN,
-          FIELD_COVERAGE_FULL,
-        );
-        if (random.next() > coverage) {
-          continue;
-        }
-
-        position.set(x, height - grassConfig.distribution.rootSink, z);
-        align.setFromUnitVectors(up, normal);
-        yaw.setFromAxisAngle(up, random.range(0, TWO_PI));
-        align.multiply(yaw);
-        const horizontalScale = random.range(0.96, 1.04);
-        const heightScale =
-          1 +
-          random.range(
-            -grassConfig.distribution.heightVariation,
-            grassConfig.distribution.heightVariation,
-          );
-        scale.set(horizontalScale, heightScale, horizontalScale);
-        matrix.compose(position, align, scale);
-        matrices.push(matrix.clone());
-        variations.push(
-          random.next(),
-          random.range(0.82, 1.14),
-          random.range(0.97, 1.04),
-          THREE.MathUtils.clamp(
-            (1 - suitability) * 0.34 + random.range(0, 0.09),
-            0,
-            1,
-          ),
-        );
+  private discardPatchBuild(job: GrassChunkBuildJob): void {
+    for (const mesh of [job.nearMesh, job.midMesh, job.farMesh]) {
+      if (mesh) {
+        this.geometryFactory.disposeInstancedMesh(mesh);
       }
     }
+  }
+
+  private advancePatchBuild(job: GrassChunkBuildJob, budgetMs: number): void {
+    const deadline = performance.now() + budgetMs;
+    const totalCells = job.patchesPerAxis * job.patchesPerAxis;
+    let processed = 0;
+
+    while (
+      job.nextCell < totalCells &&
+      (processed === 0 || performance.now() < deadline)
+    ) {
+      const patchX = job.nextCell % job.patchesPerAxis;
+      const patchZ = Math.floor(job.nextCell / job.patchesPerAxis);
+      job.nextCell += 1;
+      processed += 1;
+
+      const x =
+        job.originX +
+        (patchX + 0.5) * job.cellSize +
+        job.random.range(-job.jitterRadius, job.jitterRadius);
+      const z =
+        job.originZ +
+        (patchZ + 0.5) * job.cellSize +
+        job.random.range(-job.jitterRadius, job.jitterRadius);
+      const height = this.field.sampleHeight(x, z);
+      this.field.sampleNormal(x, z, job.normal);
+      const suitability = this.field.sampleGrassSuitability(
+        x,
+        z,
+        height,
+        job.normal,
+      );
+      const coverage = THREE.MathUtils.smoothstep(
+        suitability,
+        FIELD_COVERAGE_MIN,
+        FIELD_COVERAGE_FULL,
+      );
+      if (job.random.next() > coverage) {
+        continue;
+      }
+
+      job.position.set(
+        x,
+        height - job.grassConfig.distribution.rootSink,
+        z,
+      );
+      job.align.setFromUnitVectors(job.up, job.normal);
+      job.yaw.setFromAxisAngle(job.up, job.random.range(0, TWO_PI));
+      job.align.multiply(job.yaw);
+      const horizontalScale = job.random.range(0.96, 1.04);
+      const heightScale =
+        1 +
+        job.random.range(
+          -job.grassConfig.distribution.heightVariation,
+          job.grassConfig.distribution.heightVariation,
+        );
+      job.scale.set(horizontalScale, heightScale, horizontalScale);
+      job.matrix.compose(job.position, job.align, job.scale);
+      job.matrices.push(job.matrix.clone());
+      job.bounds.expandByPoint(job.position);
+      job.variations.push(
+        job.random.next(),
+        job.random.range(0.82, 1.14),
+        job.random.range(0.97, 1.04),
+        THREE.MathUtils.clamp(
+          (1 - suitability) * 0.34 + job.random.range(0, 0.09),
+          0,
+          1,
+        ),
+      );
+    }
+  }
+
+  private advancePatchFinalize(job: GrassChunkBuildJob): GrassChunkFinalizeResult {
+    const { request, grassConfig, matrices, variations } = job;
 
     if (matrices.length === 0) {
-      return undefined;
+      return { complete: true };
     }
 
-    const variationValues = new Float32Array(variations);
-    const variantIndex =
-      this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed + 97) %
-      grassConfig.geometry.variantCount;
-    const nearMesh = this.createMesh(
-      `world-grass-near-${request.key}`,
-      this.nearGeometries[variantIndex],
-      this.material.material,
-      matrices,
-      variationValues,
-    );
-    const midMesh = this.createMesh(
-      `world-grass-mid-${request.key}`,
-      this.midGeometries[variantIndex],
-      this.material.material,
-      matrices,
-      variationValues,
-    );
+    if (!job.variationValues || job.variantIndex === undefined) {
+      job.variationValues = new Float32Array(variations);
+      job.variantIndex =
+        this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed + 97) %
+        grassConfig.geometry.variantCount;
+      const impostorRadius =
+        this.impostorMaterials[job.variantIndex].atlas.radius;
+      const bladeExtent =
+        grassConfig.geometry.bladeHeightMax *
+          (1 + grassConfig.distribution.heightVariation) +
+        grassConfig.geometry.bladeLeanMax +
+        grassConfig.wind.strength +
+        grassConfig.wind.flutterStrength;
+      job.meshBounds = job.bounds
+        .clone()
+        .expandByScalar(Math.max(impostorRadius, bladeExtent));
+    }
+    const variationValues = job.variationValues;
+    const variantIndex = job.variantIndex;
+
+    if (job.finalizeStage === 0) {
+      job.nearMesh = this.createMesh(
+        `world-grass-near-${request.key}`,
+        this.nearGeometries[variantIndex],
+        this.material.material,
+        matrices,
+        variationValues,
+        job.meshBounds,
+      );
+      job.finalizeStage += 1;
+      return { complete: false };
+    }
+    if (job.finalizeStage === 1) {
+      job.midMesh = this.createMesh(
+        `world-grass-mid-${request.key}`,
+        this.midGeometries[variantIndex],
+        this.material.material,
+        matrices,
+        variationValues,
+        job.meshBounds,
+      );
+      job.finalizeStage += 1;
+      return { complete: false };
+    }
+
     const impostorMaterial = this.impostorMaterials[variantIndex];
-    const farMesh = this.createMesh(
-      `world-grass-far-${request.key}`,
-      impostorMaterial.atlas.geometry,
-      impostorMaterial.material,
-      matrices,
-      variationValues,
-    );
+    if (job.finalizeStage === 2) {
+      job.farMesh = this.createMesh(
+        `world-grass-far-${request.key}`,
+        impostorMaterial.atlas.geometry,
+        impostorMaterial.material,
+        matrices,
+        variationValues,
+        job.meshBounds,
+      );
+      job.finalizeStage += 1;
+      return { complete: false };
+    }
+
+    const nearMesh = job.nearMesh;
+    const midMesh = job.midMesh;
+    const farMesh = job.farMesh;
+    if (!nearMesh || !midMesh || !farMesh) {
+      throw new Error(`Grass chunk ${request.key} finalized out of order.`);
+    }
     midMesh.visible = false;
     farMesh.visible = false;
 
@@ -430,30 +610,13 @@ export class WorldGrassSystem {
       request.chunkZ,
       this.worldConfig.seed + 193,
     );
-    this.material.bindMesh(nearMesh, ditherSeed, false, 1);
-    this.material.bindMesh(midMesh, ditherSeed, true, MID_WIND_SCALE);
-    impostorMaterial.bindMesh(farMesh, ditherSeed ^ 0x85ebca6b);
+    this.material.bindMesh(nearMesh, ditherSeed, false, 1, true);
+    this.material.bindMesh(midMesh, ditherSeed, true, MID_WIND_SCALE, true);
+    impostorMaterial.bindMesh(farMesh, ditherSeed);
 
-    const bounds = new THREE.Box3();
-    if (nearMesh.boundingBox) {
-      bounds.copy(nearMesh.boundingBox);
-    }
-    if (midMesh.boundingBox) {
-      bounds.union(midMesh.boundingBox);
-    }
-    if (farMesh.boundingBox) {
-      bounds.union(farMesh.boundingBox);
-    }
-    bounds.expandByScalar(
-      Math.max(
-        grassConfig.wind.strength +
-          grassConfig.wind.flutterStrength +
-          grassConfig.geometry.bladeLeanMax,
-        impostorMaterial.atlas.radius * 0.25,
-      ),
-    );
+    const bounds = job.meshBounds?.clone() ?? job.bounds.clone();
 
-    return {
+    return { complete: true, patch: {
       id: request.key,
       gridX: request.chunkX,
       gridZ: request.chunkZ,
@@ -468,7 +631,7 @@ export class WorldGrassSystem {
       nearCoverage: 1,
       midCoverage: 0,
       farCoverage: 0,
-    };
+    } };
   }
 
   private createMesh(
@@ -477,6 +640,7 @@ export class WorldGrassSystem {
     material: THREE.Material,
     matrices: THREE.Matrix4[],
     variationValues: Float32Array,
+    bounds?: THREE.Box3,
   ): THREE.InstancedMesh {
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
@@ -496,16 +660,21 @@ export class WorldGrassSystem {
     });
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingBox();
-    mesh.computeBoundingSphere();
+    if (bounds) {
+      mesh.boundingBox = bounds.clone();
+      mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+    } else {
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+    }
     return mesh;
   }
 
   private removePatch(patch: WorldGrassPatch): void {
     this.scene.remove(patch.nearMesh, patch.midMesh, patch.farMesh);
-    patch.nearMesh.geometry.dispose();
-    patch.midMesh.geometry.dispose();
-    patch.farMesh.geometry.dispose();
+    this.geometryFactory.disposeInstancedMesh(patch.nearMesh);
+    this.geometryFactory.disposeInstancedMesh(patch.midMesh);
+    this.geometryFactory.disposeInstancedMesh(patch.farMesh);
   }
 
   private hash(x: number, z: number, seed: number): number {

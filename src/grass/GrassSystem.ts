@@ -165,7 +165,7 @@ export class GrassSystem {
   dispose(): void {
     for (const mesh of this.meshes) {
       this.dependencies.scene.remove(mesh);
-      mesh.geometry.dispose();
+      this.geometryFactory.disposeInstancedMesh(mesh);
     }
     this.meshes.length = 0;
 

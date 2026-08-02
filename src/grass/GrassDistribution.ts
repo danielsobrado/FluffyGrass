@@ -6,6 +6,10 @@ import { SeededRandom } from "./internal/SeededRandom";
 const TWO_PI = Math.PI * 2;
 const MAX_SAMPLE_ATTEMPTS_MULTIPLIER = 32;
 
+type SeedableMeshSurfaceSampler = MeshSurfaceSampler & {
+  setRandomGenerator(randomFunction: () => number): MeshSurfaceSampler;
+};
+
 export interface GrassPlacement {
   matrix: THREE.Matrix4;
   position: THREE.Vector3;
@@ -19,8 +23,11 @@ export class GrassDistribution {
     config: GrassDistributionConfig,
   ): GrassPlacement[] {
     const random = new SeededRandom(config.seed);
-    const sampler = new MeshSurfaceSampler(surface)
-      .setWeightAttribute("color")
+    const sampler = (
+      new MeshSurfaceSampler(surface).setWeightAttribute(
+        "color",
+      ) as SeedableMeshSurfaceSampler
+    )
       .setRandomGenerator(() => random.next())
       .build();
 
