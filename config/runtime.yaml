@@ -14,7 +14,7 @@ desktopShowDecorativeText: true
 compactCameraFov: 56
 compactCameraMargin: 1.28
 compactCameraElevation: 1.05
-compactMaxPixelRatio: 1.35
+compactMaxPixelRatio: 0.85
 compactAutoRotate: false
 compactShadows: false
 compactShadowMapSize: 1024
