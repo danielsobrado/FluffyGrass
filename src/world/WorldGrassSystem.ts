@@ -30,7 +30,7 @@ export interface WorldGrassDiagnostics {
 }
 
 const TWO_PI = Math.PI * 2;
-const MAX_ATTEMPTS_MULTIPLIER = 5;
+const MAX_ATTEMPTS_MULTIPLIER = 8;
 const MID_WIND_SCALE = 0.62;
 
 export class WorldGrassSystem {

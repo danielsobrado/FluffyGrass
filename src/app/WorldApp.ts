@@ -2,6 +2,7 @@ import * as THREE from "three";
 import Stats from "stats-gl";
 import { FlyController } from "../controls/FlyController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
 import { TerrainField } from "../world/TerrainField";
 import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
@@ -54,6 +55,7 @@ export class WorldApp {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.field = new TerrainField(config);
+    const spawn = new DenseSpawnLocator(this.field, config).find();
     this.terrain = new TerrainStreamer(
       this.scene,
       this.field,
@@ -72,8 +74,12 @@ export class WorldApp {
       canvas,
       config,
       profile,
+      spawn,
     );
 
+    console.info(
+      `[FluffyGrass] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)}.`,
+    );
     this.addLights();
     this.setupStats();
     window.addEventListener("resize", this.handleResize);
@@ -155,7 +161,7 @@ export class WorldApp {
     );
     this.camera.position.y = THREE.MathUtils.clamp(
       this.camera.position.y,
-      terrainHeight + 2,
+      terrainHeight + this.config.spawnEyeHeight,
       this.config.mountainHeight + 520,
     );
   }
@@ -172,9 +178,13 @@ export class WorldApp {
     const terrain = this.terrain.getDiagnostics();
     const grass = this.grass.getDiagnostics();
     const render = this.renderer.info.render;
+    const groundHeight = this.field.sampleHeight(
+      this.camera.position.x,
+      this.camera.position.z,
+    );
     this.hud.textContent = [
       `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
-      `Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
+      `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
       `Terrain ${terrain.activeChunks} +${terrain.queuedChunks}`,
       `Grass ${grass.clumps} clumps in ${grass.activePatches} patches`,
       `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()}`,
