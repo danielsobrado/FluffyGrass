@@ -61,6 +61,7 @@ export class GrassConfigLoader {
         rootDarkening: this.readRange(values, "rootDarkening", 0, 1),
         normalUp: this.readRange(values, "normalUp", 0, 1),
         ambientBoost: this.readRange(values, "ambientBoost", 0, 1),
+        backlightStrength: this.readRange(values, "backlightStrength", 0, 1),
       },
       lod: {
         nearMaxDistance: this.readPositiveNumber(values, "nearMaxDistance"),
