@@ -12,6 +12,8 @@ import { WorldGrassSystem } from "../world/WorldGrassSystem";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
 const ERROR_MESSAGE_MAX_LENGTH = 180;
+const FRAME_WATCHDOG_INTERVAL_MS = 500;
+const FRAME_STALL_THRESHOLD_MS = 1500;
 
 type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
 
@@ -28,7 +30,9 @@ export class WorldApp {
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
   private readonly pixelRatio: number;
   private frameHandle = 0;
+  private watchdogHandle = 0;
   private frameCount = 0;
+  private lastFrameTimestamp = performance.now();
   private hudElapsed = 0;
   private running = false;
   private terrainEnabled = true;
@@ -120,12 +124,18 @@ export class WorldApp {
     }
     this.running = true;
     this.clock.start();
+    this.lastFrameTimestamp = performance.now();
     this.frameHandle = requestAnimationFrame(this.render);
+    this.watchdogHandle = window.setInterval(
+      this.checkFrameHeartbeat,
+      FRAME_WATCHDOG_INTERVAL_MS,
+    );
   }
 
   dispose(): void {
     this.running = false;
     cancelAnimationFrame(this.frameHandle);
+    window.clearInterval(this.watchdogHandle);
     window.removeEventListener("resize", this.handleResize);
     window.removeEventListener("error", this.handleWindowError);
     window.removeEventListener("unhandledrejection", this.handleUnhandledRejection);
@@ -163,6 +173,7 @@ export class WorldApp {
 
     // Schedule first so an exception in any subsystem cannot terminate animation.
     this.frameHandle = requestAnimationFrame(this.render);
+    this.lastFrameTimestamp = performance.now();
     this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
 
@@ -193,6 +204,22 @@ export class WorldApp {
     this.runFrameSubsystem("hud", () => {
       this.updateHud(deltaSeconds);
     });
+  };
+
+  private readonly checkFrameHeartbeat = (): void => {
+    if (!this.running || document.hidden) {
+      return;
+    }
+    const stalledForMs = performance.now() - this.lastFrameTimestamp;
+    if (stalledForMs < FRAME_STALL_THRESHOLD_MS) {
+      return;
+    }
+
+    this.runtimeError = `watchdog: restarted after ${Math.round(stalledForMs)} ms`;
+    this.lastFrameTimestamp = performance.now();
+    this.clock.stop();
+    this.clock.start();
+    this.frameHandle = requestAnimationFrame(this.render);
   };
 
   private runFrameSubsystem(
