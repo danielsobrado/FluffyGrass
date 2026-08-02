@@ -78,10 +78,10 @@ export class FluffyGrass {
 
   render(): void {
     const deltaSeconds = this.clock.getDelta();
+    this.orbitControls.update();
     this.grassSystem.update(deltaSeconds, this.camera);
     this.renderer.render(this.scene, this.camera);
     this.stats.update();
-    this.orbitControls.update();
     requestAnimationFrame(() => this.render());
   }
 
