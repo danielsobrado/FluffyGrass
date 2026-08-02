@@ -2,6 +2,8 @@ export interface GrassLodConfig {
   nearMaxDistance: number;
   midMaxDistance: number;
   farMaxDistance: number;
+  hysteresisDistance: number;
+  transitionDistance: number;
 }
 
 export interface GrassGeometryConfig {
@@ -15,6 +17,12 @@ export interface GrassGeometryConfig {
   bladeWidthMax: number;
   bladeLeanMin: number;
   bladeLeanMax: number;
+  midBladesPerClump: number;
+  midBladeSegments: number;
+  midRadiusScale: number;
+  midHeightScale: number;
+  midWidthScale: number;
+  midLeanScale: number;
 }
 
 export interface GrassDistributionConfig {
