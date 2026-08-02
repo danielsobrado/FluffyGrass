@@ -11,6 +11,11 @@ import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
+const COMPACT_MIN_PIXEL_RATIO = 0.6;
+const COMPACT_FRAME_TIME_LIMIT_MS = 30;
+const COMPACT_QUALITY_CHECK_FRAMES = 30;
+const COMPACT_PIXEL_RATIO_STEP = 0.1;
+const FRAME_TIME_EMA_WEIGHT = 0.08;
 
 export class WorldApp {
   private readonly scene = new THREE.Scene();
@@ -23,6 +28,9 @@ export class WorldApp {
   private readonly grass: WorldGrassSystem;
   private readonly controls: FlyController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
+  private currentPixelRatio: number;
+  private frameTimeEmaMs = 1000 / 60;
+  private qualityCheckFrames = COMPACT_QUALITY_CHECK_FRAMES;
   private hudElapsed = 0;
   private grassInitializationError?: string;
 
@@ -47,17 +55,18 @@ export class WorldApp {
       canvas,
       antialias: !profile.compact,
       alpha: false,
-      precision: "highp",
+      precision: profile.compact ? "mediump" : "highp",
       powerPreference: "high-performance",
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, profile.maxPixelRatio),
+    this.currentPixelRatio = Math.min(
+      window.devicePixelRatio,
+      profile.maxPixelRatio,
     );
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.applyRendererSize();
     if (!profile.compact) {
       this.stats = new Stats({ minimal: true });
     }
@@ -130,6 +139,7 @@ export class WorldApp {
 
   private render = (): void => {
     const deltaSeconds = this.clock.getDelta();
+    this.updateDynamicResolution(deltaSeconds);
     this.controls.update(deltaSeconds);
     this.constrainCamera();
     this.terrain.update(this.camera.position);
@@ -139,6 +149,45 @@ export class WorldApp {
     this.updateHud(deltaSeconds);
     requestAnimationFrame(this.render);
   };
+
+  private updateDynamicResolution(deltaSeconds: number): void {
+    if (!this.profile.compact) {
+      return;
+    }
+
+    const frameTimeMs = Math.min(deltaSeconds * 1000, 100);
+    this.frameTimeEmaMs = THREE.MathUtils.lerp(
+      this.frameTimeEmaMs,
+      frameTimeMs,
+      FRAME_TIME_EMA_WEIGHT,
+    );
+    this.qualityCheckFrames -= 1;
+    if (this.qualityCheckFrames > 0) {
+      return;
+    }
+    this.qualityCheckFrames = COMPACT_QUALITY_CHECK_FRAMES;
+
+    if (
+      this.frameTimeEmaMs <= COMPACT_FRAME_TIME_LIMIT_MS ||
+      this.currentPixelRatio <= COMPACT_MIN_PIXEL_RATIO
+    ) {
+      return;
+    }
+
+    this.currentPixelRatio = Math.max(
+      COMPACT_MIN_PIXEL_RATIO,
+      this.currentPixelRatio - COMPACT_PIXEL_RATIO_STEP,
+    );
+    this.applyRendererSize();
+    console.info(
+      `[FluffyGrass] Compact render scale reduced to ${this.currentPixelRatio.toFixed(2)} after ${this.frameTimeEmaMs.toFixed(1)} ms average frame time.`,
+    );
+  }
+
+  private applyRendererSize(): void {
+    this.renderer.setPixelRatio(this.currentPixelRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
 
   private addLights(): void {
     this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
@@ -215,16 +264,18 @@ export class WorldApp {
       grass.ready
         ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
         : grassStatus,
-      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Build ${grass.lastBuildMs.toFixed(1)} ms`,
+      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.currentPixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} ms`,
     ].join("\n");
   }
 
   private readonly handleResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, this.profile.maxPixelRatio),
+    this.currentPixelRatio = Math.min(
+      this.currentPixelRatio,
+      window.devicePixelRatio,
+      this.profile.maxPixelRatio,
     );
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.applyRendererSize();
   };
 }
