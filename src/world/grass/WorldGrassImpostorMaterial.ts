@@ -5,6 +5,14 @@ import type {
   GrassWindConfig,
 } from "../../grass/GrassConfig";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
+import {
+  IMPOSTOR_AERIAL_FADE_END,
+  IMPOSTOR_AERIAL_FADE_START,
+  IMPOSTOR_ALPHA_CUTOFF,
+  IMPOSTOR_BASE_COLOR_BLEND,
+  IMPOSTOR_ROOT_LIGHT_MAX,
+  IMPOSTOR_ROOT_LIGHT_MIN,
+} from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
 attribute vec4 instanceVariation;
@@ -23,6 +31,7 @@ varying float vDryness;
 varying float vRootAo;
 varying float vFarEntry;
 varying float vTerrainCoverage;
+varying float vViewElevation;
 #include <fog_pars_vertex>
 
 void main() {
@@ -32,10 +41,12 @@ void main() {
   vec3 instanceAxisZ = instanceModel[2].xyz;
   float scaleX = max(length(instanceAxisX), 0.0001);
   float scaleY = max(length(instanceAxisY), 0.0001);
+  float scaleZ = max(length(instanceAxisZ), 0.0001);
   vec3 basisX = instanceAxisX / scaleX;
   vec3 basisY = normalize(instanceAxisY);
-  vec3 basisZ = normalize(instanceAxisZ);
-  vec3 center = (instanceModel * vec4(0.0, uCenterHeight, 0.0, 1.0)).xyz;
+  vec3 basisZ = instanceAxisZ / scaleZ;
+  vec3 rootCenter = (instanceModel * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vec3 center = rootCenter + basisY * uCenterHeight * scaleY;
   vec3 toCamera = normalize(cameraPosition - center);
   vec3 billboardRight = cross(basisY, toCamera);
   float billboardRightLength = length(billboardRight);
@@ -64,6 +75,7 @@ void main() {
     dot(toCamera, basisZ)
   );
   vLocalViewDirection = normalize(localViewDirection);
+  vViewElevation = abs(dot(toCamera, basisY));
   vUv = uv;
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
@@ -91,6 +103,10 @@ uniform float uPadding;
 uniform float uAtlasSize;
 uniform float uAlphaCutoff;
 uniform float uBlendViews;
+uniform float uAerialFadeStart;
+uniform float uAerialFadeEnd;
+uniform float uBaseColorBlend;
+uniform vec3 uBaseColor;
 uniform vec3 uDryColor;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
@@ -99,6 +115,7 @@ varying float vDryness;
 varying float vRootAo;
 varying float vFarEntry;
 varying float vTerrainCoverage;
+varying float vViewElevation;
 #include <fog_pars_fragment>
 
 vec2 encodeHemiOctahedral(vec3 direction) {
@@ -117,16 +134,31 @@ vec2 encodeHemiOctahedral(vec3 direction) {
 
 vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
   float cellSize = uFrameResolution + uPadding * 2.0;
+  vec2 safeUv = clamp(
+    localUv,
+    vec2(0.5 / uFrameResolution),
+    vec2(1.0 - 0.5 / uFrameResolution)
+  );
   vec2 pixel =
     frameIndex * cellSize +
     vec2(uPadding) +
-    localUv * uFrameResolution;
+    safeUv * uFrameResolution;
   return texture2D(uAtlas, pixel / uAtlasSize);
 }
 
 void main() {
+  float aerialVisibility = 1.0 - smoothstep(
+    uAerialFadeStart,
+    uAerialFadeEnd,
+    vViewElevation
+  );
   float terrainDither = fract(vInstanceSeed * 0.754877666 + 0.438289);
-  if (vInstanceSeed > vFarEntry || terrainDither > vTerrainCoverage) {
+  float effectiveCoverage = vTerrainCoverage * aerialVisibility;
+  if (
+    effectiveCoverage <= 0.001 ||
+    vInstanceSeed > vFarEntry ||
+    terrainDither > effectiveCoverage
+  ) {
     discard;
   }
 
@@ -146,6 +178,7 @@ void main() {
       vec2(maximumFrame)
     );
     atlasColor = sampleFrame(nearestFrame, vUv);
+    atlasColor.rgb *= atlasColor.a;
   } else {
     vec2 frameBase = floor(framePosition);
     vec2 frameBlend = fract(framePosition);
@@ -179,8 +212,14 @@ void main() {
   }
 
   vec3 color = atlasColor.rgb / max(atlasColor.a, 0.001);
-  color = mix(color, uDryColor, vDryness * 0.18);
-  color *= mix(0.9, 1.04, vRootAo);
+  float terrainMatch = mix(
+    uBaseColorBlend,
+    1.0,
+    smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
+  );
+  color = mix(color, uBaseColor, terrainMatch);
+  color = mix(color, uDryColor, vDryness * 0.12);
+  color *= mix(${IMPOSTOR_ROOT_LIGHT_MIN.toFixed(2)}, ${IMPOSTOR_ROOT_LIGHT_MAX.toFixed(2)}, vRootAo);
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -188,10 +227,12 @@ void main() {
 }
 `;
 
+type ShaderUniforms = Record<string, { value: unknown }>;
+
 export class WorldGrassImpostorMaterial {
   readonly material: THREE.ShaderMaterial;
 
-  private readonly uniforms: Record<string, { value: unknown }>;
+  private readonly uniforms: ShaderUniforms;
 
   constructor(
     readonly atlas: WorldGrassImpostorAtlas,
@@ -200,16 +241,23 @@ export class WorldGrassImpostorMaterial {
     lodConfig: GrassLodConfig,
     blendViews: boolean,
   ) {
+    atlas.texture.generateMipmaps = false;
+    atlas.texture.minFilter = THREE.LinearFilter;
+    atlas.texture.needsUpdate = true;
+
     this.uniforms = {
-      ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
+      ...(THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as ShaderUniforms),
       uAtlas: { value: atlas.texture },
       uViewsPerAxis: { value: atlas.viewsPerAxis },
       uFrameResolution: { value: atlas.frameResolution },
       uPadding: { value: atlas.padding },
       uAtlasSize: { value: atlas.atlasSize },
       uCenterHeight: { value: atlas.centerHeight },
-      uAlphaCutoff: { value: 0.12 },
+      uAlphaCutoff: { value: IMPOSTOR_ALPHA_CUTOFF },
       uBlendViews: { value: blendViews ? 1 : 0 },
+      uAerialFadeStart: { value: IMPOSTOR_AERIAL_FADE_START },
+      uAerialFadeEnd: { value: IMPOSTOR_AERIAL_FADE_END },
+      uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
       uDitherSeed: { value: 0 },
       uMidDistance: { value: lodConfig.midMaxDistance },
       uFarDistance: { value: lodConfig.farMaxDistance },
@@ -222,6 +270,7 @@ export class WorldGrassImpostorMaterial {
         ).normalize(),
       },
       uWindStrength: { value: windConfig.strength },
+      uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },
       uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
     };
     this.material = new THREE.ShaderMaterial({
