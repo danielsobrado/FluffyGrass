@@ -5,6 +5,14 @@ import * as dat from "dat.gui";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GrassDevelopmentController } from "./dev/GrassDevelopmentController";
 import { GrassSystem } from "./grass/GrassSystem";
+import { frameCameraToBounds } from "./runtime/CameraFraming";
+import type { RuntimeProfile } from "./runtime/RuntimeConfig";
+import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
+import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
+
+const ISLAND_MODEL_PATH = "./island.glb";
+const DECORATIVE_TEXT_MODEL_PATH = "./fluffy_grass_text.glb";
+const FORCE_CONTROLS_QUERY = "controls";
 
 export class FluffyGrass {
   private readonly loadingManager: THREE.LoadingManager;
@@ -15,12 +23,13 @@ export class FluffyGrass {
   private readonly canvas: HTMLCanvasElement;
   private readonly stats: Stats;
   private readonly orbitControls: OrbitControls;
-  private readonly gui: dat.GUI;
+  private readonly gui?: dat.GUI;
   private readonly grassSystem: GrassSystem;
   private readonly developmentController: GrassDevelopmentController;
   private readonly clock = new THREE.Clock();
   private readonly terrainMaterial: THREE.MeshPhongMaterial;
-  private sceneGui!: dat.GUI;
+  private sceneGui?: dat.GUI;
+  private sceneBounds?: THREE.Box3;
 
   private readonly sceneProps = {
     fogColor: "#eeeeee",
@@ -28,15 +37,28 @@ export class FluffyGrass {
     fogDensity: 0.02,
   };
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    private readonly profile: RuntimeProfile,
+  ) {
     this.loadingManager = new THREE.LoadingManager();
     this.gltfLoader = new GLTFLoader(this.loadingManager);
     this.canvas = canvas;
-    this.gui = new dat.GUI();
     this.stats = new Stats({ minimal: true });
 
+    const controlsRequested =
+      new URLSearchParams(window.location.search).get(FORCE_CONTROLS_QUERY) ===
+      "1";
+    if (profile.showGui || controlsRequested) {
+      this.gui = new dat.GUI();
+    }
+
+    document.documentElement.dataset.viewport = profile.compact
+      ? "compact"
+      : "desktop";
+
     this.camera = new THREE.PerspectiveCamera(
-      75,
+      profile.cameraFov,
       window.innerWidth / window.innerHeight,
       0.1,
       1000,
@@ -56,18 +78,22 @@ export class FluffyGrass {
       alpha: true,
       precision: "highp",
     });
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.autoUpdate = true;
+    this.renderer.shadowMap.enabled = profile.shadows;
+    this.renderer.shadowMap.autoUpdate = profile.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, profile.maxPixelRatio),
+    );
 
     this.orbitControls = new OrbitControls(this.camera, this.canvas);
-    this.orbitControls.autoRotate = true;
+    this.orbitControls.autoRotate = profile.autoRotate;
     this.orbitControls.autoRotateSpeed = -0.5;
     this.orbitControls.enableDamping = true;
+    this.orbitControls.enablePan = !profile.compact;
+    this.orbitControls.rotateSpeed = profile.compact ? 0.55 : 1;
 
     this.terrainMaterial = new THREE.MeshPhongMaterial({
       color: this.sceneProps.terrainColor,
@@ -106,31 +132,34 @@ export class FluffyGrass {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
-    directionalLight.castShadow = true;
+    directionalLight.castShadow = this.profile.shadows;
     directionalLight.position.set(100, 100, 100);
     directionalLight.shadow.camera.far = 200;
     directionalLight.shadow.camera.left = -50;
     directionalLight.shadow.camera.right = 50;
     directionalLight.shadow.camera.top = 50;
     directionalLight.shadow.camera.bottom = -50;
-    directionalLight.shadow.mapSize.set(2048, 2048);
+    directionalLight.shadow.mapSize.set(
+      this.profile.shadowMapSize,
+      this.profile.shadowMapSize,
+    );
     this.scene.add(directionalLight);
   }
 
   private loadModels(): void {
     this.sceneGui
-      .addColor(this.sceneProps, "terrainColor")
+      ?.addColor(this.sceneProps, "terrainColor")
       .onChange((value: string) => this.terrainMaterial.color.set(value));
 
     this.gltfLoader.load(
-      "/island.glb",
+      ISLAND_MODEL_PATH,
       (gltf) => {
         let terrainMesh: THREE.Mesh | undefined;
 
         gltf.scene.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.material = this.terrainMaterial;
-            child.receiveShadow = true;
+            child.receiveShadow = this.profile.shadows;
             child.geometry.scale(3, 3, 3);
             terrainMesh = child;
           }
@@ -141,6 +170,14 @@ export class FluffyGrass {
           console.error("[FluffyGrass] Island model does not contain a terrain mesh.");
           return;
         }
+
+        this.sceneBounds = new THREE.Box3().setFromObject(gltf.scene);
+        frameCameraToBounds(
+          this.camera,
+          this.orbitControls,
+          this.sceneBounds,
+          this.profile,
+        );
 
         void this.grassSystem
           .initialize(terrainMesh)
@@ -157,17 +194,23 @@ export class FluffyGrass {
       (error) => console.error("[FluffyGrass] Island model failed to load.", error),
     );
 
+    if (this.profile.showDecorativeText) {
+      this.loadDecorativeText();
+    }
+  }
+
+  private loadDecorativeText(): void {
     const textMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
     this.gltfLoader.load(
-      "/fluffy_grass_text.glb",
+      DECORATIVE_TEXT_MODEL_PATH,
       (gltf) => {
         gltf.scene.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.material = textMaterial;
             child.geometry.scale(3, 3, 3);
             child.position.y += 0.5;
-            child.castShadow = true;
-            child.receiveShadow = true;
+            child.castShadow = this.profile.shadows;
+            child.receiveShadow = this.profile.shadows;
           }
         });
         this.scene.add(gltf.scene);
@@ -178,6 +221,10 @@ export class FluffyGrass {
   }
 
   private setupGui(): void {
+    if (!this.gui) {
+      return;
+    }
+
     this.gui.close();
     const guiContainer = this.gui.domElement.parentElement as HTMLDivElement;
     guiContainer.style.zIndex = "9999";
@@ -224,15 +271,36 @@ export class FluffyGrass {
 
   private readonly handleResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.fov = this.profile.cameraFov;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, this.profile.maxPixelRatio),
+    );
+
+    if (this.sceneBounds) {
+      frameCameraToBounds(
+        this.camera,
+        this.orbitControls,
+        this.sceneBounds,
+        this.profile,
+      );
+    }
   };
 }
 
-const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
-if (!canvas) {
-  throw new Error("Canvas element #canvas was not found.");
+async function start(): Promise<void> {
+  const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+  if (!canvas) {
+    throw new Error("Canvas element #canvas was not found.");
+  }
+
+  const runtimeConfig = await new RuntimeConfigLoader().load();
+  const profile = resolveRuntimeProfile(runtimeConfig);
+  const app = new FluffyGrass(canvas, profile);
+  app.render();
 }
 
-const app = new FluffyGrass(canvas);
-app.render();
+void start().catch((error) => {
+  console.error("[FluffyGrass] Application startup failed.", error);
+});
