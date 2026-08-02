@@ -30,7 +30,7 @@ export interface WorldGrassDiagnostics {
 }
 
 const TWO_PI = Math.PI * 2;
-const MAX_ATTEMPTS_MULTIPLIER = 8;
+const PLACEMENT_JITTER = 0.82;
 const MID_WIND_SCALE = 0.62;
 
 export class WorldGrassSystem {
@@ -206,10 +206,12 @@ export class WorldGrassSystem {
     const density = this.profile.compact
       ? this.worldConfig.grassClumpsPerSquareMeterCompact
       : this.worldConfig.grassClumpsPerSquareMeterDesktop;
-    const requestedCount = Math.max(
+    const cellsPerAxis = Math.max(
       1,
-      Math.round(this.worldConfig.chunkSize ** 2 * density),
+      Math.round(this.worldConfig.chunkSize * Math.sqrt(density)),
     );
+    const cellSize = this.worldConfig.chunkSize / cellsPerAxis;
+    const jitterRadius = cellSize * PLACEMENT_JITTER * 0.5;
     const random = new SeededRandom(
       this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
     );
@@ -224,56 +226,59 @@ export class WorldGrassSystem {
     const matrix = new THREE.Matrix4();
     const originX = request.chunkX * this.worldConfig.chunkSize;
     const originZ = request.chunkZ * this.worldConfig.chunkSize;
-    const maximumAttempts = requestedCount * MAX_ATTEMPTS_MULTIPLIER;
 
-    for (
-      let attempt = 0;
-      attempt < maximumAttempts && matrices.length < requestedCount;
-      attempt += 1
-    ) {
-      const x = originX + random.next() * this.worldConfig.chunkSize;
-      const z = originZ + random.next() * this.worldConfig.chunkSize;
-      const height = this.field.sampleHeight(x, z);
-      this.field.sampleNormal(x, z, normal);
-      const suitability = this.field.sampleGrassSuitability(
-        x,
-        z,
-        height,
-        normal,
-      );
-      if (random.next() > suitability) {
-        continue;
+    for (let cellZ = 0; cellZ < cellsPerAxis; cellZ += 1) {
+      for (let cellX = 0; cellX < cellsPerAxis; cellX += 1) {
+        const x =
+          originX +
+          (cellX + 0.5) * cellSize +
+          random.range(-jitterRadius, jitterRadius);
+        const z =
+          originZ +
+          (cellZ + 0.5) * cellSize +
+          random.range(-jitterRadius, jitterRadius);
+        const height = this.field.sampleHeight(x, z);
+        this.field.sampleNormal(x, z, normal);
+        const suitability = this.field.sampleGrassSuitability(
+          x,
+          z,
+          height,
+          normal,
+        );
+        if (random.next() > suitability) {
+          continue;
+        }
+
+        position.set(x, height - grassConfig.distribution.rootSink, z);
+        align.setFromUnitVectors(up, normal);
+        yaw.setFromAxisAngle(up, random.range(0, TWO_PI));
+        align.multiply(yaw);
+        const widthScale =
+          1 +
+          random.range(
+            -grassConfig.distribution.widthVariation,
+            grassConfig.distribution.widthVariation,
+          );
+        const heightScale =
+          1 +
+          random.range(
+            -grassConfig.distribution.heightVariation,
+            grassConfig.distribution.heightVariation,
+          );
+        scale.set(widthScale, heightScale, widthScale);
+        matrix.compose(position, align, scale);
+        matrices.push(matrix.clone());
+        variations.push(
+          random.next(),
+          random.range(0.82, 1.14),
+          random.range(0.96, 1.05),
+          THREE.MathUtils.clamp(
+            (1 - suitability) * 0.36 + random.range(0, 0.1),
+            0,
+            1,
+          ),
+        );
       }
-
-      position.set(x, height - grassConfig.distribution.rootSink, z);
-      align.setFromUnitVectors(up, normal);
-      yaw.setFromAxisAngle(up, random.range(0, TWO_PI));
-      align.multiply(yaw);
-      const widthScale =
-        1 +
-        random.range(
-          -grassConfig.distribution.widthVariation,
-          grassConfig.distribution.widthVariation,
-        );
-      const heightScale =
-        1 +
-        random.range(
-          -grassConfig.distribution.heightVariation,
-          grassConfig.distribution.heightVariation,
-        );
-      scale.set(widthScale, heightScale, widthScale);
-      matrix.compose(position, align, scale);
-      matrices.push(matrix.clone());
-      variations.push(
-        random.next(),
-        random.range(0.78, 1.16),
-        random.range(0.94, 1.05),
-        THREE.MathUtils.clamp(
-          (1 - suitability) * 0.42 + random.range(0, 0.14),
-          0,
-          1,
-        ),
-      );
     }
 
     if (matrices.length === 0) {
