@@ -15,6 +15,7 @@ uniform float uGrassGustSpeed;
 uniform float uGrassFlutterStrength;
 uniform float uGrassFlutterSpeed;
 uniform float uGrassNormalUp;
+uniform float uGrassWindLodScale;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -38,7 +39,7 @@ float grassFlutter = sin(
 float grassBend = (
   grassGust * uGrassWindStrength +
   grassFlutter * uGrassFlutterStrength
-) * instanceVariation.y * pow(grassProgress, 1.65);
+) * instanceVariation.y * pow(grassProgress, 1.65) * uGrassWindLodScale;
 mat3 grassInstanceBasis = mat3(instanceMatrix);
 vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
 vec3 grassLocalWind = vec3(
@@ -60,6 +61,10 @@ uniform vec3 uGrassDryColor;
 uniform float uGrassRootDarkening;
 uniform float uGrassAmbientBoost;
 uniform float uGrassBacklightStrength;
+uniform float uGrassLodThreshold;
+uniform float uGrassLodInvert;
+uniform float uGrassDistanceFade;
+uniform float uGrassDitherSeed;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -68,6 +73,16 @@ varying float vGrassRootAo;
 
 const FRAGMENT_COLOR = `
 #include <color_fragment>
+vec2 grassPixel = floor(gl_FragCoord.xy);
+float grassDither = fract(
+  sin(dot(grassPixel, vec2(12.9898, 78.233)) + uGrassDitherSeed) * 43758.5453
+);
+bool grassKeepLod = uGrassLodInvert < 0.5
+  ? grassDither <= uGrassLodThreshold
+  : grassDither > uGrassLodThreshold;
+if (!grassKeepLod || grassDither > uGrassDistanceFade) {
+  discard;
+}
 float grassTipBlend = smoothstep(0.08, 1.0, vGrassProgress);
 vec3 grassHealthyColor = mix(uGrassBaseColor, uGrassTipColor, grassTipBlend);
 vec3 grassColor = mix(
@@ -124,6 +139,11 @@ export class GrassNearMaterial {
     uGrassNormalUp: { value: 0.45 },
     uGrassAmbientBoost: { value: 0.12 },
     uGrassBacklightStrength: { value: 0.16 },
+    uGrassLodThreshold: { value: 1 },
+    uGrassLodInvert: { value: 0 },
+    uGrassDistanceFade: { value: 1 },
+    uGrassDitherSeed: { value: 0 },
+    uGrassWindLodScale: { value: 1 },
   };
 
   constructor() {
@@ -154,7 +174,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v2";
+    this.material.customProgramCacheKey = () => "grass-near-material-v3";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -178,19 +198,38 @@ export class GrassNearMaterial {
     this.uniforms.uGrassFlutterSpeed.value = wind.flutterSpeed;
   }
 
+  bindMesh(
+    mesh: THREE.InstancedMesh,
+    ditherSeed: number,
+    invertLodCoverage: boolean,
+    windScale: number,
+  ): void {
+    mesh.userData.grassLodThreshold = 1;
+    mesh.userData.grassDistanceFade = 1;
+    mesh.onBeforeRender = () => {
+      this.uniforms.uGrassLodThreshold.value =
+        mesh.userData.grassLodThreshold ?? 1;
+      this.uniforms.uGrassLodInvert.value = invertLodCoverage ? 1 : 0;
+      this.uniforms.uGrassDistanceFade.value =
+        mesh.userData.grassDistanceFade ?? 1;
+      this.uniforms.uGrassDitherSeed.value = ditherSeed;
+      this.uniforms.uGrassWindLodScale.value = windScale;
+    };
+  }
+
   update(elapsedSeconds: number): void {
     this.uniforms.uGrassTime.value = elapsedSeconds;
   }
 
   setupGUI(gui: GUI): void {
     const folder = gui.addFolder("Grass Props");
-    folder.addColor(this.colorControls, "baseColor").onChange((value) => {
+    folder.addColor(this.colorControls, "baseColor").onChange((value: string) => {
       this.uniforms.uGrassBaseColor.value.set(value);
     });
-    folder.addColor(this.colorControls, "tipColor").onChange((value) => {
+    folder.addColor(this.colorControls, "tipColor").onChange((value: string) => {
       this.uniforms.uGrassTipColor.value.set(value);
     });
-    folder.addColor(this.colorControls, "dryColor").onChange((value) => {
+    folder.addColor(this.colorControls, "dryColor").onChange((value: string) => {
       this.uniforms.uGrassDryColor.value.set(value);
     });
     folder
