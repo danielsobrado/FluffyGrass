@@ -33,9 +33,9 @@ The default transition distances come from `public/config/world.yaml`.
 
 | Distance from camera | Representation | Purpose |
 | --- | --- | --- |
-| `0–3 m` | Two independent single-blade layers | Full 2× blade density where individual blades are most visible. |
-| `3–4 m` | Additional single-blade layer dithering out | Removes the extra density without a visible ring. |
-| `4–16 m` | Dense individual blades | Maximum normal close-range quality and character interaction. |
+| `0–4 m` | Two independent single-blade layers | Full 2× blade density where individual blades are most visible. |
+| `4–5 m` | Additional single-blade layer dithering out | Removes the extra density without a visible ring. |
+| `5–16 m` | Dense individual blades | Maximum normal close-range quality and character interaction. |
 | `16–32 m` | Individual blades fading out, patch geometry fading in, impostor underfill rising | Prevents a visible density drop at the first world LOD transition. |
 | `32–72 m` | Multi-blade patches plus 72% impostor underfill | Preserves apparent field density without close-range blade cost. |
 | `72–88 m` | Patches fading out while impostors rise to full coverage | Smooth transition into the far representation. |
@@ -63,7 +63,7 @@ grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 ```
 
-The extra layer is fully visible through 3 m and uses a stochastic fade from 3–4 m. It is streamed only around the camera and is built before the wider near field after spawn or a tile crossing.
+The extra layer is fully visible through 4 m and uses a stochastic fade from 4–5 m. It is streamed only around the camera and is built before the wider near field after spawn or a tile crossing.
 
 ### Normal near LOD: individual blades
 
@@ -76,7 +76,7 @@ grassNearBladesPerSquareMeterDesktop: 72
 grassNearBladesPerSquareMeterCompact: 48
 ```
 
-The production `WorldGrassSystem` initializes and updates `WorldNearGrassField` directly. The older streamed multi-blade near mesh remains disabled, so close grass is not represented by patches.
+The production `WorldGrassSystem` initializes and updates `WorldNearGrassField` directly. `ThirdPersonController` only drives character motion and the shared interaction field, preventing a duplicate grass allocation. The older streamed multi-blade near mesh remains disabled, so close grass is not represented by patches.
 
 Both close single-blade layers receive the full character interaction deformation. Roots remain planted while blade tips bend and flatten around the character.
 
@@ -127,7 +127,7 @@ Run the continuity verification with:
 npm run test:lod
 ```
 
-The verification also checks that the dense single-blade fields are connected to `WorldGrassSystem`, that the ultra-near distance remains 4 m, that its total density multiplier remains 2×, and that the stronger interaction setting is retained.
+The verification also checks that the dense single-blade fields are connected to `WorldGrassSystem`, that no duplicate field is owned by `ThirdPersonController`, that the ultra-near distance remains 4 m, that its total density multiplier remains 2×, and that the stronger interaction setting is retained.
 
 ## Interactive grass physics
 
