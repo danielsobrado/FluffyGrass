@@ -13,6 +13,7 @@ import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
+const FPS_SAMPLE_INTERVAL_SECONDS = 1;
 const ERROR_MESSAGE_MAX_LENGTH = 180;
 const FRAME_WATCHDOG_INTERVAL_MS = 500;
 const FRAME_STALL_THRESHOLD_MS = 1500;
@@ -34,7 +35,9 @@ export class WorldApp {
   private readonly pixelRatio: number;
   private frameHandle = 0;
   private watchdogHandle = 0;
-  private frameCount = 0;
+  private fpsSampleFrames = 0;
+  private fpsSampleElapsed = 0;
+  private averageFps = 0;
   private lastFrameTimestamp = performance.now();
   private hudElapsed = 0;
   private sampledGroundX = Number.NaN;
@@ -124,7 +127,7 @@ export class WorldApp {
         );
 
     console.info(
-      `[FluffyGrass] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
+      `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
     );
     this.addLights();
     this.bindRuntimeEvents();
@@ -191,7 +194,7 @@ export class WorldApp {
     try {
       await this.grass.initialize();
     } catch (error) {
-      console.error("[FluffyGrass] Grass initialization failed.", error);
+      console.error("[Drusniel World] Grass initialization failed.", error);
       this.grassInitializationError = this.formatError(error);
       this.grassEnabled = false;
     } finally {
@@ -207,8 +210,8 @@ export class WorldApp {
 
     this.frameHandle = requestAnimationFrame(this.render);
     this.lastFrameTimestamp = performance.now();
-    this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
+    this.updateAverageFps(deltaSeconds);
 
     if (this.controlsEnabled) {
       this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
@@ -230,6 +233,20 @@ export class WorldApp {
       this.runFrameSubsystem("hud", this.updateHud, deltaSeconds);
     }
   };
+
+  private updateAverageFps(deltaSeconds: number): void {
+    this.fpsSampleFrames += 1;
+    this.fpsSampleElapsed += deltaSeconds;
+    if (this.fpsSampleElapsed < FPS_SAMPLE_INTERVAL_SECONDS) {
+      if (this.averageFps === 0 && this.fpsSampleElapsed > 0) {
+        this.averageFps = this.fpsSampleFrames / this.fpsSampleElapsed;
+      }
+      return;
+    }
+    this.averageFps = this.fpsSampleFrames / this.fpsSampleElapsed;
+    this.fpsSampleFrames = 0;
+    this.fpsSampleElapsed = 0;
+  }
 
   private readonly updateControls = (deltaSeconds: number): void => {
     this.controls.update(deltaSeconds);
@@ -301,7 +318,7 @@ export class WorldApp {
       return;
     }
     this.runtimeError = message;
-    console.error(`[FluffyGrass] ${subsystem} frame failure.`, error);
+    console.error(`[Drusniel World] ${subsystem} frame failure.`, error);
   }
 
   private formatError(error: unknown): string {
@@ -376,7 +393,7 @@ export class WorldApp {
       ? `Grass error: ${this.grassInitializationError}`
       : grass.status;
     this.hud.textContent = [
-      `Frame ${this.frameCount.toLocaleString()} · ${this.runtimeError ? "DEGRADED" : "running"} · ${this.controls.getMode()}`,
+      `Avg FPS ${this.averageFps.toFixed(1)} · ${this.runtimeError ? "DEGRADED" : "running"} · ${this.controls.getMode()}`,
       `Focus ${focus.x.toFixed(0)} / ${focus.y.toFixed(0)} / ${focus.z.toFixed(0)}`,
       `Camera ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(focus.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(1)} m/s`,
