@@ -1,13 +1,13 @@
 import * as THREE from "three";
 
 const PALETTE = Object.freeze({
-  robe: 0x081020,
-  mantle: 0x131b2f,
-  tunic: 0x3b3934,
-  leather: 0x0c0806,
-  skin: 0x221812,
-  trim: 0x1f3250,
-  fur: 0xb3b8c2,
+  robe: 0x090713,
+  mantle: 0x17102c,
+  tunic: 0x29213d,
+  leather: 0x09070e,
+  skin: 0x403854,
+  trim: 0x65508f,
+  fur: 0xcbd2df,
 });
 
 export interface SnowflowCharacterMaterialSet {
@@ -24,11 +24,11 @@ export function createSnowflowCharacterMaterials(): SnowflowCharacterMaterialSet
   return {
     robe: createMaterial(PALETTE.robe, 0.86, THREE.DoubleSide),
     mantle: createMaterial(PALETTE.mantle, 0.8, THREE.DoubleSide),
-    tunic: createMaterial(PALETTE.tunic, 0.88, THREE.DoubleSide),
+    tunic: createMaterial(PALETTE.tunic, 0.84, THREE.DoubleSide),
     leather: createMaterial(PALETTE.leather, 0.62, THREE.FrontSide),
-    skin: createMaterial(PALETTE.skin, 0.9, THREE.FrontSide),
-    trim: createMaterial(PALETTE.trim, 0.78, THREE.DoubleSide),
-    fur: createMaterial(PALETTE.fur, 0.92, THREE.DoubleSide),
+    skin: createMaterial(PALETTE.skin, 0.82, THREE.FrontSide),
+    trim: createMaterial(PALETTE.trim, 0.68, THREE.DoubleSide, 0.18),
+    fur: createMaterial(PALETTE.fur, 0.76, THREE.DoubleSide),
   };
 }
 
@@ -36,11 +36,12 @@ function createMaterial(
   color: number,
   roughness: number,
   side: THREE.Side,
+  metalness = 0,
 ): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color,
     roughness,
-    metalness: 0,
+    metalness,
     side,
   });
 }
