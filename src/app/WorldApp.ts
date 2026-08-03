@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type Stats from "stats-gl";
-import { FlyController } from "../controls/FlyController";
+import { FlyWorldController } from "../controls/FlyWorldController";
+import { ThirdPersonController } from "../controls/ThirdPersonController";
+import type { WorldController } from "../controls/WorldController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
@@ -26,7 +28,7 @@ export class WorldApp {
   private readonly field: TerrainField;
   private readonly terrain: TerrainStreamer;
   private readonly grass: WorldGrassSystem;
-  private readonly controls: FlyController;
+  private readonly controls: WorldController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
   private readonly pixelRatio: number;
   private frameHandle = 0;
@@ -75,12 +77,17 @@ export class WorldApp {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.pixelRatio = Math.min(window.devicePixelRatio, profile.maxPixelRatio);
     this.applyRendererSize();
+
     this.field = new TerrainField(config);
     const spawn = new DenseSpawnLocator(this.field, config).find();
-    if (new URLSearchParams(window.location.search).get("view") === "aerial") {
+    const params = new URLSearchParams(window.location.search);
+    const useFlyControls =
+      params.get("control") === "fly" || params.get("view") === "aerial";
+    if (params.get("view") === "aerial") {
       spawn.position.y += 48;
       spawn.pitch = THREE.MathUtils.degToRad(-34);
     }
+
     this.terrain = new TerrainStreamer(
       this.scene,
       this.field,
@@ -94,16 +101,26 @@ export class WorldApp {
       config,
       profile,
     );
-    this.controls = new FlyController(
-      this.camera,
-      canvas,
-      config,
-      profile,
-      spawn,
-    );
+    this.controls = useFlyControls
+      ? new FlyWorldController(
+          this.camera,
+          canvas,
+          config,
+          profile,
+          spawn,
+        )
+      : new ThirdPersonController(
+          this.scene,
+          this.camera,
+          canvas,
+          this.field,
+          config,
+          profile,
+          spawn,
+        );
 
     console.info(
-      `[FluffyGrass] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)}.`,
+      `[FluffyGrass] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
     );
     this.addLights();
     this.bindRuntimeEvents();
@@ -183,7 +200,6 @@ export class WorldApp {
       return;
     }
 
-    // Schedule first so an exception in any subsystem cannot terminate animation.
     this.frameHandle = requestAnimationFrame(this.render);
     this.lastFrameTimestamp = performance.now();
     this.frameCount += 1;
@@ -208,11 +224,13 @@ export class WorldApp {
 
   private readonly updateControls = (deltaSeconds: number): void => {
     this.controls.update(deltaSeconds);
-    this.constrainCamera();
+    if (this.controls.getMode() === "fly") {
+      this.constrainCamera();
+    }
   };
 
   private readonly updateTerrain = (): void => {
-    this.terrain.update(this.camera.position);
+    this.terrain.update(this.controls.getStreamingPosition());
   };
 
   private readonly updateGrass = (deltaSeconds: number): void => {
@@ -229,8 +247,6 @@ export class WorldApp {
       return;
     }
     if (this.grassInitializing) {
-      // Do not carry asynchronous initialization time into the runtime stall
-      // detector.
       this.lastFrameTimestamp = performance.now();
       return;
     }
@@ -243,9 +259,6 @@ export class WorldApp {
     this.lastFrameTimestamp = performance.now();
     this.clock.stop();
     this.clock.start();
-    // A stalled main thread normally leaves the previously requested frame
-    // pending. Cancel it before restarting so the watchdog cannot create a
-    // second permanent render loop when the browser becomes responsive.
     cancelAnimationFrame(this.frameHandle);
     this.frameHandle = requestAnimationFrame(this.render);
   };
@@ -324,7 +337,7 @@ export class WorldApp {
       -halfWorld,
       halfWorld,
     );
-    const terrainHeight = this.sampleCameraGroundHeight();
+    const terrainHeight = this.sampleGroundHeight(this.camera.position);
     this.camera.position.y = THREE.MathUtils.clamp(
       this.camera.position.y,
       terrainHeight + this.config.spawnEyeHeight,
@@ -344,14 +357,16 @@ export class WorldApp {
     const terrain = this.terrain.getDiagnostics();
     const grass = this.grass.getDiagnostics();
     const render = this.renderer.info.render;
-    const groundHeight = this.sampleCameraGroundHeight();
+    const focus = this.controls.getStreamingPosition();
+    const groundHeight = this.sampleGroundHeight(focus);
     const grassStatus = this.grassInitializationError
       ? `Grass error: ${this.grassInitializationError}`
       : grass.status;
     this.hud.textContent = [
-      `Frame ${this.frameCount.toLocaleString()} · ${this.runtimeError ? "DEGRADED" : "running"}`,
-      `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
-      `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
+      `Frame ${this.frameCount.toLocaleString()} · ${this.runtimeError ? "DEGRADED" : "running"} · ${this.controls.getMode()}`,
+      `Focus ${focus.x.toFixed(0)} / ${focus.y.toFixed(0)} / ${focus.z.toFixed(0)}`,
+      `Camera ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
+      `AGL ${(focus.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(1)} m/s`,
       `Input ${this.controls.getInputDiagnostics()}`,
       `Terrain ${terrain.activeChunks} +${terrain.queuedChunks} · Build ${terrain.lastBuildMs.toFixed(1)} / peak ${terrain.maxBuildMs.toFixed(1)} ms`,
       grass.ready
@@ -364,8 +379,8 @@ export class WorldApp {
       .join("\n");
   };
 
-  private sampleCameraGroundHeight(): number {
-    const { x, z } = this.camera.position;
+  private sampleGroundHeight(position: THREE.Vector3): number {
+    const { x, z } = position;
     if (x !== this.sampledGroundX || z !== this.sampledGroundZ) {
       this.sampledGroundX = x;
       this.sampledGroundZ = z;
