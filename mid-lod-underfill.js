@@ -1,6 +1,7 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.module.js";
 
 const SOURCE_INSTANCE_COUNT = 22000;
+const SOURCE_NAME = "drusniel-mid-far-multiblade-patches";
 const MAX_FIND_ATTEMPTS = 180;
 const NEAR_FADE_START = 16;
 const NEAR_FADE_END = 32;
@@ -46,13 +47,18 @@ function installUnderfill() {
 
 function findSourceGrass(scene) {
   if (!scene) return undefined;
+  const namedSource = scene.getObjectByName(SOURCE_NAME);
+  if (namedSource instanceof THREE.InstancedMesh) {
+    return namedSource;
+  }
+
   let result;
   scene.traverse((object) => {
     if (
       result ||
       !(object instanceof THREE.InstancedMesh) ||
       object.count !== SOURCE_INSTANCE_COUNT ||
-      object.userData.drusnielManagedGrass
+      object.name === "drusniel-mid-lod-underfill"
     ) {
       return;
     }
