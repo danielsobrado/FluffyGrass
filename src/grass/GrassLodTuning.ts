@@ -1,0 +1,1 @@
+export const GRASS_MID_IMPOSTOR_UNDERFILL = 0.46;
