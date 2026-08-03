@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassLodConfig } from "./GrassConfig";
+import { GRASS_MID_IMPOSTOR_UNDERFILL } from "./GrassLodTuning";
 import { GrassLodLevel, type GrassPatch } from "./GrassPatchGrid";
 
 const VISIBILITY_EPSILON = 0.001;
@@ -60,16 +61,10 @@ export class GrassLodController {
       this.config.nearMaxDistance - this.config.transitionDistance;
     const nearFadeEnd =
       this.config.nearMaxDistance + this.config.transitionDistance;
-    const farEntryStart =
-      this.config.midMaxDistance - this.config.transitionDistance;
     const farEntryEnd =
       this.config.midMaxDistance + this.config.transitionDistance;
     const terrainFadeEnd =
       this.config.farMaxDistance + this.config.transitionDistance;
-    const impostorEntryStart =
-      (this.config.midImpostorUnderfill ?? 0) > VISIBILITY_EPSILON
-        ? nearFadeStart
-        : farEntryStart;
 
     patch.nearMesh.visible =
       patch.inFrustum && patch.distance < nearFadeEnd;
@@ -79,7 +74,7 @@ export class GrassLodController {
       patch.distance < farEntryEnd;
     farMesh.visible =
       patch.inFrustum &&
-      farthestDistance > impostorEntryStart &&
+      farthestDistance > nearFadeStart &&
       patch.distance < terrainFadeEnd;
 
     patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
@@ -180,7 +175,7 @@ export class GrassLodController {
       terrainFadeEnd,
     );
     const midUnderfill =
-      (1 - nearCoverage) * (this.config.midImpostorUnderfill ?? 0);
+      (1 - nearCoverage) * GRASS_MID_IMPOSTOR_UNDERFILL;
     const densityCoverage = THREE.MathUtils.lerp(midUnderfill, 1, entry);
     return densityCoverage * (1 - terrainFade);
   }
