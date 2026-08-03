@@ -52,3 +52,23 @@ flyMinSpeed: 8
 flyMaxSpeed: 240
 initialAltitude: 85
 initialDistance: 180
+
+# Snowflow-inspired third-person character and camera.
+characterScale: 1
+characterWalkSpeed: 2.5
+characterRunSpeed: 5.4
+characterAcceleration: 26
+characterDeceleration: 30
+characterTurnRate: 11
+characterCameraDistance: 6
+characterCameraMinDistance: 2.8
+characterCameraMaxDistance: 10
+characterCameraLookHeight: 1.32
+characterCameraElevationDegrees: 18
+characterCameraMinElevationDegrees: 6
+characterCameraMaxElevationDegrees: 58
+characterCameraFollowRate: 4.5
+characterCameraGroundClearance: 0.7
+characterMouseLookSensitivity: 0.0022
+characterTouchLookSensitivity: 0.004
+characterZoomSensitivity: 0.004
