@@ -14,9 +14,17 @@ export interface WorldConfig {
   grassPatchSize: number;
   grassBladesPerSquareMeterDesktop: number;
   grassBladesPerSquareMeterCompact: number;
+  grassNearTileSize: number;
+  grassNearBladesPerSquareMeterDesktop: number;
+  grassNearBladesPerSquareMeterCompact: number;
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
   grassPatchJitter: number;
+  grassInteractionRadius: number;
+  grassInteractionStrength: number;
+  grassInteractionTrailLength: number;
+  grassInteractionResponse: number;
+  grassInteractionSpeedForFullEffect: number;
   spawnSearchRadius: number;
   spawnSearchStep: number;
   spawnNeighborhoodRadius: number;
