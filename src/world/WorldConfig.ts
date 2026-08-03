@@ -41,4 +41,22 @@ export interface WorldConfig {
   flyMaxSpeed: number;
   initialAltitude: number;
   initialDistance: number;
+  characterScale: number;
+  characterWalkSpeed: number;
+  characterRunSpeed: number;
+  characterAcceleration: number;
+  characterDeceleration: number;
+  characterTurnRate: number;
+  characterCameraDistance: number;
+  characterCameraMinDistance: number;
+  characterCameraMaxDistance: number;
+  characterCameraLookHeight: number;
+  characterCameraElevationDegrees: number;
+  characterCameraMinElevationDegrees: number;
+  characterCameraMaxElevationDegrees: number;
+  characterCameraFollowRate: number;
+  characterCameraGroundClearance: number;
+  characterMouseLookSensitivity: number;
+  characterTouchLookSensitivity: number;
+  characterZoomSensitivity: number;
 }

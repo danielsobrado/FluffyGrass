@@ -2,86 +2,96 @@ import type { WorldConfig } from "./WorldConfig";
 
 const CONFIG_URL = "./config/world.yaml";
 
+interface NumberRule {
+  minimum?: number;
+  maximum?: number;
+  integer?: boolean;
+}
+
 type ParsedValues = Record<string, string>;
+type ConfigSchema = { [Key in keyof WorldConfig]: NumberRule };
+
+const POSITIVE = Object.freeze({ minimum: Number.EPSILON });
+const NON_NEGATIVE = Object.freeze({ minimum: 0 });
+const POSITIVE_INTEGER = Object.freeze({ minimum: 1, integer: true });
+
+const CONFIG_SCHEMA: ConfigSchema = {
+  seed: { integer: true },
+  worldSize: POSITIVE,
+  chunkSize: POSITIVE,
+  terrainRadiusDesktop: POSITIVE_INTEGER,
+  terrainRadiusCompact: POSITIVE_INTEGER,
+  grassRadiusDesktop: POSITIVE_INTEGER,
+  grassRadiusCompact: POSITIVE_INTEGER,
+  terrainNearResolution: { minimum: 3, integer: true },
+  terrainMidResolution: { minimum: 3, integer: true },
+  terrainFarResolution: { minimum: 3, integer: true },
+  terrainChunksPerFrame: POSITIVE_INTEGER,
+  grassChunksPerFrame: POSITIVE_INTEGER,
+  grassPatchSize: POSITIVE,
+  grassBladesPerSquareMeterDesktop: { minimum: 4, maximum: 160 },
+  grassBladesPerSquareMeterCompact: { minimum: 4, maximum: 160 },
+  grassMidBladeFraction: { minimum: 0.05, maximum: 0.8 },
+  grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
+  grassPatchJitter: { minimum: 0, maximum: 0.9 },
+  spawnSearchRadius: POSITIVE,
+  spawnSearchStep: POSITIVE,
+  spawnNeighborhoodRadius: POSITIVE,
+  spawnEyeHeight: POSITIVE,
+  spawnPitchDegrees: { minimum: -45, maximum: 15 },
+  baseHeight: {},
+  rollingHeight: NON_NEGATIVE,
+  mountainHeight: NON_NEGATIVE,
+  mountainScale: POSITIVE,
+  detailScale: POSITIVE,
+  grassMinAltitude: {},
+  grassMaxAltitude: {},
+  grassMaxSlopeDegrees: { minimum: 1, maximum: 89 },
+  grassNearDistance: POSITIVE,
+  grassMidDistance: POSITIVE,
+  grassFarDistance: POSITIVE,
+  grassTransitionDistance: POSITIVE,
+  grassHysteresisDistance: NON_NEGATIVE,
+  flySpeed: POSITIVE,
+  flyBoostMultiplier: POSITIVE,
+  flyMinSpeed: POSITIVE,
+  flyMaxSpeed: POSITIVE,
+  initialAltitude: POSITIVE,
+  initialDistance: POSITIVE,
+  characterScale: POSITIVE,
+  characterWalkSpeed: POSITIVE,
+  characterRunSpeed: POSITIVE,
+  characterAcceleration: POSITIVE,
+  characterDeceleration: POSITIVE,
+  characterTurnRate: POSITIVE,
+  characterCameraDistance: POSITIVE,
+  characterCameraMinDistance: POSITIVE,
+  characterCameraMaxDistance: POSITIVE,
+  characterCameraLookHeight: POSITIVE,
+  characterCameraElevationDegrees: { minimum: -80, maximum: 80 },
+  characterCameraMinElevationDegrees: { minimum: -80, maximum: 80 },
+  characterCameraMaxElevationDegrees: { minimum: -80, maximum: 80 },
+  characterCameraFollowRate: POSITIVE,
+  characterCameraGroundClearance: POSITIVE,
+  characterMouseLookSensitivity: POSITIVE,
+  characterTouchLookSensitivity: POSITIVE,
+  characterZoomSensitivity: POSITIVE,
+};
 
 export class WorldConfigLoader {
   async load(url: string = CONFIG_URL): Promise<WorldConfig> {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Unable to load world config from ${url}: HTTP ${response.status}.`);
+      throw new Error(
+        `Unable to load world config from ${url}: HTTP ${response.status}.`,
+      );
     }
 
     const values = this.parse(await response.text());
-    const config: WorldConfig = {
-      seed: this.integer(values, "seed"),
-      worldSize: this.positive(values, "worldSize"),
-      chunkSize: this.positive(values, "chunkSize"),
-      terrainRadiusDesktop: this.positiveInteger(values, "terrainRadiusDesktop"),
-      terrainRadiusCompact: this.positiveInteger(values, "terrainRadiusCompact"),
-      grassRadiusDesktop: this.positiveInteger(values, "grassRadiusDesktop"),
-      grassRadiusCompact: this.positiveInteger(values, "grassRadiusCompact"),
-      terrainNearResolution: this.resolution(values, "terrainNearResolution"),
-      terrainMidResolution: this.resolution(values, "terrainMidResolution"),
-      terrainFarResolution: this.resolution(values, "terrainFarResolution"),
-      terrainChunksPerFrame: this.positiveInteger(values, "terrainChunksPerFrame"),
-      grassChunksPerFrame: this.positiveInteger(values, "grassChunksPerFrame"),
-      grassPatchSize: this.positive(values, "grassPatchSize"),
-      grassBladesPerSquareMeterDesktop: this.range(
-        values,
-        "grassBladesPerSquareMeterDesktop",
-        4,
-        160,
-      ),
-      grassBladesPerSquareMeterCompact: this.range(
-        values,
-        "grassBladesPerSquareMeterCompact",
-        4,
-        160,
-      ),
-      grassMidBladeFraction: this.range(
-        values,
-        "grassMidBladeFraction",
-        0.05,
-        0.8,
-      ),
-      grassUnderlayerFraction: this.range(
-        values,
-        "grassUnderlayerFraction",
-        0,
-        0.6,
-      ),
-      grassPatchJitter: this.range(values, "grassPatchJitter", 0, 0.9),
-      spawnSearchRadius: this.positive(values, "spawnSearchRadius"),
-      spawnSearchStep: this.positive(values, "spawnSearchStep"),
-      spawnNeighborhoodRadius: this.positive(
-        values,
-        "spawnNeighborhoodRadius",
-      ),
-      spawnEyeHeight: this.positive(values, "spawnEyeHeight"),
-      spawnPitchDegrees: this.range(values, "spawnPitchDegrees", -45, 15),
-      baseHeight: this.number(values, "baseHeight"),
-      rollingHeight: this.nonNegative(values, "rollingHeight"),
-      mountainHeight: this.nonNegative(values, "mountainHeight"),
-      mountainScale: this.positive(values, "mountainScale"),
-      detailScale: this.positive(values, "detailScale"),
-      grassMinAltitude: this.number(values, "grassMinAltitude"),
-      grassMaxAltitude: this.number(values, "grassMaxAltitude"),
-      grassMaxSlopeDegrees: this.range(values, "grassMaxSlopeDegrees", 1, 89),
-      grassNearDistance: this.positive(values, "grassNearDistance"),
-      grassMidDistance: this.positive(values, "grassMidDistance"),
-      grassFarDistance: this.positive(values, "grassFarDistance"),
-      grassTransitionDistance: this.positive(values, "grassTransitionDistance"),
-      grassHysteresisDistance: this.nonNegative(
-        values,
-        "grassHysteresisDistance",
-      ),
-      flySpeed: this.positive(values, "flySpeed"),
-      flyBoostMultiplier: this.positive(values, "flyBoostMultiplier"),
-      flyMinSpeed: this.positive(values, "flyMinSpeed"),
-      flyMaxSpeed: this.positive(values, "flyMaxSpeed"),
-      initialAltitude: this.positive(values, "initialAltitude"),
-      initialDistance: this.positive(values, "initialDistance"),
-    };
+    const config = {} as WorldConfig;
+    for (const key of Object.keys(CONFIG_SCHEMA) as (keyof WorldConfig)[]) {
+      config[key] = this.readNumber(values, key, CONFIG_SCHEMA[key]);
+    }
 
     this.validate(config);
     return Object.freeze(config);
@@ -123,14 +133,19 @@ export class WorldConfigLoader {
     ) {
       throw new Error("Grass LOD distances must increase from near to far.");
     }
-    if (config.flyMinSpeed > config.flySpeed || config.flySpeed > config.flyMaxSpeed) {
+    if (
+      config.flyMinSpeed > config.flySpeed ||
+      config.flySpeed > config.flyMaxSpeed
+    ) {
       throw new Error("flySpeed must be between flyMinSpeed and flyMaxSpeed.");
     }
     if (config.spawnSearchStep > config.spawnSearchRadius) {
       throw new Error("spawnSearchStep must not exceed spawnSearchRadius.");
     }
     if (config.spawnNeighborhoodRadius >= config.chunkSize * 0.5) {
-      throw new Error("spawnNeighborhoodRadius must be lower than half a chunk.");
+      throw new Error(
+        "spawnNeighborhoodRadius must be lower than half a chunk.",
+      );
     }
     if (
       config.spawnSearchRadius >
@@ -146,9 +161,28 @@ export class WorldConfigLoader {
         "Compact grass blade density must not exceed desktop density.",
       );
     }
-    const patchesPerChunk = config.chunkSize / config.grassPatchSize;
-    if (Math.abs(patchesPerChunk - Math.round(patchesPerChunk)) > 1e-6) {
-      throw new Error("grassPatchSize must divide chunkSize exactly.");
+    if (config.characterWalkSpeed >= config.characterRunSpeed) {
+      throw new Error(
+        "characterWalkSpeed must be lower than characterRunSpeed.",
+      );
+    }
+    if (
+      config.characterCameraMinDistance > config.characterCameraDistance ||
+      config.characterCameraDistance > config.characterCameraMaxDistance
+    ) {
+      throw new Error(
+        "characterCameraDistance must be between its minimum and maximum.",
+      );
+    }
+    if (
+      config.characterCameraMinElevationDegrees >=
+        config.characterCameraElevationDegrees ||
+      config.characterCameraElevationDegrees >=
+        config.characterCameraMaxElevationDegrees
+    ) {
+      throw new Error(
+        "Character camera elevation must be between its minimum and maximum.",
+      );
     }
   }
 
@@ -173,15 +207,11 @@ export class WorldConfigLoader {
     return values;
   }
 
-  private stripQuotes(value: string): string {
-    const first = value[0];
-    const last = value[value.length - 1];
-    return (first === '"' && last === '"') || (first === "'" && last === "'")
-      ? value.slice(1, -1)
-      : value;
-  }
-
-  private number(values: ParsedValues, key: string): number {
+  private readNumber(
+    values: ParsedValues,
+    key: keyof WorldConfig,
+    rule: NumberRule,
+  ): number {
     const rawValue = values[key];
     if (rawValue === undefined) {
       throw new Error(`Missing world config value: ${key}.`);
@@ -190,61 +220,27 @@ export class WorldConfigLoader {
     if (!Number.isFinite(value)) {
       throw new Error(`World config value ${key} must be a number.`);
     }
-    return value;
-  }
-
-  private integer(values: ParsedValues, key: string): number {
-    const value = this.number(values, key);
-    if (!Number.isInteger(value)) {
+    if (rule.integer && !Number.isInteger(value)) {
       throw new Error(`World config value ${key} must be an integer.`);
     }
-    return value;
-  }
-
-  private positive(values: ParsedValues, key: string): number {
-    const value = this.number(values, key);
-    if (value <= 0) {
-      throw new Error(`World config value ${key} must be positive.`);
-    }
-    return value;
-  }
-
-  private positiveInteger(values: ParsedValues, key: string): number {
-    const value = this.positive(values, key);
-    if (!Number.isInteger(value)) {
-      throw new Error(`World config value ${key} must be an integer.`);
-    }
-    return value;
-  }
-
-  private nonNegative(values: ParsedValues, key: string): number {
-    const value = this.number(values, key);
-    if (value < 0) {
-      throw new Error(`World config value ${key} must not be negative.`);
-    }
-    return value;
-  }
-
-  private range(
-    values: ParsedValues,
-    key: string,
-    minimum: number,
-    maximum: number,
-  ): number {
-    const value = this.number(values, key);
-    if (value < minimum || value > maximum) {
+    if (rule.minimum !== undefined && value < rule.minimum) {
       throw new Error(
-        `World config value ${key} must be between ${minimum} and ${maximum}.`,
+        `World config value ${key} must be at least ${rule.minimum}.`,
+      );
+    }
+    if (rule.maximum !== undefined && value > rule.maximum) {
+      throw new Error(
+        `World config value ${key} must be at most ${rule.maximum}.`,
       );
     }
     return value;
   }
 
-  private resolution(values: ParsedValues, key: string): number {
-    const value = this.positiveInteger(values, key);
-    if (value < 3) {
-      throw new Error(`World config value ${key} must be at least 3.`);
-    }
-    return value;
+  private stripQuotes(value: string): string {
+    const first = value[0];
+    const last = value[value.length - 1];
+    return (first === '"' && last === '"') || (first === "'" && last === "'")
+      ? value.slice(1, -1)
+      : value;
   }
 }
