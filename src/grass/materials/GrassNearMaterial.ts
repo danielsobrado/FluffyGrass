@@ -5,6 +5,7 @@ import type {
   GrassMaterialConfig,
   GrassWindConfig,
 } from "../GrassConfig";
+import { grassInteractionField } from "../interaction/GrassInteractionField";
 
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
@@ -26,6 +27,12 @@ uniform float uGrassUseWorldLod;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
+uniform float uGrassInteractionEnabled;
+uniform vec2 uGrassInteractionStart;
+uniform vec2 uGrassInteractionEnd;
+uniform vec2 uGrassInteractionDirection;
+uniform float uGrassInteractionRadius;
+uniform float uGrassInteractionStrength;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -40,8 +47,6 @@ varying float vGrassCameraDistance;
 
 const VERTEX_WIND = `
 vec4 grassWorldRoot = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-// The CPU stores this uniform normalized. Re-normalizing it for every vertex
-// wastes a square root across the densest geometry in the scene.
 vec2 grassWindDirection = uGrassWindDirection;
 float grassGust = sin(
   dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
@@ -69,6 +74,55 @@ vec3 grassLocalWind = vec3(
   dot(grassWorldWind, grassInstanceBasis[2] / grassHorizontalScale)
 );
 transformed += grassLocalWind * grassBend;
+
+if (uGrassInteractionEnabled > 0.5) {
+  vec2 interactionSegment = uGrassInteractionEnd - uGrassInteractionStart;
+  float interactionLengthSquared = max(dot(interactionSegment, interactionSegment), 0.0001);
+  float interactionT = clamp(
+    dot(grassWorldRoot.xz - uGrassInteractionStart, interactionSegment) /
+      interactionLengthSquared,
+    0.0,
+    1.0
+  );
+  vec2 interactionClosest =
+    uGrassInteractionStart + interactionSegment * interactionT;
+  vec2 interactionOffset = grassWorldRoot.xz - interactionClosest;
+  float interactionDistance = length(interactionOffset);
+  vec2 interactionPerpendicular = vec2(
+    -uGrassInteractionDirection.y,
+    uGrassInteractionDirection.x
+  );
+  float interactionSide = dot(interactionOffset, interactionPerpendicular);
+  float interactionFallbackSide =
+    fract(instanceVariation.x * 91.173 + grassPhase * 17.731) < 0.5 ? -1.0 : 1.0;
+  float resolvedSide = abs(interactionSide) > 0.0001
+    ? sign(interactionSide)
+    : interactionFallbackSide;
+  vec2 interactionAway = interactionDistance > 0.0001
+    ? interactionOffset / interactionDistance
+    : interactionPerpendicular * resolvedSide;
+  float interactionFalloff = 1.0 - smoothstep(
+    uGrassInteractionRadius * 0.16,
+    uGrassInteractionRadius,
+    interactionDistance
+  );
+  float interactionProgress = pow(grassProgress, 1.22);
+  float interactionBend =
+    interactionFalloff * uGrassInteractionStrength * interactionProgress;
+  vec3 interactionWorldPush = vec3(
+    interactionAway.x,
+    0.0,
+    interactionAway.y
+  );
+  vec3 interactionLocalPush = vec3(
+    dot(interactionWorldPush, grassInstanceBasis[0] / grassHorizontalScale),
+    dot(interactionWorldPush, grassInstanceBasis[1] / grassVerticalScale),
+    dot(interactionWorldPush, grassInstanceBasis[2] / grassHorizontalScale)
+  );
+  transformed += interactionLocalPush * interactionBend;
+  transformed.y -= interactionFalloff * uGrassInteractionStrength * 0.2 * interactionProgress;
+}
+
 vGrassProgress = grassProgress;
 vGrassShade = grassBladeShade;
 vGrassDryness = instanceVariation.w;
@@ -98,10 +152,6 @@ float grassFarDistanceEntry = smoothstep(
   uGrassMidDistance + uGrassTransitionDistance,
   grassCameraDistance
 );
-// Mid blades must always finish their distance fade before the CPU culls the
-// mesh. Far-card aerial visibility is deliberately handled only by the far
-// material: when cards are suppressed from above, this same dither band fades
-// the mid mesh into the style-matched terrain instead of leaving a hard edge.
 vGrassFarEntry = grassFarDistanceEntry;
 `;
 
@@ -247,6 +297,12 @@ export class GrassNearMaterial {
     uGrassTransitionDistance: { value: 1 },
     uGrassLodColorScale: { value: 1 },
     uGrassStreamCoverage: { value: 1 },
+    uGrassInteractionEnabled: { value: 0 },
+    uGrassInteractionStart: { value: new THREE.Vector2() },
+    uGrassInteractionEnd: { value: new THREE.Vector2() },
+    uGrassInteractionDirection: { value: new THREE.Vector2(0, 1) },
+    uGrassInteractionRadius: { value: 1 },
+    uGrassInteractionStrength: { value: 0 },
   };
 
   constructor() {
@@ -277,7 +333,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v10";
+    this.material.customProgramCacheKey = () => "grass-near-material-v11";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -315,7 +371,12 @@ export class GrassNearMaterial {
     useWorldLod = false,
     lodColorScale = 1,
     initialStreamCoverage = 1,
+    renderSingleBladeNear = false,
   ): void {
+    if (useWorldLod && !invertLodCoverage && !renderSingleBladeNear) {
+      mesh.count = 0;
+      mesh.userData.grassDisabledNearPatch = true;
+    }
     mesh.userData.grassLodThreshold = 1;
     mesh.userData.grassDistanceFade = 1;
     mesh.userData.grassStreamCoverage = initialStreamCoverage;
@@ -331,11 +392,20 @@ export class GrassNearMaterial {
       this.uniforms.uGrassLodColorScale.value = lodColorScale;
       this.uniforms.uGrassStreamCoverage.value =
         mesh.userData.grassStreamCoverage ?? 1;
+      this.uniforms.uGrassInteractionEnabled.value = renderSingleBladeNear ? 1 : 0;
     };
   }
 
   update(elapsedSeconds: number): void {
     this.uniforms.uGrassTime.value = elapsedSeconds;
+    const interaction = grassInteractionField.getState();
+    this.uniforms.uGrassInteractionStart.value.copy(interaction.start);
+    this.uniforms.uGrassInteractionEnd.value.copy(interaction.end);
+    this.uniforms.uGrassInteractionDirection.value.copy(interaction.direction);
+    this.uniforms.uGrassInteractionRadius.value = interaction.radius;
+    this.uniforms.uGrassInteractionStrength.value = interaction.active
+      ? interaction.strength
+      : 0;
   }
 
   setupGUI(gui: GUI): void {
