@@ -27,12 +27,15 @@ grassMidBladeFraction: 0.5
 grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
 
-# Character capsule wake: radial separation, trailing persistence and spring recovery.
+# Character capsule wake and landing pulse.
 grassInteractionRadius: 1.55
 grassInteractionStrength: 0.78
 grassInteractionTrailLength: 2.8
 grassInteractionResponse: 7.5
 grassInteractionSpeedForFullEffect: 4
+grassLandingPulseRadius: 2.4
+grassLandingPulseStrength: 1.05
+grassLandingPulseDecay: 5.2
 
 spawnSearchRadius: 640
 spawnSearchStep: 24
@@ -52,11 +55,11 @@ grassMaxSlopeDegrees: 44
 
 grassNearDistance: 24
 grassMidDistance: 80
-# Cheap two-triangle impostors carry the matched blade palette almost to the
-# streamed terrain horizon, keeping the terrain handoff unobtrusive.
+# Cheap two-triangle impostors carry the matched blade palette almost to
+# the streamed terrain horizon, keeping the terrain handoff unobtrusive.
 grassFarDistance: 280
 grassTransitionDistance: 8
-grassHysteresisDistance: 2
+grassHysteresisDistance: 3
 
 flySpeed: 45
 flyBoostMultiplier: 4
@@ -65,13 +68,24 @@ flyMaxSpeed: 240
 initialAltitude: 85
 initialDistance: 180
 
-# Snowflow-inspired third-person Drow and camera.
+# Third-person movement and terrain-aware jump physics.
 characterScale: 1
 characterWalkSpeed: 2.5
 characterRunSpeed: 5.4
 characterAcceleration: 26
 characterDeceleration: 30
 characterTurnRate: 11
+characterJumpSpeed: 7.4
+characterGravity: 23
+characterFallGravityMultiplier: 1.42
+characterAirControl: 0.38
+characterCoyoteTime: 0.13
+characterJumpBufferTime: 0.14
+characterJumpHoldTime: 0.17
+characterJumpHoldGravityScale: 0.42
+characterLandingRecoveryTime: 0.3
+characterLandingImpactForFullEffect: 10.5
+
 characterCameraDistance: 6
 characterCameraMinDistance: 2.8
 characterCameraMaxDistance: 10
