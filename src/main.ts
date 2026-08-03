@@ -73,8 +73,8 @@ function resolveSceneLabel(
     return `${WORLD_NAME} · Island Regression`;
   }
   return flyMode
-    ? `${WORLD_NAME} · Hybrid Far LOD · Flight`
-    : `${WORLD_NAME} · Drow Ranger · Procedural Jump Rig`;
+    ? `${WORLD_NAME} · Continuous Grass LOD · Flight`
+    : `${WORLD_NAME} · 2× Ultra-Near Grass · Drow Jump Rig`;
 }
 
 bootstrap().catch((error) => {
