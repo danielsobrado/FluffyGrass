@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
-import { TerrainChunk } from "./TerrainChunk";
+import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
 
 const TERRAIN_DETAIL_VERTEX = `
 varying vec3 vTerrainWorldPosition;
@@ -48,7 +48,11 @@ export interface TerrainDiagnostics {
   activeChunks: number;
   queuedChunks: number;
   triangles: number;
+  lastBuildMs: number;
+  maxBuildMs: number;
 }
+
+const TERRAIN_BUILD_BUDGET_MS = 3;
 
 export class TerrainStreamer {
   private readonly chunks = new Map<string, TerrainChunk>();
@@ -62,6 +66,9 @@ export class TerrainStreamer {
   });
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
+  private activeBuild?: TerrainChunkBuilder;
+  private lastBuildMs = 0;
+  private maxBuildMs = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -114,31 +121,7 @@ export class TerrainStreamer {
       this.reconcile();
     }
 
-    const budget = this.config.terrainChunksPerFrame;
-    for (let index = 0; index < budget && this.queue.length > 0; index += 1) {
-      const request = this.queue.shift();
-      if (!request || !this.desired.has(request.key)) {
-        continue;
-      }
-      const existing = this.chunks.get(request.key);
-      if (existing?.resolution === request.resolution) {
-        continue;
-      }
-      if (existing) {
-        this.removeChunk(existing);
-      }
-      const chunk = new TerrainChunk(
-        request.chunkX,
-        request.chunkZ,
-        this.config.chunkSize,
-        request.resolution,
-        this.field,
-        this.material,
-      );
-      chunk.mesh.receiveShadow = this.material.userData.shadows === true;
-      this.chunks.set(request.key, chunk);
-      this.scene.add(chunk.mesh);
-    }
+    this.processBuildQueue();
   }
 
   getDiagnostics(): TerrainDiagnostics {
@@ -149,8 +132,10 @@ export class TerrainStreamer {
     }
     return {
       activeChunks: this.chunks.size,
-      queuedChunks: this.queue.length,
+      queuedChunks: this.queue.length + (this.activeBuild ? 1 : 0),
       triangles,
+      lastBuildMs: this.lastBuildMs,
+      maxBuildMs: this.maxBuildMs,
     };
   }
 
@@ -160,6 +145,7 @@ export class TerrainStreamer {
     }
     this.chunks.clear();
     this.queue.length = 0;
+    this.activeBuild = undefined;
     this.desired.clear();
     this.material.dispose();
     this.grassDetailTexture.dispose();
@@ -207,20 +193,100 @@ export class TerrainStreamer {
 
     for (const [key, chunk] of this.chunks) {
       const request = this.desired.get(key);
-      if (!request || request.resolution !== chunk.resolution) {
+      if (!request) {
         this.removeChunk(chunk);
         this.chunks.delete(key);
       }
     }
 
+    const activeRequest = this.activeBuild
+      ? this.desired.get(this.activeBuild.key)
+      : undefined;
+    if (
+      this.activeBuild &&
+      (!activeRequest || activeRequest.resolution !== this.activeBuild.resolution)
+    ) {
+      this.activeBuild = undefined;
+    }
+
+    const centerKey = `${this.centerChunkX}:${this.centerChunkZ}`;
+    const centerRequest = this.desired.get(centerKey);
+    const centerChunk = this.chunks.get(centerKey);
+    if (
+      centerRequest &&
+      centerChunk?.resolution !== centerRequest.resolution &&
+      this.activeBuild &&
+      this.activeBuild.key !== centerKey
+    ) {
+      this.activeBuild = undefined;
+    }
+
     this.queue.length = 0;
     for (const request of this.desired.values()) {
       const chunk = this.chunks.get(request.key);
-      if (!chunk || chunk.resolution !== request.resolution) {
+      if (
+        chunk?.resolution !== request.resolution &&
+        !(
+          this.activeBuild?.key === request.key &&
+          this.activeBuild.resolution === request.resolution
+        )
+      ) {
         this.queue.push(request);
       }
     }
     this.queue.sort((left, right) => left.distance - right.distance);
+  }
+
+  private processBuildQueue(): void {
+    while (!this.activeBuild && this.queue.length > 0) {
+      const request = this.queue.shift();
+      const desired = request ? this.desired.get(request.key) : undefined;
+      if (!request || desired?.resolution !== request.resolution) {
+        continue;
+      }
+      const existing = this.chunks.get(request.key);
+      if (existing?.resolution === request.resolution) {
+        continue;
+      }
+      this.activeBuild = new TerrainChunkBuilder(
+        request.chunkX,
+        request.chunkZ,
+        this.config.chunkSize,
+        request.resolution,
+        this.field,
+        this.material,
+        this.material.userData.shadows === true,
+      );
+    }
+
+    const build = this.activeBuild;
+    if (!build) {
+      this.lastBuildMs = 0;
+      return;
+    }
+    const desired = this.desired.get(build.key);
+    if (!desired || desired.resolution !== build.resolution) {
+      this.activeBuild = undefined;
+      return;
+    }
+
+    const startedAt = performance.now();
+    const chunk = build.advance(
+      TERRAIN_BUILD_BUDGET_MS * this.config.terrainChunksPerFrame,
+    );
+    this.lastBuildMs = performance.now() - startedAt;
+    this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
+    if (!chunk) {
+      return;
+    }
+
+    const existing = this.chunks.get(chunk.key);
+    if (existing) {
+      this.removeChunk(existing);
+    }
+    this.chunks.set(chunk.key, chunk);
+    this.scene.add(chunk.mesh);
+    this.activeBuild = undefined;
   }
 
   private removeChunk(chunk: TerrainChunk): void {

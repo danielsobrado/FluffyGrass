@@ -26,8 +26,6 @@ uniform float uGrassUseWorldLod;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
-uniform float uGrassFarAerialFadeStart;
-uniform float uGrassFarAerialFadeEnd;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -60,11 +58,13 @@ float grassBend = (
   grassFlutter * uGrassFlutterStrength
 ) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) * uGrassWindLodScale;
 mat3 grassInstanceBasis = mat3(instanceMatrix);
+float grassHorizontalScale = max(length(grassInstanceBasis[0]), 0.0001);
+float grassVerticalScale = max(length(grassInstanceBasis[1]), 0.0001);
 vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
 vec3 grassLocalWind = vec3(
-  dot(grassWorldWind, normalize(grassInstanceBasis[0])),
-  dot(grassWorldWind, normalize(grassInstanceBasis[1])),
-  dot(grassWorldWind, normalize(grassInstanceBasis[2]))
+  dot(grassWorldWind, grassInstanceBasis[0] / grassHorizontalScale),
+  dot(grassWorldWind, grassInstanceBasis[1] / grassVerticalScale),
+  dot(grassWorldWind, grassInstanceBasis[2] / grassHorizontalScale)
 );
 transformed += grassLocalWind * grassBend;
 vGrassProgress = grassProgress;
@@ -243,8 +243,6 @@ export class GrassNearMaterial {
     uGrassNearDistance: { value: 0 },
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
-    uGrassFarAerialFadeStart: { value: 1 },
-    uGrassFarAerialFadeEnd: { value: 1.01 },
     uGrassLodColorScale: { value: 1 },
     uGrassStreamCoverage: { value: 1 },
   };
@@ -305,10 +303,6 @@ export class GrassNearMaterial {
     this.uniforms.uGrassNearDistance.value = config.nearMaxDistance;
     this.uniforms.uGrassMidDistance.value = config.midMaxDistance;
     this.uniforms.uGrassTransitionDistance.value = config.transitionDistance;
-    this.uniforms.uGrassFarAerialFadeStart.value =
-      config.farAerialFadeStart ?? 1;
-    this.uniforms.uGrassFarAerialFadeEnd.value =
-      config.farAerialFadeEnd ?? 1.01;
   }
 
   bindMesh(

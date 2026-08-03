@@ -16,10 +16,6 @@ import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
 import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
-import {
-  IMPOSTOR_AERIAL_FADE_END,
-  IMPOSTOR_AERIAL_FADE_START,
-} from "./grass/WorldGrassImpostorTuning";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
 
 interface WorldGrassPatch extends GrassPatch {
@@ -172,8 +168,6 @@ export class WorldGrassSystem {
       farMaxDistance: this.worldConfig.grassFarDistance,
       transitionDistance: this.worldConfig.grassTransitionDistance,
       hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-      farAerialFadeStart: IMPOSTOR_AERIAL_FADE_START,
-      farAerialFadeEnd: IMPOSTOR_AERIAL_FADE_END,
     };
     this.material.configureLod(lodConfig);
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import Stats from "stats-gl";
+import type Stats from "stats-gl";
 import { FlyController } from "../controls/FlyController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
@@ -22,7 +22,7 @@ export class WorldApp {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly clock = new THREE.Clock();
-  private readonly stats?: Stats;
+  private stats?: Stats;
   private readonly field: TerrainField;
   private readonly terrain: TerrainStreamer;
   private readonly grass: WorldGrassSystem;
@@ -71,10 +71,6 @@ export class WorldApp {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.pixelRatio = Math.min(window.devicePixelRatio, profile.maxPixelRatio);
     this.applyRendererSize();
-    if (!profile.compact) {
-      this.stats = new Stats({ minimal: true });
-    }
-
     this.field = new TerrainField(config);
     const spawn = new DenseSpawnLocator(this.field, config).find();
     if (new URLSearchParams(window.location.search).get("view") === "aerial") {
@@ -106,7 +102,6 @@ export class WorldApp {
       `[FluffyGrass] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)}.`,
     );
     this.addLights();
-    this.setupStats();
     this.bindRuntimeEvents();
   }
 
@@ -118,6 +113,12 @@ export class WorldApp {
       `./config/world.yaml?v=${encodeURIComponent(APP_VERSION)}`,
     );
     const app = new WorldApp(canvas, profile, config);
+    if (
+      !profile.compact &&
+      new URLSearchParams(window.location.search).get("stats") === "1"
+    ) {
+      await app.setupStats();
+    }
     void app.initializeGrass();
     return app;
   }
@@ -284,12 +285,10 @@ export class WorldApp {
     this.scene.add(sun);
   }
 
-  private setupStats(): void {
-    if (!this.stats) {
-      return;
-    }
+  private async setupStats(): Promise<void> {
+    const { default: StatsPanel } = await import("stats-gl");
+    this.stats = new StatsPanel({ minimal: true });
     this.stats.init(this.renderer);
-    this.stats.dom.style.display = "none";
     document.body.appendChild(this.stats.dom);
   }
 
@@ -340,7 +339,7 @@ export class WorldApp {
       `XYZ ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(this.camera.position.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(0)} m/s`,
       `Input ${this.controls.getInputDiagnostics()}`,
-      `Terrain ${terrain.activeChunks} +${terrain.queuedChunks}`,
+      `Terrain ${terrain.activeChunks} +${terrain.queuedChunks} · Build ${terrain.lastBuildMs.toFixed(1)} / peak ${terrain.maxBuildMs.toFixed(1)} ms`,
       grass.ready
         ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
         : grassStatus,

@@ -44,10 +44,9 @@ void main() {
   vec3 instanceAxisZ = instanceModel[2].xyz;
   float scaleX = max(length(instanceAxisX), 0.0001);
   float scaleY = max(length(instanceAxisY), 0.0001);
-  float scaleZ = max(length(instanceAxisZ), 0.0001);
   vec3 basisX = instanceAxisX / scaleX;
-  vec3 basisY = normalize(instanceAxisY);
-  vec3 basisZ = instanceAxisZ / scaleZ;
+  vec3 basisY = instanceAxisY / scaleY;
+  vec3 basisZ = instanceAxisZ / scaleX;
   vec3 rootCenter = (instanceModel * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
   vec3 center = rootCenter + basisY * uCenterHeight * scaleY;
   vec3 toCamera = normalize(cameraPosition - center);

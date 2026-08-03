@@ -4,8 +4,6 @@ export interface GrassLodConfig {
   farMaxDistance: number;
   hysteresisDistance: number;
   transitionDistance: number;
-  farAerialFadeStart?: number;
-  farAerialFadeEnd?: number;
 }
 
 export interface GrassGeometryConfig {
