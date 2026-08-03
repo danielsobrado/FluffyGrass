@@ -1,4 +1,4 @@
-const MAX_DELTA_SECONDS = 0.05;
+const MAX_DELTA_SECONDS = 0.1;
 const TWO_PI = Math.PI * 2;
 
 export class CharacterSpring {
@@ -14,11 +14,21 @@ export class CharacterSpring {
   ): number {
     const delta = Math.min(Math.max(deltaSeconds, 0), MAX_DELTA_SECONDS);
     const angularFrequency = Math.max(frequency, 0.01) * TWO_PI;
-    const acceleration =
-      (target - this.value) * angularFrequency * angularFrequency -
-      2 * damping * angularFrequency * this.velocity;
-    this.velocity += acceleration * delta;
-    this.value += this.velocity * delta;
+    const dampingTerm = 1 + 2 * delta * damping * angularFrequency;
+    const frequencySquared = angularFrequency * angularFrequency;
+    const velocityTerm = delta * frequencySquared;
+    const positionTerm = delta * velocityTerm;
+    const inverseDeterminant = 1 / (dampingTerm + positionTerm);
+    const nextValue =
+      (dampingTerm * this.value +
+        delta * this.velocity +
+        positionTerm * target) *
+      inverseDeterminant;
+    const nextVelocity =
+      (this.velocity + velocityTerm * (target - this.value)) *
+      inverseDeterminant;
+    this.value = nextValue;
+    this.velocity = nextVelocity;
     return this.value;
   }
 
