@@ -23,13 +23,19 @@ grassBladesPerSquareMeterCompact: 26
 grassNearTileSize: 8
 grassNearBladesPerSquareMeterDesktop: 72
 grassNearBladesPerSquareMeterCompact: 48
+
+# An additional single-blade layer doubles density at camera distance <= 4 m.
+grassUltraNearDistance: 4
+grassUltraNearTransitionDistance: 1
+grassUltraNearDensityMultiplier: 2
+
 grassMidBladeFraction: 0.5
 grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
 
 # Character capsule wake and landing pulse.
 grassInteractionRadius: 1.55
-grassInteractionStrength: 0.78
+grassInteractionStrength: 0.94
 grassInteractionTrailLength: 2.8
 grassInteractionResponse: 7.5
 grassInteractionSpeedForFullEffect: 4
