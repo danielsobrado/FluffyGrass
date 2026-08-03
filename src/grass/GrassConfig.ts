@@ -4,7 +4,6 @@ export interface GrassLodConfig {
   farMaxDistance: number;
   hysteresisDistance: number;
   transitionDistance: number;
-  midImpostorUnderfill?: number;
 }
 
 export interface GrassGeometryConfig {
