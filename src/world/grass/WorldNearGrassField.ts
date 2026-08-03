@@ -13,7 +13,8 @@ import { WorldSingleBladeTileField } from "./WorldSingleBladeTileField";
 const BASE_SEED_SALT = 0x6a09e667;
 const ULTRA_NEAR_SEED_SALT = 0x3c6ef372;
 const BASE_TILES_PER_FRAME = 1;
-const ULTRA_NEAR_TILES_PER_FRAME = 2;
+const DESKTOP_ULTRA_NEAR_TILES_PER_FRAME = 2;
+const COMPACT_ULTRA_NEAR_TILES_PER_FRAME = 1;
 
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
@@ -160,7 +161,9 @@ export class WorldNearGrassField {
           densityMultiplier: ultraAdditionalDensity,
           seedSalt: ULTRA_NEAR_SEED_SALT,
           material: this.ultraNearMaterial,
-          tilesPerFrame: ULTRA_NEAR_TILES_PER_FRAME,
+          tilesPerFrame: this.profile.compact
+            ? COMPACT_ULTRA_NEAR_TILES_PER_FRAME
+            : DESKTOP_ULTRA_NEAR_TILES_PER_FRAME,
           reconcileEveryFrame: true,
         },
       );
