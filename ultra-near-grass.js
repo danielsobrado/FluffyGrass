@@ -22,6 +22,7 @@ const previousBuildPosition = new THREE.Vector3(
 const sourceInstanceMatrix = new THREE.Matrix4();
 const worldInstanceMatrix = new THREE.Matrix4();
 const bladeScale = new THREE.Vector3();
+const lastAdjustedStrengths = new WeakMap();
 
 let scene;
 let characterRoot;
@@ -255,9 +256,24 @@ function strengthenInteraction(world) {
 
   for (const material of materials) {
     const uniform = material.userData.grassUniforms?.uInteractionStrength;
-    if (uniform && Number.isFinite(uniform.value)) {
-      uniform.value = Math.min(2, uniform.value * INTERACTION_STRENGTH_SCALE);
+    if (!uniform || !Number.isFinite(uniform.value)) {
+      continue;
     }
+
+    const previousAdjusted = lastAdjustedStrengths.get(material);
+    if (
+      previousAdjusted !== undefined &&
+      Math.abs(uniform.value - previousAdjusted) < 1e-6
+    ) {
+      continue;
+    }
+
+    const adjusted = Math.min(
+      2,
+      uniform.value * INTERACTION_STRENGTH_SCALE,
+    );
+    uniform.value = adjusted;
+    lastAdjustedStrengths.set(material, adjusted);
   }
 }
 
