@@ -1,10 +1,7 @@
+import { FlatConfig } from "../../config/FlatConfig";
 import type { GrassConfig } from "../GrassConfig";
 
 const CONFIG_URL = "./config/grass.yaml";
-
-interface ParsedConfig {
-  [key: string]: string;
-}
 
 export class GrassConfigLoader {
   async load(url: string = CONFIG_URL): Promise<GrassConfig> {
@@ -19,7 +16,7 @@ export class GrassConfigLoader {
   }
 
   private parse(source: string): GrassConfig {
-    const values = this.parseFlatYaml(source);
+    const values = FlatConfig.parse(source, "grass");
     const config: GrassConfig = {
       instanceCount: this.readPositiveInteger(values, "instanceCount"),
       patchSize: this.readPositiveNumber(values, "patchSize"),
@@ -64,9 +61,9 @@ export class GrassConfigLoader {
         flutterSpeed: this.readNonNegativeNumber(values, "flutterSpeed"),
       },
       material: {
-        baseColor: this.readString(values, "baseColor"),
-        tipColor: this.readString(values, "tipColor"),
-        dryColor: this.readString(values, "dryColor"),
+        baseColor: values.read("baseColor"),
+        tipColor: values.read("tipColor"),
+        dryColor: values.read("dryColor"),
         rootDarkening: this.readRange(values, "rootDarkening", 0, 1),
         normalUp: this.readRange(values, "normalUp", 0, 1),
         ambientBoost: this.readRange(values, "ambientBoost", 0, 1),
@@ -103,6 +100,7 @@ export class GrassConfigLoader {
       },
     };
 
+    values.assertFullyConsumed();
     this.validate(config);
     return Object.freeze({
       ...config,
@@ -197,98 +195,48 @@ export class GrassConfigLoader {
     }
   }
 
-  private parseFlatYaml(source: string): ParsedConfig {
-    const values: ParsedConfig = {};
-
-    for (const [index, rawLine] of source.split(/\r?\n/).entries()) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith("#")) {
-        continue;
-      }
-
-      const separatorIndex = line.indexOf(":");
-      if (separatorIndex <= 0) {
-        throw new Error(`Invalid grass config at line ${index + 1}.`);
-      }
-
-      const key = line.slice(0, separatorIndex).trim();
-      const value = line.slice(separatorIndex + 1).trim();
-      if (!value) {
-        throw new Error(`Missing value for ${key} at line ${index + 1}.`);
-      }
-
-      values[key] = this.stripQuotes(value);
-    }
-
-    return values;
-  }
-
-  private stripQuotes(value: string): string {
-    const first = value[0];
-    const last = value[value.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      return value.slice(1, -1);
-    }
-
-    return value;
-  }
-
-  private readString(values: ParsedConfig, key: string): string {
-    const value = values[key];
-    if (!value) {
-      throw new Error(`Missing grass config value: ${key}.`);
-    }
-
-    return value;
-  }
-
-  private readInteger(values: ParsedConfig, key: string): number {
+  private readInteger(values: FlatConfig, key: string): number {
     const value = this.readNumber(values, key);
     if (!Number.isInteger(value)) {
       throw new Error(`Grass config value ${key} must be an integer.`);
     }
-
     return value;
   }
 
-  private readPositiveInteger(values: ParsedConfig, key: string): number {
+  private readPositiveInteger(values: FlatConfig, key: string): number {
     const value = this.readPositiveNumber(values, key);
     if (!Number.isInteger(value)) {
       throw new Error(`Grass config value ${key} must be an integer.`);
     }
-
     return value;
   }
 
-  private readNonNegativeInteger(values: ParsedConfig, key: string): number {
+  private readNonNegativeInteger(values: FlatConfig, key: string): number {
     const value = this.readNonNegativeNumber(values, key);
     if (!Number.isInteger(value)) {
       throw new Error(`Grass config value ${key} must be an integer.`);
     }
-
     return value;
   }
 
-  private readPositiveNumber(values: ParsedConfig, key: string): number {
+  private readPositiveNumber(values: FlatConfig, key: string): number {
     const value = this.readNumber(values, key);
     if (value <= 0) {
       throw new Error(`Grass config value ${key} must be positive.`);
     }
-
     return value;
   }
 
-  private readNonNegativeNumber(values: ParsedConfig, key: string): number {
+  private readNonNegativeNumber(values: FlatConfig, key: string): number {
     const value = this.readNumber(values, key);
     if (value < 0) {
       throw new Error(`Grass config value ${key} must not be negative.`);
     }
-
     return value;
   }
 
   private readRange(
-    values: ParsedConfig,
+    values: FlatConfig,
     key: string,
     minimum: number,
     maximum: number,
@@ -299,17 +247,14 @@ export class GrassConfigLoader {
         `Grass config value ${key} must be between ${minimum} and ${maximum}.`,
       );
     }
-
     return value;
   }
 
-  private readNumber(values: ParsedConfig, key: string): number {
-    const rawValue = this.readString(values, key);
-    const value = Number(rawValue);
+  private readNumber(values: FlatConfig, key: string): number {
+    const value = Number(values.read(key));
     if (!Number.isFinite(value)) {
       throw new Error(`Grass config value ${key} must be a number.`);
     }
-
     return value;
   }
 }
