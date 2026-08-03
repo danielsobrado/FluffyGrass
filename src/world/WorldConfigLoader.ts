@@ -37,6 +37,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassMidBladeFraction: { minimum: 0.05, maximum: 0.8 },
   grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
   grassPatchJitter: { minimum: 0, maximum: 0.9 },
+  grassMidImpostorUnderfill: { minimum: 0, maximum: 1 },
   grassInteractionRadius: POSITIVE,
   grassInteractionStrength: { minimum: 0, maximum: 2 },
   grassInteractionTrailLength: NON_NEGATIVE,
