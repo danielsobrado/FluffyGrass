@@ -197,11 +197,12 @@ export class WorldConfigLoader {
       );
     }
     if (
-      config.grassUltraNearDistance >
+      config.grassUltraNearDistance +
+        config.grassUltraNearTransitionDistance >
       config.grassNearDistance - config.grassTransitionDistance
     ) {
       throw new Error(
-        "The ultra-near grass band must end before the normal near-LOD fade begins.",
+        "The complete ultra-near fade must end before the normal near-LOD fade begins.",
       );
     }
     this.validateGrassStreamRadius(
