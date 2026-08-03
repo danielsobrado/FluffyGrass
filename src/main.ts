@@ -8,7 +8,7 @@ interface RunnableApp {
 
 const WORLD_NAME = "Drusniel World";
 const THIRD_PERSON_HELP =
-  "Desktop: click, mouse orbit, WASD, Shift run, wheel zoom, F reset · Mobile: left drag move, right drag look, RUN/⌂ · Add ?control=fly for flight";
+  "Desktop: click, mouse orbit, WASD, Shift run, Space jump, wheel zoom, F reset · Mobile: left drag move, right drag look, JUMP/RUN/⌂ · Add ?control=fly for flight";
 const FLY_HELP =
   "Desktop: click, mouse look, WASD, Q/E, Shift, wheel, F reset · Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude";
 
@@ -74,7 +74,7 @@ function resolveSceneLabel(
   }
   return flyMode
     ? `${WORLD_NAME} · Hybrid Far LOD · Flight`
-    : `${WORLD_NAME} · Drow Adventurer`;
+    : `${WORLD_NAME} · Drow Ranger · Procedural Jump Rig`;
 }
 
 bootstrap().catch((error) => {
