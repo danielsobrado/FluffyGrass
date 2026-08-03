@@ -31,9 +31,17 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassPatchSize: POSITIVE,
   grassBladesPerSquareMeterDesktop: { minimum: 4, maximum: 160 },
   grassBladesPerSquareMeterCompact: { minimum: 4, maximum: 160 },
+  grassNearTileSize: POSITIVE,
+  grassNearBladesPerSquareMeterDesktop: { minimum: 8, maximum: 180 },
+  grassNearBladesPerSquareMeterCompact: { minimum: 8, maximum: 180 },
   grassMidBladeFraction: { minimum: 0.05, maximum: 0.8 },
   grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
   grassPatchJitter: { minimum: 0, maximum: 0.9 },
+  grassInteractionRadius: POSITIVE,
+  grassInteractionStrength: { minimum: 0, maximum: 2 },
+  grassInteractionTrailLength: NON_NEGATIVE,
+  grassInteractionResponse: POSITIVE,
+  grassInteractionSpeedForFullEffect: POSITIVE,
   spawnSearchRadius: POSITIVE,
   spawnSearchStep: POSITIVE,
   spawnNeighborhoodRadius: POSITIVE,
@@ -110,6 +118,9 @@ export class WorldConfigLoader {
     }
     if (!Number.isInteger(config.chunkSize / config.grassPatchSize)) {
       throw new Error("chunkSize must be divisible by grassPatchSize.");
+    }
+    if (!Number.isInteger(config.chunkSize / config.grassNearTileSize)) {
+      throw new Error("chunkSize must be divisible by grassNearTileSize.");
     }
     if (
       config.terrainNearResolution <= config.terrainMidResolution ||
@@ -196,7 +207,28 @@ export class WorldConfigLoader {
       config.grassBladesPerSquareMeterDesktop
     ) {
       throw new Error(
-        "Compact grass blade density must not exceed desktop density.",
+        "Compact grass patch density must not exceed desktop density.",
+      );
+    }
+    if (
+      config.grassNearBladesPerSquareMeterCompact >
+      config.grassNearBladesPerSquareMeterDesktop
+    ) {
+      throw new Error(
+        "Compact single-blade density must not exceed desktop density.",
+      );
+    }
+    if (
+      config.grassNearBladesPerSquareMeterDesktop <=
+      config.grassBladesPerSquareMeterDesktop
+    ) {
+      throw new Error(
+        "Closest-LOD single-blade density must exceed patch-LOD density.",
+      );
+    }
+    if (config.grassInteractionRadius >= config.grassNearDistance) {
+      throw new Error(
+        "grassInteractionRadius must be lower than grassNearDistance.",
       );
     }
     if (config.characterWalkSpeed >= config.characterRunSpeed) {
