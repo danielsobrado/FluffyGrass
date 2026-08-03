@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { addDrowCharacterFeatures } from "./DrowCharacterFeatures";
 import {
   buildSnowflowCharacter,
   type SnowflowCharacterRig,
@@ -26,6 +27,7 @@ export class SnowflowCharacter {
 
   constructor(scene: THREE.Scene, scale: number) {
     this.rig = buildSnowflowCharacter(scene, scale);
+    addDrowCharacterFeatures(this.rig);
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
