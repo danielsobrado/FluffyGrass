@@ -11,7 +11,8 @@ let attempts = 0;
 requestAnimationFrame(applyVisibleDrowFeatures);
 
 function applyVisibleDrowFeatures() {
-  const headMesh = findOriginalHead();
+  const scene = window.__drusnielScene;
+  const headMesh = scene ? findOriginalHead(scene) : undefined;
   const head = headMesh?.parent;
   if (!head || !headMesh) {
     attempts += 1;
@@ -56,61 +57,16 @@ function applyVisibleDrowFeatures() {
   head.add(faceLight);
 }
 
-function findOriginalHead() {
+function findOriginalHead(scene) {
   let result;
-  document.querySelector("canvas");
-  for (const scene of findScenes()) {
-    scene.traverse((object) => {
-      if (result || !(object instanceof THREE.Mesh)) return;
-      const radius = object.geometry?.parameters?.radius;
-      if (radius === 0.095 && Math.abs(object.position.y - 1.655) < 0.001) {
-        result = object;
-      }
-    });
-  }
+  scene.traverse((object) => {
+    if (result || !(object instanceof THREE.Mesh)) return;
+    const radius = object.geometry?.parameters?.radius;
+    if (radius === 0.095 && Math.abs(object.position.y - 1.655) < 0.001) {
+      result = object;
+    }
+  });
   return result;
-}
-
-function findScenes() {
-  const scenes = [];
-  const visited = new Set();
-  const scan = (object) => {
-    if (!object || visited.has(object)) return;
-    visited.add(object);
-    if (object instanceof THREE.Scene) scenes.push(object);
-    if (object.children) {
-      for (const child of object.children) scan(child);
-    }
-  };
-
-  const rendererLists = THREE.Object3D.DEFAULT_UP ? window : {};
-  for (const key of Object.getOwnPropertyNames(rendererLists)) {
-    try {
-      const value = rendererLists[key];
-      if (value instanceof THREE.Scene || value instanceof THREE.Object3D) {
-        scan(value);
-      }
-    } catch {
-      // Browser globals can expose throwing accessors.
-    }
-  }
-
-  if (scenes.length === 0) {
-    const originalAdd = THREE.Object3D.prototype.add;
-    if (!originalAdd.userData?.drowSceneCapture) {
-      const wrappedAdd = function (...objects) {
-        const result = originalAdd.apply(this, objects);
-        if (this instanceof THREE.Scene) {
-          window.__drusnielScene = this;
-        }
-        return result;
-      };
-      wrappedAdd.userData = { drowSceneCapture: true };
-      THREE.Object3D.prototype.add = wrappedAdd;
-    }
-    if (window.__drusnielScene) scenes.push(window.__drusnielScene);
-  }
-  return scenes;
 }
 
 function hideLegacyDrowAdditions(head, originalHead) {
