@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { SnowflowCharacter } from "../character/SnowflowCharacter";
+import { grassInteractionField } from "../grass/interaction/GrassInteractionField";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { DenseWorldSpawn } from "../world/DenseSpawnLocator";
 import type { TerrainField } from "../world/TerrainField";
 import type { WorldConfig } from "../world/WorldConfig";
+import { WorldNearGrassField } from "../world/grass/WorldNearGrassField";
 import { ThirdPersonInput } from "./ThirdPersonInput";
 import type { WorldController, WorldControlMode } from "./WorldController";
 
@@ -14,6 +16,7 @@ const MIN_MOVEMENT_SPEED = 0.05;
 export class ThirdPersonController implements WorldController {
   private readonly input: ThirdPersonInput;
   private readonly character: SnowflowCharacter;
+  private readonly nearGrass: WorldNearGrassField;
   private readonly position = new THREE.Vector3();
   private readonly spawnPosition = new THREE.Vector3();
   private readonly velocity = new THREE.Vector3();
@@ -49,6 +52,14 @@ export class ThirdPersonController implements WorldController {
   ) {
     this.input = new ThirdPersonInput(canvas, profile, config);
     this.character = new SnowflowCharacter(scene, config.characterScale);
+    this.nearGrass = new WorldNearGrassField(scene, field, config, profile);
+    grassInteractionField.configure({
+      radius: config.grassInteractionRadius,
+      strength: config.grassInteractionStrength,
+      trailLength: config.grassInteractionTrailLength,
+      response: config.grassInteractionResponse,
+      speedForFullEffect: config.grassInteractionSpeedForFullEffect,
+    });
     this.cameraElevation = THREE.MathUtils.degToRad(
       config.characterCameraElevationDegrees,
     );
@@ -60,6 +71,9 @@ export class ThirdPersonController implements WorldController {
     );
     this.spawnFacing = normalizeAngle(spawn.yaw + Math.PI);
     this.reset();
+    void this.nearGrass.initialize().catch((error) => {
+      console.error("[Drusniel World] Dense near grass failed to initialize.", error);
+    });
   }
 
   update(deltaSeconds: number): void {
@@ -71,6 +85,8 @@ export class ThirdPersonController implements WorldController {
 
     this.updateCameraInput();
     this.updateMovement(delta);
+    grassInteractionField.update(delta, this.position, this.velocity);
+    this.nearGrass.update(delta, this.position);
     this.updateCamera(delta, false);
     this.character.update(delta, {
       position: this.position,
@@ -84,6 +100,8 @@ export class ThirdPersonController implements WorldController {
   }
 
   dispose(): void {
+    grassInteractionField.deactivate();
+    this.nearGrass.dispose();
     this.input.dispose();
     this.character.dispose();
   }
@@ -123,6 +141,7 @@ export class ThirdPersonController implements WorldController {
       this.position.z,
       this.groundNormal,
     );
+    grassInteractionField.reset(this.position);
     this.updateCamera(1, true);
     this.character.update(0, {
       position: this.position,
