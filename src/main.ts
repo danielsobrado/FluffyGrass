@@ -6,6 +6,7 @@ interface RunnableApp {
   start(): void;
 }
 
+const WORLD_NAME = "Drusniel World";
 const THIRD_PERSON_HELP =
   "Desktop: click, mouse orbit, WASD, Shift run, wheel zoom, F reset · Mobile: left drag move, right drag look, RUN/⌂ · Add ?control=fly for flight";
 const FLY_HELP =
@@ -45,7 +46,10 @@ async function bootstrap(): Promise<void> {
   if (helpElement && sceneMode === "world") {
     helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
   }
-  document.title = `FluffyGrass ${APP_VERSION} · ${sceneMode}`;
+  document.title =
+    sceneMode === "world"
+      ? `${WORLD_NAME} · ${APP_VERSION}`
+      : `${WORLD_NAME} · Island Regression`;
 
   let app: RunnableApp;
   if (sceneMode === "island") {
@@ -66,15 +70,15 @@ function resolveSceneLabel(
   flyMode: boolean,
 ): string {
   if (sceneMode === "island") {
-    return "Island Regression";
+    return `${WORLD_NAME} · Island Regression`;
   }
   return flyMode
-    ? "World · Hybrid Far LOD · Flight"
-    : "World · Third-Person Character";
+    ? `${WORLD_NAME} · Hybrid Far LOD · Flight`
+    : `${WORLD_NAME} · Drow Adventurer`;
 }
 
 bootstrap().catch((error) => {
-  console.error("[FluffyGrass] Startup failed.", error);
+  console.error(`[${WORLD_NAME}] Startup failed.`, error);
   const output = document.createElement("pre");
   output.className = "startup-error";
   output.textContent =
