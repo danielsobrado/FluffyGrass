@@ -42,6 +42,9 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassInteractionTrailLength: NON_NEGATIVE,
   grassInteractionResponse: POSITIVE,
   grassInteractionSpeedForFullEffect: POSITIVE,
+  grassLandingPulseRadius: POSITIVE,
+  grassLandingPulseStrength: { minimum: 0, maximum: 2 },
+  grassLandingPulseDecay: POSITIVE,
   spawnSearchRadius: POSITIVE,
   spawnSearchStep: POSITIVE,
   spawnNeighborhoodRadius: POSITIVE,
@@ -72,6 +75,16 @@ const CONFIG_SCHEMA: ConfigSchema = {
   characterAcceleration: POSITIVE,
   characterDeceleration: POSITIVE,
   characterTurnRate: POSITIVE,
+  characterJumpSpeed: POSITIVE,
+  characterGravity: POSITIVE,
+  characterFallGravityMultiplier: { minimum: 1, maximum: 3 },
+  characterAirControl: { minimum: 0, maximum: 1 },
+  characterCoyoteTime: { minimum: 0, maximum: 0.5 },
+  characterJumpBufferTime: { minimum: 0, maximum: 0.5 },
+  characterJumpHoldTime: { minimum: 0, maximum: 0.5 },
+  characterJumpHoldGravityScale: { minimum: 0.1, maximum: 1 },
+  characterLandingRecoveryTime: { minimum: 0.05, maximum: 1 },
+  characterLandingImpactForFullEffect: POSITIVE,
   characterCameraDistance: POSITIVE,
   characterCameraMinDistance: POSITIVE,
   characterCameraMaxDistance: POSITIVE,
@@ -226,14 +239,25 @@ export class WorldConfigLoader {
         "Closest-LOD single-blade density must exceed patch-LOD density.",
       );
     }
-    if (config.grassInteractionRadius >= config.grassNearDistance) {
+    if (
+      config.grassInteractionRadius >= config.grassNearDistance ||
+      config.grassLandingPulseRadius >= config.grassNearDistance
+    ) {
       throw new Error(
-        "grassInteractionRadius must be lower than grassNearDistance.",
+        "Grass interaction radii must be lower than grassNearDistance.",
       );
     }
     if (config.characterWalkSpeed >= config.characterRunSpeed) {
       throw new Error(
         "characterWalkSpeed must be lower than characterRunSpeed.",
+      );
+    }
+    if (
+      config.characterJumpHoldGravityScale >=
+      config.characterFallGravityMultiplier
+    ) {
+      throw new Error(
+        "Jump-hold gravity must remain below the falling gravity multiplier.",
       );
     }
     if (
