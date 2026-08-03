@@ -94,20 +94,11 @@ float grassFarDistanceEntry = smoothstep(
   uGrassMidDistance + uGrassTransitionDistance,
   grassCameraDistance
 );
-vec3 grassToCamera = normalize(cameraPosition - grassWorldRoot.xyz);
-float grassViewElevation = abs(
-  dot(grassToCamera, normalize(grassInstanceBasis[1]))
-);
-float grassFarAerialVisibility = 1.0 - smoothstep(
-  uGrassFarAerialFadeStart,
-  uGrassFarAerialFadeEnd,
-  grassViewElevation
-);
-vGrassFarEntry = grassFarDistanceEntry * mix(
-  1.0,
-  grassFarAerialVisibility,
-  uGrassUseWorldLod
-);
+// Mid blades must always finish their distance fade before the CPU culls the
+// mesh. Far-card aerial visibility is deliberately handled only by the far
+// material: when cards are suppressed from above, this same dither band fades
+// the mid mesh into the style-matched terrain instead of leaving a hard edge.
+vGrassFarEntry = grassFarDistanceEntry;
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -256,7 +247,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v8";
+    this.material.customProgramCacheKey = () => "grass-near-material-v9";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
