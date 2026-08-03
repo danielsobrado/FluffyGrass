@@ -20,7 +20,6 @@ export interface WorldConfig {
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
   grassPatchJitter: number;
-  grassMidImpostorUnderfill: number;
   grassInteractionRadius: number;
   grassInteractionStrength: number;
   grassInteractionTrailLength: number;
