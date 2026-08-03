@@ -5,7 +5,6 @@ import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { DenseWorldSpawn } from "../world/DenseSpawnLocator";
 import type { TerrainField } from "../world/TerrainField";
 import type { WorldConfig } from "../world/WorldConfig";
-import { WorldNearGrassField } from "../world/grass/WorldNearGrassField";
 import { ThirdPersonInput } from "./ThirdPersonInput";
 import type { WorldController, WorldControlMode } from "./WorldController";
 
@@ -17,7 +16,6 @@ const UP = new THREE.Vector3(0, 1, 0);
 export class ThirdPersonController implements WorldController {
   private readonly input: ThirdPersonInput;
   private readonly character: SnowflowCharacter;
-  private readonly nearGrass: WorldNearGrassField;
   private readonly position = new THREE.Vector3();
   private readonly spawnPosition = new THREE.Vector3();
   private readonly velocity = new THREE.Vector3();
@@ -66,7 +64,6 @@ export class ThirdPersonController implements WorldController {
       config.characterScale,
       config.characterLandingRecoveryTime,
     );
-    this.nearGrass = new WorldNearGrassField(scene, field, config, profile);
     grassInteractionField.configure({
       radius: config.grassInteractionRadius,
       strength: config.grassInteractionStrength,
@@ -88,9 +85,6 @@ export class ThirdPersonController implements WorldController {
     );
     this.spawnFacing = normalizeAngle(spawn.yaw + Math.PI);
     this.reset();
-    void this.nearGrass.initialize().catch((error) => {
-      console.error("[Drusniel World] Dense near grass failed to initialize.", error);
-    });
   }
 
   update(deltaSeconds: number): void {
@@ -110,7 +104,6 @@ export class ThirdPersonController implements WorldController {
     this.updateCameraInput();
     this.updateMovement(delta);
     grassInteractionField.update(delta, this.position, this.velocity);
-    this.nearGrass.update(delta, this.position);
     this.updateCamera(delta, false);
     this.animationVelocity.set(
       this.velocity.x,
@@ -136,7 +129,6 @@ export class ThirdPersonController implements WorldController {
 
   dispose(): void {
     grassInteractionField.deactivate();
-    this.nearGrass.dispose();
     this.input.dispose();
     this.character.dispose();
   }
