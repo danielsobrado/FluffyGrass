@@ -48,7 +48,7 @@ function installUnderfill() {
   underfill.quaternion.copy(source.quaternion);
   underfill.scale.copy(source.scale);
   fillUnderfillMatrices(source, underfill);
-  scene.add(underfill);
+  (source.parent ?? scene).add(underfill);
 }
 
 function findSourceGrass(scene) {
@@ -89,16 +89,12 @@ function fillUnderfillMatrices(source, underfill) {
       sourceValues[sourceOffset + 9],
       sourceValues[sourceOffset + 10],
     ) || 1;
-    const axisX = [
-      sourceValues[sourceOffset] / axisXLength,
-      sourceValues[sourceOffset + 1] / axisXLength,
-      sourceValues[sourceOffset + 2] / axisXLength,
-    ];
-    const axisZ = [
-      sourceValues[sourceOffset + 8] / axisZLength,
-      sourceValues[sourceOffset + 9] / axisZLength,
-      sourceValues[sourceOffset + 10] / axisZLength,
-    ];
+    const axisXX = sourceValues[sourceOffset] / axisXLength;
+    const axisXY = sourceValues[sourceOffset + 1] / axisXLength;
+    const axisXZ = sourceValues[sourceOffset + 2] / axisXLength;
+    const axisZX = sourceValues[sourceOffset + 8] / axisZLength;
+    const axisZY = sourceValues[sourceOffset + 9] / axisZLength;
+    const axisZZ = sourceValues[sourceOffset + 10] / axisZLength;
     const baseAngle = hash01(sourceIndex * 3 + 1) * TWO_PI;
 
     for (let cluster = 0; cluster < CLUSTERS_PER_SOURCE; cluster += 1) {
@@ -122,12 +118,9 @@ function fillUnderfillMatrices(source, underfill) {
         );
         const localX = Math.cos(angle) * radius;
         const localZ = Math.sin(angle) * radius;
-        targetValues[targetOffset + 12] +=
-          axisX[0] * localX + axisZ[0] * localZ;
-        targetValues[targetOffset + 13] +=
-          axisX[1] * localX + axisZ[1] * localZ;
-        targetValues[targetOffset + 14] +=
-          axisX[2] * localX + axisZ[2] * localZ;
+        targetValues[targetOffset + 12] += axisXX * localX + axisZX * localZ;
+        targetValues[targetOffset + 13] += axisXY * localX + axisZY * localZ;
+        targetValues[targetOffset + 14] += axisXZ * localX + axisZZ * localZ;
       }
 
       const horizontalScale = THREE.MathUtils.lerp(
@@ -154,12 +147,15 @@ function fillUnderfillMatrices(source, underfill) {
 }
 
 function scaleMatrixBasis(values, offset, horizontalScale, verticalScale) {
-  for (const index of [0, 1, 2, 8, 9, 10]) {
-    values[offset + index] *= horizontalScale;
-  }
-  for (const index of [4, 5, 6]) {
-    values[offset + index] *= verticalScale;
-  }
+  values[offset] *= horizontalScale;
+  values[offset + 1] *= horizontalScale;
+  values[offset + 2] *= horizontalScale;
+  values[offset + 4] *= verticalScale;
+  values[offset + 5] *= verticalScale;
+  values[offset + 6] *= verticalScale;
+  values[offset + 8] *= horizontalScale;
+  values[offset + 9] *= horizontalScale;
+  values[offset + 10] *= horizontalScale;
 }
 
 function hash01(value) {
