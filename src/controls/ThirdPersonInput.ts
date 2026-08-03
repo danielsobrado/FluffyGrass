@@ -20,6 +20,8 @@ export class ThirdPersonInput {
   private lookPointer?: PointerState;
   private mobileControls?: HTMLElement;
   private mobileSprint = false;
+  private mobileJumpHeld = false;
+  private jumpRequested = false;
   private resetRequested = false;
   private zoomDelta = 0;
   private inputEventCount = 0;
@@ -66,10 +68,20 @@ export class ThirdPersonInput {
     return delta;
   }
 
+  consumeJump(): boolean {
+    const requested = this.jumpRequested;
+    this.jumpRequested = false;
+    return requested;
+  }
+
   consumeReset(): boolean {
     const requested = this.resetRequested;
     this.resetRequested = false;
     return requested;
+  }
+
+  isJumpHeld(): boolean {
+    return this.mobileJumpHeld || this.keys.has("Space");
   }
 
   isSprinting(): boolean {
@@ -88,6 +100,7 @@ export class ThirdPersonInput {
         : "",
       this.lookPointer ? "look" : "",
       this.isSprinting() ? "run" : "",
+      this.isJumpHeld() ? "jump" : "",
     ].filter(Boolean);
     return `${active.join(" + ") || this.lastInputType} · events ${this.inputEventCount}`;
   }
@@ -137,6 +150,7 @@ export class ThirdPersonInput {
     controls.className = "mobile-character-controls";
     controls.innerHTML = `
       <button type="button" data-character-reset aria-label="Return to spawn">⌂</button>
+      <button type="button" data-character-jump aria-label="Jump">JUMP</button>
       <button type="button" data-character-run aria-label="Run">RUN</button>
     `;
 
@@ -149,6 +163,24 @@ export class ThirdPersonInput {
         this.lastInputType = "reset";
         this.resetRequested = true;
       });
+
+    const jumpButton = controls.querySelector<HTMLButtonElement>(
+      "[data-character-jump]",
+    );
+    const setJump = (active: boolean, event: Event): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (active && !this.mobileJumpHeld) {
+        this.jumpRequested = true;
+        this.inputEventCount += 1;
+        this.lastInputType = "jump";
+      }
+      this.mobileJumpHeld = active;
+    };
+    jumpButton?.addEventListener("pointerdown", (event) => setJump(true, event));
+    jumpButton?.addEventListener("pointerup", (event) => setJump(false, event));
+    jumpButton?.addEventListener("pointercancel", (event) => setJump(false, event));
+    jumpButton?.addEventListener("pointerleave", (event) => setJump(false, event));
 
     const runButton = controls.querySelector<HTMLButtonElement>(
       "[data-character-run]",
@@ -254,14 +286,22 @@ export class ThirdPersonInput {
     this.movePointer = undefined;
     this.lookPointer = undefined;
     this.mobileSprint = false;
+    this.mobileJumpHeld = false;
+    this.jumpRequested = false;
     this.lookDelta.set(0, 0);
     this.keys.clear();
     this.lastInputType = "idle";
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === "Space") {
+      event.preventDefault();
+      if (!event.repeat) {
+        this.jumpRequested = true;
+      }
+    }
     this.keys.add(event.code);
-    this.lastInputType = "keyboard";
+    this.lastInputType = event.code === "Space" ? "jump" : "keyboard";
     this.inputEventCount += 1;
     if (event.code === "KeyF") {
       this.resetRequested = true;
