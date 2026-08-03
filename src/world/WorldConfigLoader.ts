@@ -34,6 +34,9 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassNearTileSize: POSITIVE,
   grassNearBladesPerSquareMeterDesktop: { minimum: 8, maximum: 180 },
   grassNearBladesPerSquareMeterCompact: { minimum: 8, maximum: 180 },
+  grassUltraNearDistance: POSITIVE,
+  grassUltraNearTransitionDistance: POSITIVE,
+  grassUltraNearDensityMultiplier: { minimum: 1, maximum: 3 },
   grassMidBladeFraction: { minimum: 0.05, maximum: 0.8 },
   grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
   grassPatchJitter: { minimum: 0, maximum: 0.9 },
@@ -184,6 +187,22 @@ export class WorldConfigLoader {
       config.grassNearDistance - config.grassTransitionDistance
     ) {
       throw new Error("grassHysteresisDistance is too large for the near band.");
+    }
+    if (
+      config.grassUltraNearTransitionDistance >=
+      config.grassUltraNearDistance
+    ) {
+      throw new Error(
+        "grassUltraNearTransitionDistance must be lower than grassUltraNearDistance.",
+      );
+    }
+    if (
+      config.grassUltraNearDistance >
+      config.grassNearDistance - config.grassTransitionDistance
+    ) {
+      throw new Error(
+        "The ultra-near grass band must end before the normal near-LOD fade begins.",
+      );
     }
     this.validateGrassStreamRadius(
       "desktop",
