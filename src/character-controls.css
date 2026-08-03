@@ -1,0 +1,29 @@
+.mobile-character-controls {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 55px);
+  z-index: 120;
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-character-controls button {
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 50%;
+  background: rgb(18 24 22 / 62%);
+  color: #fff;
+  font: 700 12px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  backdrop-filter: blur(8px);
+  touch-action: none;
+}
+
+.mobile-character-controls button:active {
+  background: rgb(111 145 86 / 78%);
+}
+
+body[data-control="third-person"] .mobile-flight-controls,
+body[data-control="fly"] .mobile-character-controls {
+  display: none;
+}
