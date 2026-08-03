@@ -110,7 +110,7 @@ export class WorldNearGrassField {
       this.worldConfig.grassUltraNearTransitionDistance * 0.5;
     const ultraNearLodConfig: GrassLodConfig = {
       nearMaxDistance:
-        this.worldConfig.grassUltraNearDistance - ultraTransitionHalf,
+        this.worldConfig.grassUltraNearDistance + ultraTransitionHalf,
       midMaxDistance: this.worldConfig.grassMidDistance,
       farMaxDistance: this.worldConfig.grassFarDistance,
       transitionDistance: ultraTransitionHalf,
@@ -157,7 +157,9 @@ export class WorldNearGrassField {
         tileSize,
         {
           namePrefix: "world-grass-ultra-near-blades",
-          visibilityRadius: this.worldConfig.grassUltraNearDistance,
+          visibilityRadius:
+            this.worldConfig.grassUltraNearDistance +
+            this.worldConfig.grassUltraNearTransitionDistance,
           densityMultiplier: ultraAdditionalDensity,
           seedSalt: ULTRA_NEAR_SEED_SALT,
           material: this.ultraNearMaterial,
