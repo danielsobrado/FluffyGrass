@@ -6,6 +6,11 @@ interface RunnableApp {
   start(): void;
 }
 
+const THIRD_PERSON_HELP =
+  "Desktop: click, mouse orbit, WASD, Shift run, wheel zoom, F reset · Mobile: left drag move, right drag look, RUN/⌂ · Add ?control=fly for flight";
+const FLY_HELP =
+  "Desktop: click, mouse look, WASD, Q/E, Shift, wheel, F reset · Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude";
+
 async function bootstrap(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
   if (!canvas) {
@@ -22,17 +27,23 @@ async function bootstrap(): Promise<void> {
 
   const params = new URLSearchParams(window.location.search);
   const sceneMode = params.get("scene") === "island" ? "island" : "world";
+  const flyMode =
+    sceneMode === "world" &&
+    (params.get("control") === "fly" || params.get("view") === "aerial");
   document.body.dataset.scene = sceneMode;
+  document.body.dataset.control = flyMode ? "fly" : "third-person";
+
   const versionElement = document.querySelector<HTMLElement>("#build-version");
   const sceneElement = document.querySelector<HTMLElement>("#scene-mode");
+  const helpElement = document.querySelector<HTMLElement>("#control-help");
   if (versionElement) {
     versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
   }
   if (sceneElement) {
-    sceneElement.textContent =
-      sceneMode === "world"
-        ? "v0.7.2 Visuals · Hybrid Far LOD"
-        : "Island Regression";
+    sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
+  }
+  if (helpElement && sceneMode === "world") {
+    helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
   }
   document.title = `FluffyGrass ${APP_VERSION} · ${sceneMode}`;
 
@@ -48,6 +59,18 @@ async function bootstrap(): Promise<void> {
   }
 
   app.start();
+}
+
+function resolveSceneLabel(
+  sceneMode: "island" | "world",
+  flyMode: boolean,
+): string {
+  if (sceneMode === "island") {
+    return "Island Regression";
+  }
+  return flyMode
+    ? "v0.7.2 Visuals · Hybrid Far LOD · Flight"
+    : "v0.7.2 Visuals · Third-Person Character";
 }
 
 bootstrap().catch((error) => {
