@@ -17,6 +17,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
 import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
+import { WorldNearGrassField } from "./grass/WorldNearGrassField";
 
 interface WorldGrassPatch extends GrassPatch {
   farMesh: THREE.InstancedMesh;
@@ -115,6 +116,7 @@ export class WorldGrassSystem {
   private readonly retiring = new Set<string>();
   private readonly cameraPosition = new THREE.Vector3();
   private readonly previousReconcilePosition = new THREE.Vector2();
+  private readonly nearField: WorldNearGrassField;
   private nearGeometries: THREE.BufferGeometry[] = [];
   private midGeometries: THREE.BufferGeometry[] = [];
   private grassConfig?: GrassConfig;
@@ -139,7 +141,14 @@ export class WorldGrassSystem {
     private readonly field: TerrainField,
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
-  ) {}
+  ) {
+    this.nearField = new WorldNearGrassField(
+      scene,
+      field,
+      worldConfig,
+      profile,
+    );
+  }
 
   initialize(): Promise<void> {
     if (this.disposed) {
@@ -163,6 +172,7 @@ export class WorldGrassSystem {
     }
 
     camera.getWorldPosition(this.cameraPosition);
+    this.nearField.update(deltaSeconds, this.cameraPosition);
     const chunkX = Math.floor(this.cameraPosition.x / this.worldConfig.chunkSize);
     const chunkZ = Math.floor(this.cameraPosition.z / this.worldConfig.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -182,7 +192,7 @@ export class WorldGrassSystem {
     let visibleMidPatches = 0;
     let visibleFarPatches = 0;
     let bladePatches = 0;
-    let blades = 0;
+    let blades = this.nearField.getBladeCount();
     let impostors = 0;
 
     for (const patch of this.patches.values()) {
@@ -225,6 +235,7 @@ export class WorldGrassSystem {
     this.initialized = false;
     this.status = "Grass disposed";
 
+    this.nearField.dispose();
     for (const patch of this.patches.values()) {
       this.removePatch(patch);
     }
@@ -278,6 +289,10 @@ export class WorldGrassSystem {
     const lodConfig = this.resolveLodConfig();
     this.resolvedLodConfig = lodConfig;
     this.material.configureLod(lodConfig);
+
+    this.status = "Creating dense single-blade fields";
+    await this.nearField.initialize(grassConfig);
+    this.assertNotDisposed();
 
     for (let index = 0; index < variants.bladeVariants.length; index += 1) {
       this.status = `Creating impostor atlas ${index + 1}/${variants.bladeVariants.length}`;
