@@ -48,6 +48,7 @@ export class WorldApp {
   private hudEnabled = true;
   private grassInitializing = true;
   private runtimeError?: string;
+  private runtimeErrorBeforeContextLoss?: string;
   private grassInitializationError?: string;
 
   private constructor(
@@ -414,14 +415,16 @@ export class WorldApp {
   private readonly handleContextLost = (event: Event): void => {
     event.preventDefault();
     this.rendererEnabled = false;
+    this.runtimeErrorBeforeContextLoss = this.runtimeError;
     this.runtimeError = CONTEXT_LOST_ERROR;
   };
 
   private readonly handleContextRestored = (): void => {
     this.rendererEnabled = true;
     if (this.runtimeError === CONTEXT_LOST_ERROR) {
-      this.runtimeError = undefined;
+      this.runtimeError = this.runtimeErrorBeforeContextLoss;
     }
+    this.runtimeErrorBeforeContextLoss = undefined;
   };
 
   private readonly handleResize = (): void => {
