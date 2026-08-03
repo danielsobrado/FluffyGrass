@@ -25,6 +25,9 @@ export interface WorldConfig {
   grassInteractionTrailLength: number;
   grassInteractionResponse: number;
   grassInteractionSpeedForFullEffect: number;
+  grassLandingPulseRadius: number;
+  grassLandingPulseStrength: number;
+  grassLandingPulseDecay: number;
   spawnSearchRadius: number;
   spawnSearchStep: number;
   spawnNeighborhoodRadius: number;
@@ -55,6 +58,16 @@ export interface WorldConfig {
   characterAcceleration: number;
   characterDeceleration: number;
   characterTurnRate: number;
+  characterJumpSpeed: number;
+  characterGravity: number;
+  characterFallGravityMultiplier: number;
+  characterAirControl: number;
+  characterCoyoteTime: number;
+  characterJumpBufferTime: number;
+  characterJumpHoldTime: number;
+  characterJumpHoldGravityScale: number;
+  characterLandingRecoveryTime: number;
+  characterLandingImpactForFullEffect: number;
   characterCameraDistance: number;
   characterCameraMinDistance: number;
   characterCameraMaxDistance: number;
