@@ -22,6 +22,7 @@ function readYamlNumber(source, key) {
 }
 
 const controller = read("src/grass/GrassLodController.ts");
+const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const nearMaterial = read("src/grass/materials/GrassNearMaterial.ts");
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
@@ -61,6 +62,9 @@ if (
   !worldGrassSystem.includes("this.nearField.update(deltaSeconds, this.cameraPosition)")
 ) {
   fail("The dense single-blade fields must be wired into WorldGrassSystem.");
+}
+if (thirdPersonController.includes("WorldNearGrassField")) {
+  fail("ThirdPersonController must not create a duplicate near-grass field.");
 }
 if (
   !nearField.includes("grassUltraNearDensityMultiplier - 1") ||
@@ -113,4 +117,4 @@ for (let sample = 0; sample <= 1000; sample += 1) {
   }
 }
 
-console.log("[lod-continuity] Coverage, ultra-near density, and palette invariants passed.");
+console.log("[lod-continuity] Coverage, ultra-near density, ownership, and palette invariants passed.");
