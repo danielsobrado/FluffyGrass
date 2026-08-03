@@ -1,10 +1,7 @@
+import { FlatConfig } from "../config/FlatConfig";
 import type { RuntimeConfig, RuntimeTierConfig } from "./RuntimeConfig";
 
 const CONFIG_URL = "./config/runtime.yaml";
-
-interface ParsedConfig {
-  [key: string]: string;
-}
 
 export class RuntimeConfigLoader {
   async load(url: string = CONFIG_URL): Promise<RuntimeConfig> {
@@ -19,16 +16,18 @@ export class RuntimeConfigLoader {
   }
 
   private parse(source: string): RuntimeConfig {
-    const values = this.parseFlatYaml(source);
-    return Object.freeze({
+    const values = FlatConfig.parse(source, "runtime");
+    const config = Object.freeze({
       compactMaxWidth: this.readPositiveNumber(values, "compactMaxWidth"),
       desktop: Object.freeze(this.readTier(values, "desktop")),
       compact: Object.freeze(this.readTier(values, "compact")),
     });
+    values.assertFullyConsumed();
+    return config;
   }
 
   private readTier(
-    values: ParsedConfig,
+    values: FlatConfig,
     prefix: "desktop" | "compact",
   ): RuntimeTierConfig {
     return {
@@ -57,42 +56,8 @@ export class RuntimeConfigLoader {
     };
   }
 
-  private parseFlatYaml(source: string): ParsedConfig {
-    const values: ParsedConfig = {};
-
-    for (const [index, rawLine] of source.split(/\r?\n/).entries()) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith("#")) {
-        continue;
-      }
-
-      const separatorIndex = line.indexOf(":");
-      if (separatorIndex <= 0) {
-        throw new Error(`Invalid runtime config at line ${index + 1}.`);
-      }
-
-      const key = line.slice(0, separatorIndex).trim();
-      const value = line.slice(separatorIndex + 1).trim();
-      if (!value) {
-        throw new Error(`Missing value for ${key} at line ${index + 1}.`);
-      }
-      values[key] = this.stripQuotes(value);
-    }
-
-    return values;
-  }
-
-  private stripQuotes(value: string): string {
-    const first = value[0];
-    const last = value[value.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      return value.slice(1, -1);
-    }
-    return value;
-  }
-
-  private readBoolean(values: ParsedConfig, key: string): boolean {
-    const value = this.readString(values, key).toLowerCase();
+  private readBoolean(values: FlatConfig, key: string): boolean {
+    const value = values.read(key).toLowerCase();
     if (value === "true") {
       return true;
     }
@@ -102,7 +67,7 @@ export class RuntimeConfigLoader {
     throw new Error(`Runtime config value ${key} must be true or false.`);
   }
 
-  private readPowerOfTwo(values: ParsedConfig, key: string): number {
+  private readPowerOfTwo(values: FlatConfig, key: string): number {
     const value = this.readPositiveInteger(values, key);
     if ((value & (value - 1)) !== 0) {
       throw new Error(`Runtime config value ${key} must be a power of two.`);
@@ -110,7 +75,7 @@ export class RuntimeConfigLoader {
     return value;
   }
 
-  private readPositiveInteger(values: ParsedConfig, key: string): number {
+  private readPositiveInteger(values: FlatConfig, key: string): number {
     const value = this.readPositiveNumber(values, key);
     if (!Number.isInteger(value)) {
       throw new Error(`Runtime config value ${key} must be an integer.`);
@@ -118,7 +83,7 @@ export class RuntimeConfigLoader {
     return value;
   }
 
-  private readPositiveNumber(values: ParsedConfig, key: string): number {
+  private readPositiveNumber(values: FlatConfig, key: string): number {
     const value = this.readNumber(values, key);
     if (value <= 0) {
       throw new Error(`Runtime config value ${key} must be positive.`);
@@ -127,7 +92,7 @@ export class RuntimeConfigLoader {
   }
 
   private readRange(
-    values: ParsedConfig,
+    values: FlatConfig,
     key: string,
     minimum: number,
     maximum: number,
@@ -141,18 +106,10 @@ export class RuntimeConfigLoader {
     return value;
   }
 
-  private readNumber(values: ParsedConfig, key: string): number {
-    const value = Number(this.readString(values, key));
+  private readNumber(values: FlatConfig, key: string): number {
+    const value = Number(values.read(key));
     if (!Number.isFinite(value)) {
       throw new Error(`Runtime config value ${key} must be a number.`);
-    }
-    return value;
-  }
-
-  private readString(values: ParsedConfig, key: string): string {
-    const value = values[key];
-    if (!value) {
-      throw new Error(`Missing runtime config value: ${key}.`);
     }
     return value;
   }
