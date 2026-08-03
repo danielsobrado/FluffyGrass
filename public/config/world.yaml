@@ -40,7 +40,9 @@ grassMaxSlopeDegrees: 44
 
 grassNearDistance: 32
 grassMidDistance: 80
-grassFarDistance: 220
+# Cheap two-triangle impostors now carry the matched blade palette almost to
+# the streamed terrain horizon, keeping the flat terrain handoff unobtrusive.
+grassFarDistance: 280
 grassTransitionDistance: 16
 grassHysteresisDistance: 3
 

@@ -29,7 +29,10 @@ interface ProjectedBlade {
 }
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
-const MIN_PIXEL_BASE_WIDTH = 0.8;
+// Sub-pixel roots disappear under linear sampling at far distances and leave
+// a smooth color wash. Keep a one-pixel footprint so the impostor retains the
+// same vertical blade rhythm as the mid geometry at the crossfade.
+const MIN_PIXEL_BASE_WIDTH = 1.05;
 const COLOR_MIN = 0;
 const COLOR_MAX = 1;
 

@@ -3,6 +3,39 @@ import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
 import { TerrainChunk } from "./TerrainChunk";
 
+const TERRAIN_DETAIL_VERTEX = `
+varying vec3 vTerrainWorldPosition;
+`;
+
+const TERRAIN_DETAIL_POSITION = `
+vTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+`;
+
+const TERRAIN_DETAIL_FRAGMENT = `
+uniform sampler2D uTerrainGrassDetail;
+varying vec3 vTerrainWorldPosition;
+`;
+
+const TERRAIN_DETAIL_COLOR = `
+float terrainGrassMask = smoothstep(
+  0.015,
+  0.12,
+  diffuseColor.g - max(diffuseColor.r, diffuseColor.b)
+);
+vec2 terrainWind = normalize(vec2(0.8, 0.35));
+vec2 terrainAcrossWind = vec2(-terrainWind.y, terrainWind.x);
+vec2 terrainDetailUv = vec2(
+  dot(vTerrainWorldPosition.xz, terrainWind) * 0.12,
+  dot(vTerrainWorldPosition.xz, terrainAcrossWind) * 0.035
+);
+float terrainGrassDetail =
+  texture2D(uTerrainGrassDetail, terrainDetailUv).r * 2.0 - 1.0;
+float terrainDetailDistance = distance(cameraPosition, vTerrainWorldPosition);
+float terrainDetailFade = 1.0 - smoothstep(300.0, 460.0, terrainDetailDistance);
+diffuseColor.rgb *= 1.0 +
+  terrainGrassDetail * 0.12 * terrainGrassMask * terrainDetailFade;
+`;
+
 interface ChunkRequest {
   key: string;
   chunkX: number;
@@ -21,6 +54,9 @@ export class TerrainStreamer {
   private readonly chunks = new Map<string, TerrainChunk>();
   private readonly queue: ChunkRequest[] = [];
   private readonly desired = new Map<string, ChunkRequest>();
+  private readonly grassDetailTexture = new THREE.TextureLoader().load(
+    "./perlinnoise.webp",
+  );
   private readonly material = new THREE.MeshLambertMaterial({
     vertexColors: true,
   });
@@ -34,8 +70,38 @@ export class TerrainStreamer {
     private readonly compact: boolean,
     shadows: boolean,
   ) {
+    this.grassDetailTexture.name = "world-terrain-grass-detail";
+    this.grassDetailTexture.colorSpace = THREE.NoColorSpace;
+    this.grassDetailTexture.wrapS = THREE.RepeatWrapping;
+    this.grassDetailTexture.wrapT = THREE.RepeatWrapping;
+    this.grassDetailTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    this.grassDetailTexture.magFilter = THREE.LinearFilter;
+    this.grassDetailTexture.generateMipmaps = true;
+    this.grassDetailTexture.needsUpdate = true;
     this.material.name = "world-terrain-material";
     this.material.dithering = true;
+    this.material.onBeforeCompile = (shader) => {
+      shader.uniforms.uTerrainGrassDetail = {
+        value: this.grassDetailTexture,
+      };
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", `#include <common>${TERRAIN_DETAIL_VERTEX}`)
+        .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>${TERRAIN_DETAIL_POSITION}`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          `#include <common>${TERRAIN_DETAIL_FRAGMENT}`,
+        )
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>${TERRAIN_DETAIL_COLOR}`,
+        );
+    };
+    this.material.customProgramCacheKey = () =>
+      "world-terrain-grass-detail-v1";
     this.material.needsUpdate = true;
     this.material.userData.shadows = shadows;
   }
@@ -97,6 +163,7 @@ export class TerrainStreamer {
     this.queue.length = 0;
     this.desired.clear();
     this.material.dispose();
+    this.grassDetailTexture.dispose();
   }
 
   private reconcile(): void {

@@ -33,12 +33,12 @@ gustSpeed: 0.65
 flutterStrength: 0.03
 flutterSpeed: 3.8
 baseColor: "#477b39"
-tipColor: "#abd58d"
-dryColor: "#a7a16c"
+tipColor: "#82ad6d"
+dryColor: "#929563"
 rootDarkening: 0.82
 normalUp: 0.78
-ambientBoost: 0.26
-backlightStrength: 0.24
+ambientBoost: 0.2
+backlightStrength: 0.14
 nearMaxDistance: 12
 midMaxDistance: 30
 farMaxDistance: 80

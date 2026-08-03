@@ -168,7 +168,7 @@ float grassRootLight = mix(
   1.0,
   smoothstep(0.0, 0.34, vGrassProgress)
 );
-float grassBladeVariation = mix(0.72, 1.13, vGrassShade);
+float grassBladeVariation = mix(0.82, 1.08, vGrassShade);
 diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRootAo;
 diffuseColor.rgb *= uGrassLodColorScale;
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
