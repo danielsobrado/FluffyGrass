@@ -34,7 +34,7 @@ The default transition distances come from `public/config/world.yaml`.
 | --- | --- | --- |
 | `0–16 m` | Dense individual blades | Maximum close-range quality and character interaction. |
 | `16–32 m` | Individual blades fading out, patch geometry fading in, impostor underfill rising | Prevents a visible density drop at the first LOD transition. |
-| `32–72 m` | Multi-blade patches plus 46% impostor underfill | Preserves apparent field density without close-range blade cost. |
+| `32–72 m` | Multi-blade patches plus 72% impostor underfill | Preserves apparent field density without close-range blade cost. |
 | `72–88 m` | Patches fading out while impostors rise to full coverage | Smooth transition into the far representation. |
 | `88–280 m` | Hemi-octahedral impostors | Cheap view-dependent grass silhouettes near the streamed horizon. |
 | Final distance band | Impostors fade into terrain | Avoids a hard grass cutoff at the world edge. |
@@ -67,13 +67,14 @@ This layer is the only grass representation that receives the full character int
 
 The middle LOD uses procedural multi-blade patch geometry. It is less expensive than storing dense individual blades across the world, but patches alone can expose large gaps when viewed from third-person camera height.
 
-To prevent that density collapse, the existing far impostor mesh is reused as a partial underfill layer. The underfill begins when the near blades start fading and remains at 46% through most of the middle band.
+To prevent that density collapse, the existing far impostor mesh is reused as a partial underfill layer. The underfill begins when the near blades start fading and remains at 72% through most of the middle band. The production impostor footprint is widened by 12% to overlap neighboring patch cells and hide exposed terrain seams.
 
 ```ts
-export const GRASS_MID_IMPOSTOR_UNDERFILL = 0.46;
+export const GRASS_MID_IMPOSTOR_UNDERFILL = 0.72;
+export const GRASS_IMPOSTOR_FOOTPRINT_SCALE = 1.12;
 ```
 
-This is intentionally not 100%. The patch geometry still provides local volume and parallax, while the impostors fill empty visual space.
+This is intentionally below 100%. The patch geometry still provides local volume and parallax, while the impostors fill empty visual space.
 
 ### Far LOD: hemi-octahedral impostors
 
@@ -392,10 +393,10 @@ The harness approximates the production renderer:
 
 - Dense nearby individual blades.
 - Multi-blade middle patches.
-- A three-card instanced middle-distance underfill.
+- Three deterministic terrain-aligned underfill clusters per source patch, each using two crossed cards.
 - Character wake and mobile controls.
 
-The production application in `main` remains the source of truth. It uses the proper baked hemi-octahedral atlas impostors rather than the simplified three-card Pages approximation. Running `npm run deploy:pages` replaces the harness with the actual production `dist/` build.
+The production application in `main` remains the source of truth. It uses the proper baked hemi-octahedral atlas impostors rather than the simplified crossed-card Pages approximation. Running `npm run deploy:pages` replaces the harness with the actual production `dist/` build.
 
 ## Attribution
 
