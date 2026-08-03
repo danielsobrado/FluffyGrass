@@ -8,32 +8,31 @@
   />
   <meta
     name="description"
-    content="FluffyGrass v0.7.2 visual profile with hybrid far grass LOD."
+    content="FluffyGrass third-person character test build."
   />
   <meta name="theme-color" content="#9eb8c5" />
-  <title>FluffyGrass v0.8.5-palette-converged-lod</title>
-  <script type="module" crossorigin src="./assets/index-DOJMzy2B.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-RJ3sYnAm.css">
+  <title>FluffyGrass · Third-Person Character Test</title>
+  <link rel="stylesheet" href="./character-demo.css" />
 </head>
 <body>
-  <header class="app-title">
-    <strong>FluffyGrass World PoC</strong>
-    <span id="scene-mode">v0.7.2 Visuals · Hybrid Far LOD</span>
-    <span id="build-version">v0.8.5-palette-converged-lod · 2026-08-03</span>
+  <header class="panel title">
+    <strong>FluffyGrass · Snowflow Character</strong>
+    <span>Direct gh-pages test build · no GitHub Actions</span>
   </header>
-  <pre id="world-stats">Loading world…</pre>
-  <div class="flight-help">
-    Desktop: click, mouse look, WASD, Q/E, Shift, wheel, F reset ·
-    Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude
+  <pre id="status" class="panel">Loading third-person world…</pre>
+  <div class="panel help">
+    Desktop: click, mouse look, WASD, Shift run, wheel zoom, F reset ·
+    Mobile: left drag move, right drag look, RUN/⌂
   </div>
-  <nav>
-    <a
-      href="https://github.com/danielsobrado/FluffyGrass"
-      aria-label="View FluffyGrass on GitHub"
-    >
-      <img src="./github-mark.svg" alt="" />
-    </a>
-  </nav>
-  <canvas id="canvas"></canvas>
+  <div class="mobile-actions" aria-label="Character controls">
+    <button type="button" data-reset aria-label="Reset character">⌂</button>
+    <button type="button" data-run aria-label="Run">RUN</button>
+  </div>
+  <a
+    class="repo-link"
+    href="https://github.com/danielsobrado/FluffyGrass"
+  >GitHub</a>
+  <canvas id="canvas"></canvas>
+  <script type="module" src="./character-demo.js"></script>
 </body>
 </html>
