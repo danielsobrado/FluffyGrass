@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { GrassDevelopmentController } from "../dev/GrassDevelopmentController";
 import { GrassSystem } from "../grass/GrassSystem";
 import { frameCameraToBounds } from "../runtime/CameraFraming";
@@ -8,6 +8,7 @@ import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 
 const ISLAND_MODEL_PATH = "./island.glb";
 const DECORATIVE_TEXT_MODEL_PATH = "./fluffy_grass_text.glb";
+const MODEL_SCALE = 3;
 
 export class IslandApp {
   private readonly scene = new THREE.Scene();
@@ -21,6 +22,8 @@ export class IslandApp {
     color: "#5e875e",
   });
   private readonly developmentController: GrassDevelopmentController;
+  private frameHandle = 0;
+  private running = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -34,7 +37,7 @@ export class IslandApp {
     );
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: !profile.compact,
       powerPreference: "high-performance",
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -65,19 +68,10 @@ export class IslandApp {
 
   async initialize(): Promise<void> {
     const gltf = await this.loader.loadAsync(ISLAND_MODEL_PATH);
-    let terrain: THREE.Mesh | undefined;
-    gltf.scene.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.material = this.terrainMaterial;
-        child.receiveShadow = this.profile.shadows;
-        child.geometry.scale(3, 3, 3);
-        terrain = child;
-      }
-    });
-    if (!terrain) {
-      throw new Error("Island model does not contain a terrain mesh.");
-    }
+    gltf.scene.scale.setScalar(MODEL_SCALE);
+    gltf.scene.updateWorldMatrix(true, true);
 
+    const terrain = this.configureIsland(gltf.scene);
     this.scene.add(gltf.scene);
     const bounds = new THREE.Box3().setFromObject(gltf.scene);
     frameCameraToBounds(this.camera, this.controls, bounds, this.profile);
@@ -94,16 +88,61 @@ export class IslandApp {
   }
 
   start(): void {
-    this.render();
+    if (this.running) {
+      return;
+    }
+    this.running = true;
+    this.clock.start();
+    this.frameHandle = requestAnimationFrame(this.render);
+  }
+
+  dispose(): void {
+    this.running = false;
+    this.clock.stop();
+    cancelAnimationFrame(this.frameHandle);
+    window.removeEventListener("resize", this.handleResize);
+    this.controls.dispose();
+    this.grass.dispose();
+    this.terrainMaterial.dispose();
+    this.renderer.dispose();
   }
 
   private render = (): void => {
+    if (!this.running) {
+      return;
+    }
+    this.frameHandle = requestAnimationFrame(this.render);
     const deltaSeconds = this.clock.getDelta();
     this.controls.update();
     this.grass.update(deltaSeconds, this.camera);
     this.renderer.render(this.scene, this.camera);
-    requestAnimationFrame(this.render);
   };
+
+  private configureIsland(root: THREE.Object3D): THREE.Mesh {
+    const bounds = new THREE.Box3();
+    const size = new THREE.Vector3();
+    let terrain: THREE.Mesh | undefined;
+    let largestHorizontalArea = Number.NEGATIVE_INFINITY;
+
+    root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      child.material = this.terrainMaterial;
+      child.receiveShadow = this.profile.shadows;
+      bounds.setFromObject(child).getSize(size);
+      const horizontalArea = size.x * size.z;
+      if (horizontalArea > largestHorizontalArea) {
+        largestHorizontalArea = horizontalArea;
+        terrain = child;
+      }
+    });
+
+    if (!terrain) {
+      throw new Error("Island model does not contain a terrain mesh.");
+    }
+    return terrain;
+  }
 
   private addLights(): void {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -120,11 +159,11 @@ export class IslandApp {
   private async loadDecorativeText(): Promise<void> {
     const gltf = await this.loader.loadAsync(DECORATIVE_TEXT_MODEL_PATH);
     const material = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    gltf.scene.scale.setScalar(MODEL_SCALE);
+    gltf.scene.position.y += 0.5;
     gltf.scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.material = material;
-        child.geometry.scale(3, 3, 3);
-        child.position.y += 0.5;
         child.castShadow = this.profile.shadows;
       }
     });
