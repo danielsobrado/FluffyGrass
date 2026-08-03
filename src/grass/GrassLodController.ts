@@ -68,8 +68,6 @@ export class GrassLodController {
       this.config.midMaxDistance + this.config.transitionDistance;
     const terrainFadeEnd =
       this.config.farMaxDistance + this.config.transitionDistance;
-    const farAerialVisible = this.isFarAeriallyVisible();
-
     patch.nearMesh.visible =
       patch.inFrustum && patch.distance < nearFadeEnd;
     patch.midMesh.visible =
@@ -79,40 +77,17 @@ export class GrassLodController {
     farMesh.visible =
       patch.inFrustum &&
       farthestDistance > farEntryStart &&
-      patch.distance < terrainFadeEnd &&
-      farAerialVisible;
+      patch.distance < terrainFadeEnd;
 
     patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
     patch.nearMesh.userData.grassDistanceFade = 1;
     patch.midMesh.userData.grassLodThreshold = patch.nearCoverage;
-    patch.midMesh.userData.grassDistanceFade =
-      patch.nearCoverage > VISIBILITY_EPSILON ? 1 : patch.midCoverage;
+    // World-space LOD coverage is already calculated per instance in the
+    // material. Applying the patch-level mid coverage here as well intersects
+    // two opposing dither ranges and makes the mid layer disappear halfway
+    // through its transition to the far impostor.
+    patch.midMesh.userData.grassDistanceFade = 1;
     farMesh.userData.grassImpostorCoverage = patch.farCoverage;
-  }
-
-  private isFarAeriallyVisible(): boolean {
-    const fadeEnd = this.config.farAerialFadeEnd;
-    if (fadeEnd === undefined) {
-      return true;
-    }
-
-    const sphere = this.boundingSphere;
-    const horizontalDistance = Math.hypot(
-      this.cameraPosition.x - sphere.center.x,
-      this.cameraPosition.z - sphere.center.z,
-    );
-    const minimumVerticalDistance = Math.max(
-      0,
-      Math.abs(this.cameraPosition.y - sphere.center.y) - sphere.radius,
-    );
-    const maximumHorizontalDistance = horizontalDistance + sphere.radius;
-    const minimumElevation =
-      minimumVerticalDistance /
-      Math.max(
-        Math.hypot(minimumVerticalDistance, maximumHorizontalDistance),
-        VISIBILITY_EPSILON,
-      );
-    return minimumElevation < fadeEnd;
   }
 
   private updateLegacyPatch(patch: GrassPatch): void {

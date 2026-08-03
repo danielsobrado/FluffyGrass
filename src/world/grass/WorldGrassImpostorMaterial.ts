@@ -159,13 +159,11 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
-  float aerialVisibility = 1.0 - smoothstep(
-    uAerialFadeStart,
-    uAerialFadeEnd,
-    vViewElevation
-  );
+  // Distance coverage is complementary to the mid-blade fade. Suppressing
+  // cards by elevation made the mid layer reach zero before the far layer
+  // appeared, leaving a grass-free annulus in aerial views.
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage * aerialVisibility *
+    vFarEntry * vTerrainCoverage *
     uStreamCoverage * vFieldCoverage;
   float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
   if (
@@ -231,7 +229,7 @@ void main() {
     smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
   );
   color = mix(color, uBaseColor, terrainMatch);
-  color = mix(color, uDryColor, vDryness * 0.12);
+  color = mix(color, uDryColor, vDryness * 0.04);
   color *= ${IMPOSTOR_COLOR_SCALE.toFixed(2)};
   color *= mix(${IMPOSTOR_ROOT_LIGHT_MIN.toFixed(2)}, ${IMPOSTOR_ROOT_LIGHT_MAX.toFixed(2)}, vRootAo);
   gl_FragColor = vec4(color, 1.0);
