@@ -130,7 +130,9 @@ export class WorldSingleBladeTileField {
       }
 
       const tile = this.factory.build({
-        ...request,
+        key: request.key,
+        tileX: request.tileX,
+        tileZ: request.tileZ,
         densityMultiplier: this.options.densityMultiplier,
         seedSalt: this.options.seedSalt,
         namePrefix: this.options.namePrefix,
