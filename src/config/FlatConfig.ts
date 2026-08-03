@@ -33,7 +33,11 @@ export class FlatConfig {
         );
       }
 
-      values.set(key, this.stripQuotes(rawValue, name, index + 1));
+      const value = this.stripQuotes(rawValue, name, index + 1);
+      if (!value) {
+        throw new Error(`Missing value for ${key} at line ${index + 1}.`);
+      }
+      values.set(key, value);
     }
 
     return new FlatConfig(name, values);
