@@ -101,10 +101,6 @@ export class SnowflowCharacter {
     this.rig.body.position.y = bob + breathing;
     this.rig.torso.rotation.x = 0.06 * speed01 + accelerationLean;
     this.rig.torso.rotation.z = -stride * 0.035 * gaitBlend;
-    this.rig.head.rotation.x = -this.rig.torso.rotation.x * 0.28;
-    this.rig.head.rotation.z = stride * 0.018 * gaitBlend;
-    this.rig.hood.rotation.x = this.rig.head.rotation.x * 0.72;
-    this.rig.hood.rotation.z = this.rig.head.rotation.z * 0.72;
     this.rig.skirt.rotation.x = -stride * 0.025 * gaitBlend;
     this.rig.skirt.rotation.z = stride * 0.018 * gaitBlend;
   }
