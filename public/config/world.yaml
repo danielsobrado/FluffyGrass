@@ -27,6 +27,9 @@ grassMidBladeFraction: 0.5
 grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
 
+# Hemi-octahedral cards underfill the mid band, then become the full far LOD.
+grassMidImpostorUnderfill: 0.46
+
 # Character capsule wake and landing pulse.
 grassInteractionRadius: 1.55
 grassInteractionStrength: 0.78
