@@ -14,13 +14,25 @@
   border-radius: 50%;
   background: rgb(18 24 22 / 62%);
   color: #fff;
-  font: 700 12px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  font: 700 11px/1 Inter, ui-sans-serif, system-ui, sans-serif;
   backdrop-filter: blur(8px);
   touch-action: none;
 }
 
+.mobile-character-controls [data-character-jump] {
+  width: 62px;
+  height: 62px;
+  margin-left: -8px;
+  border-color: rgb(218 188 255 / 46%);
+  background: rgb(54 39 69 / 72%);
+}
+
 .mobile-character-controls button:active {
   background: rgb(111 145 86 / 78%);
+}
+
+.mobile-character-controls [data-character-jump]:active {
+  background: rgb(124 83 154 / 86%);
 }
 
 body[data-control="third-person"] .mobile-flight-controls,
