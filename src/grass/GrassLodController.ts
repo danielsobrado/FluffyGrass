@@ -66,6 +66,11 @@ export class GrassLodController {
       this.config.midMaxDistance + this.config.transitionDistance;
     const terrainFadeEnd =
       this.config.farMaxDistance + this.config.transitionDistance;
+    const impostorEntryStart =
+      (this.config.midImpostorUnderfill ?? 0) > VISIBILITY_EPSILON
+        ? nearFadeStart
+        : farEntryStart;
+
     patch.nearMesh.visible =
       patch.inFrustum && patch.distance < nearFadeEnd;
     patch.midMesh.visible =
@@ -74,7 +79,7 @@ export class GrassLodController {
       patch.distance < farEntryEnd;
     farMesh.visible =
       patch.inFrustum &&
-      farthestDistance > farEntryStart &&
+      farthestDistance > impostorEntryStart &&
       patch.distance < terrainFadeEnd;
 
     patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
@@ -149,7 +154,8 @@ export class GrassLodController {
   private resolveNearCoverage(distance: number): number {
     const start =
       this.config.nearMaxDistance - this.config.transitionDistance;
-    const end = this.config.nearMaxDistance + this.config.transitionDistance;
+    const end =
+      this.config.nearMaxDistance + this.config.transitionDistance;
     return 1 - THREE.MathUtils.smoothstep(distance, start, end);
   }
 
@@ -173,7 +179,10 @@ export class GrassLodController {
       terrainFadeStart,
       terrainFadeEnd,
     );
-    return (1 - nearCoverage) * entry * (1 - terrainFade);
+    const midUnderfill =
+      (1 - nearCoverage) * (this.config.midImpostorUnderfill ?? 0);
+    const densityCoverage = THREE.MathUtils.lerp(midUnderfill, 1, entry);
+    return densityCoverage * (1 - terrainFade);
   }
 
   private resolveLegacyMidDistanceFade(distance: number): number {
