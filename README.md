@@ -12,7 +12,8 @@ The default experience places an articulated Drow ranger inside a very dense int
 
 ## Current feature set
 
-- Dense, individually instanced grass around the character.
+- Double-density individually instanced grass in the ultra-near camera band.
+- Dense individually instanced grass throughout the normal near LOD.
 - Multi-blade patch geometry for the middle LOD.
 - Hemi-octahedral atlas impostors for middle-band underfill and the far LOD.
 - Dithered cross-fades between grass representations.
@@ -26,20 +27,22 @@ The default experience places an articulated Drow ranger inside a very dense int
 
 ## Grass rendering architecture
 
-The grass system deliberately uses a different representation for each distance band. Dense individual blades are reserved for the closest LOD. Multi-blade patches and impostors are used only when individual blades become too expensive.
+The grass system deliberately uses a different representation for each distance band. Dense individual blades are reserved for the closest LODs. Multi-blade patches and impostors are used only when individual blades become too expensive.
 
 The default transition distances come from `public/config/world.yaml`.
 
 | Distance from camera | Representation | Purpose |
 | --- | --- | --- |
-| `0–16 m` | Dense individual blades | Maximum close-range quality and character interaction. |
-| `16–32 m` | Individual blades fading out, patch geometry fading in, impostor underfill rising | Prevents a visible density drop at the first LOD transition. |
+| `0–3 m` | Two independent single-blade layers | Full 2× blade density where individual blades are most visible. |
+| `3–4 m` | Additional single-blade layer dithering out | Removes the extra density without a visible ring. |
+| `4–16 m` | Dense individual blades | Maximum normal close-range quality and character interaction. |
+| `16–32 m` | Individual blades fading out, patch geometry fading in, impostor underfill rising | Prevents a visible density drop at the first world LOD transition. |
 | `32–72 m` | Multi-blade patches plus 72% impostor underfill | Preserves apparent field density without close-range blade cost. |
 | `72–88 m` | Patches fading out while impostors rise to full coverage | Smooth transition into the far representation. |
 | `88–280 m` | Hemi-octahedral impostors | Cheap view-dependent grass silhouettes near the streamed horizon. |
 | Final distance band | Impostors fade into terrain | Avoids a hard grass cutoff at the world edge. |
 
-These ranges are derived from:
+The main world transition ranges are derived from:
 
 ```yaml
 grassNearDistance: 24
@@ -48,11 +51,23 @@ grassFarDistance: 280
 grassTransitionDistance: 8
 ```
 
-The fade bands are therefore centered at 24 m and 80 m, with an 8 m transition on either side.
+The world fade bands are centered at 24 m and 80 m, with an 8 m transition on either side.
 
-### Closest LOD: individual blades
+### Ultra-near LOD: double individual blades
 
-The closest LOD is owned by `WorldNearGrassField` and uses individually instanced blades in streamed 8 m tiles.
+The first 4 m uses an additional independently seeded single-blade layer. The normal near field remains visible, and the extra layer contributes the same density again. This produces 2× total blade density without duplicating blades at identical positions.
+
+```yaml
+grassUltraNearDistance: 4
+grassUltraNearTransitionDistance: 1
+grassUltraNearDensityMultiplier: 2
+```
+
+The extra layer is fully visible through 3 m and uses a stochastic fade from 3–4 m. It is streamed only around the camera and is built before the wider near field after spawn or a tile crossing.
+
+### Normal near LOD: individual blades
+
+The normal near LOD is owned by `WorldNearGrassField` and uses individually instanced blades in streamed 8 m tiles.
 
 Default densities:
 
@@ -61,7 +76,9 @@ grassNearBladesPerSquareMeterDesktop: 72
 grassNearBladesPerSquareMeterCompact: 48
 ```
 
-This layer is the only grass representation that receives the full character interaction deformation. The roots remain planted while blade tips bend and flatten around the character.
+The production `WorldGrassSystem` initializes and updates `WorldNearGrassField` directly. The older streamed multi-blade near mesh remains disabled, so close grass is not represented by patches.
+
+Both close single-blade layers receive the full character interaction deformation. Roots remain planted while blade tips bend and flatten around the character.
 
 ### Middle LOD: patches plus underfill
 
@@ -74,7 +91,7 @@ export const GRASS_MID_IMPOSTOR_UNDERFILL = 0.72;
 export const GRASS_IMPOSTOR_FOOTPRINT_SCALE = 1.12;
 ```
 
-This is intentionally below 100%. The patch geometry still provides local volume and parallax, while the impostors fill empty visual space.
+This is intentionally below 100%. Patch geometry still provides local volume and parallax, while impostors fill empty visual space.
 
 ### Far LOD: hemi-octahedral impostors
 
@@ -96,18 +113,21 @@ Reusing the existing impostor draw path is cheaper and simpler than creating a s
 
 The grass LOD system follows these rules:
 
-1. Individual blades never remain as a world-wide distant representation.
-2. Multi-blade patches do not render as the closest character-level grass.
-3. The underfill appears before the patch-only band becomes visibly sparse.
-4. Every transition overlaps through stochastic coverage rather than switching meshes abruptly.
-5. Color, wind response, height, and root placement should remain visually compatible across all representations.
-6. Terrain and grass streaming radii must be large enough to contain the configured LOD fades.
+1. The additional ultra-near layer only adds density; it does not replace the normal near layer.
+2. Individual blades never remain as a world-wide distant representation.
+3. Multi-blade patches do not render as the closest character-level grass.
+4. The impostor underfill appears before the patch-only band becomes visibly sparse.
+5. Every transition overlaps through stochastic coverage rather than switching meshes abruptly.
+6. Color, wind response, height, and root placement should remain visually compatible across all representations.
+7. Terrain and grass streaming radii must be large enough to contain the configured LOD fades.
 
 Run the continuity verification with:
 
 ```bash
 npm run test:lod
 ```
+
+The verification also checks that the dense single-blade fields are connected to `WorldGrassSystem`, that the ultra-near distance remains 4 m, that its total density multiplier remains 2×, and that the stronger interaction setting is retained.
 
 ## Interactive grass physics
 
@@ -122,12 +142,13 @@ The interaction field is a smoothed capsule running from a trailing point to the
 - Blades flatten slightly under pressure.
 - The wake length increases with movement speed.
 - The field springs back instead of permanently clearing the grass.
+- Both normal and ultra-near single-blade layers use the same interaction state.
 
 Default settings:
 
 ```yaml
 grassInteractionRadius: 1.55
-grassInteractionStrength: 0.78
+grassInteractionStrength: 0.94
 grassInteractionTrailLength: 2.8
 grassInteractionResponse: 7.5
 grassInteractionSpeedForFullEffect: 4
@@ -264,7 +285,7 @@ Append `?control=fly` to the URL to disable the third-person controller and use 
 
 The on-screen diagnostics report a rolling average FPS and current world state. The average is sampled over time and is more useful than displaying the total number of rendered frames.
 
-Grass diagnostics include active and queued patches, visible LOD layers, estimated blade count, impostor count, and chunk build timing.
+Grass diagnostics include active and queued patches, visible LOD layers, estimated blade count, impostor count, and chunk build timing. The blade count includes the streamed normal and ultra-near single-blade fields.
 
 ## Configuration
 
@@ -287,6 +308,8 @@ Configuration loading is strict:
 - Missing values fail startup.
 - Invalid number ranges fail startup.
 - Cross-field LOD, streaming, camera, movement, and density constraints are validated.
+- The ultra-near transition must be shorter than the ultra-near distance.
+- The ultra-near band must end before the normal near-to-middle fade begins.
 
 When adding a world configuration value, update all three locations:
 
@@ -320,6 +343,8 @@ src/world/
   grass/WorldGrassImpostorMaterial.ts
   grass/WorldGrassPatchGeometryFactory.ts
   grass/WorldNearGrassField.ts
+  grass/WorldSingleBladeTileFactory.ts
+  grass/WorldSingleBladeTileField.ts
 ```
 
 ## Local development
@@ -396,7 +421,7 @@ The harness approximates the production renderer:
 - Three deterministic terrain-aligned underfill clusters per source patch, each using two crossed cards.
 - Character wake and mobile controls.
 
-The production application in `main` remains the source of truth. It uses the proper baked hemi-octahedral atlas impostors rather than the simplified crossed-card Pages approximation. Running `npm run deploy:pages` replaces the harness with the actual production `dist/` build.
+The production application in `main` remains the source of truth. It uses the proper streamed 2× ultra-near layer, normal near field, and baked hemi-octahedral atlas impostors. Running `npm run deploy:pages` replaces the harness with the actual production `dist/` build.
 
 ## Attribution
 
