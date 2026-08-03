@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import type { SnowflowCharacterRig } from "./SnowflowCharacterGeometry";
 
-const DROW_SKIN = 0x665686;
-const DROW_SKIN_EMISSIVE = 0x120e20;
-const DROW_HAIR = 0xf1f0ff;
-const DROW_EYES = 0xe66cff;
-const DROW_HOOD_EDGE = 0x584477;
+const DROW_SKIN = 0x626879;
+const DROW_SKIN_EMISSIVE = 0x10131d;
+const DROW_HAIR = 0xe9e7ef;
+const DROW_EYES = 0xd9b65c;
+const DROW_EYE_GLOW = 0x7e6b28;
 const SHADOW_CASTER = true;
 const SHADOW_RECEIVER = true;
 
@@ -13,54 +13,30 @@ export function addDrowCharacterFeatures(rig: SnowflowCharacterRig): void {
   const skin = new THREE.MeshStandardMaterial({
     color: DROW_SKIN,
     emissive: DROW_SKIN_EMISSIVE,
-    emissiveIntensity: 0.45,
+    emissiveIntensity: 0.35,
     roughness: 0.78,
     metalness: 0,
   });
-  const hair = createMaterial(DROW_HAIR, 0.64);
+  const hair = createMaterial(DROW_HAIR, 0.66);
   const eyes = new THREE.MeshStandardMaterial({
     color: DROW_EYES,
-    emissive: DROW_EYES,
-    emissiveIntensity: 4,
-    roughness: 0.2,
+    emissive: DROW_EYE_GLOW,
+    emissiveIntensity: 2.8,
+    roughness: 0.24,
     metalness: 0,
   });
-  const hoodEdge = createMaterial(DROW_HOOD_EDGE, 0.7);
-  rig.materials.push(skin, hair, eyes, hoodEdge);
+  rig.materials.push(skin, hair, eyes);
 
-  pullHoodBack(rig, hoodEdge);
-  addFace(rig, skin);
+  const baseFace = rig.head.getObjectByName("drow-base-face");
+  if (baseFace instanceof THREE.Mesh) {
+    baseFace.material = skin;
+  }
+
   addEar(rig, skin, -1);
   addEar(rig, skin, 1);
   addHair(rig, hair);
   addEyes(rig, eyes);
-}
-
-function pullHoodBack(
-  rig: SnowflowCharacterRig,
-  edgeMaterial: THREE.Material,
-): void {
-  rig.hood.position.z = -0.055;
-  rig.hood.scale.set(1.03, 1.01, 0.76);
-  rig.hood.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) {
-      return;
-    }
-    if (object.geometry.type === "TubeGeometry") {
-      object.material = edgeMaterial;
-    }
-  });
-}
-
-function addFace(
-  rig: SnowflowCharacterRig,
-  material: THREE.Material,
-): void {
-  const geometry = new THREE.SphereGeometry(0.102, 24, 16);
-  const face = addMesh(rig, geometry, material);
-  face.name = "drow-visible-face";
-  face.position.set(0, 1.655, 0.122);
-  face.scale.set(0.82, 1.04, 0.3);
+  addBrows(rig, hair);
 }
 
 function addEar(
@@ -68,67 +44,101 @@ function addEar(
   material: THREE.Material,
   side: -1 | 1,
 ): void {
-  const geometry = new THREE.ConeGeometry(0.035, 0.2, 10, 1, false);
-  const ear = addMesh(rig, geometry, material);
+  const geometry = new THREE.ConeGeometry(0.036, 0.22, 10, 1, false);
+  const ear = addMesh(rig.head, rig, geometry, material);
   ear.name = side < 0 ? "drow-left-ear" : "drow-right-ear";
-  ear.position.set(side * 0.148, 1.665, 0.065);
+  ear.position.set(side * 0.15, 0.005, 0.02);
   ear.rotation.z = side * -Math.PI * 0.5;
   ear.rotation.y = side * 0.16;
   ear.scale.z = 0.68;
 }
 
 function addHair(rig: SnowflowCharacterRig, material: THREE.Material): void {
-  const capGeometry = new THREE.SphereGeometry(
-    0.108,
-    24,
-    12,
-    0,
-    Math.PI * 2,
-    0,
-    Math.PI * 0.52,
+  const cap = addMesh(
+    rig.head,
+    rig,
+    new THREE.SphereGeometry(
+      0.118,
+      24,
+      12,
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI * 0.56,
+    ),
+    material,
   );
-  const cap = addMesh(rig, capGeometry, material);
   cap.name = "drow-hair-cap";
-  cap.position.set(0, 1.688, 0.01);
-  cap.scale.set(1.06, 0.92, 1.02);
+  cap.position.set(0, 0.035, -0.006);
+  cap.scale.set(1.04, 0.96, 1.03);
 
-  for (const side of [-1, 1] as const) {
-    const sideLock = addMesh(
-      rig,
-      new THREE.ConeGeometry(0.024, 0.24, 10, 1, false),
-      material,
-    );
-    sideLock.name =
-      side < 0 ? "drow-left-hair-lock" : "drow-right-hair-lock";
-    sideLock.position.set(side * 0.086, 1.635, 0.13);
-    sideLock.rotation.z = side * 0.22;
-    sideLock.rotation.x = -0.18;
-  }
+  addHairSide(rig.hairLeft, rig, material, -1);
+  addHairSide(rig.hairRight, rig, material, 1);
 
   for (const side of [-1, 0, 1] as const) {
     const fringe = addMesh(
+      rig.head,
       rig,
-      new THREE.ConeGeometry(0.017, 0.12, 8, 1, false),
+      new THREE.ConeGeometry(0.016, 0.13, 8, 1, false),
       material,
     );
     fringe.name = `drow-hair-fringe-${side}`;
-    fringe.position.set(side * 0.035, 1.705, 0.151);
-    fringe.rotation.x = -0.2;
-    fringe.rotation.z = side * 0.16;
+    fringe.position.set(side * 0.035, 0.045, 0.112);
+    fringe.rotation.x = -0.22;
+    fringe.rotation.z = side * 0.17;
+  }
+}
+
+function addHairSide(
+  parent: THREE.Group,
+  rig: SnowflowCharacterRig,
+  material: THREE.Material,
+  side: -1 | 1,
+): void {
+  parent.position.set(side * 0.086, 0.015, 0.02);
+  for (let index = 0; index < 3; index += 1) {
+    const lock = addMesh(
+      parent,
+      rig,
+      new THREE.ConeGeometry(0.022 - index * 0.002, 0.3 + index * 0.045, 9),
+      material,
+    );
+    lock.name = `${side < 0 ? "left" : "right"}-hair-lock-${index}`;
+    lock.position.set(
+      side * index * 0.018,
+      -0.12 - index * 0.03,
+      0.055 - index * 0.02,
+    );
+    lock.rotation.z = side * (0.18 + index * 0.05);
+    lock.rotation.x = -0.14 - index * 0.03;
   }
 }
 
 function addEyes(rig: SnowflowCharacterRig, material: THREE.Material): void {
   for (const side of [-1, 1] as const) {
-    const geometry = new THREE.SphereGeometry(0.019, 14, 10);
-    const eye = addMesh(rig, geometry, material);
+    const geometry = new THREE.SphereGeometry(0.018, 14, 10);
+    const eye = addMesh(rig.head, rig, geometry, material);
     eye.name = side < 0 ? "drow-left-eye" : "drow-right-eye";
-    eye.position.set(side * 0.034, 1.67, 0.154);
-    eye.scale.set(1.15, 0.55, 0.38);
+    eye.position.set(side * 0.036, 0.005, 0.108);
+    eye.scale.set(1.2, 0.52, 0.36);
+  }
+}
+
+function addBrows(rig: SnowflowCharacterRig, material: THREE.Material): void {
+  for (const side of [-1, 1] as const) {
+    const brow = addMesh(
+      rig.head,
+      rig,
+      new THREE.BoxGeometry(0.055, 0.009, 0.008),
+      material,
+    );
+    brow.position.set(side * 0.04, 0.036, 0.112);
+    brow.rotation.z = side * -0.12;
   }
 }
 
 function addMesh(
+  parent: THREE.Object3D,
   rig: SnowflowCharacterRig,
   geometry: THREE.BufferGeometry,
   material: THREE.Material,
@@ -136,7 +146,7 @@ function addMesh(
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = SHADOW_CASTER;
   mesh.receiveShadow = SHADOW_RECEIVER;
-  rig.head.add(mesh);
+  parent.add(mesh);
   rig.geometries.push(geometry);
   return mesh;
 }
