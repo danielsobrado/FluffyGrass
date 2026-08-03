@@ -167,7 +167,7 @@ export class WorldGrassImpostorAtlasFactory {
       const root = baseColor
         .clone()
         .lerp(dryColor, dryAmount)
-        .multiplyScalar(shadeScale * 0.76);
+        .multiplyScalar(shadeScale * material.rootDarkening);
       const tip = tipColor
         .clone()
         .lerp(dryColor, dryAmount * 0.75)

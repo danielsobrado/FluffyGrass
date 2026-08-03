@@ -91,6 +91,7 @@ const TWO_PI = Math.PI * 2;
 const MID_WIND_SCALE = 0.62;
 const MID_COLOR_SCALE = 0.82;
 const HOMOGENEOUS_VARIANT_INDEX = 0;
+const WORLD_VARIANT_COUNT = 1;
 const FIELD_COVERAGE_MIN = 0.16;
 const FIELD_COVERAGE_FULL = 0.5;
 const COMPACT_BUILD_COOLDOWN_FRAMES = 2;
@@ -157,6 +158,7 @@ export class WorldGrassSystem {
       this.worldConfig,
       this.profile.compact,
       this.worldConfig.seed,
+      WORLD_VARIANT_COUNT,
     );
     this.grassConfig = grassConfig;
     this.nearGeometries = variants.near;
@@ -478,7 +480,7 @@ export class WorldGrassSystem {
       }
     }
 
-    for (const [key, patch] of this.patches) {
+    for (const key of this.patches.keys()) {
       if (!this.desired.has(key) && !this.retiring.has(key)) {
         this.retiring.add(key);
         this.retirementQueue.push(key);
@@ -746,7 +748,15 @@ export class WorldGrassSystem {
       request.chunkZ,
       this.worldConfig.seed + 193,
     );
-    this.material.bindMesh(nearMesh, ditherSeed, false, 1, true, 1, 0);
+    this.material.bindMesh(
+      nearMesh,
+      ditherSeed,
+      false,
+      1,
+      true,
+      MID_COLOR_SCALE,
+      0,
+    );
     this.material.bindMesh(
       midMesh,
       ditherSeed,

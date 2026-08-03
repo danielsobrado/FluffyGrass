@@ -14,8 +14,12 @@ function fail(message) {
 }
 
 const controller = read("src/grass/GrassLodController.ts");
+const nearMaterial = read("src/grass/materials/GrassNearMaterial.ts");
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
+);
+const impostorAtlasFactory = read(
+  "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
 );
 const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
 
@@ -31,6 +35,15 @@ if (
 }
 if (/vFarEntry\s*\*\s*vTerrainCoverage\s*\*\s*aerialVisibility/.test(impostorMaterial)) {
   fail("Far coverage must stay complementary to the mid distance fade.");
+}
+if (
+  !nearMaterial.includes("grassPaletteBlend") ||
+  !nearMaterial.includes("vGrassCameraDistance")
+) {
+  fail("Real-blade colors must converge toward the far palette by distance.");
+}
+if (!impostorAtlasFactory.includes("shadeScale * material.rootDarkening")) {
+  fail("The impostor atlas must share the configured blade-root darkening.");
 }
 
 const baseBlend = Number(

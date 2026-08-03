@@ -1,7 +1,7 @@
 {
   "name": "threejs-fluffy-grass",
   "private": true,
-  "version": "0.8.4",
+  "version": "0.8.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,10 +14,9 @@
     "@types/dat.gui": "^0.7.12",
     "@types/three": "^0.159.0",
     "typescript": "^5.2.2",
-    "vite": "^5.0.8"
+    "vite": "^6.4.3"
   },
   "dependencies": {
-    "dat.gui": "^0.7.9",
     "stats-gl": "2.0.1",
     "three": "^0.159.0"
   }

@@ -77,7 +77,6 @@ export class TerrainStreamer {
     this.grassDetailTexture.minFilter = THREE.LinearMipmapLinearFilter;
     this.grassDetailTexture.magFilter = THREE.LinearFilter;
     this.grassDetailTexture.generateMipmaps = true;
-    this.grassDetailTexture.needsUpdate = true;
     this.material.name = "world-terrain-material";
     this.material.dithering = true;
     this.material.onBeforeCompile = (shader) => {

@@ -36,7 +36,17 @@ export class WorldGrassPatchGeometryFactory {
     world: WorldConfig,
     compact: boolean,
     seed: number,
+    variantCount: number = grass.variantCount,
   ): WorldGrassPatchGeometryVariants {
+    if (
+      !Number.isInteger(variantCount) ||
+      variantCount < 1 ||
+      variantCount > grass.variantCount
+    ) {
+      throw new Error(
+        `World grass variant count must be between 1 and ${grass.variantCount}.`,
+      );
+    }
     const density = compact
       ? world.grassBladesPerSquareMeterCompact
       : world.grassBladesPerSquareMeterDesktop;
@@ -52,7 +62,7 @@ export class WorldGrassPatchGeometryFactory {
     const mid: THREE.BufferGeometry[] = [];
     const bladeVariants: WorldGrassBladeSpec[][] = [];
 
-    for (let variant = 0; variant < grass.variantCount; variant += 1) {
+    for (let variant = 0; variant < variantCount; variant += 1) {
       const specs = this.createBladeSpecs(
         nearBladesPerPatch,
         world.grassPatchSize,

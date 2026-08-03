@@ -23,7 +23,7 @@ export class IslandApp {
   private readonly developmentController: GrassDevelopmentController;
 
   constructor(
-    private readonly canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
   ) {
     this.camera = new THREE.PerspectiveCamera(
@@ -84,7 +84,9 @@ export class IslandApp {
     await this.grass.initialize(terrain);
 
     if (this.profile.showDecorativeText) {
-      void this.loadDecorativeText();
+      void this.loadDecorativeText().catch((error) => {
+        console.error("[FluffyGrass] Decorative text failed to load.", error);
+      });
     }
     void this.developmentController.run().catch((error) => {
       console.error("[FluffyGrass] Development tools failed.", error);

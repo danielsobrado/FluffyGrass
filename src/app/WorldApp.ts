@@ -223,6 +223,10 @@ export class WorldApp {
     this.lastFrameTimestamp = performance.now();
     this.clock.stop();
     this.clock.start();
+    // A stalled main thread normally leaves the previously requested frame
+    // pending. Cancel it before restarting so the watchdog cannot create a
+    // second permanent render loop when the browser becomes responsive.
+    cancelAnimationFrame(this.frameHandle);
     this.frameHandle = requestAnimationFrame(this.render);
   };
 

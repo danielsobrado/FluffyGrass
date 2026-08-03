@@ -37,6 +37,7 @@ varying float vGrassFieldDither;
 varying float vGrassFieldCoverage;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
+varying float vGrassCameraDistance;
 `;
 
 const VERTEX_WIND = `
@@ -84,6 +85,7 @@ vGrassFieldDither = fract(
 );
 vGrassFieldCoverage = instanceCoverage;
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
+vGrassCameraDistance = grassCameraDistance;
 vGrassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
   uGrassNearDistance + uGrassTransitionDistance,
@@ -114,6 +116,9 @@ uniform float uGrassDistanceFade;
 uniform float uGrassUseWorldLod;
 uniform float uGrassLodColorScale;
 uniform float uGrassStreamCoverage;
+uniform float uGrassNearDistance;
+uniform float uGrassMidDistance;
+uniform float uGrassTransitionDistance;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -123,6 +128,7 @@ varying float vGrassFieldDither;
 varying float vGrassFieldCoverage;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
+varying float vGrassCameraDistance;
 `;
 
 const FRAGMENT_COLOR = `
@@ -147,21 +153,45 @@ if (
 ) {
   discard;
 }
+float grassPaletteBlend = uGrassUseWorldLod > 0.5
+  ? smoothstep(
+      uGrassNearDistance - uGrassTransitionDistance,
+      uGrassMidDistance + uGrassTransitionDistance,
+      vGrassCameraDistance
+    )
+  : 0.0;
 float grassTipBlend = smoothstep(0.08, 1.0, vGrassProgress);
-vec3 grassHealthyColor = mix(uGrassBaseColor, uGrassTipColor, grassTipBlend);
+float grassTipStrength = uGrassUseWorldLod > 0.5
+  ? mix(0.82, 0.32, grassPaletteBlend)
+  : 1.0;
+vec3 grassHealthyColor = mix(
+  uGrassBaseColor,
+  uGrassTipColor,
+  grassTipBlend * grassTipStrength
+);
+float grassDryBlend = vGrassDryness * (0.18 + grassTipBlend * 0.24);
+if (uGrassUseWorldLod > 0.5) {
+  grassDryBlend *= mix(1.0, 0.18, grassPaletteBlend);
+}
 vec3 grassColor = mix(
   grassHealthyColor,
   uGrassDryColor,
-  vGrassDryness * (0.18 + grassTipBlend * 0.24)
+  grassDryBlend
 );
 float grassRootLight = mix(
   uGrassRootDarkening,
   1.0,
   smoothstep(0.0, 0.34, vGrassProgress)
 );
-float grassBladeVariation = mix(0.82, 1.08, vGrassShade);
+grassRootLight = mix(grassRootLight, 1.0, grassPaletteBlend * 0.45);
+float grassBladeVariation = mix(0.88, 1.06, vGrassShade);
+grassBladeVariation = mix(
+  grassBladeVariation,
+  1.0,
+  grassPaletteBlend * 0.55
+);
 diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRootAo;
-diffuseColor.rgb *= uGrassLodColorScale;
+diffuseColor.rgb *= mix(1.0, uGrassLodColorScale, grassPaletteBlend);
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
