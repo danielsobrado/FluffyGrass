@@ -13,6 +13,14 @@ function fail(message) {
   throw new Error(`[lod-continuity] ${message}`);
 }
 
+function readYamlNumber(source, key) {
+  const value = Number(source.match(new RegExp(`^${key}:\\s*([0-9.]+)$`, "m"))?.[1]);
+  if (!Number.isFinite(value)) {
+    fail(`Unable to read ${key} from world.yaml.`);
+  }
+  return value;
+}
+
 const controller = read("src/grass/GrassLodController.ts");
 const nearMaterial = read("src/grass/materials/GrassNearMaterial.ts");
 const impostorMaterial = read(
@@ -22,6 +30,9 @@ const impostorAtlasFactory = read(
   "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
 );
 const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
+const worldGrassSystem = read("src/world/WorldGrassSystem.ts");
+const nearField = read("src/world/grass/WorldNearGrassField.ts");
+const worldConfig = read("public/config/world.yaml");
 
 if (controller.includes("farAerialVisible")) {
   fail("CPU visibility must not suppress far meshes by aerial angle.");
@@ -44,6 +55,37 @@ if (
 }
 if (!impostorAtlasFactory.includes("shadeScale * material.rootDarkening")) {
   fail("The impostor atlas must share the configured blade-root darkening.");
+}
+if (
+  !worldGrassSystem.includes("await this.nearField.initialize(grassConfig)") ||
+  !worldGrassSystem.includes("this.nearField.update(deltaSeconds, this.cameraPosition)")
+) {
+  fail("The dense single-blade fields must be wired into WorldGrassSystem.");
+}
+if (
+  !nearField.includes("grassUltraNearDensityMultiplier - 1") ||
+  !nearField.includes("world-grass-ultra-near-blades")
+) {
+  fail("The ultra-near layer must add independent single-blade instances.");
+}
+
+const ultraNearDistance = readYamlNumber(worldConfig, "grassUltraNearDistance");
+const ultraNearMultiplier = readYamlNumber(
+  worldConfig,
+  "grassUltraNearDensityMultiplier",
+);
+const interactionStrength = readYamlNumber(
+  worldConfig,
+  "grassInteractionStrength",
+);
+if (ultraNearDistance !== 4) {
+  fail("The ultra-near grass distance must remain 4 metres.");
+}
+if (ultraNearMultiplier !== 2) {
+  fail("The ultra-near grass layer must double total blade density.");
+}
+if (interactionStrength < 0.9) {
+  fail("Character grass interaction must retain the stronger response.");
 }
 
 const baseBlend = Number(
@@ -71,4 +113,4 @@ for (let sample = 0; sample <= 1000; sample += 1) {
   }
 }
 
-console.log("[lod-continuity] Coverage and far-palette invariants passed.");
+console.log("[lod-continuity] Coverage, ultra-near density, and palette invariants passed.");
