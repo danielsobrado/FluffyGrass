@@ -17,6 +17,9 @@ export interface WorldConfig {
   grassNearTileSize: number;
   grassNearBladesPerSquareMeterDesktop: number;
   grassNearBladesPerSquareMeterCompact: number;
+  grassUltraNearDistance: number;
+  grassUltraNearTransitionDistance: number;
+  grassUltraNearDensityMultiplier: number;
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
   grassPatchJitter: number;
