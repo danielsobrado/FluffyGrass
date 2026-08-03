@@ -12,6 +12,7 @@ export interface GrassPatch {
   gridX: number;
   gridZ: number;
   bounds: THREE.Box3;
+  boundingSphere: THREE.Sphere;
   nearMesh: THREE.InstancedMesh;
   midMesh: THREE.InstancedMesh;
   farMesh?: THREE.InstancedMesh;

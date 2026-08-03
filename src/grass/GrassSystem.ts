@@ -278,12 +278,14 @@ export class GrassSystem {
         config.wind.flutterStrength +
         config.geometry.bladeLeanMax,
     );
+    const boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
 
     return {
       id: bucket.id,
       gridX: bucket.gridX,
       gridZ: bucket.gridZ,
       bounds,
+      boundingSphere,
       nearMesh,
       midMesh,
       instanceCount: bucket.placements.length,

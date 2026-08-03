@@ -9,7 +9,15 @@ const COLOR_DIRT = new THREE.Color("#665b45");
 const COLOR_SCRATCH = new THREE.Color();
 
 export class TerrainField {
-  constructor(private readonly config: WorldConfig) {}
+  private readonly grassSlopeLimit: number;
+  private readonly grassSlopeFadeEnd: number;
+
+  constructor(private readonly config: WorldConfig) {
+    this.grassSlopeLimit = Math.cos(
+      THREE.MathUtils.degToRad(config.grassMaxSlopeDegrees),
+    );
+    this.grassSlopeFadeEnd = Math.min(0.98, this.grassSlopeLimit + 0.2);
+  }
 
   sampleHeight(x: number, z: number): number {
     const broad = this.fbm(
@@ -86,13 +94,10 @@ export class TerrainField {
     height: number,
     normal: THREE.Vector3,
   ): number {
-    const slopeLimit = Math.cos(
-      THREE.MathUtils.degToRad(this.config.grassMaxSlopeDegrees),
-    );
     const slopeMask = THREE.MathUtils.smoothstep(
       normal.y,
-      slopeLimit,
-      Math.min(0.98, slopeLimit + 0.2),
+      this.grassSlopeLimit,
+      this.grassSlopeFadeEnd,
     );
     const lowAltitude = THREE.MathUtils.smoothstep(
       height,

@@ -38,6 +38,7 @@ export class WorldApp {
   private terrainEnabled = true;
   private grassEnabled = true;
   private rendererEnabled = true;
+  private grassInitializing = true;
   private runtimeError?: string;
   private grassInitializationError?: string;
 
@@ -168,6 +169,9 @@ export class WorldApp {
       console.error("[FluffyGrass] Grass initialization failed.", error);
       this.grassInitializationError = this.formatError(error);
       this.grassEnabled = false;
+    } finally {
+      this.grassInitializing = false;
+      this.lastFrameTimestamp = performance.now();
     }
   }
 
@@ -213,6 +217,12 @@ export class WorldApp {
 
   private readonly checkFrameHeartbeat = (): void => {
     if (!this.running || document.hidden) {
+      return;
+    }
+    if (this.grassInitializing) {
+      // Do not carry asynchronous initialization time into the runtime stall
+      // detector.
+      this.lastFrameTimestamp = performance.now();
       return;
     }
     const stalledForMs = performance.now() - this.lastFrameTimestamp;

@@ -1,5 +1,3 @@
-import { IslandApp } from "./app/IslandApp";
-import { WorldApp } from "./app/WorldApp";
 import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
 import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
 import { APP_VERSION, BUILD_LABEL } from "./version";
@@ -40,10 +38,12 @@ async function bootstrap(): Promise<void> {
 
   let app: RunnableApp;
   if (sceneMode === "island") {
+    const { IslandApp } = await import("./app/IslandApp");
     const island = new IslandApp(canvas, profile);
     await island.initialize();
     app = island;
   } else {
+    const { WorldApp } = await import("./app/WorldApp");
     app = await WorldApp.create(canvas, profile);
   }
 

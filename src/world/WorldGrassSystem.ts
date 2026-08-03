@@ -763,12 +763,14 @@ export class WorldGrassSystem {
     impostorMaterial.bindMesh(farMesh, ditherSeed);
 
     const bounds = job.meshBounds?.clone() ?? job.bounds.clone();
+    const boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
 
     return { complete: true, patch: {
       id: request.key,
       gridX: request.chunkX,
       gridZ: request.chunkZ,
       bounds,
+      boundingSphere,
       nearMesh,
       midMesh,
       farMesh,

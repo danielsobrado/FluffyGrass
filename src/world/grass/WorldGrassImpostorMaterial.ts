@@ -56,7 +56,9 @@ void main() {
     ? basisX
     : billboardRight / billboardRightLength;
   vec3 billboardUp = normalize(cross(toCamera, billboardRight));
-  vec2 windDirection = normalize(uWindDirection);
+  // The CPU stores this uniform normalized, so keep the per-vertex path free
+  // of a redundant square root.
+  vec2 windDirection = uWindDirection;
   float gust = sin(
     dot(center.xz, windDirection) * 0.045 +
     uTime * 0.7 +

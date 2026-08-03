@@ -40,7 +40,9 @@ varying float vGrassCameraDistance;
 
 const VERTEX_WIND = `
 vec4 grassWorldRoot = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-vec2 grassWindDirection = normalize(uGrassWindDirection);
+// The CPU stores this uniform normalized. Re-normalizing it for every vertex
+// wastes a square root across the densest geometry in the scene.
+vec2 grassWindDirection = uGrassWindDirection;
 float grassGust = sin(
   dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
   uGrassTime * uGrassGustSpeed +
@@ -275,7 +277,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v9";
+    this.material.customProgramCacheKey = () => "grass-near-material-v10";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {

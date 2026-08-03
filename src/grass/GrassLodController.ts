@@ -9,7 +9,6 @@ export class GrassLodController {
   private readonly closestPoint = new THREE.Vector3();
   private readonly projectionViewMatrix = new THREE.Matrix4();
   private readonly frustum = new THREE.Frustum();
-  private readonly boundingSphere = new THREE.Sphere();
 
   constructor(private readonly config: GrassLodConfig) {}
 
@@ -54,10 +53,9 @@ export class GrassLodController {
       farEntry,
     );
 
-    patch.bounds.getBoundingSphere(this.boundingSphere);
     const farthestDistance =
-      this.cameraPosition.distanceTo(this.boundingSphere.center) +
-      this.boundingSphere.radius;
+      this.cameraPosition.distanceTo(patch.boundingSphere.center) +
+      patch.boundingSphere.radius;
     const nearFadeStart =
       this.config.nearMaxDistance - this.config.transitionDistance;
     const nearFadeEnd =

@@ -37,6 +37,8 @@ const COLOR_MIN = 0;
 const COLOR_MAX = 1;
 
 export class WorldGrassImpostorAtlasFactory {
+  private readonly projectedPoint = new Float64Array(2);
+
   create(
     blades: readonly WorldGrassBladeSpec[],
     grass: GrassGeometryConfig,
@@ -55,10 +57,10 @@ export class WorldGrassImpostorAtlasFactory {
       throw new Error("Unable to create the grass impostor atlas canvas context.");
     }
 
-    const maximumHeight = Math.max(
-      grass.bladeHeightMax,
-      ...blades.map((blade) => blade.height),
-    );
+    let maximumHeight = grass.bladeHeightMax;
+    for (const blade of blades) {
+      maximumHeight = Math.max(maximumHeight, blade.height);
+    }
     const centerHeight = maximumHeight * 0.5;
     const halfPatch = patchSize * 0.5;
     const radius =
@@ -160,16 +162,18 @@ export class WorldGrassImpostorAtlasFactory {
     const baseColor = new THREE.Color(material.baseColor);
     const tipColor = new THREE.Color(material.tipColor);
     const dryColor = new THREE.Color(material.dryColor);
+    const root = new THREE.Color();
+    const tip = new THREE.Color();
 
     for (const blade of projected) {
       const shadeScale = 0.72 + blade.shade * 0.38;
       const dryAmount = THREE.MathUtils.clamp((0.2 - blade.shade) * 0.8, 0, 0.22);
-      const root = baseColor
-        .clone()
+      root
+        .copy(baseColor)
         .lerp(dryColor, dryAmount)
         .multiplyScalar(shadeScale * material.rootDarkening);
-      const tip = tipColor
-        .clone()
+      tip
+        .copy(tipColor)
         .lerp(dryColor, dryAmount * 0.75)
         .multiplyScalar(shadeScale);
       this.clampColor(root);
@@ -209,23 +213,44 @@ export class WorldGrassImpostorAtlasFactory {
     const halfWidth = blade.width * 0.5;
     const widthX = Math.cos(blade.facingAngle) * halfWidth;
     const widthZ = Math.sin(blade.facingAngle) * halfWidth;
-    const tip = new THREE.Vector3(
-      blade.rootX + Math.cos(blade.leanAngle) * blade.lean,
+    const tipX = blade.rootX + Math.cos(blade.leanAngle) * blade.lean;
+    const tipZ = blade.rootZ + Math.sin(blade.leanAngle) * blade.lean;
+    const leftX = blade.rootX - widthX;
+    const leftZ = blade.rootZ - widthZ;
+    const rightRootX = blade.rootX + widthX;
+    const rightRootZ = blade.rootZ + widthZ;
+    this.projectPoint(
+      leftX,
+      0,
+      leftZ,
+      right,
+      up,
+      center,
+      frameX,
+      frameY,
+      frameResolution,
+      radius,
+    );
+    let projectedLeftX = this.projectedPoint[0];
+    let projectedLeftY = this.projectedPoint[1];
+    this.projectPoint(
+      rightRootX,
+      0,
+      rightRootZ,
+      right,
+      up,
+      center,
+      frameX,
+      frameY,
+      frameResolution,
+      radius,
+    );
+    let projectedRightX = this.projectedPoint[0];
+    let projectedRightY = this.projectedPoint[1];
+    this.projectPoint(
+      tipX,
       blade.height,
-      blade.rootZ + Math.sin(blade.leanAngle) * blade.lean,
-    );
-    const left = new THREE.Vector3(
-      blade.rootX - widthX,
-      0,
-      blade.rootZ - widthZ,
-    );
-    const rightRoot = new THREE.Vector3(
-      blade.rootX + widthX,
-      0,
-      blade.rootZ + widthZ,
-    );
-    const projectedLeft = this.projectPoint(
-      left,
+      tipZ,
       right,
       up,
       center,
@@ -234,44 +259,46 @@ export class WorldGrassImpostorAtlasFactory {
       frameResolution,
       radius,
     );
-    const projectedRight = this.projectPoint(
-      rightRoot,
-      right,
-      up,
-      center,
-      frameX,
-      frameY,
-      frameResolution,
-      radius,
-    );
-    const projectedTip = this.projectPoint(
-      tip,
-      right,
-      up,
-      center,
-      frameX,
-      frameY,
-      frameResolution,
-      radius,
-    );
+    const projectedTipX = this.projectedPoint[0];
+    const projectedTipY = this.projectedPoint[1];
 
-    this.enforceMinimumBaseWidth(projectedLeft, projectedRight);
+    const deltaX = projectedRightX - projectedLeftX;
+    const deltaY = projectedRightY - projectedLeftY;
+    const width = Math.hypot(deltaX, deltaY);
+    if (width < MIN_PIXEL_BASE_WIDTH) {
+      const centerX = (projectedLeftX + projectedRightX) * 0.5;
+      const centerY = (projectedLeftY + projectedRightY) * 0.5;
+      const directionX = width > 1e-5 ? deltaX / width : 1;
+      const directionY = width > 1e-5 ? deltaY / width : 0;
+      const halfWidth = MIN_PIXEL_BASE_WIDTH * 0.5;
+      projectedLeftX = centerX - directionX * halfWidth;
+      projectedLeftY = centerY - directionY * halfWidth;
+      projectedRightX = centerX + directionX * halfWidth;
+      projectedRightY = centerY + directionY * halfWidth;
+    }
 
-    const average = left.clone().add(rightRoot).add(tip).multiplyScalar(1 / 3);
+    const averageX = (leftX + rightRootX + tipX) / 3 - center.x;
+    const averageY = blade.height / 3 - center.y;
+    const averageZ = (leftZ + rightRootZ + tipZ) / 3 - center.z;
     return {
-      depth: average.sub(center).dot(viewDirection),
-      leftX: projectedLeft.x,
-      leftY: projectedLeft.y,
-      rightX: projectedRight.x,
-      rightY: projectedRight.y,
-      tipX: projectedTip.x,
-      tipY: projectedTip.y,
+      depth:
+        averageX * viewDirection.x +
+        averageY * viewDirection.y +
+        averageZ * viewDirection.z,
+      leftX: projectedLeftX,
+      leftY: projectedLeftY,
+      rightX: projectedRightX,
+      rightY: projectedRightY,
+      tipX: projectedTipX,
+      tipY: projectedTipY,
       shade: blade.shade,
     };
   }
 
   private projectPoint(
-    point: THREE.Vector3,
+    pointX: number,
+    pointY: number,
+    pointZ: number,
     right: THREE.Vector3,
     up: THREE.Vector3,
     center: THREE.Vector3,
@@ -279,38 +306,22 @@ export class WorldGrassImpostorAtlasFactory {
     frameY: number,
     frameResolution: number,
     radius: number,
-  ): THREE.Vector2 {
-    const local = point.clone().sub(center);
-    return new THREE.Vector2(
-      frameX + (0.5 + local.dot(right) / (radius * 2)) * frameResolution,
-      frameY + (0.5 - local.dot(up) / (radius * 2)) * frameResolution,
-    );
-  }
-
-  private enforceMinimumBaseWidth(
-    left: THREE.Vector2,
-    right: THREE.Vector2,
   ): void {
-    const deltaX = right.x - left.x;
-    const deltaY = right.y - left.y;
-    const width = Math.hypot(deltaX, deltaY);
-    if (width >= MIN_PIXEL_BASE_WIDTH) {
-      return;
-    }
-
-    const centerX = (left.x + right.x) * 0.5;
-    const centerY = (left.y + right.y) * 0.5;
-    const directionX = width > 1e-5 ? deltaX / width : 1;
-    const directionY = width > 1e-5 ? deltaY / width : 0;
-    const halfWidth = MIN_PIXEL_BASE_WIDTH * 0.5;
-    left.set(
-      centerX - directionX * halfWidth,
-      centerY - directionY * halfWidth,
-    );
-    right.set(
-      centerX + directionX * halfWidth,
-      centerY + directionY * halfWidth,
-    );
+    const localX = pointX - center.x;
+    const localY = pointY - center.y;
+    const localZ = pointZ - center.z;
+    const inverseDiameter = 1 / (radius * 2);
+    this.projectedPoint[0] =
+      frameX +
+      (0.5 +
+        (localX * right.x + localY * right.y + localZ * right.z) *
+          inverseDiameter) *
+        frameResolution;
+    this.projectedPoint[1] =
+      frameY +
+      (0.5 -
+        (localX * up.x + localY * up.y + localZ * up.z) * inverseDiameter) *
+        frameResolution;
   }
 
   private decodeHemiOctahedral(u: number, v: number): THREE.Vector3 {
