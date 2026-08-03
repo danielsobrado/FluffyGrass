@@ -5,9 +5,9 @@ const PALETTE = Object.freeze({
   mantle: 0x17102c,
   tunic: 0x29213d,
   leather: 0x09070e,
-  skin: 0x403854,
-  trim: 0x65508f,
-  fur: 0xcbd2df,
+  skin: 0x665686,
+  trim: 0x7660a2,
+  fur: 0xdedff0,
 });
 
 export interface SnowflowCharacterMaterialSet {
@@ -26,9 +26,9 @@ export function createSnowflowCharacterMaterials(): SnowflowCharacterMaterialSet
     mantle: createMaterial(PALETTE.mantle, 0.8, THREE.DoubleSide),
     tunic: createMaterial(PALETTE.tunic, 0.84, THREE.DoubleSide),
     leather: createMaterial(PALETTE.leather, 0.62, THREE.FrontSide),
-    skin: createMaterial(PALETTE.skin, 0.82, THREE.FrontSide),
-    trim: createMaterial(PALETTE.trim, 0.68, THREE.DoubleSide, 0.18),
-    fur: createMaterial(PALETTE.fur, 0.76, THREE.DoubleSide),
+    skin: createMaterial(PALETTE.skin, 0.78, THREE.FrontSide),
+    trim: createMaterial(PALETTE.trim, 0.64, THREE.DoubleSide, 0.2),
+    fur: createMaterial(PALETTE.fur, 0.72, THREE.DoubleSide),
   };
 }
 
