@@ -4,6 +4,7 @@ import type {
   GrassMaterialConfig,
   GrassWindConfig,
 } from "../../grass/GrassConfig";
+import { GRASS_MID_IMPOSTOR_UNDERFILL } from "../../grass/GrassLodTuning";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
 import {
   IMPOSTOR_AERIAL_FADE_END,
@@ -23,9 +24,11 @@ uniform float uTime;
 uniform vec2 uWindDirection;
 uniform float uWindStrength;
 uniform float uDitherSeed;
+uniform float uNearDistance;
 uniform float uMidDistance;
 uniform float uFarDistance;
 uniform float uTransitionDistance;
+uniform float uMidImpostorUnderfill;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
@@ -86,10 +89,20 @@ void main() {
   vRootAo = instanceVariation.z;
   vFieldCoverage = instanceCoverage;
   float cameraDistance = distance(cameraPosition, center);
-  vFarEntry = smoothstep(
+  float nearExit = smoothstep(
+    uNearDistance - uTransitionDistance,
+    uNearDistance + uTransitionDistance,
+    cameraDistance
+  );
+  float fullFarEntry = smoothstep(
     uMidDistance - uTransitionDistance,
     uMidDistance + uTransitionDistance,
     cameraDistance
+  );
+  vFarEntry = mix(
+    nearExit * uMidImpostorUnderfill,
+    1.0,
+    fullFarEntry
   );
   vTerrainCoverage = 1.0 - smoothstep(
     uFarDistance - uTransitionDistance,
@@ -160,9 +173,8 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
-  // Distance coverage is complementary to the mid-blade fade. Suppressing
-  // cards by elevation made the mid layer reach zero before the far layer
-  // appeared, leaving a grass-free annulus in aerial views.
+  // The same hemi-octahedral cards act as a partial density underfill through
+  // the mid band, then become the complete far representation.
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage *
     uStreamCoverage * vFieldCoverage;
@@ -273,9 +285,11 @@ export class WorldGrassImpostorMaterial {
       uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
       uStreamCoverage: { value: 1 },
       uDitherSeed: { value: 0 },
+      uNearDistance: { value: lodConfig.nearMaxDistance },
       uMidDistance: { value: lodConfig.midMaxDistance },
       uFarDistance: { value: lodConfig.farMaxDistance },
       uTransitionDistance: { value: lodConfig.transitionDistance },
+      uMidImpostorUnderfill: { value: GRASS_MID_IMPOSTOR_UNDERFILL },
       uTime: { value: 0 },
       uWindDirection: {
         value: new THREE.Vector2(
