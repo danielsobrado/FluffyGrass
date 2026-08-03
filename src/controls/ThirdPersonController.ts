@@ -12,6 +12,7 @@ import type { WorldController, WorldControlMode } from "./WorldController";
 const CAMERA_COLLISION_SAMPLES = [0.35, 0.6, 0.85] as const;
 const CAMERA_POSITION_RATE = 12;
 const MIN_MOVEMENT_SPEED = 0.05;
+const UP = new THREE.Vector3(0, 1, 0);
 
 export class ThirdPersonController implements WorldController {
   private readonly input: ThirdPersonInput;
@@ -20,6 +21,7 @@ export class ThirdPersonController implements WorldController {
   private readonly position = new THREE.Vector3();
   private readonly spawnPosition = new THREE.Vector3();
   private readonly velocity = new THREE.Vector3();
+  private readonly animationVelocity = new THREE.Vector3();
   private readonly desiredVelocity = new THREE.Vector3();
   private readonly velocityDelta = new THREE.Vector3();
   private readonly moveInput = new THREE.Vector2();
@@ -40,6 +42,14 @@ export class ThirdPersonController implements WorldController {
   private previousSpeed = 0;
   private acceleration = 0;
   private distanceTravelled = 0;
+  private verticalVelocity = 0;
+  private grounded = true;
+  private timeSinceGrounded = 0;
+  private jumpBufferRemaining = 0;
+  private jumpHoldRemaining = 0;
+  private jumpStarted = false;
+  private landed = false;
+  private landingImpact = 0;
 
   constructor(
     scene: THREE.Scene,
@@ -51,7 +61,11 @@ export class ThirdPersonController implements WorldController {
     spawn: DenseWorldSpawn,
   ) {
     this.input = new ThirdPersonInput(canvas, profile, config);
-    this.character = new SnowflowCharacter(scene, config.characterScale);
+    this.character = new SnowflowCharacter(
+      scene,
+      config.characterScale,
+      config.characterLandingRecoveryTime,
+    );
     this.nearGrass = new WorldNearGrassField(scene, field, config, profile);
     grassInteractionField.configure({
       radius: config.grassInteractionRadius,
@@ -59,6 +73,9 @@ export class ThirdPersonController implements WorldController {
       trailLength: config.grassInteractionTrailLength,
       response: config.grassInteractionResponse,
       speedForFullEffect: config.grassInteractionSpeedForFullEffect,
+      landingPulseRadius: config.grassLandingPulseRadius,
+      landingPulseStrength: config.grassLandingPulseStrength,
+      landingPulseDecay: config.grassLandingPulseDecay,
     });
     this.cameraElevation = THREE.MathUtils.degToRad(
       config.characterCameraElevationDegrees,
@@ -83,19 +100,37 @@ export class ThirdPersonController implements WorldController {
       return;
     }
 
+    this.jumpStarted = false;
+    this.landed = false;
+    this.landingImpact = 0;
+    if (this.input.consumeJump()) {
+      this.jumpBufferRemaining = this.config.characterJumpBufferTime;
+    }
+
     this.updateCameraInput();
     this.updateMovement(delta);
     grassInteractionField.update(delta, this.position, this.velocity);
     this.nearGrass.update(delta, this.position);
     this.updateCamera(delta, false);
+    this.animationVelocity.set(
+      this.velocity.x,
+      this.verticalVelocity,
+      this.velocity.z,
+    );
     this.character.update(delta, {
       position: this.position,
+      velocity: this.animationVelocity,
       groundNormal: this.groundNormal,
       facing: this.facing,
       speed: this.speed,
       runSpeed: this.config.characterRunSpeed,
       acceleration: this.acceleration,
       distanceTravelled: this.distanceTravelled,
+      grounded: this.grounded,
+      verticalVelocity: this.verticalVelocity,
+      jumpStarted: this.jumpStarted,
+      landed: this.landed,
+      landingImpact: this.landingImpact,
     });
   }
 
@@ -111,7 +146,7 @@ export class ThirdPersonController implements WorldController {
   }
 
   getInputDiagnostics(): string {
-    return this.input.getDiagnostics();
+    return `${this.character.getState()} · ${this.input.getDiagnostics()}`;
   }
 
   getStreamingPosition(): THREE.Vector3 {
@@ -125,6 +160,7 @@ export class ThirdPersonController implements WorldController {
   private reset(): void {
     this.position.copy(this.spawnPosition);
     this.velocity.set(0, 0, 0);
+    this.animationVelocity.set(0, 0, 0);
     this.desiredVelocity.set(0, 0, 0);
     this.facing = this.spawnFacing;
     this.cameraYaw = this.spawnFacing;
@@ -136,6 +172,14 @@ export class ThirdPersonController implements WorldController {
     this.previousSpeed = 0;
     this.acceleration = 0;
     this.distanceTravelled = 0;
+    this.verticalVelocity = 0;
+    this.grounded = true;
+    this.timeSinceGrounded = 0;
+    this.jumpBufferRemaining = 0;
+    this.jumpHoldRemaining = 0;
+    this.jumpStarted = false;
+    this.landed = false;
+    this.landingImpact = 0;
     this.field.sampleNormal(
       this.position.x,
       this.position.z,
@@ -145,12 +189,18 @@ export class ThirdPersonController implements WorldController {
     this.updateCamera(1, true);
     this.character.update(0, {
       position: this.position,
+      velocity: this.animationVelocity,
       groundNormal: this.groundNormal,
       facing: this.facing,
       speed: 0,
       runSpeed: this.config.characterRunSpeed,
       acceleration: 0,
       distanceTravelled: 0,
+      grounded: true,
+      verticalVelocity: 0,
+      jumpStarted: false,
+      landed: false,
+      landingImpact: 0,
     });
   }
 
@@ -197,14 +247,19 @@ export class ThirdPersonController implements WorldController {
       : 0;
     this.desiredVelocity.copy(this.movement).multiplyScalar(targetSpeed);
     this.velocityDelta.subVectors(this.desiredVelocity, this.velocity);
+    this.velocityDelta.y = 0;
+    const controlScale = this.grounded ? 1 : this.config.characterAirControl;
     const maxVelocityChange =
       (hasMovement
         ? this.config.characterAcceleration
-        : this.config.characterDeceleration) * deltaSeconds;
+        : this.config.characterDeceleration) *
+      controlScale *
+      deltaSeconds;
     if (this.velocityDelta.lengthSq() > maxVelocityChange * maxVelocityChange) {
       this.velocityDelta.setLength(maxVelocityChange);
     }
     this.velocity.add(this.velocityDelta);
+    this.velocity.y = 0;
 
     const previousX = this.position.x;
     const previousZ = this.position.z;
@@ -223,6 +278,8 @@ export class ThirdPersonController implements WorldController {
     }
     this.position.x = clampedX;
     this.position.z = clampedZ;
+
+    this.updateJump(deltaSeconds);
 
     this.previousSpeed = this.speed;
     this.speed = Math.hypot(this.velocity.x, this.velocity.z);
@@ -249,19 +306,91 @@ export class ThirdPersonController implements WorldController {
       }
     }
 
-    this.position.y = this.field.sampleHeight(
-      this.position.x,
-      this.position.z,
-    );
-    this.field.sampleNormal(
-      this.position.x,
-      this.position.z,
-      this.groundNormal,
-    );
     this.distanceTravelled += Math.hypot(
       this.position.x - previousX,
       this.position.z - previousZ,
     );
+  }
+
+  private updateJump(deltaSeconds: number): void {
+    const wasGrounded = this.grounded;
+    if (wasGrounded) {
+      this.timeSinceGrounded = 0;
+    } else {
+      this.timeSinceGrounded += deltaSeconds;
+    }
+    this.jumpBufferRemaining = Math.max(
+      0,
+      this.jumpBufferRemaining - deltaSeconds,
+    );
+
+    const canUseCoyoteTime =
+      wasGrounded ||
+      this.timeSinceGrounded <= this.config.characterCoyoteTime;
+    if (this.jumpBufferRemaining > 0 && canUseCoyoteTime) {
+      this.verticalVelocity = this.config.characterJumpSpeed;
+      this.jumpHoldRemaining = this.config.characterJumpHoldTime;
+      this.jumpBufferRemaining = 0;
+      this.grounded = false;
+      this.jumpStarted = true;
+    }
+
+    const groundHeight = this.field.sampleHeight(
+      this.position.x,
+      this.position.z,
+    );
+    if (this.grounded && !this.jumpStarted) {
+      this.position.y = groundHeight;
+      this.verticalVelocity = 0;
+      this.field.sampleNormal(
+        this.position.x,
+        this.position.z,
+        this.groundNormal,
+      );
+      return;
+    }
+
+    const holdingJump =
+      this.input.isJumpHeld() &&
+      this.verticalVelocity > 0 &&
+      this.jumpHoldRemaining > 0;
+    const gravityScale =
+      this.verticalVelocity < 0
+        ? this.config.characterFallGravityMultiplier
+        : holdingJump
+          ? this.config.characterJumpHoldGravityScale
+          : 1;
+    this.jumpHoldRemaining = holdingJump
+      ? Math.max(0, this.jumpHoldRemaining - deltaSeconds)
+      : 0;
+    this.verticalVelocity -=
+      this.config.characterGravity * gravityScale * deltaSeconds;
+    this.position.y += this.verticalVelocity * deltaSeconds;
+
+    if (this.position.y <= groundHeight && this.verticalVelocity <= 0) {
+      const impactSpeed = -this.verticalVelocity;
+      this.position.y = groundHeight;
+      this.verticalVelocity = 0;
+      this.grounded = true;
+      this.timeSinceGrounded = 0;
+      this.field.sampleNormal(
+        this.position.x,
+        this.position.z,
+        this.groundNormal,
+      );
+      if (!wasGrounded && !this.jumpStarted) {
+        this.landed = true;
+        this.landingImpact = THREE.MathUtils.clamp(
+          impactSpeed / this.config.characterLandingImpactForFullEffect,
+          0,
+          1,
+        );
+        grassInteractionField.pulse(this.position, this.landingImpact);
+      }
+    } else {
+      this.grounded = false;
+      this.groundNormal.copy(UP);
+    }
   }
 
   private updateCamera(deltaSeconds: number, immediate: boolean): void {
