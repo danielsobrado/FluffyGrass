@@ -187,6 +187,24 @@ export class ThirdPersonController implements WorldController {
     }
     this.velocity.add(this.velocityDelta);
 
+    const previousX = this.position.x;
+    const previousZ = this.position.z;
+    const halfWorld = this.config.worldSize * 0.5 - 2;
+    const nextX = this.position.x + this.velocity.x * deltaSeconds;
+    const nextZ = this.position.z + this.velocity.z * deltaSeconds;
+    const clampedX = THREE.MathUtils.clamp(nextX, -halfWorld, halfWorld);
+    const clampedZ = THREE.MathUtils.clamp(nextZ, -halfWorld, halfWorld);
+    if (clampedX !== nextX) {
+      this.velocity.x = 0;
+      this.desiredVelocity.x = 0;
+    }
+    if (clampedZ !== nextZ) {
+      this.velocity.z = 0;
+      this.desiredVelocity.z = 0;
+    }
+    this.position.x = clampedX;
+    this.position.z = clampedZ;
+
     this.previousSpeed = this.speed;
     this.speed = Math.hypot(this.velocity.x, this.velocity.z);
     this.acceleration =
@@ -212,20 +230,6 @@ export class ThirdPersonController implements WorldController {
       }
     }
 
-    const previousX = this.position.x;
-    const previousZ = this.position.z;
-    this.position.addScaledVector(this.velocity, deltaSeconds);
-    const halfWorld = this.config.worldSize * 0.5 - 2;
-    this.position.x = THREE.MathUtils.clamp(
-      this.position.x,
-      -halfWorld,
-      halfWorld,
-    );
-    this.position.z = THREE.MathUtils.clamp(
-      this.position.z,
-      -halfWorld,
-      halfWorld,
-    );
     this.position.y = this.field.sampleHeight(
       this.position.x,
       this.position.z,
