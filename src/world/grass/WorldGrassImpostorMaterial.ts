@@ -4,7 +4,10 @@ import type {
   GrassMaterialConfig,
   GrassWindConfig,
 } from "../../grass/GrassConfig";
-import { GRASS_MID_IMPOSTOR_UNDERFILL } from "../../grass/GrassLodTuning";
+import {
+  GRASS_IMPOSTOR_FOOTPRINT_SCALE,
+  GRASS_MID_IMPOSTOR_UNDERFILL,
+} from "../../grass/GrassLodTuning";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
 import {
   IMPOSTOR_AERIAL_FADE_END,
@@ -59,8 +62,6 @@ void main() {
     ? basisX
     : billboardRight / billboardRightLength;
   vec3 billboardUp = normalize(cross(toCamera, billboardRight));
-  // The CPU stores this uniform normalized, so keep the per-vertex path free
-  // of a redundant square root.
   vec2 windDirection = uWindDirection;
   float gust = sin(
     dot(center.xz, windDirection) * 0.045 +
@@ -71,7 +72,7 @@ void main() {
     gust * uWindStrength * 0.22;
 
   vec3 worldPosition = center +
-    billboardRight * position.x * scaleX +
+    billboardRight * position.x * scaleX * ${GRASS_IMPOSTOR_FOOTPRINT_SCALE.toFixed(2)} +
     billboardUp * position.y * scaleY;
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -173,8 +174,6 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
-  // The same hemi-octahedral cards act as a partial density underfill through
-  // the mid band, then become the complete far representation.
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage *
     uStreamCoverage * vFieldCoverage;
