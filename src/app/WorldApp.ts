@@ -34,6 +34,9 @@ export class WorldApp {
   private frameCount = 0;
   private lastFrameTimestamp = performance.now();
   private hudElapsed = 0;
+  private sampledGroundX = Number.NaN;
+  private sampledGroundZ = Number.NaN;
+  private sampledGroundHeight = 0;
   private running = false;
   private terrainEnabled = true;
   private grassEnabled = true;
@@ -186,33 +189,39 @@ export class WorldApp {
     this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
 
-    this.runFrameSubsystem("controls", () => {
-      this.controls.update(deltaSeconds);
-      this.constrainCamera();
-    });
+    this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
 
     if (this.terrainEnabled) {
-      this.runFrameSubsystem("terrain", () => {
-        this.terrain.update(this.camera.position);
-      });
+      this.runFrameSubsystem("terrain", this.updateTerrain, deltaSeconds);
     }
 
     if (this.grassEnabled) {
-      this.runFrameSubsystem("grass", () => {
-        this.grass.update(deltaSeconds, this.camera);
-      });
+      this.runFrameSubsystem("grass", this.updateGrass, deltaSeconds);
     }
 
     if (this.rendererEnabled) {
-      this.runFrameSubsystem("renderer", () => {
-        this.renderer.render(this.scene, this.camera);
-        this.stats?.update();
-      });
+      this.runFrameSubsystem("renderer", this.renderScene, deltaSeconds);
     }
 
-    this.runFrameSubsystem("hud", () => {
-      this.updateHud(deltaSeconds);
-    });
+    this.runFrameSubsystem("hud", this.updateHud, deltaSeconds);
+  };
+
+  private readonly updateControls = (deltaSeconds: number): void => {
+    this.controls.update(deltaSeconds);
+    this.constrainCamera();
+  };
+
+  private readonly updateTerrain = (): void => {
+    this.terrain.update(this.camera.position);
+  };
+
+  private readonly updateGrass = (deltaSeconds: number): void => {
+    this.grass.update(deltaSeconds, this.camera);
+  };
+
+  private readonly renderScene = (): void => {
+    this.renderer.render(this.scene, this.camera);
+    this.stats?.update();
   };
 
   private readonly checkFrameHeartbeat = (): void => {
@@ -243,10 +252,11 @@ export class WorldApp {
 
   private runFrameSubsystem(
     subsystem: FrameSubsystem,
-    callback: () => void,
+    callback: (deltaSeconds: number) => void,
+    deltaSeconds: number,
   ): void {
     try {
-      callback();
+      callback(deltaSeconds);
     } catch (error) {
       this.recordRuntimeError(subsystem, error);
       if (subsystem === "terrain") {
@@ -314,10 +324,7 @@ export class WorldApp {
       -halfWorld,
       halfWorld,
     );
-    const terrainHeight = this.field.sampleHeight(
-      this.camera.position.x,
-      this.camera.position.z,
-    );
+    const terrainHeight = this.sampleCameraGroundHeight();
     this.camera.position.y = THREE.MathUtils.clamp(
       this.camera.position.y,
       terrainHeight + this.config.spawnEyeHeight,
@@ -325,7 +332,7 @@ export class WorldApp {
     );
   }
 
-  private updateHud(deltaSeconds: number): void {
+  private readonly updateHud = (deltaSeconds: number): void => {
     if (!this.hud) {
       return;
     }
@@ -337,10 +344,7 @@ export class WorldApp {
     const terrain = this.terrain.getDiagnostics();
     const grass = this.grass.getDiagnostics();
     const render = this.renderer.info.render;
-    const groundHeight = this.field.sampleHeight(
-      this.camera.position.x,
-      this.camera.position.z,
-    );
+    const groundHeight = this.sampleCameraGroundHeight();
     const grassStatus = this.grassInitializationError
       ? `Grass error: ${this.grassInitializationError}`
       : grass.status;
@@ -358,6 +362,16 @@ export class WorldApp {
     ]
       .filter(Boolean)
       .join("\n");
+  };
+
+  private sampleCameraGroundHeight(): number {
+    const { x, z } = this.camera.position;
+    if (x !== this.sampledGroundX || z !== this.sampledGroundZ) {
+      this.sampledGroundX = x;
+      this.sampledGroundZ = z;
+      this.sampledGroundHeight = this.field.sampleHeight(x, z);
+    }
+    return this.sampledGroundHeight;
   }
 
   private readonly handleWindowError = (event: ErrorEvent): void => {

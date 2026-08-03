@@ -330,8 +330,7 @@ export class WorldGrassSystem {
         completedChunk = true;
       }
     } else {
-      this.advancePatchBuild(
-        job,
+      const sliceBudget =
         job.request.distance <= 0
           ? Math.min(
               CENTER_BUILD_BUDGET_MS,
@@ -339,7 +338,10 @@ export class WorldGrassSystem {
             )
           : this.profile.compact
             ? COMPACT_BUILD_BUDGET_MS
-            : DESKTOP_BUILD_BUDGET_MS,
+            : DESKTOP_BUILD_BUDGET_MS;
+      this.advancePatchBuild(
+        job,
+        sliceBudget * this.worldConfig.grassChunksPerFrame,
       );
     }
 
@@ -474,15 +476,14 @@ export class WorldGrassSystem {
       }
     }
 
+    // Keep a queued key marked until processRetirementQueue observes its
+    // latest desired state. Clearing it as soon as it becomes desired again
+    // allows rapid boundary crossings to enqueue the same key repeatedly.
     for (const key of this.patches.keys()) {
       if (!this.desired.has(key) && !this.retiring.has(key)) {
         this.retiring.add(key);
         this.retirementQueue.push(key);
       }
-    }
-
-    for (const key of this.desired.keys()) {
-      this.retiring.delete(key);
     }
 
     const centerKey = `${this.centerChunkX}:${this.centerChunkZ}`;

@@ -88,14 +88,31 @@ export class WorldConfigLoader {
   }
 
   private validate(config: WorldConfig): void {
-    if (config.worldSize / config.chunkSize < 8) {
+    const worldChunks = config.worldSize / config.chunkSize;
+    if (worldChunks < 8) {
       throw new Error("worldSize must contain at least eight terrain chunks.");
+    }
+    if (!Number.isInteger(worldChunks) || worldChunks % 2 !== 0) {
+      throw new Error(
+        "worldSize must contain an even whole number of terrain chunks.",
+      );
+    }
+    if (!Number.isInteger(config.chunkSize / config.grassPatchSize)) {
+      throw new Error("chunkSize must be divisible by grassPatchSize.");
     }
     if (
       config.terrainNearResolution <= config.terrainMidResolution ||
       config.terrainMidResolution <= config.terrainFarResolution
     ) {
       throw new Error("Terrain resolutions must decrease from near to far.");
+    }
+    const nearCells = config.terrainNearResolution - 1;
+    const midCells = config.terrainMidResolution - 1;
+    const farCells = config.terrainFarResolution - 1;
+    if (nearCells % midCells !== 0 || midCells % farCells !== 0) {
+      throw new Error(
+        "Terrain LOD cell counts must divide evenly to preserve chunk edges.",
+      );
     }
     if (config.grassMinAltitude >= config.grassMaxAltitude) {
       throw new Error("grassMinAltitude must be lower than grassMaxAltitude.");

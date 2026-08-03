@@ -8,6 +8,29 @@ const COLOR_HIGH_ROCK = new THREE.Color("#85857f");
 const COLOR_DIRT = new THREE.Color("#665b45");
 const COLOR_SCRATCH = new THREE.Color();
 
+// These helpers mirror THREE.MathUtils exactly, but keep the procedural field's
+// innermost loops free of repeated namespace lookups and function indirection.
+// A single grass placement evaluates hundreds of interpolations while sampling
+// height, normal, and suitability, so this is a meaningful streaming hot path.
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
+}
+
+function smoothstep(value: number, minimum: number, maximum: number): number {
+  if (value <= minimum) {
+    return 0;
+  }
+  if (value >= maximum) {
+    return 1;
+  }
+  const amount = (value - minimum) / (maximum - minimum);
+  return amount * amount * (3 - 2 * amount);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
 export class TerrainField {
   private readonly grassSlopeLimit: number;
   private readonly grassSlopeFadeEnd: number;
@@ -51,7 +74,7 @@ export class TerrainField {
       this.config.seed + 101,
     );
     const ridges = Math.pow(1 - Math.abs(ridgeNoise * 2 - 1), 2.35);
-    const mountainMask = THREE.MathUtils.smoothstep(broad, 0.48, 0.86);
+    const mountainMask = smoothstep(broad, 0.48, 0.86);
     const rolling =
       (this.fbm(
         x * this.config.detailScale,
@@ -94,19 +117,19 @@ export class TerrainField {
     height: number,
     normal: THREE.Vector3,
   ): number {
-    const slopeMask = THREE.MathUtils.smoothstep(
+    const slopeMask = smoothstep(
       normal.y,
       this.grassSlopeLimit,
       this.grassSlopeFadeEnd,
     );
-    const lowAltitude = THREE.MathUtils.smoothstep(
+    const lowAltitude = smoothstep(
       height,
       this.config.grassMinAltitude,
       this.config.grassMinAltitude + 12,
     );
     const highAltitude =
       1 -
-      THREE.MathUtils.smoothstep(
+      smoothstep(
         height,
         this.config.grassMaxAltitude - 28,
         this.config.grassMaxAltitude,
@@ -119,7 +142,7 @@ export class TerrainField {
       4,
       this.config.seed + 401,
     );
-    const biomeMask = THREE.MathUtils.smoothstep(biome, 0.34, 0.5);
+    const biomeMask = smoothstep(biome, 0.34, 0.5);
 
     // Fine noise changes density inside a field without breaking it into tufts.
     const densityNoise = this.fbm(
@@ -128,10 +151,10 @@ export class TerrainField {
       3,
       this.config.seed + 509,
     );
-    const localDensity = THREE.MathUtils.lerp(
+    const localDensity = lerp(
       0.78,
       1,
-      THREE.MathUtils.smoothstep(densityNoise, 0.22, 0.78),
+      smoothstep(densityNoise, 0.22, 0.78),
     );
 
     const exposedRidge = this.valueNoise(
@@ -140,9 +163,9 @@ export class TerrainField {
       this.config.seed + 613,
     );
     const ridgeMask =
-      1 - THREE.MathUtils.smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
+      1 - smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
 
-    return THREE.MathUtils.clamp(
+    return clamp(
       slopeMask *
         lowAltitude *
         highAltitude *
@@ -163,7 +186,7 @@ export class TerrainField {
     target: THREE.Color,
   ): THREE.Color {
     const steepness = 1 - normal.y;
-    const altitude = THREE.MathUtils.smoothstep(
+    const altitude = smoothstep(
       height,
       this.config.grassMaxAltitude - 35,
       this.config.grassMaxAltitude + 50,
@@ -172,7 +195,7 @@ export class TerrainField {
     target.copy(COLOR_GRASS).lerp(COLOR_DRY_GRASS, dry * 0.42);
     target.lerp(COLOR_DIRT, 1 - grassSuitability);
     const rockAmount = Math.max(
-      THREE.MathUtils.smoothstep(steepness, 0.12, 0.42),
+      smoothstep(steepness, 0.12, 0.42),
       altitude,
     );
     COLOR_SCRATCH.copy(COLOR_ROCK).lerp(COLOR_HIGH_ROCK, altitude);
@@ -213,11 +236,12 @@ export class TerrainField {
     const b = this.hash(x0 + 1, z0, seed);
     const c = this.hash(x0, z0 + 1, seed);
     const d = this.hash(x0 + 1, z0 + 1, seed);
-    return THREE.MathUtils.lerp(
-      THREE.MathUtils.lerp(a, b, sx),
-      THREE.MathUtils.lerp(c, d, sx),
-      sz,
-    );
+    // Inline the three bilinear interpolations: valueNoise is called hundreds
+    // of times for each accepted grass patch, so even tiny call overhead is
+    // amplified during streaming.
+    const lower = a + (b - a) * sx;
+    const upper = c + (d - c) * sx;
+    return lower + (upper - lower) * sz;
   }
 
   private hash(x: number, z: number, seed: number): number {
