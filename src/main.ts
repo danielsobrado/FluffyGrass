@@ -69,8 +69,8 @@ function resolveSceneLabel(
     return "Island Regression";
   }
   return flyMode
-    ? "v0.7.2 Visuals · Hybrid Far LOD · Flight"
-    : "v0.7.2 Visuals · Third-Person Character";
+    ? "World · Hybrid Far LOD · Flight"
+    : "World · Third-Person Character";
 }
 
 bootstrap().catch((error) => {

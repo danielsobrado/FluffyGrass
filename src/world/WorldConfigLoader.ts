@@ -1,3 +1,4 @@
+import { FlatConfig } from "../config/FlatConfig";
 import type { WorldConfig } from "./WorldConfig";
 
 const CONFIG_URL = "./config/world.yaml";
@@ -8,7 +9,6 @@ interface NumberRule {
   integer?: boolean;
 }
 
-type ParsedValues = Record<string, string>;
 type ConfigSchema = { [Key in keyof WorldConfig]: NumberRule };
 
 const POSITIVE = Object.freeze({ minimum: Number.EPSILON });
@@ -87,12 +87,13 @@ export class WorldConfigLoader {
       );
     }
 
-    const values = this.parse(await response.text());
+    const values = FlatConfig.parse(await response.text(), "world");
     const config = {} as WorldConfig;
     for (const key of Object.keys(CONFIG_SCHEMA) as (keyof WorldConfig)[]) {
       config[key] = this.readNumber(values, key, CONFIG_SCHEMA[key]);
     }
 
+    values.assertFullyConsumed();
     this.validate(config);
     return Object.freeze(config);
   }
@@ -124,6 +125,22 @@ export class WorldConfigLoader {
         "Terrain LOD cell counts must divide evenly to preserve chunk edges.",
       );
     }
+    if (config.terrainRadiusCompact > config.terrainRadiusDesktop) {
+      throw new Error(
+        "Compact terrain radius must not exceed the desktop radius.",
+      );
+    }
+    if (config.grassRadiusCompact > config.grassRadiusDesktop) {
+      throw new Error(
+        "Compact grass radius must not exceed the desktop radius.",
+      );
+    }
+    if (
+      config.grassRadiusDesktop > config.terrainRadiusDesktop ||
+      config.grassRadiusCompact > config.terrainRadiusCompact
+    ) {
+      throw new Error("Grass streaming radius must not exceed terrain radius.");
+    }
     if (config.grassMinAltitude >= config.grassMaxAltitude) {
       throw new Error("grassMinAltitude must be lower than grassMaxAltitude.");
     }
@@ -133,6 +150,27 @@ export class WorldConfigLoader {
     ) {
       throw new Error("Grass LOD distances must increase from near to far.");
     }
+    if (config.grassTransitionDistance >= config.grassNearDistance) {
+      throw new Error(
+        "grassTransitionDistance must be lower than grassNearDistance.",
+      );
+    }
+    if (
+      config.grassHysteresisDistance >=
+      config.grassNearDistance - config.grassTransitionDistance
+    ) {
+      throw new Error("grassHysteresisDistance is too large for the near band.");
+    }
+    this.validateGrassStreamRadius(
+      "desktop",
+      config.grassRadiusDesktop,
+      config,
+    );
+    this.validateGrassStreamRadius(
+      "compact",
+      config.grassRadiusCompact,
+      config,
+    );
     if (
       config.flyMinSpeed > config.flySpeed ||
       config.flySpeed > config.flyMaxSpeed
@@ -186,37 +224,28 @@ export class WorldConfigLoader {
     }
   }
 
-  private parse(source: string): ParsedValues {
-    const values: ParsedValues = {};
-    for (const [index, rawLine] of source.split(/\r?\n/).entries()) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith("#")) {
-        continue;
-      }
-      const separator = line.indexOf(":");
-      if (separator <= 0) {
-        throw new Error(`Invalid world config at line ${index + 1}.`);
-      }
-      const key = line.slice(0, separator).trim();
-      const value = line.slice(separator + 1).trim();
-      if (!value) {
-        throw new Error(`Missing value for ${key} at line ${index + 1}.`);
-      }
-      values[key] = this.stripQuotes(value);
+  private validateGrassStreamRadius(
+    profile: "desktop" | "compact",
+    radius: number,
+    config: WorldConfig,
+  ): void {
+    const fadeEnd = radius * config.chunkSize;
+    if (
+      fadeEnd - config.grassTransitionDistance <=
+      config.grassMidDistance
+    ) {
+      throw new Error(
+        `${profile} grass radius is too small for the configured mid LOD and transition.`,
+      );
     }
-    return values;
   }
 
   private readNumber(
-    values: ParsedValues,
+    values: FlatConfig,
     key: keyof WorldConfig,
     rule: NumberRule,
   ): number {
-    const rawValue = values[key];
-    if (rawValue === undefined) {
-      throw new Error(`Missing world config value: ${key}.`);
-    }
-    const value = Number(rawValue);
+    const value = Number(values.read(key));
     if (!Number.isFinite(value)) {
       throw new Error(`World config value ${key} must be a number.`);
     }
@@ -234,13 +263,5 @@ export class WorldConfigLoader {
       );
     }
     return value;
-  }
-
-  private stripQuotes(value: string): string {
-    const first = value[0];
-    const last = value[value.length - 1];
-    return (first === '"' && last === '"') || (first === "'" && last === "'")
-      ? value.slice(1, -1)
-      : value;
   }
 }

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { GrassConfig } from "../grass/GrassConfig";
+import type { GrassConfig, GrassLodConfig } from "../grass/GrassConfig";
 import { GrassGeometryFactory } from "../grass/GrassGeometryFactory";
 import { GrassLodController } from "../grass/GrassLodController";
 import {
@@ -108,6 +108,7 @@ export class WorldGrassSystem {
   private readonly impostorMaterials: WorldGrassImpostorMaterial[] = [];
   private readonly wind = new WindField();
   private readonly patches = new Map<string, WorldGrassPatch>();
+  private readonly emptyChunks = new Set<string>();
   private readonly queue: GrassChunkRequest[] = [];
   private readonly desired = new Map<string, GrassChunkRequest>();
   private readonly retirementQueue: string[] = [];
@@ -117,7 +118,9 @@ export class WorldGrassSystem {
   private nearGeometries: THREE.BufferGeometry[] = [];
   private midGeometries: THREE.BufferGeometry[] = [];
   private grassConfig?: GrassConfig;
+  private resolvedLodConfig?: GrassLodConfig;
   private lodController?: GrassLodController;
+  private initialization?: Promise<void>;
   private nearBladesPerPatch = 0;
   private midBladesPerPatch = 0;
   private centerChunkX = Number.NaN;
@@ -129,6 +132,7 @@ export class WorldGrassSystem {
   private maxBuildMs = 0;
   private status = "Waiting for grass initialization";
   private initialized = false;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -137,64 +141,14 @@ export class WorldGrassSystem {
     private readonly profile: RuntimeProfile,
   ) {}
 
-  async initialize(): Promise<void> {
-    if (this.initialized) {
-      return;
+  initialize(): Promise<void> {
+    if (this.disposed) {
+      return Promise.reject(new Error("WorldGrassSystem has been disposed."));
     }
-
-    this.status = "Loading grass configuration";
-    const grassConfig = await this.configLoader.load(
-      `./config/grass.yaml?v=${encodeURIComponent(APP_VERSION)}`,
-    );
-    await this.yieldToBrowser();
-
-    this.status = "Creating blade geometry";
-    const variants = this.patchGeometryFactory.createLodVariants(
-      grassConfig.geometry,
-      this.worldConfig,
-      this.profile.compact,
-      this.worldConfig.seed,
-      WORLD_VARIANT_COUNT,
-    );
-    this.grassConfig = grassConfig;
-    this.nearGeometries = variants.near;
-    this.midGeometries = variants.mid;
-    this.nearBladesPerPatch = variants.nearBladesPerPatch;
-    this.midBladesPerPatch = variants.midBladesPerPatch;
-    this.material.configure(grassConfig.material, grassConfig.wind);
-    const lodConfig = {
-      nearMaxDistance: this.worldConfig.grassNearDistance,
-      midMaxDistance: this.worldConfig.grassMidDistance,
-      farMaxDistance: this.worldConfig.grassFarDistance,
-      transitionDistance: this.worldConfig.grassTransitionDistance,
-      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-    };
-    this.material.configureLod(lodConfig);
-
-    for (let index = 0; index < variants.bladeVariants.length; index += 1) {
-      this.status = `Creating impostor atlas ${index + 1}/${variants.bladeVariants.length}`;
-      await this.yieldToBrowser();
-      const atlas = this.impostorAtlasFactory.create(
-        variants.bladeVariants[index],
-        grassConfig.geometry,
-        grassConfig.material,
-        this.worldConfig.grassPatchSize,
-        grassConfig.impostor,
-      );
-      this.impostorMaterials.push(
-        new WorldGrassImpostorMaterial(
-          atlas,
-          grassConfig.material,
-          grassConfig.wind,
-          lodConfig,
-          !this.profile.compact,
-        ),
-      );
+    if (!this.initialization) {
+      this.initialization = this.initializeInternal();
     }
-
-    this.lodController = new GrassLodController(lodConfig);
-    this.status = "Grass ready";
-    this.initialized = true;
+    return this.initialization;
   }
 
   update(deltaSeconds: number, camera: THREE.Camera): void {
@@ -264,10 +218,18 @@ export class WorldGrassSystem {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.initialized = false;
+    this.status = "Grass disposed";
+
     for (const patch of this.patches.values()) {
       this.removePatch(patch);
     }
     this.patches.clear();
+    this.emptyChunks.clear();
     this.queue.length = 0;
     this.retirementQueue.length = 0;
     this.retiring.clear();
@@ -286,6 +248,81 @@ export class WorldGrassSystem {
       impostorMaterial.dispose();
     }
     this.impostorMaterials.length = 0;
+    this.resolvedLodConfig = undefined;
+    this.lodController = undefined;
+  }
+
+  private async initializeInternal(): Promise<void> {
+    this.status = "Loading grass configuration";
+    const grassConfig = await this.configLoader.load(
+      `./config/grass.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+    );
+    this.assertNotDisposed();
+    await this.yieldToBrowser();
+    this.assertNotDisposed();
+
+    this.status = "Creating blade geometry";
+    const variants = this.patchGeometryFactory.createLodVariants(
+      grassConfig.geometry,
+      this.worldConfig,
+      this.profile.compact,
+      this.worldConfig.seed,
+      WORLD_VARIANT_COUNT,
+    );
+    this.grassConfig = grassConfig;
+    this.nearGeometries = variants.near;
+    this.midGeometries = variants.mid;
+    this.nearBladesPerPatch = variants.nearBladesPerPatch;
+    this.midBladesPerPatch = variants.midBladesPerPatch;
+    this.material.configure(grassConfig.material, grassConfig.wind);
+    const lodConfig = this.resolveLodConfig();
+    this.resolvedLodConfig = lodConfig;
+    this.material.configureLod(lodConfig);
+
+    for (let index = 0; index < variants.bladeVariants.length; index += 1) {
+      this.status = `Creating impostor atlas ${index + 1}/${variants.bladeVariants.length}`;
+      await this.yieldToBrowser();
+      this.assertNotDisposed();
+      const atlas = this.impostorAtlasFactory.create(
+        variants.bladeVariants[index],
+        grassConfig.geometry,
+        grassConfig.material,
+        this.worldConfig.grassPatchSize,
+        grassConfig.impostor,
+      );
+      this.impostorMaterials.push(
+        new WorldGrassImpostorMaterial(
+          atlas,
+          grassConfig.material,
+          grassConfig.wind,
+          lodConfig,
+          !this.profile.compact,
+        ),
+      );
+    }
+
+    this.lodController = new GrassLodController(lodConfig);
+    this.status = "Grass ready";
+    this.initialized = true;
+  }
+
+  private resolveLodConfig(): GrassLodConfig {
+    const radius = this.profile.compact
+      ? this.worldConfig.grassRadiusCompact
+      : this.worldConfig.grassRadiusDesktop;
+    const streamFadeEnd = radius * this.worldConfig.chunkSize;
+    const farMaxDistance = Math.min(
+      this.worldConfig.grassFarDistance,
+      streamFadeEnd - this.worldConfig.grassTransitionDistance,
+    );
+
+    return {
+      nearMaxDistance: this.worldConfig.grassNearDistance,
+      midMaxDistance: this.worldConfig.grassMidDistance,
+      farMaxDistance,
+      transitionDistance: this.worldConfig.grassTransitionDistance,
+      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+    };
   }
 
   private processBuildQueue(): void {
@@ -296,7 +333,11 @@ export class WorldGrassSystem {
 
     while (!this.activeBuild && this.queue.length > 0) {
       const request = this.queue.shift();
-      if (request && this.desired.has(request.key)) {
+      if (
+        request &&
+        this.desired.has(request.key) &&
+        !this.emptyChunks.has(request.key)
+      ) {
         this.activeBuild = this.beginPatchBuild(request);
       }
     }
@@ -319,12 +360,15 @@ export class WorldGrassSystem {
       const result = this.advancePatchFinalize(job);
       if (result.complete) {
         if (result.patch) {
+          this.emptyChunks.delete(job.request.key);
           this.patches.set(job.request.key, result.patch);
           this.scene.add(
             result.patch.nearMesh,
             result.patch.midMesh,
             result.patch.farMesh,
           );
+        } else {
+          this.emptyChunks.add(job.request.key);
         }
         this.activeBuild = undefined;
         completedChunk = true;
@@ -396,6 +440,9 @@ export class WorldGrassSystem {
     const radius = this.profile.compact
       ? this.worldConfig.grassRadiusCompact
       : this.worldConfig.grassRadiusDesktop;
+    const farMaxDistance =
+      this.resolvedLodConfig?.farMaxDistance ??
+      this.worldConfig.grassFarDistance;
     const halfWorld = this.worldConfig.worldSize * 0.5;
     const chunkSize = this.worldConfig.chunkSize;
     const currentX = this.cameraPosition.x;
@@ -409,7 +456,7 @@ export class WorldGrassSystem {
       if (travelLength > 0.001) {
         const lookahead = Math.min(
           chunkSize * STREAM_LOOKAHEAD_CHUNKS,
-          this.worldConfig.grassFarDistance * 0.65,
+          farMaxDistance * 0.65,
         );
         predictedX += (travelX / travelLength) * lookahead;
         predictedZ += (travelZ / travelLength) * lookahead;
@@ -419,9 +466,7 @@ export class WorldGrassSystem {
     this.hasPreviousReconcilePosition = true;
     const preloadDistance = Math.min(
       radius * chunkSize,
-      this.worldConfig.grassFarDistance +
-        this.worldConfig.grassTransitionDistance +
-        chunkSize,
+      farMaxDistance + this.worldConfig.grassTransitionDistance + chunkSize,
     );
     this.desired.clear();
 
@@ -463,9 +508,6 @@ export class WorldGrassSystem {
           key,
           chunkX,
           chunkZ,
-          // The current camera chunk must never wait behind work that was
-          // selected before a high-speed chunk crossing. A modest lookahead
-          // then fills the direction of travel before the remaining ring.
           distance: isCameraChunk
             ? -1
             : Math.min(
@@ -476,9 +518,6 @@ export class WorldGrassSystem {
       }
     }
 
-    // Keep a queued key marked until processRetirementQueue observes its
-    // latest desired state. Clearing it as soon as it becomes desired again
-    // allows rapid boundary crossings to enqueue the same key repeatedly.
     for (const key of this.patches.keys()) {
       if (!this.desired.has(key) && !this.retiring.has(key)) {
         this.retiring.add(key);
@@ -490,12 +529,10 @@ export class WorldGrassSystem {
     if (
       this.desired.has(centerKey) &&
       !this.patches.has(centerKey) &&
+      !this.emptyChunks.has(centerKey) &&
       this.activeBuild &&
       this.activeBuild.request.key !== centerKey
     ) {
-      // At maximum flight speed a job can remain inside the desired radius
-      // for several crossings while the camera outruns it. Preempt that stale
-      // work so the ground below the camera cannot turn into a square hole.
       this.discardPatchBuild(this.activeBuild);
       this.activeBuild = undefined;
     }
@@ -504,6 +541,7 @@ export class WorldGrassSystem {
     for (const request of this.desired.values()) {
       if (
         !this.patches.has(request.key) &&
+        !this.emptyChunks.has(request.key) &&
         this.activeBuild?.request.key !== request.key
       ) {
         this.queue.push(request);
@@ -524,7 +562,9 @@ export class WorldGrassSystem {
     return Math.hypot(distanceX, distanceZ);
   }
 
-  private beginPatchBuild(request: GrassChunkRequest): GrassChunkBuildJob | undefined {
+  private beginPatchBuild(
+    request: GrassChunkRequest,
+  ): GrassChunkBuildJob | undefined {
     const grassConfig = this.grassConfig;
     if (!grassConfig) {
       return undefined;
@@ -645,7 +685,9 @@ export class WorldGrassSystem {
     }
   }
 
-  private advancePatchFinalize(job: GrassChunkBuildJob): GrassChunkFinalizeResult {
+  private advancePatchFinalize(
+    job: GrassChunkBuildJob,
+  ): GrassChunkFinalizeResult {
     const {
       request,
       grassConfig,
@@ -661,9 +703,6 @@ export class WorldGrassSystem {
 
     if (!job.variationValues || job.variantIndex === undefined) {
       job.variationValues = variations.subarray(0, instanceCount * 4);
-      // A single variant per 64 m chunk creates obvious square tiles from an
-      // aerial view. Per-instance transforms and material variation already
-      // provide enough diversity without chunk-coherent atlas changes.
       job.variantIndex = Math.min(
         HOMOGENEOUS_VARIANT_INDEX,
         grassConfig.geometry.variantCount - 1,
@@ -766,24 +805,27 @@ export class WorldGrassSystem {
     const bounds = job.meshBounds?.clone() ?? job.bounds.clone();
     const boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
 
-    return { complete: true, patch: {
-      id: request.key,
-      gridX: request.chunkX,
-      gridZ: request.chunkZ,
-      bounds,
-      boundingSphere,
-      nearMesh,
-      midMesh,
-      farMesh,
-      instanceCount,
-      lod: GrassLodLevel.Near,
-      distance: 0,
-      inFrustum: true,
-      nearCoverage: 1,
-      midCoverage: 0,
-      farCoverage: 0,
-      streamCoverage: 0,
-    } };
+    return {
+      complete: true,
+      patch: {
+        id: request.key,
+        gridX: request.chunkX,
+        gridZ: request.chunkZ,
+        bounds,
+        boundingSphere,
+        nearMesh,
+        midMesh,
+        farMesh,
+        instanceCount,
+        lod: GrassLodLevel.Near,
+        distance: 0,
+        inFrustum: true,
+        nearCoverage: 1,
+        midCoverage: 0,
+        farCoverage: 0,
+        streamCoverage: 0,
+      },
+    };
   }
 
   private createMesh(
@@ -836,6 +878,12 @@ export class WorldGrassSystem {
     let value = Math.imul(x, 374761393) + Math.imul(z, 668265263) + seed;
     value = Math.imul(value ^ (value >>> 13), 1274126177);
     return (value ^ (value >>> 16)) >>> 0;
+  }
+
+  private assertNotDisposed(): void {
+    if (this.disposed) {
+      throw new Error("WorldGrassSystem was disposed during initialization.");
+    }
   }
 
   private yieldToBrowser(): Promise<void> {

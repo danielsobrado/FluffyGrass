@@ -16,6 +16,7 @@ const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
 const ERROR_MESSAGE_MAX_LENGTH = 180;
 const FRAME_WATCHDOG_INTERVAL_MS = 500;
 const FRAME_STALL_THRESHOLD_MS = 1500;
+const CONTEXT_LOST_ERROR = "renderer: WebGL context lost";
 
 type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
 
@@ -40,11 +41,14 @@ export class WorldApp {
   private sampledGroundZ = Number.NaN;
   private sampledGroundHeight = 0;
   private running = false;
+  private controlsEnabled = true;
   private terrainEnabled = true;
   private grassEnabled = true;
   private rendererEnabled = true;
+  private hudEnabled = true;
   private grassInitializing = true;
   private runtimeError?: string;
+  private runtimeErrorBeforeContextLoss?: string;
   private grassInitializationError?: string;
 
   private constructor(
@@ -160,6 +164,7 @@ export class WorldApp {
 
   dispose(): void {
     this.running = false;
+    this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
     window.clearInterval(this.watchdogHandle);
     window.removeEventListener("resize", this.handleResize);
@@ -205,7 +210,9 @@ export class WorldApp {
     this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
 
-    this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
+    if (this.controlsEnabled) {
+      this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
+    }
 
     if (this.terrainEnabled) {
       this.runFrameSubsystem("terrain", this.updateTerrain, deltaSeconds);
@@ -219,7 +226,9 @@ export class WorldApp {
       this.runFrameSubsystem("renderer", this.renderScene, deltaSeconds);
     }
 
-    this.runFrameSubsystem("hud", this.updateHud, deltaSeconds);
+    if (this.hudEnabled) {
+      this.runFrameSubsystem("hud", this.updateHud, deltaSeconds);
+    }
   };
 
   private readonly updateControls = (deltaSeconds: number): void => {
@@ -272,12 +281,16 @@ export class WorldApp {
       callback(deltaSeconds);
     } catch (error) {
       this.recordRuntimeError(subsystem, error);
-      if (subsystem === "terrain") {
+      if (subsystem === "controls") {
+        this.controlsEnabled = false;
+      } else if (subsystem === "terrain") {
         this.terrainEnabled = false;
       } else if (subsystem === "grass") {
         this.grassEnabled = false;
       } else if (subsystem === "renderer") {
         this.rendererEnabled = false;
+      } else {
+        this.hudEnabled = false;
       }
     }
   }
@@ -402,12 +415,16 @@ export class WorldApp {
   private readonly handleContextLost = (event: Event): void => {
     event.preventDefault();
     this.rendererEnabled = false;
-    this.runtimeError = "renderer: WebGL context lost";
+    this.runtimeErrorBeforeContextLoss = this.runtimeError;
+    this.runtimeError = CONTEXT_LOST_ERROR;
   };
 
   private readonly handleContextRestored = (): void => {
     this.rendererEnabled = true;
-    this.runtimeError = undefined;
+    if (this.runtimeError === CONTEXT_LOST_ERROR) {
+      this.runtimeError = this.runtimeErrorBeforeContextLoss;
+    }
+    this.runtimeErrorBeforeContextLoss = undefined;
   };
 
   private readonly handleResize = (): void => {
