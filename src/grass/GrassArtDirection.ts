@@ -186,7 +186,8 @@ export const GRASS_ART_DIRECTIONS: Readonly<
 export function resolveGrassArtDirectionKey(
   value: string | null | undefined,
 ): GrassArtDirectionKey {
-  return value && value in GRASS_ART_DIRECTIONS
+  return value &&
+    Object.prototype.hasOwnProperty.call(GRASS_ART_DIRECTIONS, value)
     ? (value as GrassArtDirectionKey)
     : DEFAULT_GRASS_ART_DIRECTION_KEY;
 }
