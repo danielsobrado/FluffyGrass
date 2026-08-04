@@ -19,29 +19,14 @@ concurrency:
 jobs:
   build:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: lts/*
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Build
-        run: npm run build
-
-  deploy:
-    if: github.event_name != 'pull_request'
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout PR branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -54,16 +39,91 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build and verify
         run: npm run build
-      - name: Commit verified fixes to main
+      - name: Commit verified fixes to PR branch
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
         shell: bash
         run: |
-          git show HEAD^:.github/workflows/deploy-pages.yml > .github/workflows/deploy-pages.yml
-          rm .github/workflows/apply-grass-review-fixes.yml
-          rm .github/scripts/apply-grass-review-fixes.py
+          cat > .github/workflows/deploy-pages.yml <<'YAML'
+          name: Deploy to GitHub Pages
+
+          on:
+            push:
+              branches:
+                - main
+            pull_request:
+              branches:
+                - main
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          concurrency:
+            group: pages-${{ github.ref }}
+            cancel-in-progress: true
+
+          jobs:
+            build:
+              if: github.event_name == 'pull_request'
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+                - name: Set up Node.js
+                  uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+                  with:
+                    node-version: lts/*
+                    cache: npm
+                - name: Install dependencies
+                  run: npm ci --no-audit --no-fund
+                - name: Build
+                  run: npm run build
+
+            deploy:
+              if: github.event_name != 'pull_request'
+              permissions:
+                contents: write
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+                - name: Set up Node.js
+                  uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+                  with:
+                    node-version: lts/*
+                    cache: npm
+                - name: Install dependencies
+                  run: npm ci --no-audit --no-fund
+                - name: Build and publish GitHub Pages
+                  run: npm run deploy:pages
+          YAML
           git config user.name "OpenAI Codex"
           git config user.email "codex@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: harden grass presets and far LOD [skip ci]"
-          git push origin HEAD:main
-      - name: Publish GitHub Pages
+          git add \
+            src/world/WorldGrassSystem.ts \
+            scripts/verify-lod-continuity.mjs \
+            .github/workflows/deploy-pages.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "fix: preserve grass LOD bounds and streaming caps"
+          git push origin "HEAD:${HEAD_BRANCH}"
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: lts/*
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build and publish GitHub Pages
         run: npm run deploy:pages
