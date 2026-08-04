@@ -4,7 +4,15 @@ import type {
   GrassImpostorConfig,
   GrassMaterialConfig,
 } from "../../grass/GrassConfig";
+import {
+  GRASS_IMPOSTOR_BOUNDS_SAFETY_MARGIN,
+  GRASS_IMPOSTOR_FOOTPRINT_SCALE,
+  GRASS_IMPOSTOR_MAX_HORIZONTAL_SCALE,
+  GRASS_IMPOSTOR_MAX_VERTICAL_SCALE,
+  GRASS_IMPOSTOR_MAX_WIND_DISPLACEMENT,
+} from "../../grass/GrassLodTuning";
 import type { WorldGrassBladeSpec } from "./WorldGrassPatchGeometryFactory";
+import { calculateGrassImpostorRootBoundsRadius } from "./GrassRuntimeMath";
 
 export interface WorldGrassImpostorAtlas {
   texture: THREE.CanvasTexture;
@@ -29,12 +37,8 @@ interface ProjectedBlade {
 }
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
-// Sub-pixel roots disappear under linear sampling at far distances and leave
-// a smooth color wash. Keep a one-pixel footprint so the impostor retains the
-// same vertical blade rhythm as the mid geometry at the crossfade.
 const MIN_PIXEL_BASE_WIDTH = 1.05;
-const COLOR_MIN = 0;
-const COLOR_MAX = 1;
+const BYTE_MAX = 255;
 
 export class WorldGrassImpostorAtlasFactory {
   private readonly projectedPoint = new Float64Array(2);
@@ -42,7 +46,7 @@ export class WorldGrassImpostorAtlasFactory {
   create(
     blades: readonly WorldGrassBladeSpec[],
     grass: GrassGeometryConfig,
-    material: GrassMaterialConfig,
+    _material: GrassMaterialConfig,
     patchSize: number,
     config: GrassImpostorConfig,
   ): WorldGrassImpostorAtlas {
@@ -54,7 +58,9 @@ export class WorldGrassImpostorAtlasFactory {
 
     const context = canvas.getContext("2d", { alpha: true });
     if (!context) {
-      throw new Error("Unable to create the grass impostor atlas canvas context.");
+      throw new Error(
+        "Unable to create the grass impostor atlas canvas context.",
+      );
     }
 
     let maximumHeight = grass.bladeHeightMax;
@@ -63,9 +69,18 @@ export class WorldGrassImpostorAtlasFactory {
     }
     const centerHeight = maximumHeight * 0.5;
     const halfPatch = patchSize * 0.5;
-    const radius =
+    const cardRadius =
       Math.sqrt(halfPatch * halfPatch * 2 + centerHeight * centerHeight) *
       config.cameraMargin;
+    const boundsRadius = calculateGrassImpostorRootBoundsRadius({
+      cardRadius,
+      centerHeight,
+      footprintScale: GRASS_IMPOSTOR_FOOTPRINT_SCALE,
+      maximumHorizontalScale: GRASS_IMPOSTOR_MAX_HORIZONTAL_SCALE,
+      maximumVerticalScale: GRASS_IMPOSTOR_MAX_VERTICAL_SCALE,
+      maximumWindDisplacement: GRASS_IMPOSTOR_MAX_WIND_DISPLACEMENT,
+      safetyMargin: GRASS_IMPOSTOR_BOUNDS_SAFETY_MARGIN,
+    });
 
     context.clearRect(0, 0, atlasSize, atlasSize);
     for (let gridY = 0; gridY < config.viewsPerAxis; gridY += 1) {
@@ -78,21 +93,20 @@ export class WorldGrassImpostorAtlasFactory {
         this.drawFrame(
           context,
           blades,
-          material,
           direction,
           gridX * cellSize,
           canvasRow * cellSize,
           config.frameResolution,
           config.padding,
           centerHeight,
-          radius,
+          cardRadius,
         );
       }
     }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.name = "world-grass-hemi-octahedral-atlas";
-    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.colorSpace = THREE.NoColorSpace;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -102,9 +116,9 @@ export class WorldGrassImpostorAtlasFactory {
 
     return {
       texture,
-      geometry: this.createGeometry(radius),
+      geometry: this.createGeometry(cardRadius),
       centerHeight,
-      radius,
+      radius: boundsRadius,
       viewsPerAxis: config.viewsPerAxis,
       frameResolution: config.frameResolution,
       padding: config.padding,
@@ -115,7 +129,6 @@ export class WorldGrassImpostorAtlasFactory {
   private drawFrame(
     context: CanvasRenderingContext2D,
     blades: readonly WorldGrassBladeSpec[],
-    material: GrassMaterialConfig,
     viewDirection: THREE.Vector3,
     offsetX: number,
     offsetY: number,
@@ -159,34 +172,24 @@ export class WorldGrassImpostorAtlasFactory {
     );
     context.clip();
 
-    const baseColor = new THREE.Color(material.baseColor);
-    const tipColor = new THREE.Color(material.tipColor);
-    const dryColor = new THREE.Color(material.dryColor);
-    const root = new THREE.Color();
-    const tip = new THREE.Color();
-
     for (const blade of projected) {
-      const shadeScale = 0.72 + blade.shade * 0.38;
-      const dryAmount = THREE.MathUtils.clamp((0.2 - blade.shade) * 0.8, 0, 0.22);
-      root
-        .copy(baseColor)
-        .lerp(dryColor, dryAmount)
-        .multiplyScalar(shadeScale * material.rootDarkening);
-      tip
-        .copy(tipColor)
-        .lerp(dryColor, dryAmount * 0.75)
-        .multiplyScalar(shadeScale);
-      this.clampColor(root);
-      this.clampColor(tip);
-
+      const shade = THREE.MathUtils.clamp(blade.shade, 0, 1);
+      const dryness = THREE.MathUtils.clamp(
+        (0.2 - blade.shade) * 0.8,
+        0,
+        0.22,
+      );
       const gradient = context.createLinearGradient(
         (blade.leftX + blade.rightX) * 0.5,
         (blade.leftY + blade.rightY) * 0.5,
         blade.tipX,
         blade.tipY,
       );
-      gradient.addColorStop(0, `#${root.getHexString()}`);
-      gradient.addColorStop(1, `#${tip.getHexString()}`);
+      gradient.addColorStop(0, this.encodeDataColor(0, shade, dryness));
+      gradient.addColorStop(
+        1,
+        this.encodeDataColor(1, shade, dryness * 0.75),
+      );
       context.fillStyle = gradient;
       context.beginPath();
       context.moveTo(blade.leftX, blade.leftY);
@@ -365,9 +368,16 @@ export class WorldGrassImpostorAtlasFactory {
     return geometry;
   }
 
-  private clampColor(color: THREE.Color): void {
-    color.r = THREE.MathUtils.clamp(color.r, COLOR_MIN, COLOR_MAX);
-    color.g = THREE.MathUtils.clamp(color.g, COLOR_MIN, COLOR_MAX);
-    color.b = THREE.MathUtils.clamp(color.b, COLOR_MIN, COLOR_MAX);
+  private encodeDataColor(
+    bladeProgress: number,
+    shade: number,
+    dryness: number,
+  ): string {
+    const red = Math.round(
+      THREE.MathUtils.clamp(bladeProgress, 0, 1) * BYTE_MAX,
+    );
+    const green = Math.round(THREE.MathUtils.clamp(shade, 0, 1) * BYTE_MAX);
+    const blue = Math.round(THREE.MathUtils.clamp(dryness, 0, 1) * BYTE_MAX);
+    return `rgb(${red}, ${green}, ${blue})`;
   }
 }
