@@ -30,9 +30,10 @@ function readYamlNumber(source, key) {
   return value;
 }
 
-async function importTypeScriptModule(relativePath) {
+async function importTypeScriptModule(relativePath, sourceOverride) {
   const fileName = resolve(REPOSITORY_ROOT, relativePath);
-  const result = ts.transpileModule(readFileSync(fileName, "utf8"), {
+  const source = sourceOverride ?? readFileSync(fileName, "utf8");
+  const result = ts.transpileModule(source, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.ESNext,
@@ -59,19 +60,31 @@ async function importTypeScriptModule(relativePath) {
 const controller = read("src/grass/GrassLodController.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const nearMaterial = read("src/grass/materials/GrassNearMaterial.ts");
+const sharedPalette = read("src/grass/materials/GrassPaletteShader.ts");
+const artDirections = JSON.parse(read("src/grass/GrassArtPresets.json"));
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
 );
 const impostorAtlasFactory = read(
   "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
 );
+const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
+const lodTuning = read("src/grass/GrassLodTuning.ts");
 const worldGrassSystem = read("src/world/WorldGrassSystem.ts");
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
+const singleBladeFactory = read(
+  "src/world/grass/WorldSingleBladeTileFactory.ts",
+);
 const worldConfig = read("public/config/world.yaml");
 const grassConfig = read("public/config/grass.yaml");
 
+const artDirectionSource = read("src/grass/GrassArtDirection.ts").replace(
+  'import presetData from "./GrassArtPresets.json";',
+  `const presetData = ${JSON.stringify(artDirections)};`,
+);
 const artDirectionModule = await importTypeScriptModule(
   "src/grass/GrassArtDirection.ts",
+  artDirectionSource,
 );
 const runtimeMathModule = await importTypeScriptModule(
   "src/world/grass/GrassRuntimeMath.ts",
@@ -197,17 +210,18 @@ assert(
 
 assert(
   impostorAtlasFactory.includes("texture.colorSpace = THREE.NoColorSpace") &&
+    impostorAtlasFactory.includes("texture.premultiplyAlpha = true") &&
     impostorAtlasFactory.includes("encodeDataColor") &&
+    impostorAtlasFactory.includes("baseEdgeX") &&
     impostorAtlasFactory.includes("radius: boundsRadius") &&
     !impostorAtlasFactory.includes("new THREE.Color(material.baseColor)"),
   "The far atlas must store palette-neutral data and expose conservative bounds.",
 );
 assert(
-  impostorMaterial.includes("float bladeProgress = clamp(atlasData.r") &&
-    impostorMaterial.includes("float bladeShade = clamp(atlasData.g") &&
-    impostorMaterial.includes("float bladeDryness = clamp(atlasData.b") &&
+  impostorMaterial.includes("vec3 bladeData = clamp(") &&
+    impostorMaterial.includes("grassResolvePalette") &&
     !impostorMaterial.includes("smoothstep(0.08, 0.92, vUv.y)"),
-  "The far shader must reconstruct color from per-blade atlas masks.",
+  "The far shader must reconstruct the shared palette from neutral atlas masks.",
 );
 
 assert(
@@ -218,12 +232,68 @@ assert(
   /patch\.midMesh\.userData\.grassDistanceFade\s*=\s*1\s*;/.test(
     controller,
   ),
-  "World mid coverage must not be applied twice.",
+  "World mid coverage must not be applied a second time per patch.",
 );
 assert(
-  nearMaterial.includes("grassPaletteBlend") &&
-    nearMaterial.includes("vGrassCameraDistance"),
-  "Real-blade colors must converge toward the far palette by distance.",
+  !/vFarEntry\s*\*\s*vTerrainCoverage\s*\*\s*aerialVisibility/.test(
+    impostorMaterial,
+  ),
+  "Far coverage must stay complementary to the mid distance fade.",
+);
+assert(
+  !nearMaterial.includes("grassPaletteBlend") &&
+    !nearMaterial.includes("vGrassCameraDistance"),
+  "Real-blade palette must not change with LOD distance.",
+);
+assert(
+  sharedPalette.includes("grassResolvePalette") &&
+    sharedPalette.includes("setBalancedGrassPaletteColors") &&
+    nearMaterial.includes("GRASS_PALETTE_GLSL") &&
+    impostorMaterial.includes("GRASS_PALETTE_GLSL") &&
+    nearMaterial.includes("setBalancedGrassPaletteColors") &&
+    impostorMaterial.includes("setBalancedGrassPaletteColors"),
+  "Real blades and impostors must use the shared palette function.",
+);
+const paletteTemplate = sharedPalette.slice(
+  sharedPalette.indexOf("export const GRASS_PALETTE_GLSL"),
+);
+const injectedPaletteScalars = [
+  ...paletteTemplate.matchAll(/\$\{([^}]+)\}/g),
+].map((match) => match[1].trim());
+assert(
+  injectedPaletteScalars.length > 0 &&
+    injectedPaletteScalars.every((expression) =>
+      expression.startsWith("toGlslFloat(tuning."),
+    ) &&
+    sharedPalette.includes("Number.isInteger(value)"),
+  "Every generated palette scalar must be emitted as a GLSL float literal.",
+);
+assert(
+  /grassResolvePalette\(\s*uGrassBaseColor,\s*uGrassTipColor,\s*uGrassDryColor,\s*vGrassProgress,\s*vGrassShade,\s*vGrassDryness,\s*vGrassRootAo,\s*uGrassTipColorStrength,\s*uGrassRootDarkening\s*\)/s.test(
+    nearMaterial,
+  ) &&
+    /grassResolvePalette\(\s*uBaseColor,\s*uTipColor,\s*uDryColor,\s*bladeData\.r,\s*bladeData\.g,\s*vDryness,\s*vRootAo,\s*uTipColorStrength,\s*uRootDarkening\s*\)/s.test(
+      impostorMaterial,
+    ),
+  "LOD shaders must map shared palette arguments and atlas channels identically.",
+);
+assert(
+  !impostorMaterial.includes("atlasColor.rgb *= atlasColor.a") &&
+    impostorMaterial.includes("vec4 color00 = sampleFrame") &&
+    impostorMaterial.includes("if (vFarEntry < 0.999)") &&
+    impostorMaterial.includes("Stable stochastic bilinear selection"),
+  "Far atlas filtering must blend views during transition and use one fetch fully far.",
+);
+assert(
+  impostorMaterial.includes("lights: true") &&
+    impostorMaterial.includes("vGrassIrradiance") &&
+    impostorMaterial.includes("mix(color, grassLambertLight, 0.38)"),
+  "Far cards must use the same stylized lighting mix as real blades.",
+);
+assert(
+  impostorMaterial.includes("uTipColorStrength") &&
+    impostorMaterial.includes("uRootDarkening"),
+  "Impostors must receive runtime tip and root palette controls.",
 );
 assert(
   worldGrassSystem.includes("await this.nearField.initialize(grassConfig)") &&
@@ -238,8 +308,53 @@ assert(
 );
 assert(
   nearField.includes("grassUltraNearDensityMultiplier - 1") &&
-    nearField.includes("world-grass-ultra-near-blades"),
-  "The ultra-near layer must retain independent single-blade instances.",
+    nearField.includes("world-grass-ultra-near-blades") &&
+    nearField.includes("world-grass-ultra-near-base-detail") &&
+    nearField.includes("detailMode: 1") &&
+    nearField.includes("detailMode: 2"),
+  "Ultra-near must retain segmented base blades plus the independent density layer.",
+);
+assert(
+  singleBladeFactory.includes("segments === 1") &&
+    singleBladeFactory.includes(
+      "options.receiveShadows && this.profile.shadows",
+    ) &&
+    nearMaterial.includes("grassProgress > 0.001"),
+  "Distant single blades must use the low-cost geometry and guarded vertex path.",
+);
+assert(
+  nearMaterial.includes("bool grassKeepBlade") &&
+    nearMaterial.includes("if (!grassKeepBlade)") &&
+    nearMaterial.includes("if (grassKeepBlade && grassProgress > 0.001)"),
+  "Rejected blades must skip wind and become degenerate before rasterization.",
+);
+assert(
+  worldGrassSystem.includes("mesh.receiveShadow = false") &&
+    controller.includes("farthestDistance > farEntryStart") &&
+    controller.includes("grassDisabledNearPatch !== true"),
+  "Mid/far rendering must avoid distant shadow and pre-transition overdraw.",
+);
+assert(
+  worldGrassSystem.includes("private resolveArtFarDistance") &&
+    worldGrassSystem.includes("direction.farDistance") &&
+    worldGrassSystem.includes("streamFadeEnd - direction.transitionDistance") &&
+    worldGrassSystem.includes(
+      "lodConfig.farMaxDistance = this.resolveArtFarDistance(direction)",
+    ),
+  "Preset far distances must remain capped by the active streamed radius.",
+);
+assert(
+  worldGrassSystem.includes("private getFarImpostorOffsetRadius") &&
+    worldGrassSystem.includes(
+      "impostorRadius + this.getFarImpostorOffsetRadius()",
+    ),
+  "Far-impostor bounds must include layered-card offsets.",
+);
+assert(
+  !/impostorAtlasFactory\.create\(\s*variants\.bladeVariants\[index\],\s*grassConfig\.geometry,\s*grassConfig\.material,/s.test(
+    worldGrassSystem,
+  ),
+  "The palette-neutral atlas factory must not depend on display material colors.",
 );
 
 const ultraNearDistance = readYamlNumber(
@@ -258,6 +373,22 @@ const midBladeFraction = readYamlNumber(
   worldConfig,
   "grassMidBladeFraction",
 );
+const patchDensityDesktop = readYamlNumber(
+  worldConfig,
+  "grassBladesPerSquareMeterDesktop",
+);
+const patchDensityCompact = readYamlNumber(
+  worldConfig,
+  "grassBladesPerSquareMeterCompact",
+);
+const nearDensityDesktop = readYamlNumber(
+  worldConfig,
+  "grassNearBladesPerSquareMeterDesktop",
+);
+const nearDensityCompact = readYamlNumber(
+  worldConfig,
+  "grassNearBladesPerSquareMeterCompact",
+);
 assert(
   ultraNearDistance === 4,
   "Ultra-near grass must remain four metres.",
@@ -275,8 +406,125 @@ assert(
   "Mid grass must retain every source blade.",
 );
 assert(
-  farCardsPerPatch >= 2,
-  "Far grass must retain layered impostors.",
+  patchDensityDesktop === 72 && nearDensityDesktop === 72,
+  "Desktop near and mid density must match at 72 blades/m².",
+);
+assert(
+  patchDensityCompact === 48 && nearDensityCompact === 48,
+  "Compact near and mid density must match at 48 blades/m².",
+);
+assert(
+  farCardsPerPatch === 2,
+  "Far grass must retain exactly two layered impostors.",
+);
+const midImpostorUnderfill = Number(
+  lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1],
+);
+assert(
+  midImpostorUnderfill === 0,
+  "Full-density mid blades must not carry a redundant far-card underfill layer.",
+);
+
+const expectedMidDistances = {
+  "lush-hero": 54,
+  "natural-meadow": 48,
+  "golden-hour": 46,
+  "cool-highland": 58,
+  "dense-emerald": 62,
+  windswept: 52,
+};
+function smoothstep(value, start, end) {
+  const amount = Math.max(0, Math.min(1, (value - start) / (end - start)));
+  return amount * amount * (3 - 2 * amount);
+}
+for (const [key, direction] of Object.entries(artDirections)) {
+  assert(
+    direction.midDistance === expectedMidDistances[key],
+    `${direction.label} mid distance must retain its density/performance balance.`,
+  );
+  const nearFadeEnd = direction.nearDistance + direction.transitionDistance;
+  const farEntryStart = direction.midDistance - direction.transitionDistance;
+  assert(
+    farEntryStart >= nearFadeEnd && farEntryStart - nearFadeEnd <= 16,
+    `${direction.label} must avoid both a triple-LOD overlap and a long mid-only band.`,
+  );
+  for (let sample = 0; sample <= 1000; sample += 1) {
+    const distance =
+      direction.nearDistance -
+      direction.transitionDistance +
+      (sample / 1000) * direction.transitionDistance * 2;
+    const nearCoverage =
+      1 -
+      smoothstep(
+        distance,
+        direction.nearDistance - direction.transitionDistance,
+        nearFadeEnd,
+      );
+    const farEntry = smoothstep(
+      distance,
+      farEntryStart,
+      direction.midDistance + direction.transitionDistance,
+    );
+    const midCoverage = Math.max(
+      0,
+      1 - Math.max(nearCoverage, farEntry),
+    );
+    assert(
+      farEntry === 0,
+      `${direction.label} far cards entered during the near/mid handoff.`,
+    );
+    for (const density of [nearDensityDesktop, nearDensityCompact]) {
+      const blendedDensity =
+        density * nearCoverage + density * midCoverage;
+      assert(
+        Math.abs(blendedDensity / density - 1) <= 1e-12,
+        `${direction.label} density gap at near/mid sample ${sample}.`,
+      );
+    }
+  }
+}
+
+const nearBoundsRadius =
+  runtimeMathModule.calculateGrassSingleBladeRootBoundsRadius({
+    bladeHeight: bladeHeightMax,
+    bladeWidth: readYamlNumber(grassConfig, "bladeWidthMax"),
+    bladeLean: readYamlNumber(grassConfig, "bladeLeanMax"),
+    maximumHorizontalScale: 1.2,
+    maximumVerticalScale: 1.22,
+    windStrength,
+    flutterStrength: readYamlNumber(grassConfig, "flutterStrength"),
+    maximumArtWindScale: 2,
+    maximumInstanceWindScale: 1.16,
+    maximumWindStiffness: 1.12,
+    maximumInteractionStrength: Math.max(
+      readYamlNumber(worldConfig, "grassInteractionStrength"),
+      readYamlNumber(worldConfig, "grassLandingPulseStrength"),
+    ),
+    interactionVerticalScale: 0.2,
+    safetyMargin: 0.05,
+  });
+assert(
+  nearBoundsRadius > bladeHeightMax &&
+    singleBladeFactory.includes(
+      "calculateGrassSingleBladeRootBoundsRadius",
+    ) &&
+    singleBladeFactory.includes(
+      "bounds.expandByScalar(this.calculateBoundsPadding())",
+    ),
+  "Near bounds must include configured blade, wind, and interaction displacement.",
+);
+
+const baseBlend = Number(
+  tuning.match(/IMPOSTOR_BASE_COLOR_BLEND\s*=\s*([0-9.]+)/)?.[1],
+);
+const defaultTipStrength = artDirections["lush-hero"]?.tipColorStrength;
+assert(
+  Number.isFinite(baseBlend) && baseBlend <= 0.1,
+  "Far cards must not flatten the shared blade palette.",
+);
+assert(
+  Number.isFinite(defaultTipStrength) && defaultTipStrength <= 0.4,
+  "The default root-to-tip color change is too strong.",
 );
 
 for (let sample = 0; sample <= 1000; sample += 1) {

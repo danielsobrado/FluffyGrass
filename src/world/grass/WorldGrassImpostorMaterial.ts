@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../../grass/GrassArtDirection";
+import {
+  GRASS_PALETTE_GLSL,
+  setBalancedGrassPaletteColors,
+} from "../../grass/materials/GrassPaletteShader";
 import type {
   GrassLodConfig,
   GrassMaterialConfig,
@@ -11,16 +15,14 @@ import {
 } from "../../grass/GrassLodTuning";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
 import {
-  IMPOSTOR_AERIAL_FADE_END,
-  IMPOSTOR_AERIAL_FADE_START,
   IMPOSTOR_ALPHA_CUTOFF,
   IMPOSTOR_BASE_COLOR_BLEND,
   IMPOSTOR_COLOR_SCALE,
-  IMPOSTOR_ROOT_LIGHT_MAX,
-  IMPOSTOR_ROOT_LIGHT_MIN,
 } from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
+#include <common>
+#include <lights_pars_begin>
 attribute vec4 instanceVariation;
 attribute float instanceCoverage;
 uniform float uCenterHeight;
@@ -33,6 +35,7 @@ uniform float uMidDistance;
 uniform float uFarDistance;
 uniform float uTransitionDistance;
 uniform float uMidImpostorUnderfill;
+uniform float uNormalUp;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
@@ -40,8 +43,9 @@ varying float vDryness;
 varying float vRootAo;
 varying float vFarEntry;
 varying float vTerrainCoverage;
-varying float vViewElevation;
 varying float vFieldCoverage;
+varying vec3 vGrassIrradiance;
+varying float vGrassBackLight;
 #include <fog_pars_vertex>
 
 void main() {
@@ -78,13 +82,45 @@ void main() {
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
+  // Source blades lie in local XY, so their geometric normal is local Z.
+  // Blend that same axis toward the terrain normal just like the real-blade
+  // material does before evaluating the scene lights.
+  vec3 grassWorldNormal = normalize(mix(basisZ, basisY, uNormalUp));
+  vec3 grassViewNormal = normalize(mat3(viewMatrix) * grassWorldNormal);
+  vec3 grassIrradiance = ambientLightColor;
+  #if NUM_HEMI_LIGHTS > 0
+    #pragma unroll_loop_start
+    for (int i = 0; i < NUM_HEMI_LIGHTS; i++) {
+      grassIrradiance += getHemisphereLightIrradiance(
+        hemisphereLights[i],
+        grassViewNormal
+      );
+    }
+    #pragma unroll_loop_end
+  #endif
+  #if NUM_DIR_LIGHTS > 0
+    #pragma unroll_loop_start
+    for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+      grassIrradiance +=
+        saturate(dot(grassViewNormal, directionalLights[i].direction)) *
+        directionalLights[i].color;
+    }
+    #pragma unroll_loop_end
+    vGrassBackLight = pow(
+      saturate(dot(normalize(mvPosition.xyz), directionalLights[0].direction)),
+      2.0
+    );
+  #else
+    vGrassBackLight = 0.0;
+  #endif
+  vGrassIrradiance = grassIrradiance;
+
   vec3 localViewDirection = vec3(
     dot(toCamera, basisX),
     abs(dot(toCamera, basisY)),
     dot(toCamera, basisZ)
   );
   vLocalViewDirection = normalize(localViewDirection);
-  vViewElevation = abs(dot(toCamera, basisY));
   vUv = uv;
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
@@ -123,18 +159,17 @@ uniform float uPadding;
 uniform float uAtlasSize;
 uniform float uAlphaCutoff;
 uniform float uBlendViews;
-uniform float uAerialFadeStart;
-uniform float uAerialFadeEnd;
 uniform float uBaseColorBlend;
 uniform float uColorScale;
-uniform float uRootLightMin;
-uniform float uRootLightMax;
 uniform float uArtDensityScale;
-uniform float uRootDarkening;
 uniform float uStreamCoverage;
 uniform vec3 uBaseColor;
 uniform vec3 uTipColor;
 uniform vec3 uDryColor;
+uniform float uTipColorStrength;
+uniform float uRootDarkening;
+uniform float uAmbientBoost;
+uniform float uBacklightStrength;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
@@ -142,9 +177,12 @@ varying float vDryness;
 varying float vRootAo;
 varying float vFarEntry;
 varying float vTerrainCoverage;
-varying float vViewElevation;
 varying float vFieldCoverage;
+varying vec3 vGrassIrradiance;
+varying float vGrassBackLight;
+#include <common>
 #include <fog_pars_fragment>
+${GRASS_PALETTE_GLSL}
 
 vec2 encodeHemiOctahedral(vec3 direction) {
   vec3 foldedDirection = vec3(direction.x, abs(direction.y), direction.z);
@@ -223,46 +261,69 @@ void main() {
       frame11.y = frame00.y;
     }
 
-    vec4 color00 = sampleFrame(frame00, vUv);
-    vec4 color10 = sampleFrame(vec2(frame11.x, frame00.y), vUv);
-    vec4 color01 = sampleFrame(vec2(frame00.x, frame11.y), vUv);
-    vec4 color11 = sampleFrame(frame11, vUv);
-    vec4 color0 = mix(color00, color10, frameBlend.x);
-    vec4 color1 = mix(color01, color11, frameBlend.x);
-    atlasColor = mix(color0, color1, frameBlend.y);
+    if (vFarEntry < 0.999) {
+      // Preserve a smooth silhouette while real blades are still crossfading.
+      // Atlas values are premultiplied, so the semantic channels and alpha can
+      // be blended together before the single decode below.
+      vec4 color00 = sampleFrame(frame00, vUv);
+      vec4 color10 = sampleFrame(vec2(frame11.x, frame00.y), vUv);
+      vec4 color01 = sampleFrame(vec2(frame00.x, frame11.y), vUv);
+      vec4 color11 = sampleFrame(frame11, vUv);
+      atlasColor = mix(
+        mix(color00, color10, frameBlend.x),
+        mix(color01, color11, frameBlend.x),
+        frameBlend.y
+      );
+    } else {
+      float weight00 = (1.0 - frameBlend.x) * (1.0 - frameBlend.y);
+      float weight10 = frameBlend.x * (1.0 - frameBlend.y);
+      float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
+      float viewDither = coverageNoise(
+        floor(vUv * 48.0),
+        vInstanceSeed * 173.0 + 0.37
+      );
+      vec2 selectedFrame = viewDither < weight00
+        ? frame00
+        : viewDither < weight00 + weight10
+          ? vec2(frame11.x, frame00.y)
+          : viewDither < weight00 + weight10 + weight01
+            ? vec2(frame00.x, frame11.y)
+            : frame11;
+      // Stable stochastic bilinear selection preserves the four-view average
+      // with one atlas fetch once the cards are the only grass representation.
+      atlasColor = sampleFrame(selectedFrame, vUv);
+    }
   }
 
   if (atlasColor.a < uAlphaCutoff) {
     discard;
   }
 
-  vec3 atlasData = atlasColor.rgb / max(atlasColor.a, 0.001);
-  float bladeProgress = clamp(atlasData.r, 0.0, 1.0);
-  float bladeShade = clamp(atlasData.g, 0.0, 1.0);
-  float bladeDryness = clamp(atlasData.b, 0.0, 1.0);
-  float tipBlend = smoothstep(0.08, 1.0, bladeProgress);
-  vec3 healthyColor = mix(uBaseColor, uTipColor, tipBlend * 0.32);
-  float combinedDryness = clamp(vDryness + bladeDryness, 0.0, 1.0);
-  float dryBlend = combinedDryness * (0.0324 + tipBlend * 0.0432);
-  vec3 color = mix(healthyColor, uDryColor, dryBlend);
-  float rootLight = mix(
-    uRootDarkening,
-    1.0,
-    smoothstep(0.0, 0.34, bladeProgress)
+  vec3 bladeData = clamp(
+    atlasColor.rgb / max(atlasColor.a, 0.001),
+    vec3(0.0),
+    vec3(1.0)
   );
-  rootLight = mix(rootLight, 1.0, 0.45);
-  float bladeVariation = mix(0.88, 1.06, bladeShade);
-  bladeVariation = mix(bladeVariation, 1.0, 0.55);
-  color *= rootLight * bladeVariation;
-  float terrainMatch = mix(
-    uBaseColorBlend,
-    1.0,
-    smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
+  vec3 color = grassResolvePalette(
+    uBaseColor,
+    uTipColor,
+    uDryColor,
+    bladeData.r,
+    bladeData.g,
+    vDryness,
+    vRootAo,
+    uTipColorStrength,
+    uRootDarkening
   );
-  color = mix(color, uBaseColor, terrainMatch);
+  color = mix(color, uBaseColor, uBaseColorBlend);
   color *= uColorScale;
-  color *= mix(uRootLightMin, uRootLightMax, vRootAo);
-  gl_FragColor = vec4(color, 1.0);
+  vec3 grassLambertLight =
+    color * vGrassIrradiance * RECIPROCAL_PI +
+    color * uAmbientBoost;
+  vec3 outgoingLight =
+    mix(color, grassLambertLight, 0.38) +
+    color * vGrassBackLight * uBacklightStrength * 0.2;
+  gl_FragColor = vec4(outgoingLight, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   #include <fog_fragment>
@@ -291,6 +352,7 @@ export class WorldGrassImpostorMaterial {
 
     this.uniforms = {
       ...(THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as ShaderUniforms),
+      ...(THREE.UniformsUtils.clone(THREE.UniformsLib.lights) as ShaderUniforms),
       uAtlas: { value: atlas.texture },
       uViewsPerAxis: { value: atlas.viewsPerAxis },
       uFrameResolution: { value: atlas.frameResolution },
@@ -299,14 +361,9 @@ export class WorldGrassImpostorMaterial {
       uCenterHeight: { value: atlas.centerHeight },
       uAlphaCutoff: { value: IMPOSTOR_ALPHA_CUTOFF },
       uBlendViews: { value: blendViews ? 1 : 0 },
-      uAerialFadeStart: { value: IMPOSTOR_AERIAL_FADE_START },
-      uAerialFadeEnd: { value: IMPOSTOR_AERIAL_FADE_END },
       uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
       uColorScale: { value: IMPOSTOR_COLOR_SCALE },
-      uRootLightMin: { value: IMPOSTOR_ROOT_LIGHT_MIN },
-      uRootLightMax: { value: IMPOSTOR_ROOT_LIGHT_MAX },
       uArtDensityScale: { value: 1 },
-      uRootDarkening: { value: materialConfig.rootDarkening },
       uStreamCoverage: { value: 1 },
       uDitherSeed: { value: 0 },
       uNearDistance: { value: lodConfig.nearMaxDistance },
@@ -325,7 +382,20 @@ export class WorldGrassImpostorMaterial {
       uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },
       uTipColor: { value: new THREE.Color(materialConfig.tipColor) },
       uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
+      uTipColorStrength: { value: 0.5 },
+      uRootDarkening: { value: materialConfig.rootDarkening },
+      uNormalUp: { value: materialConfig.normalUp },
+      uAmbientBoost: { value: materialConfig.ambientBoost },
+      uBacklightStrength: { value: materialConfig.backlightStrength },
     };
+    setBalancedGrassPaletteColors(
+      this.uniforms.uBaseColor.value as THREE.Color,
+      this.uniforms.uTipColor.value as THREE.Color,
+      this.uniforms.uDryColor.value as THREE.Color,
+      materialConfig.baseColor,
+      materialConfig.tipColor,
+      materialConfig.dryColor,
+    );
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: VERTEX_SHADER,
@@ -335,20 +405,28 @@ export class WorldGrassImpostorMaterial {
       depthWrite: true,
       depthTest: true,
       fog: true,
+      lights: true,
       toneMapped: true,
     });
     this.material.name = "world-grass-hemi-octahedral-impostor";
   }
 
   applyArtDirection(direction: GrassArtDirection): void {
-    (this.uniforms.uBaseColor.value as THREE.Color).set(direction.baseColor);
-    (this.uniforms.uTipColor.value as THREE.Color).set(direction.tipColor);
-    (this.uniforms.uDryColor.value as THREE.Color).set(direction.dryColor);
+    setBalancedGrassPaletteColors(
+      this.uniforms.uBaseColor.value as THREE.Color,
+      this.uniforms.uTipColor.value as THREE.Color,
+      this.uniforms.uDryColor.value as THREE.Color,
+      direction.baseColor,
+      direction.tipColor,
+      direction.dryColor,
+    );
+    this.uniforms.uTipColorStrength.value = direction.tipColorStrength;
     this.uniforms.uRootDarkening.value = direction.rootDarkening;
+    this.uniforms.uNormalUp.value = direction.normalUp;
+    this.uniforms.uAmbientBoost.value = direction.ambientBoost;
+    this.uniforms.uBacklightStrength.value = direction.backlightStrength;
     this.uniforms.uBaseColorBlend.value = direction.impostorBaseColorBlend;
     this.uniforms.uColorScale.value = direction.impostorColorScale;
-    this.uniforms.uRootLightMin.value = direction.impostorRootLightMin;
-    this.uniforms.uRootLightMax.value = direction.impostorRootLightMax;
     this.uniforms.uArtDensityScale.value = direction.densityScale;
     this.uniforms.uWindStrength.value =
       this.baseWindStrength * direction.windStrengthScale;

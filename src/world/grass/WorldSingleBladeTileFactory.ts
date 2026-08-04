@@ -6,9 +6,12 @@ import type { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial"
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
+import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
 
 export interface WorldSingleBladeTile {
   key: string;
+  tileX: number;
+  tileZ: number;
   mesh: THREE.InstancedMesh;
   bladeCount: number;
 }
@@ -18,6 +21,9 @@ export interface WorldSingleBladeTileBuildOptions {
   tileX: number;
   tileZ: number;
   densityMultiplier: number;
+  bladeSegments: number;
+  receiveShadows: boolean;
+  detailMode: number;
   seedSalt: number;
   namePrefix: string;
   material: GrassNearMaterial;
@@ -26,11 +32,17 @@ export interface WorldSingleBladeTileBuildOptions {
 const TWO_PI = Math.PI * 2;
 const POSITION_JITTER = 0.46;
 const MIN_SUITABILITY = 0.08;
-const BOUNDS_PADDING = 1.5;
+const INSTANCE_HORIZONTAL_SCALE_MAX = 1.2;
+const INSTANCE_VERTICAL_SCALE_MAX = 1.22;
+const MAXIMUM_ART_WIND_SCALE = 2;
+const MAXIMUM_INSTANCE_WIND_SCALE = 1.16;
+const MAXIMUM_WIND_STIFFNESS = 1.12;
+const INTERACTION_VERTICAL_SCALE = 0.2;
+const BOUNDS_SAFETY_MARGIN = 0.05;
 
 export class WorldSingleBladeTileFactory {
   private readonly geometryFactory = new GrassGeometryFactory();
-  private readonly sourceGeometry: THREE.BufferGeometry;
+  private readonly sourceGeometries = new Map<number, THREE.BufferGeometry>();
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly normal = new THREE.Vector3();
   private readonly align = new THREE.Quaternion();
@@ -44,9 +56,7 @@ export class WorldSingleBladeTileFactory {
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
     private readonly grassConfig: GrassConfig,
-  ) {
-    this.sourceGeometry = this.createSingleBladeGeometry(grassConfig);
-  }
+  ) {}
 
   build(options: WorldSingleBladeTileBuildOptions): WorldSingleBladeTile | undefined {
     if (options.densityMultiplier <= 0) {
@@ -79,6 +89,7 @@ export class WorldSingleBladeTileFactory {
     const matrixValues = new Float32Array(requestedCount * 16);
     const variations = new Float32Array(requestedCount * 4);
     const coverages = new Float32Array(requestedCount);
+    const bounds = new THREE.Box3();
     let bladeCount = 0;
 
     for (let index = 0; index < requestedCount; index += 1) {
@@ -109,20 +120,21 @@ export class WorldSingleBladeTileFactory {
         height - this.grassConfig.distribution.rootSink,
         z,
       );
+      bounds.expandByPoint(this.position);
       this.align.setFromUnitVectors(this.up, this.normal);
       this.yaw.setFromAxisAngle(this.up, random.range(0, TWO_PI));
       this.align.multiply(this.yaw);
       this.scale.set(
-        random.range(0.76, 1.2),
-        random.range(0.78, 1.22),
-        random.range(0.76, 1.2),
+        random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
+        random.range(0.78, INSTANCE_VERTICAL_SCALE_MAX),
+        random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
       );
       this.matrix.compose(this.position, this.align, this.scale);
       this.matrix.toArray(matrixValues, bladeCount * 16);
       const variationOffset = bladeCount * 4;
       variations[variationOffset] = random.next();
       variations[variationOffset + 1] = random.range(0.84, 1.16);
-      variations[variationOffset + 2] = random.range(0.98, 1.04);
+      variations[variationOffset + 2] = random.range(0.97, 1.03);
       variations[variationOffset + 3] = THREE.MathUtils.clamp(
         (1 - suitability) * 0.25 + random.range(0, 0.06),
         0,
@@ -136,8 +148,9 @@ export class WorldSingleBladeTileFactory {
       return undefined;
     }
 
+    const sourceGeometry = this.getSourceGeometry(options.bladeSegments);
     const geometry = this.geometryFactory.createInstancedGeometry(
-      this.sourceGeometry,
+      sourceGeometry,
       variations.subarray(0, bladeCount * 4),
       coverages.subarray(0, bladeCount),
     );
@@ -148,20 +161,13 @@ export class WorldSingleBladeTileFactory {
     );
     mesh.name = `${options.namePrefix}-${options.key}`;
     mesh.castShadow = false;
-    mesh.receiveShadow = this.profile.shadows;
+    mesh.receiveShadow = options.receiveShadows && this.profile.shadows;
     mesh.frustumCulled = true;
     mesh.instanceMatrix.array.set(matrixValues.subarray(0, bladeCount * 16));
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     mesh.instanceMatrix.needsUpdate = true;
 
-    const bounds = new THREE.Box3(
-      new THREE.Vector3(originX, -this.worldConfig.mountainHeight, originZ),
-      new THREE.Vector3(
-        originX + tileSize,
-        this.worldConfig.mountainHeight + BOUNDS_PADDING,
-        originZ + tileSize,
-      ),
-    );
+    bounds.expandByScalar(this.calculateBoundsPadding());
     mesh.boundingBox = bounds;
     mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
     options.material.bindMesh(
@@ -177,9 +183,16 @@ export class WorldSingleBladeTileFactory {
       1,
       1,
       true,
+      options.detailMode,
     );
 
-    return { key: options.key, mesh, bladeCount };
+    return {
+      key: options.key,
+      tileX: options.tileX,
+      tileZ: options.tileZ,
+      mesh,
+      bladeCount,
+    };
   }
 
   disposeTile(tile: WorldSingleBladeTile): void {
@@ -187,11 +200,47 @@ export class WorldSingleBladeTileFactory {
   }
 
   dispose(): void {
-    this.sourceGeometry.dispose();
+    for (const geometry of this.sourceGeometries.values()) {
+      geometry.dispose();
+    }
+    this.sourceGeometries.clear();
   }
 
-  private createSingleBladeGeometry(config: GrassConfig): THREE.BufferGeometry {
-    const segments = Math.max(2, config.geometry.bladeSegments);
+  private getSourceGeometry(bladeSegments: number): THREE.BufferGeometry {
+    const segments = Math.max(1, Math.round(bladeSegments));
+    let geometry = this.sourceGeometries.get(segments);
+    if (!geometry) {
+      geometry = this.createSingleBladeGeometry(this.grassConfig, segments);
+      this.sourceGeometries.set(segments, geometry);
+    }
+    return geometry;
+  }
+
+  private calculateBoundsPadding(): number {
+    return calculateGrassSingleBladeRootBoundsRadius({
+      bladeHeight: this.grassConfig.geometry.bladeHeightMax,
+      bladeWidth: this.grassConfig.geometry.bladeWidthMax,
+      bladeLean: this.grassConfig.geometry.bladeLeanMax,
+      maximumHorizontalScale: INSTANCE_HORIZONTAL_SCALE_MAX,
+      maximumVerticalScale: INSTANCE_VERTICAL_SCALE_MAX,
+      windStrength: this.grassConfig.wind.strength,
+      flutterStrength: this.grassConfig.wind.flutterStrength,
+      maximumArtWindScale: MAXIMUM_ART_WIND_SCALE,
+      maximumInstanceWindScale: MAXIMUM_INSTANCE_WIND_SCALE,
+      maximumWindStiffness: MAXIMUM_WIND_STIFFNESS,
+      maximumInteractionStrength: Math.max(
+        this.worldConfig.grassInteractionStrength,
+        this.worldConfig.grassLandingPulseStrength,
+      ),
+      interactionVerticalScale: INTERACTION_VERTICAL_SCALE,
+      safetyMargin: BOUNDS_SAFETY_MARGIN,
+    });
+  }
+
+  private createSingleBladeGeometry(
+    config: GrassConfig,
+    segments: number,
+  ): THREE.BufferGeometry {
     const height =
       (config.geometry.bladeHeightMin + config.geometry.bladeHeightMax) * 0.5;
     const width =
@@ -205,7 +254,16 @@ export class WorldSingleBladeTileFactory {
     const shades: number[] = [];
     const indices: number[] = [];
 
-    for (let segment = 0; segment <= segments; segment += 1) {
+    if (segments === 1) {
+      positions.push(-width * 0.5, 0, 0, width * 0.5, 0, 0, 0, height, lean);
+      uvs.push(0, 0, 1, 0, 0.5, 1);
+      progress.push(0, 0, 1);
+      phases.push(0.5, 0.5, 0.5);
+      shades.push(0.5, 0.5, 0.5);
+      indices.push(0, 1, 2);
+    }
+
+    for (let segment = 0; segments > 1 && segment <= segments; segment += 1) {
       const amount = segment / segments;
       const curve = amount * amount * (3 - 2 * amount);
       const taper = Math.pow(1 - amount, 0.72);
@@ -225,7 +283,7 @@ export class WorldSingleBladeTileFactory {
       shades.push(0.5, 0.5);
     }
 
-    for (let segment = 0; segment < segments; segment += 1) {
+    for (let segment = 0; segments > 1 && segment < segments; segment += 1) {
       const row = segment * 2;
       indices.push(row, row + 2, row + 1, row + 2, row + 3, row + 1);
     }

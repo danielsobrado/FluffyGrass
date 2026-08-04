@@ -61,20 +61,24 @@ export class GrassLodController {
       this.config.nearMaxDistance - this.config.transitionDistance;
     const nearFadeEnd =
       this.config.nearMaxDistance + this.config.transitionDistance;
+    const farEntryStart =
+      this.config.midMaxDistance - this.config.transitionDistance;
     const farEntryEnd =
       this.config.midMaxDistance + this.config.transitionDistance;
     const terrainFadeEnd =
       this.config.farMaxDistance + this.config.transitionDistance;
 
     patch.nearMesh.visible =
-      patch.inFrustum && patch.distance < nearFadeEnd;
+      patch.nearMesh.userData.grassDisabledNearPatch !== true &&
+      patch.inFrustum &&
+      patch.distance < nearFadeEnd;
     patch.midMesh.visible =
       patch.inFrustum &&
       farthestDistance > nearFadeStart &&
       patch.distance < farEntryEnd;
     farMesh.visible =
       patch.inFrustum &&
-      farthestDistance > nearFadeStart &&
+      farthestDistance > farEntryStart &&
       patch.distance < terrainFadeEnd;
 
     patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;

@@ -20,8 +20,8 @@ grassPatchSize: 4
 grassRenderBatchesPerAxis: 2
 # Use layered full-footprint octahedral cards to avoid sparse far silhouettes.
 grassFarImpostorsPerPatch: 2
-grassBladesPerSquareMeterDesktop: 36
-grassBladesPerSquareMeterCompact: 26
+grassBladesPerSquareMeterDesktop: 72
+grassBladesPerSquareMeterCompact: 48
 
 # Closest LOD uses individually instanced blades in streamed eight-metre tiles.
 grassNearTileSize: 8

@@ -7,6 +7,10 @@ import type {
 } from "../GrassConfig";
 import type { GrassArtDirection } from "../GrassArtDirection";
 import { grassInteractionField } from "../interaction/GrassInteractionField";
+import {
+  GRASS_PALETTE_GLSL,
+  setBalancedGrassPaletteColors,
+} from "./GrassPaletteShader";
 
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
@@ -28,12 +32,20 @@ uniform float uGrassUseWorldLod;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
+uniform float uGrassDetailMode;
+uniform float uGrassDetailNearDistance;
+uniform float uGrassDetailTransitionDistance;
 uniform float uGrassInteractionEnabled;
 uniform vec2 uGrassInteractionStart;
 uniform vec2 uGrassInteractionEnd;
 uniform vec2 uGrassInteractionDirection;
 uniform float uGrassInteractionRadius;
 uniform float uGrassInteractionStrength;
+uniform float uGrassLodThreshold;
+uniform float uGrassLodInvert;
+uniform float uGrassDistanceFade;
+uniform float uGrassStreamCoverage;
+uniform float uGrassArtDensityScale;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -43,107 +55,25 @@ varying float vGrassFieldDither;
 varying float vGrassFieldCoverage;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
-varying float vGrassCameraDistance;
+varying float vGrassDetailCoverage;
 `;
 
 const VERTEX_WIND = `
 vec4 grassWorldRoot = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-vec2 grassWindDirection = uGrassWindDirection;
-float grassGust = sin(
-  dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
-  uGrassTime * uGrassGustSpeed +
-  instanceVariation.x * 6.28318530718
-);
-float grassFlutter = sin(
-  dot(grassWorldRoot.xz, vec2(-grassWindDirection.y, grassWindDirection.x)) /
-    (uGrassGustScale * 0.37) +
-  uGrassTime * uGrassFlutterSpeed +
-  grassPhase * 6.28318530718
-);
-float grassStiffness = mix(0.76, 1.12, fract(grassPhase * 1.61803398875));
-float grassBend = (
-  grassGust * uGrassWindStrength +
-  grassFlutter * uGrassFlutterStrength
-) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) * uGrassWindLodScale;
-mat3 grassInstanceBasis = mat3(instanceMatrix);
-float grassHorizontalScale = max(length(grassInstanceBasis[0]), 0.0001);
-float grassVerticalScale = max(length(grassInstanceBasis[1]), 0.0001);
-vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
-vec3 grassLocalWind = vec3(
-  dot(grassWorldWind, grassInstanceBasis[0] / grassHorizontalScale),
-  dot(grassWorldWind, grassInstanceBasis[1] / grassVerticalScale),
-  dot(grassWorldWind, grassInstanceBasis[2] / grassHorizontalScale)
-);
-transformed += grassLocalWind * grassBend;
-
-if (uGrassInteractionEnabled > 0.5) {
-  vec2 interactionSegment = uGrassInteractionEnd - uGrassInteractionStart;
-  float interactionLengthSquared = max(dot(interactionSegment, interactionSegment), 0.0001);
-  float interactionT = clamp(
-    dot(grassWorldRoot.xz - uGrassInteractionStart, interactionSegment) /
-      interactionLengthSquared,
-    0.0,
-    1.0
-  );
-  vec2 interactionClosest =
-    uGrassInteractionStart + interactionSegment * interactionT;
-  vec2 interactionOffset = grassWorldRoot.xz - interactionClosest;
-  float interactionDistance = length(interactionOffset);
-  vec2 interactionPerpendicular = vec2(
-    -uGrassInteractionDirection.y,
-    uGrassInteractionDirection.x
-  );
-  float interactionSide = dot(interactionOffset, interactionPerpendicular);
-  float interactionFallbackSide =
-    fract(instanceVariation.x * 91.173 + grassPhase * 17.731) < 0.5 ? -1.0 : 1.0;
-  float resolvedSide = abs(interactionSide) > 0.0001
-    ? sign(interactionSide)
-    : interactionFallbackSide;
-  vec2 interactionAway = interactionDistance > 0.0001
-    ? interactionOffset / interactionDistance
-    : interactionPerpendicular * resolvedSide;
-  float interactionFalloff = 1.0 - smoothstep(
-    uGrassInteractionRadius * 0.16,
-    uGrassInteractionRadius,
-    interactionDistance
-  );
-  float interactionProgress = pow(grassProgress, 1.22);
-  float interactionBend =
-    interactionFalloff * uGrassInteractionStrength * interactionProgress;
-  vec3 interactionWorldPush = vec3(
-    interactionAway.x,
-    0.0,
-    interactionAway.y
-  );
-  vec3 interactionLocalPush = vec3(
-    dot(interactionWorldPush, grassInstanceBasis[0] / grassHorizontalScale),
-    dot(interactionWorldPush, grassInstanceBasis[1] / grassVerticalScale),
-    dot(interactionWorldPush, grassInstanceBasis[2] / grassHorizontalScale)
-  );
-  transformed += interactionLocalPush * interactionBend;
-  transformed.y -= interactionFalloff * uGrassInteractionStrength * 0.2 * interactionProgress;
-}
-
-vGrassProgress = grassProgress;
-vGrassShade = grassBladeShade;
-vGrassDryness = instanceVariation.w;
-vGrassRootAo = instanceVariation.z;
-vGrassDither = fract(
+float grassDither = fract(
   grassBladeShade * 0.754877666 +
   grassPhase * 0.569840296 +
   instanceVariation.x +
   uGrassDitherSeed
 );
-vGrassFieldDither = fract(
+float grassFieldDither = fract(
   grassBladeShade * 0.438289 +
   grassPhase * 0.819173 +
   instanceVariation.x * 0.347193 +
   uGrassDitherSeed * 1.618034
 );
-vGrassFieldCoverage = instanceCoverage;
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
-vGrassCameraDistance = grassCameraDistance;
-vGrassNearCoverage = 1.0 - smoothstep(
+float grassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
   uGrassNearDistance + uGrassTransitionDistance,
   grassCameraDistance
@@ -153,7 +83,126 @@ float grassFarDistanceEntry = smoothstep(
   uGrassMidDistance + uGrassTransitionDistance,
   grassCameraDistance
 );
+float grassDetailCoverage = 1.0 - smoothstep(
+  uGrassDetailNearDistance - uGrassDetailTransitionDistance,
+  uGrassDetailNearDistance + uGrassDetailTransitionDistance,
+  grassCameraDistance
+);
+bool grassKeepLod = uGrassUseWorldLod > 0.5
+  ? (uGrassLodInvert < 0.5
+      ? grassDither <= grassNearCoverage
+      : grassDither > grassNearCoverage &&
+        grassDither > grassFarDistanceEntry)
+  : (uGrassLodInvert < 0.5
+      ? grassDither <= uGrassLodThreshold
+      : grassDither > uGrassLodThreshold);
+bool grassKeepDetail = uGrassDetailMode < 0.5 ||
+  (uGrassDetailMode < 1.5
+    ? grassDither > grassDetailCoverage
+    : grassDither <= grassDetailCoverage);
+bool grassKeepBlade =
+  grassKeepLod &&
+  grassKeepDetail &&
+  grassFieldDither <= min(instanceCoverage * uGrassArtDensityScale, 1.0) &&
+  grassDither <= uGrassDistanceFade &&
+  grassDither <= uGrassStreamCoverage;
+
+if (!grassKeepBlade) {
+  // Every vertex in a blade shares the keep decision, so rejected blades can
+  // become degenerate before rasterization while the fragment guard remains
+  // as a precision-safe fallback.
+  transformed = vec3(0.0);
+}
+
+if (grassKeepBlade && grassProgress > 0.001) {
+  vec2 grassWindDirection = uGrassWindDirection;
+  mat3 grassInstanceBasis = mat3(instanceMatrix);
+  float grassHorizontalScale = max(length(grassInstanceBasis[0]), 0.0001);
+  float grassVerticalScale = max(length(grassInstanceBasis[1]), 0.0001);
+  float grassDepthScale = max(length(grassInstanceBasis[2]), 0.0001);
+  float grassGust = sin(
+    dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
+    uGrassTime * uGrassGustSpeed +
+    instanceVariation.x * 6.28318530718
+  );
+  float grassFlutter = sin(
+    dot(grassWorldRoot.xz, vec2(-grassWindDirection.y, grassWindDirection.x)) /
+      (uGrassGustScale * 0.37) +
+    uGrassTime * uGrassFlutterSpeed +
+    grassPhase * 6.28318530718
+  );
+  float grassStiffness = mix(0.76, 1.12, fract(grassPhase * 1.61803398875));
+  float grassBend = (
+    grassGust * uGrassWindStrength +
+    grassFlutter * uGrassFlutterStrength
+  ) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) * uGrassWindLodScale;
+  vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
+  vec3 grassLocalWind = vec3(
+    dot(grassWorldWind, grassInstanceBasis[0] / grassHorizontalScale),
+    dot(grassWorldWind, grassInstanceBasis[1] / grassVerticalScale),
+    dot(grassWorldWind, grassInstanceBasis[2] / grassDepthScale)
+  );
+  transformed += grassLocalWind * grassBend;
+
+  if (uGrassInteractionEnabled > 0.5) {
+    vec2 interactionSegment = uGrassInteractionEnd - uGrassInteractionStart;
+    float interactionLengthSquared = max(dot(interactionSegment, interactionSegment), 0.0001);
+    float interactionT = clamp(
+      dot(grassWorldRoot.xz - uGrassInteractionStart, interactionSegment) /
+        interactionLengthSquared,
+      0.0,
+      1.0
+    );
+    vec2 interactionClosest =
+      uGrassInteractionStart + interactionSegment * interactionT;
+    vec2 interactionOffset = grassWorldRoot.xz - interactionClosest;
+    float interactionDistance = length(interactionOffset);
+    vec2 interactionPerpendicular = vec2(
+      -uGrassInteractionDirection.y,
+      uGrassInteractionDirection.x
+    );
+    float interactionSide = dot(interactionOffset, interactionPerpendicular);
+    float interactionFallbackSide =
+      fract(instanceVariation.x * 91.173 + grassPhase * 17.731) < 0.5 ? -1.0 : 1.0;
+    float resolvedSide = abs(interactionSide) > 0.0001
+      ? sign(interactionSide)
+      : interactionFallbackSide;
+    vec2 interactionAway = interactionDistance > 0.0001
+      ? interactionOffset / interactionDistance
+      : interactionPerpendicular * resolvedSide;
+    float interactionFalloff = 1.0 - smoothstep(
+      uGrassInteractionRadius * 0.16,
+      uGrassInteractionRadius,
+      interactionDistance
+    );
+    float interactionProgress = pow(grassProgress, 1.22);
+    float interactionBend =
+      interactionFalloff * uGrassInteractionStrength * interactionProgress;
+    vec3 interactionWorldPush = vec3(
+      interactionAway.x,
+      0.0,
+      interactionAway.y
+    );
+    vec3 interactionLocalPush = vec3(
+      dot(interactionWorldPush, grassInstanceBasis[0] / grassHorizontalScale),
+      dot(interactionWorldPush, grassInstanceBasis[1] / grassVerticalScale),
+      dot(interactionWorldPush, grassInstanceBasis[2] / grassDepthScale)
+    );
+    transformed += interactionLocalPush * interactionBend;
+    transformed.y -= interactionFalloff * uGrassInteractionStrength * 0.2 * interactionProgress;
+  }
+}
+
+vGrassProgress = grassProgress;
+vGrassShade = grassBladeShade;
+vGrassDryness = instanceVariation.w;
+vGrassRootAo = instanceVariation.z;
+vGrassDither = grassDither;
+vGrassFieldDither = grassFieldDither;
+vGrassFieldCoverage = instanceCoverage;
+vGrassNearCoverage = grassNearCoverage;
 vGrassFarEntry = grassFarDistanceEntry;
+vGrassDetailCoverage = grassDetailCoverage;
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -161,6 +210,7 @@ uniform vec3 uGrassBaseColor;
 uniform vec3 uGrassTipColor;
 uniform vec3 uGrassDryColor;
 uniform float uGrassRootDarkening;
+uniform float uGrassTipColorStrength;
 uniform float uGrassAmbientBoost;
 uniform float uGrassBacklightStrength;
 uniform float uGrassLodThreshold;
@@ -173,6 +223,7 @@ uniform float uGrassArtDensityScale;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
+uniform float uGrassDetailMode;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -182,7 +233,8 @@ varying float vGrassFieldDither;
 varying float vGrassFieldCoverage;
 varying float vGrassNearCoverage;
 varying float vGrassFarEntry;
-varying float vGrassCameraDistance;
+varying float vGrassDetailCoverage;
+${GRASS_PALETTE_GLSL}
 `;
 
 const FRAGMENT_COLOR = `
@@ -199,53 +251,30 @@ if (uGrassUseWorldLod > 0.5) {
     ? grassDither <= uGrassLodThreshold
     : grassDither > uGrassLodThreshold;
 }
+bool grassKeepDetail = uGrassDetailMode < 0.5 ||
+  (uGrassDetailMode < 1.5
+    ? grassDither > vGrassDetailCoverage
+    : grassDither <= vGrassDetailCoverage);
 if (
   !grassKeepLod ||
+  !grassKeepDetail ||
   vGrassFieldDither > min(vGrassFieldCoverage * uGrassArtDensityScale, 1.0) ||
   grassDither > uGrassDistanceFade ||
   grassDither > uGrassStreamCoverage
 ) {
   discard;
 }
-float grassPaletteBlend = uGrassUseWorldLod > 0.5
-  ? smoothstep(
-      uGrassNearDistance - uGrassTransitionDistance,
-      uGrassMidDistance + uGrassTransitionDistance,
-      vGrassCameraDistance
-    )
-  : 0.0;
-float grassTipBlend = smoothstep(0.08, 1.0, vGrassProgress);
-float grassTipStrength = uGrassUseWorldLod > 0.5
-  ? mix(0.82, 0.32, grassPaletteBlend)
-  : 1.0;
-vec3 grassHealthyColor = mix(
+diffuseColor.rgb = grassResolvePalette(
   uGrassBaseColor,
   uGrassTipColor,
-  grassTipBlend * grassTipStrength
-);
-float grassDryBlend = vGrassDryness * (0.18 + grassTipBlend * 0.24);
-if (uGrassUseWorldLod > 0.5) {
-  grassDryBlend *= mix(1.0, 0.18, grassPaletteBlend);
-}
-vec3 grassColor = mix(
-  grassHealthyColor,
   uGrassDryColor,
-  grassDryBlend
+  vGrassProgress,
+  vGrassShade,
+  vGrassDryness,
+  vGrassRootAo,
+  uGrassTipColorStrength,
+  uGrassRootDarkening
 );
-float grassRootLight = mix(
-  uGrassRootDarkening,
-  1.0,
-  smoothstep(0.0, 0.34, vGrassProgress)
-);
-grassRootLight = mix(grassRootLight, 1.0, grassPaletteBlend * 0.45);
-float grassBladeVariation = mix(0.88, 1.06, vGrassShade);
-grassBladeVariation = mix(
-  grassBladeVariation,
-  1.0,
-  grassPaletteBlend * 0.55
-);
-diffuseColor.rgb = grassColor * grassRootLight * grassBladeVariation * vGrassRootAo;
-diffuseColor.rgb *= mix(1.0, uGrassLodColorScale, grassPaletteBlend);
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
@@ -255,13 +284,15 @@ float grassBackLight = 0.0;
   grassBackLight = pow(
     saturate(dot(-normalize(vViewPosition), directionalLights[0].direction)),
     2.0
-  ) * smoothstep(0.18, 1.0, vGrassProgress);
+  );
 #endif
-vec3 outgoingLight =
+vec3 grassLambertLight =
   reflectedLight.directDiffuse +
   reflectedLight.indirectDiffuse +
-  totalEmissiveRadiance +
-  uGrassTipColor * grassBackLight * uGrassBacklightStrength;
+  totalEmissiveRadiance;
+vec3 outgoingLight =
+  mix(diffuseColor.rgb, grassLambertLight, 0.38) +
+  diffuseColor.rgb * grassBackLight * uGrassBacklightStrength * 0.2;
 `;
 
 export class GrassNearMaterial {
@@ -285,6 +316,7 @@ export class GrassNearMaterial {
     uGrassTipColor: { value: new THREE.Color(this.colorControls.tipColor) },
     uGrassDryColor: { value: new THREE.Color(this.colorControls.dryColor) },
     uGrassRootDarkening: { value: 0.55 },
+    uGrassTipColorStrength: { value: 0.5 },
     uGrassNormalUp: { value: 0.45 },
     uGrassAmbientBoost: { value: 0.12 },
     uGrassBacklightStrength: { value: 0.16 },
@@ -297,6 +329,9 @@ export class GrassNearMaterial {
     uGrassNearDistance: { value: 0 },
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
+    uGrassDetailMode: { value: 0 },
+    uGrassDetailNearDistance: { value: 0 },
+    uGrassDetailTransitionDistance: { value: 1 },
     uGrassLodColorScale: { value: 1 },
     uGrassStreamCoverage: { value: 1 },
     uGrassArtDensityScale: { value: 1 },
@@ -311,6 +346,14 @@ export class GrassNearMaterial {
   private baseFlutterStrength = 0.035;
 
   constructor() {
+    setBalancedGrassPaletteColors(
+      this.uniforms.uGrassBaseColor.value,
+      this.uniforms.uGrassTipColor.value,
+      this.uniforms.uGrassDryColor.value,
+      this.colorControls.baseColor,
+      this.colorControls.tipColor,
+      this.colorControls.dryColor,
+    );
     this.material = new THREE.MeshLambertMaterial({
       side: THREE.DoubleSide,
       color: 0xffffff,
@@ -338,16 +381,14 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v11";
+    this.material.customProgramCacheKey = () => "grass-near-material-v14";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
     this.colorControls.baseColor = material.baseColor;
     this.colorControls.tipColor = material.tipColor;
     this.colorControls.dryColor = material.dryColor;
-    this.uniforms.uGrassBaseColor.value.set(material.baseColor);
-    this.uniforms.uGrassTipColor.value.set(material.tipColor);
-    this.uniforms.uGrassDryColor.value.set(material.dryColor);
+    this.setPaletteColors();
     this.uniforms.uGrassRootDarkening.value = material.rootDarkening;
     this.uniforms.uGrassNormalUp.value = material.normalUp;
     this.uniforms.uGrassAmbientBoost.value = material.ambientBoost;
@@ -368,10 +409,9 @@ export class GrassNearMaterial {
     this.colorControls.baseColor = direction.baseColor;
     this.colorControls.tipColor = direction.tipColor;
     this.colorControls.dryColor = direction.dryColor;
-    this.uniforms.uGrassBaseColor.value.set(direction.baseColor);
-    this.uniforms.uGrassTipColor.value.set(direction.tipColor);
-    this.uniforms.uGrassDryColor.value.set(direction.dryColor);
+    this.setPaletteColors();
     this.uniforms.uGrassRootDarkening.value = direction.rootDarkening;
+    this.uniforms.uGrassTipColorStrength.value = direction.tipColorStrength;
     this.uniforms.uGrassNormalUp.value = direction.normalUp;
     this.uniforms.uGrassAmbientBoost.value = direction.ambientBoost;
     this.uniforms.uGrassBacklightStrength.value = direction.backlightStrength;
@@ -388,6 +428,12 @@ export class GrassNearMaterial {
     this.uniforms.uGrassTransitionDistance.value = config.transitionDistance;
   }
 
+  configureDetailLod(config: GrassLodConfig): void {
+    this.uniforms.uGrassDetailNearDistance.value = config.nearMaxDistance;
+    this.uniforms.uGrassDetailTransitionDistance.value =
+      config.transitionDistance;
+  }
+
   bindMesh(
     mesh: THREE.InstancedMesh,
     ditherSeed: number,
@@ -397,6 +443,7 @@ export class GrassNearMaterial {
     lodColorScale = 1,
     initialStreamCoverage = 1,
     renderSingleBladeNear = false,
+    detailMode = 0,
   ): void {
     if (useWorldLod && !invertLodCoverage && !renderSingleBladeNear) {
       mesh.count = 0;
@@ -417,7 +464,12 @@ export class GrassNearMaterial {
       this.uniforms.uGrassLodColorScale.value = lodColorScale;
       this.uniforms.uGrassStreamCoverage.value =
         mesh.userData.grassStreamCoverage ?? 1;
-      this.uniforms.uGrassInteractionEnabled.value = renderSingleBladeNear ? 1 : 0;
+      this.uniforms.uGrassDetailMode.value = detailMode;
+      this.uniforms.uGrassInteractionEnabled.value =
+        renderSingleBladeNear &&
+        mesh.userData.grassInteractionEnabled === true
+          ? 1
+          : 0;
     };
   }
 
@@ -433,17 +485,34 @@ export class GrassNearMaterial {
       : 0;
   }
 
+  private setPaletteColors(): void {
+    setBalancedGrassPaletteColors(
+      this.uniforms.uGrassBaseColor.value,
+      this.uniforms.uGrassTipColor.value,
+      this.uniforms.uGrassDryColor.value,
+      this.colorControls.baseColor,
+      this.colorControls.tipColor,
+      this.colorControls.dryColor,
+    );
+  }
+
   setupGUI(gui: GUI): void {
     const folder = gui.addFolder("Grass Props");
     folder.addColor(this.colorControls, "baseColor").onChange((value: string) => {
-      this.uniforms.uGrassBaseColor.value.set(value);
+      this.colorControls.baseColor = value;
+      this.setPaletteColors();
     });
     folder.addColor(this.colorControls, "tipColor").onChange((value: string) => {
-      this.uniforms.uGrassTipColor.value.set(value);
+      this.colorControls.tipColor = value;
+      this.setPaletteColors();
     });
     folder.addColor(this.colorControls, "dryColor").onChange((value: string) => {
-      this.uniforms.uGrassDryColor.value.set(value);
+      this.colorControls.dryColor = value;
+      this.setPaletteColors();
     });
+    folder
+      .add(this.uniforms.uGrassTipColorStrength, "value", 0.15, 0.75, 0.01)
+      .name("Tip Mix");
     folder
       .add(this.uniforms.uGrassWindStrength, "value", 0, 0.45, 0.005)
       .name("Wind Strength");

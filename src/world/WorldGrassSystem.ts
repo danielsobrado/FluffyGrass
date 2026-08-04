@@ -332,7 +332,6 @@ export class WorldGrassSystem {
       const atlas = this.impostorAtlasFactory.create(
         variants.bladeVariants[index],
         grassConfig.geometry,
-        grassConfig.material,
         this.worldConfig.grassPatchSize,
         grassConfig.impostor,
       );
@@ -761,7 +760,9 @@ export class WorldGrassSystem {
       const variationOffset = instanceIndex * 4;
       batch.variations[variationOffset] = job.random.next();
       batch.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
-      batch.variations[variationOffset + 2] = job.random.range(0.97, 1.04);
+      // Patch-scale tone survives impostor minification and avoids a uniform
+      // far field while remaining zero-mean across the landscape.
+      batch.variations[variationOffset + 2] = job.random.range(0.94, 1.06);
       batch.variations[variationOffset + 3] = THREE.MathUtils.clamp(
         (1 - suitability) * 0.34 + job.random.range(0, 0.09),
         0,
@@ -1044,7 +1045,9 @@ export class WorldGrassSystem {
     );
     mesh.name = name;
     mesh.castShadow = false;
-    mesh.receiveShadow = this.profile.shadows;
+    // Millions of mid-distance blades do not need an individual shadow-map
+    // lookup. Ultra-near interactive blades retain received shadows.
+    mesh.receiveShadow = false;
     mesh.frustumCulled = false;
     mesh.instanceMatrix.array.set(
       matrixValues.subarray(0, instanceCount * 16),

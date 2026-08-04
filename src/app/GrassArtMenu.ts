@@ -8,6 +8,10 @@ type NumericSetting =
   | "densityScale"
   | "windStrengthScale"
   | "flutterStrengthScale"
+  | "tipColorStrength"
+  | "rootDarkening"
+  | "impostorBaseColorBlend"
+  | "impostorColorScale"
   | "nearDistance"
   | "midDistance"
   | "farDistance"
@@ -52,6 +56,10 @@ export class GrassArtMenu {
     this.addRange("Density", "densityScale", 0.45, 1, 0.01);
     this.addRange("Wind", "windStrengthScale", 0, 2, 0.05);
     this.addRange("Flutter", "flutterStrengthScale", 0, 2, 0.05);
+    this.addRange("Tip mix", "tipColorStrength", 0, 0.6, 0.01);
+    this.addRange("Root light", "rootDarkening", 0.88, 1, 0.01);
+    this.addRange("Far tint", "impostorBaseColorBlend", 0, 0.25, 0.01);
+    this.addRange("Far light", "impostorColorScale", 0.7, 1.15, 0.01);
     this.addColor("Base", "baseColor");
     this.addColor("Tips", "tipColor");
     this.addColor("Dry", "dryColor");
@@ -227,6 +235,7 @@ export class GrassArtMenu {
       `tipColor: "${direction.tipColor}"`,
       `dryColor: "${direction.dryColor}"`,
       `rootDarkening: ${direction.rootDarkening}`,
+      `tipColorStrength: ${direction.tipColorStrength}`,
       `normalUp: ${direction.normalUp}`,
       `ambientBoost: ${direction.ambientBoost}`,
       `backlightStrength: ${direction.backlightStrength}`,
@@ -236,8 +245,6 @@ export class GrassArtMenu {
       `transitionDistance: ${direction.transitionDistance}`,
       `impostorBaseColorBlend: ${direction.impostorBaseColorBlend}`,
       `impostorColorScale: ${direction.impostorColorScale}`,
-      `impostorRootLightMin: ${direction.impostorRootLightMin}`,
-      `impostorRootLightMax: ${direction.impostorRootLightMax}`,
       `terrainGrassColor: "${direction.terrainGrassColor}"`,
       `terrainGrassTintStrength: ${direction.terrainGrassTintStrength}`,
       "",

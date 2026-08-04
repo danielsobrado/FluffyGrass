@@ -9,6 +9,10 @@ export interface WorldSingleBladeTileFieldOptions {
   namePrefix: string;
   visibilityRadius: number;
   densityMultiplier: number;
+  bladeSegments: number;
+  receiveShadows: boolean;
+  detailMode: number;
+  interactionDistance: number;
   seedSalt: number;
   material: GrassNearMaterial;
   tilesPerFrame: number;
@@ -51,6 +55,7 @@ export class WorldSingleBladeTileField {
     }
 
     this.processQueue();
+    this.updateInteractionTiles(focus);
   }
 
   getBladeCount(): number {
@@ -134,6 +139,9 @@ export class WorldSingleBladeTileField {
         tileX: request.tileX,
         tileZ: request.tileZ,
         densityMultiplier: this.options.densityMultiplier,
+        bladeSegments: this.options.bladeSegments,
+        receiveShadows: this.options.receiveShadows,
+        detailMode: this.options.detailMode,
         seedSalt: this.options.seedSalt,
         namePrefix: this.options.namePrefix,
         material: this.options.material,
@@ -143,6 +151,18 @@ export class WorldSingleBladeTileField {
         this.scene.add(tile.mesh);
       }
       built += 1;
+    }
+  }
+
+  private updateInteractionTiles(focus: THREE.Vector3): void {
+    for (const tile of this.tiles.values()) {
+      tile.mesh.userData.grassInteractionEnabled =
+        this.distanceToTile(
+          focus.x,
+          focus.z,
+          tile.tileX * this.tileSize,
+          tile.tileZ * this.tileSize,
+        ) <= this.options.interactionDistance;
     }
   }
 

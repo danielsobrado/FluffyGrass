@@ -20,6 +20,12 @@ const ULTRA_NEAR_SEED_SALT = 0x3c6ef372;
 const BASE_TILES_PER_FRAME = 1;
 const DESKTOP_ULTRA_NEAR_TILES_PER_FRAME = 2;
 const COMPACT_ULTRA_NEAR_TILES_PER_FRAME = 1;
+const SINGLE_BLADE_BOUNDS_MARGIN = 2;
+const MAXIMUM_ART_NEAR_FADE_DISTANCE = Math.max(
+  ...Object.values(GRASS_ART_DIRECTIONS).map(
+    (direction) => direction.nearDistance + direction.transitionDistance,
+  ),
+);
 
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
@@ -28,6 +34,7 @@ export class WorldNearGrassField {
   private readonly wind = new WindField();
   private factory?: WorldSingleBladeTileFactory;
   private baseField?: WorldSingleBladeTileField;
+  private baseDetailedField?: WorldSingleBladeTileField;
   private ultraNearField?: WorldSingleBladeTileField;
   private initialization?: Promise<void>;
   private artDirection: GrassArtDirection =
@@ -68,6 +75,7 @@ export class WorldNearGrassField {
     // Build the very close layer first so the player sees the requested
     // density immediately after spawn or a tile crossing.
     this.ultraNearField?.update(focus);
+    this.baseDetailedField?.update(focus);
     this.baseField?.update(focus);
   }
 
@@ -98,8 +106,10 @@ export class WorldNearGrassField {
     this.disposed = true;
     this.initialized = false;
     this.baseField?.dispose();
+    this.baseDetailedField?.dispose();
     this.ultraNearField?.dispose();
     this.baseField = undefined;
+    this.baseDetailedField = undefined;
     this.ultraNearField = undefined;
     this.factory?.dispose();
     this.factory = undefined;
@@ -140,6 +150,7 @@ export class WorldNearGrassField {
     this.baseMaterial.configure(grassConfig.material, grassConfig.wind);
     this.baseMaterial.applyArtDirection(this.artDirection);
     this.baseMaterial.configureLod(baseLodConfig);
+    this.baseMaterial.configureDetailLod(ultraNearLodConfig);
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
@@ -159,14 +170,51 @@ export class WorldNearGrassField {
       {
         namePrefix: "world-grass-single-blades",
         visibilityRadius:
-          this.worldConfig.grassNearDistance +
-          this.worldConfig.grassTransitionDistance +
-          tileSize * Math.SQRT2,
+          MAXIMUM_ART_NEAR_FADE_DISTANCE +
+          SINGLE_BLADE_BOUNDS_MARGIN,
         densityMultiplier: 1,
+        // The base layer keeps every blade but uses the same one-triangle
+        // silhouette as the mid LOD. The segmented ultra-near layer supplies
+        // the bend detail that is visible while walking through the grass.
+        bladeSegments: 1,
+        receiveShadows: false,
+        detailMode: 1,
+        interactionDistance:
+          this.worldConfig.grassInteractionRadius +
+          this.worldConfig.grassInteractionTrailLength,
         seedSalt: BASE_SEED_SALT,
         material: this.baseMaterial,
         tilesPerFrame: BASE_TILES_PER_FRAME,
-        reconcileEveryFrame: false,
+        // The shader follows the camera continuously; reconcile the small
+        // 8 m tile set as well so moving inside a tile cannot omit the outer
+        // near-fade ring.
+        reconcileEveryFrame: true,
+      },
+    );
+
+    this.baseDetailedField = new WorldSingleBladeTileField(
+      this.scene,
+      factory,
+      tileSize,
+      {
+        namePrefix: "world-grass-ultra-near-base-detail",
+        visibilityRadius:
+          this.worldConfig.grassUltraNearDistance +
+          this.worldConfig.grassUltraNearTransitionDistance +
+          SINGLE_BLADE_BOUNDS_MARGIN,
+        densityMultiplier: 1,
+        bladeSegments: grassConfig.geometry.bladeSegments,
+        receiveShadows: true,
+        detailMode: 2,
+        interactionDistance:
+          this.worldConfig.grassInteractionRadius +
+          this.worldConfig.grassInteractionTrailLength,
+        seedSalt: BASE_SEED_SALT,
+        material: this.baseMaterial,
+        tilesPerFrame: this.profile.compact
+          ? COMPACT_ULTRA_NEAR_TILES_PER_FRAME
+          : DESKTOP_ULTRA_NEAR_TILES_PER_FRAME,
+        reconcileEveryFrame: true,
       },
     );
 
@@ -183,6 +231,12 @@ export class WorldNearGrassField {
             this.worldConfig.grassUltraNearDistance +
             this.worldConfig.grassUltraNearTransitionDistance,
           densityMultiplier: ultraAdditionalDensity,
+          bladeSegments: grassConfig.geometry.bladeSegments,
+          receiveShadows: true,
+          detailMode: 0,
+          interactionDistance:
+            this.worldConfig.grassInteractionRadius +
+            this.worldConfig.grassInteractionTrailLength,
           seedSalt: ULTRA_NEAR_SEED_SALT,
           material: this.ultraNearMaterial,
           tilesPerFrame: this.profile.compact

@@ -35,7 +35,7 @@ flutterSpeed: 3.8
 baseColor: "#2f7c35"
 tipColor: "#91dc63"
 dryColor: "#83a653"
-rootDarkening: 0.7
+rootDarkening: 0.97
 normalUp: 0.72
 ambientBoost: 0.24
 backlightStrength: 0.22

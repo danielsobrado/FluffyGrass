@@ -260,11 +260,13 @@ export class WorldConfigLoader {
       );
     }
     if (
-      config.grassNearBladesPerSquareMeterDesktop <=
-      config.grassBladesPerSquareMeterDesktop
+      config.grassNearBladesPerSquareMeterDesktop !==
+        config.grassBladesPerSquareMeterDesktop ||
+      config.grassNearBladesPerSquareMeterCompact !==
+        config.grassBladesPerSquareMeterCompact
     ) {
       throw new Error(
-        "Closest-LOD single-blade density must exceed patch-LOD density.",
+        "Single-blade and patch LOD densities must match for a continuous handoff.",
       );
     }
     if (

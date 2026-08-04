@@ -2,7 +2,6 @@ import * as THREE from "three";
 import type {
   GrassGeometryConfig,
   GrassImpostorConfig,
-  GrassMaterialConfig,
 } from "../../grass/GrassConfig";
 import {
   GRASS_IMPOSTOR_BOUNDS_SAFETY_MARGIN,
@@ -46,7 +45,6 @@ export class WorldGrassImpostorAtlasFactory {
   create(
     blades: readonly WorldGrassBladeSpec[],
     grass: GrassGeometryConfig,
-    _material: GrassMaterialConfig,
     patchSize: number,
     config: GrassImpostorConfig,
   ): WorldGrassImpostorAtlas {
@@ -106,7 +104,11 @@ export class WorldGrassImpostorAtlasFactory {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.name = "world-grass-hemi-octahedral-atlas";
+    // RGB stores normalized blade progress and shade, not display color.
     texture.colorSpace = THREE.NoColorSpace;
+    // Keep semantic channels alpha-weighted through linear filtering. The
+    // shader divides once after atlas-view selection.
+    texture.premultiplyAlpha = true;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -179,12 +181,40 @@ export class WorldGrassImpostorAtlasFactory {
         0,
         0.22,
       );
+      const baseX = (blade.leftX + blade.rightX) * 0.5;
+      const baseY = (blade.leftY + blade.rightY) * 0.5;
+      const baseEdgeX = blade.rightX - blade.leftX;
+      const baseEdgeY = blade.rightY - blade.leftY;
+      const baseLength = Math.hypot(baseEdgeX, baseEdgeY);
+      let normalX = baseLength > 1e-5 ? -baseEdgeY / baseLength : 0;
+      let normalY = baseLength > 1e-5 ? baseEdgeX / baseLength : -1;
+      let projectedHeight =
+        (blade.tipX - baseX) * normalX +
+        (blade.tipY - baseY) * normalY;
+      if (projectedHeight < 0) {
+        normalX *= -1;
+        normalY *= -1;
+        projectedHeight *= -1;
+      }
+      if (projectedHeight < 1e-4) {
+        const tipDistance = Math.max(
+          Math.hypot(blade.tipX - baseX, blade.tipY - baseY),
+          1e-4,
+        );
+        normalX = (blade.tipX - baseX) / tipDistance;
+        normalY = (blade.tipY - baseY) / tipDistance;
+        projectedHeight = tipDistance;
+      }
+      // A gradient perpendicular to the projected root edge reproduces the
+      // triangle's barycentric root-to-tip coordinate, including leaned views.
       const gradient = context.createLinearGradient(
-        (blade.leftX + blade.rightX) * 0.5,
-        (blade.leftY + blade.rightY) * 0.5,
-        blade.tipX,
-        blade.tipY,
+        baseX,
+        baseY,
+        baseX + normalX * projectedHeight,
+        baseY + normalY * projectedHeight,
       );
+      // RGB remains palette-neutral: progress, shade, and optional dry mask.
+      // The shared runtime palette reconstructs the display color.
       gradient.addColorStop(0, this.encodeDataColor(0, shade, dryness));
       gradient.addColorStop(
         1,

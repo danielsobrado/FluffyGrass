@@ -8,6 +8,22 @@ export interface GrassImpostorBoundsParameters {
   safetyMargin: number;
 }
 
+export interface GrassSingleBladeBoundsParameters {
+  bladeHeight: number;
+  bladeWidth: number;
+  bladeLean: number;
+  maximumHorizontalScale: number;
+  maximumVerticalScale: number;
+  windStrength: number;
+  flutterStrength: number;
+  maximumArtWindScale: number;
+  maximumInstanceWindScale: number;
+  maximumWindStiffness: number;
+  maximumInteractionStrength: number;
+  interactionVerticalScale: number;
+  safetyMargin: number;
+}
+
 export function calculateGrassImpostorRootBoundsRadius(
   parameters: GrassImpostorBoundsParameters,
 ): number {
@@ -33,5 +49,37 @@ export function calculateGrassImpostorRootBoundsRadius(
     cardExtent +
     parameters.maximumWindDisplacement +
     parameters.safetyMargin
+  );
+}
+
+export function calculateGrassSingleBladeRootBoundsRadius(
+  parameters: GrassSingleBladeBoundsParameters,
+): number {
+  const values = Object.values(parameters);
+  if (values.some((value) => !Number.isFinite(value) || value < 0)) {
+    throw new RangeError(
+      "Grass single-blade bounds parameters must be finite and non-negative.",
+    );
+  }
+
+  const horizontalExtent =
+    (parameters.bladeLean + parameters.bladeWidth) *
+    parameters.maximumHorizontalScale;
+  const verticalExtent =
+    parameters.bladeHeight * parameters.maximumVerticalScale;
+  const sourceExtent = Math.hypot(horizontalExtent, verticalExtent);
+  const windExtent =
+    (parameters.windStrength + parameters.flutterStrength) *
+    parameters.maximumArtWindScale *
+    parameters.maximumInstanceWindScale *
+    parameters.maximumWindStiffness;
+  const interactionExtent = Math.hypot(
+    parameters.maximumInteractionStrength,
+    parameters.maximumInteractionStrength *
+      parameters.interactionVerticalScale,
+  );
+
+  return (
+    sourceExtent + windExtent + interactionExtent + parameters.safetyMargin
   );
 }
