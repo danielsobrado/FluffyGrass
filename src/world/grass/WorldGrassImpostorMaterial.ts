@@ -130,8 +130,10 @@ uniform float uColorScale;
 uniform float uRootLightMin;
 uniform float uRootLightMax;
 uniform float uArtDensityScale;
+uniform float uRootDarkening;
 uniform float uStreamCoverage;
 uniform vec3 uBaseColor;
+uniform vec3 uTipColor;
 uniform vec3 uDryColor;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
@@ -239,7 +241,22 @@ void main() {
     discard;
   }
 
-  vec3 color = atlasColor.rgb / max(atlasColor.a, 0.001);
+  vec3 atlasSample = atlasColor.rgb / max(atlasColor.a, 0.001);
+  float atlasLuminance = dot(
+    atlasSample,
+    vec3(0.2126, 0.7152, 0.0722)
+  );
+  float bladeProgress = smoothstep(0.08, 0.92, vUv.y);
+  vec3 paletteColor = mix(
+    uBaseColor * uRootDarkening,
+    uTipColor,
+    bladeProgress
+  );
+  vec3 color = paletteColor * mix(
+    0.72,
+    1.18,
+    clamp(atlasLuminance, 0.0, 1.0)
+  );
   float terrainMatch = mix(
     uBaseColorBlend,
     1.0,
@@ -293,6 +310,7 @@ export class WorldGrassImpostorMaterial {
       uRootLightMin: { value: IMPOSTOR_ROOT_LIGHT_MIN },
       uRootLightMax: { value: IMPOSTOR_ROOT_LIGHT_MAX },
       uArtDensityScale: { value: 1 },
+      uRootDarkening: { value: materialConfig.rootDarkening },
       uStreamCoverage: { value: 1 },
       uDitherSeed: { value: 0 },
       uNearDistance: { value: lodConfig.nearMaxDistance },
@@ -309,6 +327,7 @@ export class WorldGrassImpostorMaterial {
       },
       uWindStrength: { value: windConfig.strength },
       uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },
+      uTipColor: { value: new THREE.Color(materialConfig.tipColor) },
       uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
     };
     this.material = new THREE.ShaderMaterial({
@@ -327,7 +346,9 @@ export class WorldGrassImpostorMaterial {
 
   applyArtDirection(direction: GrassArtDirection): void {
     (this.uniforms.uBaseColor.value as THREE.Color).set(direction.baseColor);
+    (this.uniforms.uTipColor.value as THREE.Color).set(direction.tipColor);
     (this.uniforms.uDryColor.value as THREE.Color).set(direction.dryColor);
+    this.uniforms.uRootDarkening.value = direction.rootDarkening;
     this.uniforms.uBaseColorBlend.value = direction.impostorBaseColorBlend;
     this.uniforms.uColorScale.value = direction.impostorColorScale;
     this.uniforms.uRootLightMin.value = direction.impostorRootLightMin;
