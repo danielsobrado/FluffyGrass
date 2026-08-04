@@ -32,6 +32,7 @@ const impostorAtlasFactory = read(
 );
 const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
 const worldGrassSystem = read("src/world/WorldGrassSystem.ts");
+const artDirections = read("src/grass/GrassArtDirection.ts");
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const worldConfig = read("public/config/world.yaml");
 
@@ -56,6 +57,37 @@ if (
 }
 if (!impostorAtlasFactory.includes("shadeScale * material.rootDarkening")) {
   fail("The impostor atlas must share the configured blade-root darkening.");
+}
+if (
+  !impostorMaterial.includes("uniform vec3 uTipColor") ||
+  !impostorMaterial.includes("uniform float uRootDarkening") ||
+  !impostorMaterial.includes("vec3 paletteColor")
+) {
+  fail("Far grass must reconstruct the active base-to-tip preset palette.");
+}
+if (
+  artDirections.includes("value in GRASS_ART_DIRECTIONS") ||
+  !artDirections.includes(
+    "Object.prototype.hasOwnProperty.call(GRASS_ART_DIRECTIONS, value)",
+  )
+) {
+  fail("Grass-art query validation must reject inherited object properties.");
+}
+if (
+  !worldGrassSystem.includes("resolveArtFarDistance") ||
+  !worldGrassSystem.includes("streamFadeEnd - direction.transitionDistance")
+) {
+  fail("Runtime art presets must preserve the streamed far-distance cap.");
+}
+if (
+  !worldGrassSystem.includes(
+    "impostorRadius + this.getFarImpostorOffsetRadius()",
+  ) ||
+  !worldGrassSystem.includes(
+    "const offsetRadius = this.getFarImpostorOffsetRadius()",
+  )
+) {
+  fail("Layered far-card offsets must be included in culling bounds.");
 }
 if (
   !worldGrassSystem.includes("await this.nearField.initialize(grassConfig)") ||
@@ -90,6 +122,10 @@ const farImpostorsPerPatch = readYamlNumber(
   worldConfig,
   "grassFarImpostorsPerPatch",
 );
+const renderBatchesPerAxis = readYamlNumber(
+  worldConfig,
+  "grassRenderBatchesPerAxis",
+);
 if (ultraNearDistance !== 4) {
   fail("The ultra-near grass distance must remain 4 metres.");
 }
@@ -104,6 +140,13 @@ if (midBladeFraction !== 1) {
 }
 if (farImpostorsPerPatch < 2) {
   fail("Far grass must use layered full-footprint impostors.");
+}
+if (
+  renderBatchesPerAxis > 2 ||
+  farImpostorsPerPatch > 2 ||
+  midBladeFraction * farImpostorsPerPatch > 2
+) {
+  fail("Grass mid/far density exceeds the reviewed rendering budget.");
 }
 
 const baseBlend = Number(
@@ -131,4 +174,4 @@ for (let sample = 0; sample <= 1000; sample += 1) {
   }
 }
 
-console.log("[lod-continuity] Coverage, ultra-near density, ownership, and palette invariants passed.");
+console.log("[lod-continuity] Coverage, ultra-near density, ownership, palette, bounds, and streaming invariants passed.");
