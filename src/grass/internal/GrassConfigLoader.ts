@@ -130,8 +130,10 @@ export class GrassConfigLoader {
     if (config.geometry.midBladeSegments < 1) {
       throw new Error("midBladeSegments must be at least 1.");
     }
-    if (config.geometry.midBladesPerClump >= config.geometry.bladesPerClump) {
-      throw new Error("midBladesPerClump must be lower than bladesPerClump.");
+    if (config.geometry.midBladesPerClump > config.geometry.bladesPerClump) {
+      throw new Error(
+        "midBladesPerClump must not exceed bladesPerClump.",
+      );
     }
     if (config.geometry.midBladeSegments >= config.geometry.bladeSegments) {
       throw new Error("midBladeSegments must be lower than bladeSegments.");

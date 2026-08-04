@@ -82,6 +82,14 @@ const interactionStrength = readYamlNumber(
   worldConfig,
   "grassInteractionStrength",
 );
+const midBladeFraction = readYamlNumber(
+  worldConfig,
+  "grassMidBladeFraction",
+);
+const farImpostorsPerPatch = readYamlNumber(
+  worldConfig,
+  "grassFarImpostorsPerPatch",
+);
 if (ultraNearDistance !== 4) {
   fail("The ultra-near grass distance must remain 4 metres.");
 }
@@ -90,6 +98,12 @@ if (ultraNearMultiplier !== 2) {
 }
 if (interactionStrength < 0.9) {
   fail("Character grass interaction must retain the stronger response.");
+}
+if (midBladeFraction !== 1) {
+  fail("The mid grass representation must retain every source blade.");
+}
+if (farImpostorsPerPatch < 2) {
+  fail("Far grass must use layered full-footprint impostors.");
 }
 
 const baseBlend = Number(

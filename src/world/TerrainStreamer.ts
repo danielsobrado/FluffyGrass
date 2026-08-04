@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { GrassArtDirection } from "../grass/GrassArtDirection";
 import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
 import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
@@ -13,6 +14,8 @@ vTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 
 const TERRAIN_DETAIL_FRAGMENT = `
 uniform sampler2D uTerrainGrassDetail;
+uniform vec3 uTerrainGrassTint;
+uniform float uTerrainGrassTintStrength;
 varying vec3 vTerrainWorldPosition;
 `;
 
@@ -34,6 +37,20 @@ float terrainDetailDistance = distance(cameraPosition, vTerrainWorldPosition);
 float terrainDetailFade = 1.0 - smoothstep(300.0, 460.0, terrainDetailDistance);
 diffuseColor.rgb *= 1.0 +
   terrainGrassDetail * 0.12 * terrainGrassMask * terrainDetailFade;
+float terrainLuminance = dot(
+  diffuseColor.rgb,
+  vec3(0.2126, 0.7152, 0.0722)
+);
+vec3 terrainTintedGrass = uTerrainGrassTint * mix(
+  0.72,
+  1.18,
+  smoothstep(0.12, 0.52, terrainLuminance)
+);
+diffuseColor.rgb = mix(
+  diffuseColor.rgb,
+  terrainTintedGrass,
+  terrainGrassMask * uTerrainGrassTintStrength
+);
 `;
 
 interface ChunkRequest {
@@ -64,6 +81,10 @@ export class TerrainStreamer {
   private readonly material = new THREE.MeshLambertMaterial({
     vertexColors: true,
   });
+  private readonly grassArtUniforms = {
+    uTerrainGrassTint: { value: new THREE.Color("#4d923f") },
+    uTerrainGrassTintStrength: { value: 0.5 },
+  };
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private activeBuild?: TerrainChunkBuilder;
@@ -90,6 +111,7 @@ export class TerrainStreamer {
       shader.uniforms.uTerrainGrassDetail = {
         value: this.grassDetailTexture,
       };
+      Object.assign(shader.uniforms, this.grassArtUniforms);
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>${TERRAIN_DETAIL_VERTEX}`)
         .replace(
@@ -107,7 +129,7 @@ export class TerrainStreamer {
         );
     };
     this.material.customProgramCacheKey = () =>
-      "world-terrain-grass-detail-v1";
+      "world-terrain-grass-detail-v2";
     this.material.needsUpdate = true;
     this.material.userData.shadows = shadows;
   }
@@ -149,6 +171,14 @@ export class TerrainStreamer {
     this.desired.clear();
     this.material.dispose();
     this.grassDetailTexture.dispose();
+  }
+
+  setGrassArtDirection(direction: GrassArtDirection): void {
+    this.grassArtUniforms.uTerrainGrassTint.value.set(
+      direction.terrainGrassColor,
+    );
+    this.grassArtUniforms.uTerrainGrassTintStrength.value =
+      direction.terrainGrassTintStrength;
   }
 
   private reconcile(): void {

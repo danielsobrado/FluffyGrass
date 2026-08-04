@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import {
+  DEFAULT_GRASS_ART_DIRECTION_KEY,
+  GRASS_ART_DIRECTIONS,
+  type GrassArtDirection,
+} from "../grass/GrassArtDirection";
 import type { GrassConfig, GrassLodConfig } from "../grass/GrassConfig";
 import { GrassGeometryFactory } from "../grass/GrassGeometryFactory";
 import { GrassLodController } from "../grass/GrassLodController";
@@ -79,6 +84,13 @@ interface GrassChunkFinalizeResult {
   chunk?: WorldGrassChunk;
 }
 
+interface FarImpostorInstances {
+  matrixValues: Float32Array;
+  variationValues: Float32Array;
+  coverageValues: Float32Array;
+  instanceCount: number;
+}
+
 export interface WorldGrassDiagnostics {
   ready: boolean;
   status: string;
@@ -95,8 +107,8 @@ export interface WorldGrassDiagnostics {
 }
 
 const TWO_PI = Math.PI * 2;
-const MID_WIND_SCALE = 0.62;
-const MID_COLOR_SCALE = 0.82;
+const MID_WIND_SCALE = 0.85;
+const MID_COLOR_SCALE = 1;
 const HOMOGENEOUS_VARIANT_INDEX = 0;
 const WORLD_VARIANT_COUNT = 1;
 const FIELD_COVERAGE_MIN = 0.16;
@@ -133,6 +145,8 @@ export class WorldGrassSystem {
   private resolvedLodConfig?: GrassLodConfig;
   private lodController?: GrassLodController;
   private initialization?: Promise<void>;
+  private artDirection: GrassArtDirection =
+    GRASS_ART_DIRECTIONS[DEFAULT_GRASS_ART_DIRECTION_KEY];
   private nearBladesPerPatch = 0;
   private midBladesPerPatch = 0;
   private centerChunkX = Number.NaN;
@@ -217,7 +231,7 @@ export class WorldGrassSystem {
             patch.farCoverage * this.nearBladesPerPatch),
       );
       if (patch.farMesh.visible) {
-        impostors += patch.instanceCount;
+        impostors += patch.farMesh.count;
       }
     }
 
@@ -296,7 +310,15 @@ export class WorldGrassSystem {
     this.nearBladesPerPatch = variants.nearBladesPerPatch;
     this.midBladesPerPatch = variants.midBladesPerPatch;
     this.material.configure(grassConfig.material, grassConfig.wind);
+    this.material.applyArtDirection(this.artDirection);
     const lodConfig = this.resolveLodConfig();
+    lodConfig.nearMaxDistance = this.artDirection.nearDistance;
+    lodConfig.midMaxDistance = this.artDirection.midDistance;
+    lodConfig.farMaxDistance = Math.min(
+      lodConfig.farMaxDistance,
+      this.artDirection.farDistance,
+    );
+    lodConfig.transitionDistance = this.artDirection.transitionDistance;
     this.resolvedLodConfig = lodConfig;
     this.material.configureLod(lodConfig);
 
@@ -315,15 +337,15 @@ export class WorldGrassSystem {
         this.worldConfig.grassPatchSize,
         grassConfig.impostor,
       );
-      this.impostorMaterials.push(
-        new WorldGrassImpostorMaterial(
-          atlas,
-          grassConfig.material,
-          grassConfig.wind,
-          lodConfig,
-          !this.profile.compact,
-        ),
+      const impostorMaterial = new WorldGrassImpostorMaterial(
+        atlas,
+        grassConfig.material,
+        grassConfig.wind,
+        lodConfig,
+        !this.profile.compact,
       );
+      impostorMaterial.applyArtDirection(this.artDirection);
+      this.impostorMaterials.push(impostorMaterial);
     }
 
     this.lodController = new GrassLodController(lodConfig);
@@ -829,14 +851,20 @@ export class WorldGrassSystem {
       bounds,
     );
     const impostorMaterial = this.impostorMaterials[variantIndex];
+    const farInstances = this.createFarImpostorInstances(
+      batch.matrixValues,
+      variationValues,
+      coverageValues,
+      batch.instanceCount,
+    );
     const farMesh = this.createMesh(
       `world-grass-far-${batchKey}`,
       impostorMaterial.atlas.geometry,
       impostorMaterial.material,
-      batch.matrixValues,
-      batch.instanceCount,
-      variationValues,
-      coverageValues,
+      farInstances.matrixValues,
+      farInstances.instanceCount,
+      farInstances.variationValues,
+      farInstances.coverageValues,
       bounds,
     );
     midMesh.visible = false;
@@ -886,6 +914,96 @@ export class WorldGrassSystem {
       midCoverage: 0,
       farCoverage: 0,
       streamCoverage: 0,
+    };
+  }
+
+  setArtDirection(direction: GrassArtDirection): void {
+    this.artDirection = direction;
+    this.material.applyArtDirection(direction);
+    this.nearField.setArtDirection(direction);
+    const lodConfig = this.resolvedLodConfig;
+    if (lodConfig) {
+      lodConfig.nearMaxDistance = direction.nearDistance;
+      lodConfig.midMaxDistance = direction.midDistance;
+      lodConfig.farMaxDistance = Math.min(
+        direction.farDistance,
+        this.worldConfig.grassFarDistance,
+      );
+      lodConfig.transitionDistance = direction.transitionDistance;
+      this.material.configureLod(lodConfig);
+    }
+    for (const impostorMaterial of this.impostorMaterials) {
+      impostorMaterial.applyArtDirection(direction);
+      if (lodConfig) {
+        impostorMaterial.configureLod(lodConfig);
+      }
+    }
+  }
+
+  private createFarImpostorInstances(
+    sourceMatrices: Float32Array,
+    sourceVariations: Float32Array,
+    sourceCoverages: Float32Array,
+    sourceCount: number,
+  ): FarImpostorInstances {
+    const cardsPerPatch = this.worldConfig.grassFarImpostorsPerPatch;
+    const instanceCount = sourceCount * cardsPerPatch;
+    const matrixValues = new Float32Array(instanceCount * 16);
+    const variationValues = new Float32Array(instanceCount * 4);
+    const coverageValues = new Float32Array(instanceCount);
+    const offsetRadius = cardsPerPatch > 1
+      ? this.worldConfig.grassPatchSize * 0.12
+      : 0;
+
+    for (let sourceIndex = 0; sourceIndex < sourceCount; sourceIndex += 1) {
+      const sourceMatrixOffset = sourceIndex * 16;
+      const sourceVariationOffset = sourceIndex * 4;
+      const phase = sourceVariations[sourceVariationOffset] * TWO_PI;
+      for (let cardIndex = 0; cardIndex < cardsPerPatch; cardIndex += 1) {
+        const targetIndex = sourceIndex * cardsPerPatch + cardIndex;
+        const targetMatrixOffset = targetIndex * 16;
+        const targetVariationOffset = targetIndex * 4;
+        matrixValues.set(
+          sourceMatrices.subarray(
+            sourceMatrixOffset,
+            sourceMatrixOffset + 16,
+          ),
+          targetMatrixOffset,
+        );
+
+        const angle = phase + (cardIndex / cardsPerPatch) * TWO_PI;
+        const localX = Math.cos(angle) * offsetRadius;
+        const localZ = Math.sin(angle) * offsetRadius;
+        matrixValues[targetMatrixOffset + 12] +=
+          sourceMatrices[sourceMatrixOffset] * localX +
+          sourceMatrices[sourceMatrixOffset + 8] * localZ;
+        matrixValues[targetMatrixOffset + 13] +=
+          sourceMatrices[sourceMatrixOffset + 1] * localX +
+          sourceMatrices[sourceMatrixOffset + 9] * localZ;
+        matrixValues[targetMatrixOffset + 14] +=
+          sourceMatrices[sourceMatrixOffset + 2] * localX +
+          sourceMatrices[sourceMatrixOffset + 10] * localZ;
+
+        variationValues.set(
+          sourceVariations.subarray(
+            sourceVariationOffset,
+            sourceVariationOffset + 4,
+          ),
+          targetVariationOffset,
+        );
+        variationValues[targetVariationOffset] =
+          (sourceVariations[sourceVariationOffset] +
+            cardIndex * 0.38196601125) % 1;
+        coverageValues[targetIndex] =
+          sourceCoverages[sourceIndex] / cardsPerPatch;
+      }
+    }
+
+    return {
+      matrixValues,
+      variationValues,
+      coverageValues,
+      instanceCount,
     };
   }
 

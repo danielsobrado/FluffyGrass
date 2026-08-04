@@ -1,5 +1,10 @@
 import * as THREE from "three";
 import type Stats from "stats-gl";
+import {
+  GRASS_ART_DIRECTIONS,
+  resolveGrassArtDirectionKey,
+  type GrassArtDirection,
+} from "../grass/GrassArtDirection";
 import { FlyWorldController } from "../controls/FlyWorldController";
 import { ThirdPersonController } from "../controls/ThirdPersonController";
 import type { WorldController } from "../controls/WorldController";
@@ -11,6 +16,7 @@ import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
 import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
+import { GrassArtMenu } from "./GrassArtMenu";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
 const FPS_SAMPLE_INTERVAL_SECONDS = 1;
@@ -27,6 +33,7 @@ export class WorldApp {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly clock = new THREE.Clock();
   private stats?: Stats;
+  private artMenu?: GrassArtMenu;
   private readonly field: TerrainField;
   private readonly terrain: TerrainStreamer;
   private readonly grass: WorldGrassSystem;
@@ -109,6 +116,11 @@ export class WorldApp {
       config,
       profile,
     );
+    const artKey = resolveGrassArtDirectionKey(params.get("grassArt"));
+    this.applyGrassArtDirection(GRASS_ART_DIRECTIONS[artKey]);
+    if (profile.showGui) {
+      this.artMenu = new GrassArtMenu(artKey, this.applyGrassArtDirection);
+    }
     this.controls = useFlyControls
       ? new FlyWorldController(
           this.camera,
@@ -181,6 +193,7 @@ export class WorldApp {
     this.grass.dispose();
     this.renderer.dispose();
     this.stats?.dom.remove();
+    this.artMenu?.dispose();
   }
 
   private bindRuntimeEvents(): void {
@@ -190,6 +203,13 @@ export class WorldApp {
     this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
   }
+
+  private readonly applyGrassArtDirection = (
+    direction: GrassArtDirection,
+  ): void => {
+    this.terrain.setGrassArtDirection(direction);
+    this.grass.setArtDirection(direction);
+  };
 
   private async initializeGrass(): Promise<void> {
     try {

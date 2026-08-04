@@ -18,6 +18,8 @@ grassChunksPerFrame: 1
 grassPatchSize: 4
 # Split each streamed chunk into independently culled 32 m render batches.
 grassRenderBatchesPerAxis: 2
+# Use layered full-footprint octahedral cards to avoid sparse far silhouettes.
+grassFarImpostorsPerPatch: 2
 grassBladesPerSquareMeterDesktop: 36
 grassBladesPerSquareMeterCompact: 26
 
@@ -31,7 +33,8 @@ grassUltraNearDistance: 4
 grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 
-grassMidBladeFraction: 0.5
+# Mid blades use cheaper single triangles but retain every source blade.
+grassMidBladeFraction: 1
 grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
 

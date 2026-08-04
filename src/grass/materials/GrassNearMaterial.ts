@@ -5,6 +5,7 @@ import type {
   GrassMaterialConfig,
   GrassWindConfig,
 } from "../GrassConfig";
+import type { GrassArtDirection } from "../GrassArtDirection";
 import { grassInteractionField } from "../interaction/GrassInteractionField";
 
 const VERTEX_DECLARATIONS = `
@@ -168,6 +169,7 @@ uniform float uGrassDistanceFade;
 uniform float uGrassUseWorldLod;
 uniform float uGrassLodColorScale;
 uniform float uGrassStreamCoverage;
+uniform float uGrassArtDensityScale;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
@@ -199,7 +201,7 @@ if (uGrassUseWorldLod > 0.5) {
 }
 if (
   !grassKeepLod ||
-  vGrassFieldDither > vGrassFieldCoverage ||
+  vGrassFieldDither > min(vGrassFieldCoverage * uGrassArtDensityScale, 1.0) ||
   grassDither > uGrassDistanceFade ||
   grassDither > uGrassStreamCoverage
 ) {
@@ -297,6 +299,7 @@ export class GrassNearMaterial {
     uGrassTransitionDistance: { value: 1 },
     uGrassLodColorScale: { value: 1 },
     uGrassStreamCoverage: { value: 1 },
+    uGrassArtDensityScale: { value: 1 },
     uGrassInteractionEnabled: { value: 0 },
     uGrassInteractionStart: { value: new THREE.Vector2() },
     uGrassInteractionEnd: { value: new THREE.Vector2() },
@@ -304,6 +307,8 @@ export class GrassNearMaterial {
     uGrassInteractionRadius: { value: 1 },
     uGrassInteractionStrength: { value: 0 },
   };
+  private baseWindStrength = 0.14;
+  private baseFlutterStrength = 0.035;
 
   constructor() {
     this.material = new THREE.MeshLambertMaterial({
@@ -350,11 +355,31 @@ export class GrassNearMaterial {
     this.uniforms.uGrassWindDirection.value
       .set(wind.directionX, wind.directionZ)
       .normalize();
+    this.baseWindStrength = wind.strength;
+    this.baseFlutterStrength = wind.flutterStrength;
     this.uniforms.uGrassWindStrength.value = wind.strength;
     this.uniforms.uGrassGustScale.value = wind.gustScale;
     this.uniforms.uGrassGustSpeed.value = wind.gustSpeed;
     this.uniforms.uGrassFlutterStrength.value = wind.flutterStrength;
     this.uniforms.uGrassFlutterSpeed.value = wind.flutterSpeed;
+  }
+
+  applyArtDirection(direction: GrassArtDirection): void {
+    this.colorControls.baseColor = direction.baseColor;
+    this.colorControls.tipColor = direction.tipColor;
+    this.colorControls.dryColor = direction.dryColor;
+    this.uniforms.uGrassBaseColor.value.set(direction.baseColor);
+    this.uniforms.uGrassTipColor.value.set(direction.tipColor);
+    this.uniforms.uGrassDryColor.value.set(direction.dryColor);
+    this.uniforms.uGrassRootDarkening.value = direction.rootDarkening;
+    this.uniforms.uGrassNormalUp.value = direction.normalUp;
+    this.uniforms.uGrassAmbientBoost.value = direction.ambientBoost;
+    this.uniforms.uGrassBacklightStrength.value = direction.backlightStrength;
+    this.uniforms.uGrassArtDensityScale.value = direction.densityScale;
+    this.uniforms.uGrassWindStrength.value =
+      this.baseWindStrength * direction.windStrengthScale;
+    this.uniforms.uGrassFlutterStrength.value =
+      this.baseFlutterStrength * direction.flutterStrengthScale;
   }
 
   configureLod(config: GrassLodConfig): void {

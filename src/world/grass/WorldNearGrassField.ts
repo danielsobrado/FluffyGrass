@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import {
+  GRASS_ART_DIRECTIONS,
+  DEFAULT_GRASS_ART_DIRECTION_KEY,
+  type GrassArtDirection,
+} from "../../grass/GrassArtDirection";
 import type { GrassConfig, GrassLodConfig } from "../../grass/GrassConfig";
 import { GrassConfigLoader } from "../../grass/internal/GrassConfigLoader";
 import { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial";
@@ -25,6 +30,8 @@ export class WorldNearGrassField {
   private baseField?: WorldSingleBladeTileField;
   private ultraNearField?: WorldSingleBladeTileField;
   private initialization?: Promise<void>;
+  private artDirection: GrassArtDirection =
+    GRASS_ART_DIRECTIONS[DEFAULT_GRASS_ART_DIRECTION_KEY];
   private initialized = false;
   private disposed = false;
 
@@ -71,6 +78,19 @@ export class WorldNearGrassField {
     );
   }
 
+  setArtDirection(direction: GrassArtDirection): void {
+    this.artDirection = direction;
+    this.baseMaterial.applyArtDirection(direction);
+    this.ultraNearMaterial.applyArtDirection(direction);
+    this.baseMaterial.configureLod({
+      nearMaxDistance: direction.nearDistance,
+      midMaxDistance: direction.midDistance,
+      farMaxDistance: direction.farDistance,
+      transitionDistance: direction.transitionDistance,
+      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+    });
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -100,10 +120,10 @@ export class WorldNearGrassField {
     }
 
     const baseLodConfig: GrassLodConfig = {
-      nearMaxDistance: this.worldConfig.grassNearDistance,
-      midMaxDistance: this.worldConfig.grassMidDistance,
-      farMaxDistance: this.worldConfig.grassFarDistance,
-      transitionDistance: this.worldConfig.grassTransitionDistance,
+      nearMaxDistance: this.artDirection.nearDistance,
+      midMaxDistance: this.artDirection.midDistance,
+      farMaxDistance: this.artDirection.farDistance,
+      transitionDistance: this.artDirection.transitionDistance,
       hysteresisDistance: this.worldConfig.grassHysteresisDistance,
     };
     const ultraTransitionHalf =
@@ -118,8 +138,10 @@ export class WorldNearGrassField {
     };
 
     this.baseMaterial.configure(grassConfig.material, grassConfig.wind);
+    this.baseMaterial.applyArtDirection(this.artDirection);
     this.baseMaterial.configureLod(baseLodConfig);
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
+    this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
 
     const factory = new WorldSingleBladeTileFactory(

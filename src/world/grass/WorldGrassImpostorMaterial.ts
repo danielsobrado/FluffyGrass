@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { GrassArtDirection } from "../../grass/GrassArtDirection";
 import type {
   GrassLodConfig,
   GrassMaterialConfig,
@@ -125,6 +126,10 @@ uniform float uBlendViews;
 uniform float uAerialFadeStart;
 uniform float uAerialFadeEnd;
 uniform float uBaseColorBlend;
+uniform float uColorScale;
+uniform float uRootLightMin;
+uniform float uRootLightMax;
+uniform float uArtDensityScale;
 uniform float uStreamCoverage;
 uniform vec3 uBaseColor;
 uniform vec3 uDryColor;
@@ -176,7 +181,7 @@ float coverageNoise(vec2 position, float seed) {
 void main() {
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage *
-    uStreamCoverage * vFieldCoverage;
+    uStreamCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
   float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
   if (
     effectiveCoverage <= 0.001 ||
@@ -242,8 +247,8 @@ void main() {
   );
   color = mix(color, uBaseColor, terrainMatch);
   color = mix(color, uDryColor, vDryness * 0.04);
-  color *= ${IMPOSTOR_COLOR_SCALE.toFixed(2)};
-  color *= mix(${IMPOSTOR_ROOT_LIGHT_MIN.toFixed(2)}, ${IMPOSTOR_ROOT_LIGHT_MAX.toFixed(2)}, vRootAo);
+  color *= uColorScale;
+  color *= mix(uRootLightMin, uRootLightMax, vRootAo);
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -257,6 +262,7 @@ export class WorldGrassImpostorMaterial {
   readonly material: THREE.ShaderMaterial;
 
   private readonly uniforms: ShaderUniforms;
+  private readonly baseWindStrength: number;
 
   constructor(
     readonly atlas: WorldGrassImpostorAtlas,
@@ -265,6 +271,7 @@ export class WorldGrassImpostorMaterial {
     lodConfig: GrassLodConfig,
     blendViews: boolean,
   ) {
+    this.baseWindStrength = windConfig.strength;
     atlas.texture.generateMipmaps = false;
     atlas.texture.minFilter = THREE.LinearFilter;
     atlas.texture.needsUpdate = true;
@@ -282,6 +289,10 @@ export class WorldGrassImpostorMaterial {
       uAerialFadeStart: { value: IMPOSTOR_AERIAL_FADE_START },
       uAerialFadeEnd: { value: IMPOSTOR_AERIAL_FADE_END },
       uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
+      uColorScale: { value: IMPOSTOR_COLOR_SCALE },
+      uRootLightMin: { value: IMPOSTOR_ROOT_LIGHT_MIN },
+      uRootLightMax: { value: IMPOSTOR_ROOT_LIGHT_MAX },
+      uArtDensityScale: { value: 1 },
       uStreamCoverage: { value: 1 },
       uDitherSeed: { value: 0 },
       uNearDistance: { value: lodConfig.nearMaxDistance },
@@ -312,6 +323,25 @@ export class WorldGrassImpostorMaterial {
       toneMapped: true,
     });
     this.material.name = "world-grass-hemi-octahedral-impostor";
+  }
+
+  applyArtDirection(direction: GrassArtDirection): void {
+    (this.uniforms.uBaseColor.value as THREE.Color).set(direction.baseColor);
+    (this.uniforms.uDryColor.value as THREE.Color).set(direction.dryColor);
+    this.uniforms.uBaseColorBlend.value = direction.impostorBaseColorBlend;
+    this.uniforms.uColorScale.value = direction.impostorColorScale;
+    this.uniforms.uRootLightMin.value = direction.impostorRootLightMin;
+    this.uniforms.uRootLightMax.value = direction.impostorRootLightMax;
+    this.uniforms.uArtDensityScale.value = direction.densityScale;
+    this.uniforms.uWindStrength.value =
+      this.baseWindStrength * direction.windStrengthScale;
+  }
+
+  configureLod(config: GrassLodConfig): void {
+    this.uniforms.uNearDistance.value = config.nearMaxDistance;
+    this.uniforms.uMidDistance.value = config.midMaxDistance;
+    this.uniforms.uFarDistance.value = config.farMaxDistance;
+    this.uniforms.uTransitionDistance.value = config.transitionDistance;
   }
 
   bindMesh(mesh: THREE.InstancedMesh, ditherSeed: number): void {
