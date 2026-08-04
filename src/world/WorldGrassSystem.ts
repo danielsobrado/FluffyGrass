@@ -26,11 +26,28 @@ interface WorldGrassPatch extends GrassPatch {
   streamCoverage: number;
 }
 
+interface WorldGrassChunk {
+  key: string;
+  patches: WorldGrassPatch[];
+}
+
 interface GrassChunkRequest {
   key: string;
   chunkX: number;
   chunkZ: number;
   distance: number;
+}
+
+interface GrassRenderBatchBuild {
+  batchX: number;
+  batchZ: number;
+  matrixValues: Float32Array;
+  variations: Float32Array;
+  coverages: Float32Array;
+  instanceCount: number;
+  bounds: THREE.Box3;
+  meshBounds?: THREE.Box3;
+  variationValues?: Float32Array;
 }
 
 interface GrassChunkBuildJob {
@@ -43,10 +60,8 @@ interface GrassChunkBuildJob {
   originZ: number;
   nextCell: number;
   random: SeededRandom;
-  matrixValues: Float32Array;
-  variations: Float32Array;
-  coverages: Float32Array;
-  instanceCount: number;
+  batches: GrassRenderBatchBuild[];
+  activeBatches?: GrassRenderBatchBuild[];
   up: THREE.Vector3;
   normal: THREE.Vector3;
   align: THREE.Quaternion;
@@ -54,19 +69,14 @@ interface GrassChunkBuildJob {
   scale: THREE.Vector3;
   position: THREE.Vector3;
   matrix: THREE.Matrix4;
-  bounds: THREE.Box3;
-  meshBounds?: THREE.Box3;
   finalizeStage: number;
-  variationValues?: Float32Array;
   variantIndex?: number;
-  nearMesh?: THREE.InstancedMesh;
-  midMesh?: THREE.InstancedMesh;
-  farMesh?: THREE.InstancedMesh;
+  completedPatches: WorldGrassPatch[];
 }
 
 interface GrassChunkFinalizeResult {
   complete: boolean;
-  patch?: WorldGrassPatch;
+  chunk?: WorldGrassChunk;
 }
 
 export interface WorldGrassDiagnostics {
@@ -108,8 +118,8 @@ export class WorldGrassSystem {
   private readonly material = new GrassNearMaterial();
   private readonly impostorMaterials: WorldGrassImpostorMaterial[] = [];
   private readonly wind = new WindField();
-  private readonly patches = new Map<string, WorldGrassPatch>();
-  private readonly emptyChunks = new Set<string>();
+  private readonly chunks = new Map<string, WorldGrassChunk>();
+  private readonly patches = new Set<WorldGrassPatch>();
   private readonly queue: GrassChunkRequest[] = [];
   private readonly desired = new Map<string, GrassChunkRequest>();
   private readonly retirementQueue: string[] = [];
@@ -236,11 +246,11 @@ export class WorldGrassSystem {
     this.status = "Grass disposed";
 
     this.nearField.dispose();
-    for (const patch of this.patches.values()) {
-      this.removePatch(patch);
+    for (const chunk of this.chunks.values()) {
+      this.removeChunk(chunk);
     }
+    this.chunks.clear();
     this.patches.clear();
-    this.emptyChunks.clear();
     this.queue.length = 0;
     this.retirementQueue.length = 0;
     this.retiring.clear();
@@ -350,8 +360,7 @@ export class WorldGrassSystem {
       const request = this.queue.shift();
       if (
         request &&
-        this.desired.has(request.key) &&
-        !this.emptyChunks.has(request.key)
+        this.desired.has(request.key)
       ) {
         this.activeBuild = this.beginPatchBuild(request);
       }
@@ -374,16 +383,12 @@ export class WorldGrassSystem {
     if (readyToFinalize) {
       const result = this.advancePatchFinalize(job);
       if (result.complete) {
-        if (result.patch) {
-          this.emptyChunks.delete(job.request.key);
-          this.patches.set(job.request.key, result.patch);
-          this.scene.add(
-            result.patch.nearMesh,
-            result.patch.midMesh,
-            result.patch.farMesh,
-          );
-        } else {
-          this.emptyChunks.add(job.request.key);
+        if (result.chunk) {
+          this.chunks.set(job.request.key, result.chunk);
+          for (const patch of result.chunk.patches) {
+            this.patches.add(patch);
+            this.scene.add(patch.nearMesh, patch.midMesh, patch.farMesh);
+          }
         }
         this.activeBuild = undefined;
         completedChunk = true;
@@ -428,10 +433,10 @@ export class WorldGrassSystem {
         this.retiring.delete(key);
         continue;
       }
-      const patch = this.patches.get(key);
-      if (patch) {
-        this.removePatch(patch);
-        this.patches.delete(key);
+      const chunk = this.chunks.get(key);
+      if (chunk) {
+        this.removeChunk(chunk);
+        this.chunks.delete(key);
       }
       this.retiring.delete(key);
       retired += 1;
@@ -533,7 +538,10 @@ export class WorldGrassSystem {
       }
     }
 
-    for (const key of this.patches.keys()) {
+    // Keep a queued key marked until processRetirementQueue observes its
+    // latest desired state. Clearing it as soon as it becomes desired again
+    // allows rapid boundary crossings to enqueue the same key repeatedly.
+    for (const key of this.chunks.keys()) {
       if (!this.desired.has(key) && !this.retiring.has(key)) {
         this.retiring.add(key);
         this.retirementQueue.push(key);
@@ -543,8 +551,7 @@ export class WorldGrassSystem {
     const centerKey = `${this.centerChunkX}:${this.centerChunkZ}`;
     if (
       this.desired.has(centerKey) &&
-      !this.patches.has(centerKey) &&
-      !this.emptyChunks.has(centerKey) &&
+      !this.chunks.has(centerKey) &&
       this.activeBuild &&
       this.activeBuild.request.key !== centerKey
     ) {
@@ -555,8 +562,7 @@ export class WorldGrassSystem {
     this.queue.length = 0;
     for (const request of this.desired.values()) {
       if (
-        !this.patches.has(request.key) &&
-        !this.emptyChunks.has(request.key) &&
+        !this.chunks.has(request.key) &&
         this.activeBuild?.request.key !== request.key
       ) {
         this.queue.push(request);
@@ -603,10 +609,7 @@ export class WorldGrassSystem {
       random: new SeededRandom(
         this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
       ),
-      matrixValues: new Float32Array(patchesPerAxis * patchesPerAxis * 16),
-      variations: new Float32Array(patchesPerAxis * patchesPerAxis * 4),
-      coverages: new Float32Array(patchesPerAxis * patchesPerAxis),
-      instanceCount: 0,
+      batches: this.createRenderBatchBuilds(patchesPerAxis),
       up: new THREE.Vector3(0, 1, 0),
       normal: new THREE.Vector3(),
       align: new THREE.Quaternion(),
@@ -614,17 +617,46 @@ export class WorldGrassSystem {
       scale: new THREE.Vector3(),
       position: new THREE.Vector3(),
       matrix: new THREE.Matrix4(),
-      bounds: new THREE.Box3(),
       finalizeStage: 0,
+      completedPatches: [],
     };
   }
 
-  private discardPatchBuild(job: GrassChunkBuildJob): void {
-    for (const mesh of [job.nearMesh, job.midMesh, job.farMesh]) {
-      if (mesh) {
-        this.geometryFactory.disposeInstancedMesh(mesh);
+  private createRenderBatchBuilds(
+    patchesPerAxis: number,
+  ): GrassRenderBatchBuild[] {
+    const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
+    const batches: GrassRenderBatchBuild[] = [];
+    for (let batchZ = 0; batchZ < batchesPerAxis; batchZ += 1) {
+      const startZ = Math.floor((batchZ * patchesPerAxis) / batchesPerAxis);
+      const endZ = Math.floor(
+        ((batchZ + 1) * patchesPerAxis) / batchesPerAxis,
+      );
+      for (let batchX = 0; batchX < batchesPerAxis; batchX += 1) {
+        const startX = Math.floor((batchX * patchesPerAxis) / batchesPerAxis);
+        const endX = Math.floor(
+          ((batchX + 1) * patchesPerAxis) / batchesPerAxis,
+        );
+        const capacity = (endX - startX) * (endZ - startZ);
+        batches.push({
+          batchX,
+          batchZ,
+          matrixValues: new Float32Array(capacity * 16),
+          variations: new Float32Array(capacity * 4),
+          coverages: new Float32Array(capacity),
+          instanceCount: 0,
+          bounds: new THREE.Box3(),
+        });
       }
     }
+    return batches;
+  }
+
+  private discardPatchBuild(job: GrassChunkBuildJob): void {
+    for (const patch of job.completedPatches) {
+      this.removePatch(patch);
+    }
+    job.completedPatches.length = 0;
   }
 
   private advancePatchBuild(job: GrassChunkBuildJob, budgetMs: number): void {
@@ -683,41 +715,49 @@ export class WorldGrassSystem {
         );
       job.scale.set(horizontalScale, heightScale, horizontalScale);
       job.matrix.compose(job.position, job.align, job.scale);
-      const instanceIndex = job.instanceCount;
-      job.matrix.toArray(job.matrixValues, instanceIndex * 16);
-      job.bounds.expandByPoint(job.position);
+      const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
+      const batchX = Math.min(
+        batchesPerAxis - 1,
+        Math.floor((patchX * batchesPerAxis) / job.patchesPerAxis),
+      );
+      const batchZ = Math.min(
+        batchesPerAxis - 1,
+        Math.floor((patchZ * batchesPerAxis) / job.patchesPerAxis),
+      );
+      const batch = job.batches[batchZ * batchesPerAxis + batchX];
+      const instanceIndex = batch.instanceCount;
+      job.matrix.toArray(batch.matrixValues, instanceIndex * 16);
+      batch.bounds.expandByPoint(job.position);
       const variationOffset = instanceIndex * 4;
-      job.variations[variationOffset] = job.random.next();
-      job.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
-      job.variations[variationOffset + 2] = job.random.range(0.97, 1.04);
-      job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
+      batch.variations[variationOffset] = job.random.next();
+      batch.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
+      batch.variations[variationOffset + 2] = job.random.range(0.97, 1.04);
+      batch.variations[variationOffset + 3] = THREE.MathUtils.clamp(
         (1 - suitability) * 0.34 + job.random.range(0, 0.09),
         0,
         1,
       );
-      job.coverages[instanceIndex] = coverage;
-      job.instanceCount += 1;
+      batch.coverages[instanceIndex] = coverage;
+      batch.instanceCount += 1;
     }
   }
 
-  private advancePatchFinalize(
-    job: GrassChunkBuildJob,
-  ): GrassChunkFinalizeResult {
-    const {
-      request,
-      grassConfig,
-      matrixValues,
-      variations,
-      coverages,
-      instanceCount,
-    } = job;
+  private advancePatchFinalize(job: GrassChunkBuildJob): GrassChunkFinalizeResult {
+    const { request, grassConfig } = job;
 
-    if (instanceCount === 0) {
-      return { complete: true };
-    }
-
-    if (!job.variationValues || job.variantIndex === undefined) {
-      job.variationValues = variations.subarray(0, instanceCount * 4);
+    if (!job.activeBatches || job.variantIndex === undefined) {
+      job.activeBatches = job.batches.filter(
+        (batch) => batch.instanceCount > 0,
+      );
+      if (job.activeBatches.length === 0) {
+        return {
+          complete: true,
+          chunk: { key: request.key, patches: [] },
+        };
+      }
+      // A single variant per 64 m chunk creates obvious square tiles from an
+      // aerial view. Per-instance transforms and material variation already
+      // provide enough diversity without chunk-coherent atlas changes.
       job.variantIndex = Math.min(
         HOMOGENEOUS_VARIANT_INDEX,
         grassConfig.geometry.variantCount - 1,
@@ -730,65 +770,75 @@ export class WorldGrassSystem {
         grassConfig.geometry.bladeLeanMax +
         grassConfig.wind.strength +
         grassConfig.wind.flutterStrength;
-      job.meshBounds = job.bounds
-        .clone()
-        .expandByScalar(Math.max(impostorRadius, bladeExtent));
+      const boundsPadding = Math.max(impostorRadius, bladeExtent);
+      for (const batch of job.activeBatches) {
+        batch.variationValues = batch.variations.subarray(
+          0,
+          batch.instanceCount * 4,
+        );
+        batch.meshBounds = batch.bounds.clone().expandByScalar(boundsPadding);
+      }
     }
-    const variationValues = job.variationValues;
-    const coverageValues = coverages.subarray(0, instanceCount);
+
+    const activeBatches = job.activeBatches;
     const variantIndex = job.variantIndex;
+    const batch = activeBatches[job.finalizeStage];
+    const patch = this.createRenderPatch(job, batch, variantIndex);
+    job.completedPatches.push(patch);
+    job.finalizeStage += 1;
 
-    if (job.finalizeStage === 0) {
-      job.nearMesh = this.createMesh(
-        `world-grass-near-${request.key}`,
-        this.nearGeometries[variantIndex],
-        this.material.material,
-        matrixValues,
-        instanceCount,
-        variationValues,
-        coverageValues,
-        job.meshBounds,
-      );
-      job.finalizeStage += 1;
-      return { complete: false };
-    }
-    if (job.finalizeStage === 1) {
-      job.midMesh = this.createMesh(
-        `world-grass-mid-${request.key}`,
-        this.midGeometries[variantIndex],
-        this.material.material,
-        matrixValues,
-        instanceCount,
-        variationValues,
-        coverageValues,
-        job.meshBounds,
-      );
-      job.finalizeStage += 1;
-      return { complete: false };
-    }
+    return job.finalizeStage >= activeBatches.length
+      ? {
+          complete: true,
+          chunk: { key: request.key, patches: job.completedPatches },
+        }
+      : { complete: false };
+  }
 
+  private createRenderPatch(
+    job: GrassChunkBuildJob,
+    batch: GrassRenderBatchBuild,
+    variantIndex: number,
+  ): WorldGrassPatch {
+    const { request } = job;
+    const variationValues = batch.variationValues;
+    const bounds = batch.meshBounds;
+    if (!variationValues || !bounds) {
+      throw new Error(`Grass batch ${request.key} finalized before bounds.`);
+    }
+    const coverageValues = batch.coverages.subarray(0, batch.instanceCount);
+    const batchKey = `${request.key}:${batch.batchX}:${batch.batchZ}`;
+    const nearMesh = this.createMesh(
+      `world-grass-near-${batchKey}`,
+      this.nearGeometries[variantIndex],
+      this.material.material,
+      batch.matrixValues,
+      batch.instanceCount,
+      variationValues,
+      coverageValues,
+      bounds,
+    );
+    const midMesh = this.createMesh(
+      `world-grass-mid-${batchKey}`,
+      this.midGeometries[variantIndex],
+      this.material.material,
+      batch.matrixValues,
+      batch.instanceCount,
+      variationValues,
+      coverageValues,
+      bounds,
+    );
     const impostorMaterial = this.impostorMaterials[variantIndex];
-    if (job.finalizeStage === 2) {
-      job.farMesh = this.createMesh(
-        `world-grass-far-${request.key}`,
-        impostorMaterial.atlas.geometry,
-        impostorMaterial.material,
-        matrixValues,
-        instanceCount,
-        variationValues,
-        coverageValues,
-        job.meshBounds,
-      );
-      job.finalizeStage += 1;
-      return { complete: false };
-    }
-
-    const nearMesh = job.nearMesh;
-    const midMesh = job.midMesh;
-    const farMesh = job.farMesh;
-    if (!nearMesh || !midMesh || !farMesh) {
-      throw new Error(`Grass chunk ${request.key} finalized out of order.`);
-    }
+    const farMesh = this.createMesh(
+      `world-grass-far-${batchKey}`,
+      impostorMaterial.atlas.geometry,
+      impostorMaterial.material,
+      batch.matrixValues,
+      batch.instanceCount,
+      variationValues,
+      coverageValues,
+      bounds,
+    );
     midMesh.visible = false;
     farMesh.visible = false;
 
@@ -817,29 +867,25 @@ export class WorldGrassSystem {
     );
     impostorMaterial.bindMesh(farMesh, ditherSeed);
 
-    const bounds = job.meshBounds?.clone() ?? job.bounds.clone();
-    const boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
-
+    const patchBounds = bounds.clone();
+    const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
     return {
-      complete: true,
-      patch: {
-        id: request.key,
-        gridX: request.chunkX,
-        gridZ: request.chunkZ,
-        bounds,
-        boundingSphere,
-        nearMesh,
-        midMesh,
-        farMesh,
-        instanceCount,
-        lod: GrassLodLevel.Near,
-        distance: 0,
-        inFrustum: true,
-        nearCoverage: 1,
-        midCoverage: 0,
-        farCoverage: 0,
-        streamCoverage: 0,
-      },
+      id: batchKey,
+      gridX: request.chunkX * batchesPerAxis + batch.batchX,
+      gridZ: request.chunkZ * batchesPerAxis + batch.batchZ,
+      bounds: patchBounds,
+      boundingSphere: patchBounds.getBoundingSphere(new THREE.Sphere()),
+      nearMesh,
+      midMesh,
+      farMesh,
+      instanceCount: batch.instanceCount,
+      lod: GrassLodLevel.Near,
+      distance: 0,
+      inFrustum: true,
+      nearCoverage: 1,
+      midCoverage: 0,
+      farCoverage: 0,
+      streamCoverage: 0,
     };
   }
 
@@ -887,6 +933,13 @@ export class WorldGrassSystem {
     this.geometryFactory.disposeInstancedMesh(patch.nearMesh);
     this.geometryFactory.disposeInstancedMesh(patch.midMesh);
     this.geometryFactory.disposeInstancedMesh(patch.farMesh);
+  }
+
+  private removeChunk(chunk: WorldGrassChunk): void {
+    for (const patch of chunk.patches) {
+      this.patches.delete(patch);
+      this.removePatch(patch);
+    }
   }
 
   private hash(x: number, z: number, seed: number): number {

@@ -16,6 +16,8 @@ grassChunksPerFrame: 1
 
 # Multi-blade patches are used only by the mid and far grass LODs.
 grassPatchSize: 4
+# Split each streamed chunk into independently culled 32 m render batches.
+grassRenderBatchesPerAxis: 2
 grassBladesPerSquareMeterDesktop: 36
 grassBladesPerSquareMeterCompact: 26
 

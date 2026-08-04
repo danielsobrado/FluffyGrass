@@ -29,6 +29,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   terrainChunksPerFrame: POSITIVE_INTEGER,
   grassChunksPerFrame: POSITIVE_INTEGER,
   grassPatchSize: POSITIVE,
+  grassRenderBatchesPerAxis: POSITIVE_INTEGER,
   grassBladesPerSquareMeterDesktop: { minimum: 4, maximum: 160 },
   grassBladesPerSquareMeterCompact: { minimum: 4, maximum: 160 },
   grassNearTileSize: POSITIVE,
@@ -132,11 +133,17 @@ export class WorldConfigLoader {
         "worldSize must contain an even whole number of terrain chunks.",
       );
     }
-    if (!Number.isInteger(config.chunkSize / config.grassPatchSize)) {
+    const patchesPerChunk = config.chunkSize / config.grassPatchSize;
+    if (!Number.isInteger(patchesPerChunk)) {
       throw new Error("chunkSize must be divisible by grassPatchSize.");
     }
     if (!Number.isInteger(config.chunkSize / config.grassNearTileSize)) {
       throw new Error("chunkSize must be divisible by grassNearTileSize.");
+    }
+    if (config.grassRenderBatchesPerAxis > patchesPerChunk) {
+      throw new Error(
+        "grassRenderBatchesPerAxis must not exceed the patches per chunk axis.",
+      );
     }
     if (
       config.terrainNearResolution <= config.terrainMidResolution ||

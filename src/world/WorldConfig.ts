@@ -12,6 +12,7 @@ export interface WorldConfig {
   terrainChunksPerFrame: number;
   grassChunksPerFrame: number;
   grassPatchSize: number;
+  grassRenderBatchesPerAxis: number;
   grassBladesPerSquareMeterDesktop: number;
   grassBladesPerSquareMeterCompact: number;
   grassNearTileSize: number;

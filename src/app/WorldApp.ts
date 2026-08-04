@@ -35,6 +35,7 @@ export class WorldApp {
   private readonly pixelRatio: number;
   private frameHandle = 0;
   private watchdogHandle = 0;
+  private frameCount = 0;
   private fpsSampleFrames = 0;
   private fpsSampleElapsed = 0;
   private averageFps = 0;
@@ -210,6 +211,7 @@ export class WorldApp {
 
     this.frameHandle = requestAnimationFrame(this.render);
     this.lastFrameTimestamp = performance.now();
+    this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
     this.updateAverageFps(deltaSeconds);
 
@@ -393,7 +395,7 @@ export class WorldApp {
       ? `Grass error: ${this.grassInitializationError}`
       : grass.status;
     this.hud.textContent = [
-      `Avg FPS ${this.averageFps.toFixed(1)} · ${this.runtimeError ? "DEGRADED" : "running"} · ${this.controls.getMode()}`,
+      `Frame ${this.frameCount.toLocaleString()} · ${this.averageFps.toFixed(1)} FPS · ${this.runtimeError ? "DEGRADED" : "running"} · ${this.controls.getMode()}`,
       `Focus ${focus.x.toFixed(0)} / ${focus.y.toFixed(0)} / ${focus.z.toFixed(0)}`,
       `Camera ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
       `AGL ${(focus.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(1)} m/s`,
