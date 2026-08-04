@@ -11,6 +11,8 @@ def write(path: str, source: str) -> None:
 
 def replace_once(path: str, old: str, new: str) -> None:
     source = read(path)
+    if new in source:
+        return
     count = source.count(old)
     if count != 1:
         raise RuntimeError(f"Expected one match in {path}, found {count}: {old!r}")
@@ -18,99 +20,24 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 
 def insert_after(path: str, marker: str, addition: str) -> None:
+    source = read(path)
+    if addition.strip() in source:
+        return
     replace_once(path, marker, marker + addition)
 
 
 def insert_before(path: str, marker: str, addition: str) -> None:
+    source = read(path)
+    if addition.strip() in source:
+        return
     replace_once(path, marker, addition + marker)
 
 
-def replace_section(path: str, start: str, end: str, replacement: str) -> None:
-    source = read(path)
-    start_index = source.find(start)
-    if start_index < 0:
-        raise RuntimeError(f"Start marker not found in {path}: {start!r}")
-    if source.find(start, start_index + 1) >= 0:
-        raise RuntimeError(f"Start marker is not unique in {path}: {start!r}")
-    end_index = source.find(end, start_index)
-    if end_index < 0:
-        raise RuntimeError(f"End marker not found in {path}: {end!r}")
-    end_index += len(end)
-    write(path, source[:start_index] + replacement + source[end_index:])
-
+SYSTEM = "src/world/WorldGrassSystem.ts"
+VERIFY = "scripts/verify-lod-continuity.mjs"
 
 replace_once(
-    "src/grass/GrassArtDirection.ts",
-    "value && value in GRASS_ART_DIRECTIONS",
-    "value &&\n    Object.prototype.hasOwnProperty.call(GRASS_ART_DIRECTIONS, value)",
-)
-
-replace_once(
-    "src/world/grass/WorldGrassImpostorMaterial.ts",
-    """uniform float uArtDensityScale;
-uniform float uStreamCoverage;
-uniform vec3 uBaseColor;
-uniform vec3 uDryColor;""",
-    """uniform float uArtDensityScale;
-uniform float uRootDarkening;
-uniform float uStreamCoverage;
-uniform vec3 uBaseColor;
-uniform vec3 uTipColor;
-uniform vec3 uDryColor;""",
-)
-
-replace_section(
-    "src/world/grass/WorldGrassImpostorMaterial.ts",
-    "  vec3 color = atlasColor.rgb / max(atlasColor.a, 0.001);",
-    "  color = mix(color, uDryColor, vDryness * 0.04);",
-    """  vec3 atlasSample = atlasColor.rgb / max(atlasColor.a, 0.001);
-  float atlasLuminance = dot(
-    atlasSample,
-    vec3(0.2126, 0.7152, 0.0722)
-  );
-  float bladeProgress = smoothstep(0.08, 0.92, vUv.y);
-  vec3 paletteColor = mix(
-    uBaseColor * uRootDarkening,
-    uTipColor,
-    bladeProgress
-  );
-  vec3 color = paletteColor * mix(
-    0.72,
-    1.18,
-    clamp(atlasLuminance, 0.0, 1.0)
-  );
-  float terrainMatch = mix(
-    uBaseColorBlend,
-    1.0,
-    smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
-  );
-  color = mix(color, uBaseColor, terrainMatch);
-  color = mix(color, uDryColor, vDryness * 0.04);""",
-)
-
-insert_after(
-    "src/world/grass/WorldGrassImpostorMaterial.ts",
-    "      uArtDensityScale: { value: 1 },",
-    "\n      uRootDarkening: { value: materialConfig.rootDarkening },",
-)
-insert_after(
-    "src/world/grass/WorldGrassImpostorMaterial.ts",
-    "      uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },",
-    "\n      uTipColor: { value: new THREE.Color(materialConfig.tipColor) },",
-)
-insert_after(
-    "src/world/grass/WorldGrassImpostorMaterial.ts",
-    "    (this.uniforms.uBaseColor.value as THREE.Color).set(direction.baseColor);",
-    "\n    (this.uniforms.uTipColor.value as THREE.Color).set(direction.tipColor);",
-)
-insert_after(
-    "src/world/grass/WorldGrassImpostorMaterial.ts",
-    "    (this.uniforms.uDryColor.value as THREE.Color).set(direction.dryColor);",
-    "\n    this.uniforms.uRootDarkening.value = direction.rootDarkening;",
-)
-
-replace_once(
-    "src/world/WorldGrassSystem.ts",
+    SYSTEM,
     """    lodConfig.farMaxDistance = Math.min(
       lodConfig.farMaxDistance,
       this.artDirection.farDistance,
@@ -121,7 +48,7 @@ replace_once(
 )
 
 insert_before(
-    "src/world/WorldGrassSystem.ts",
+    SYSTEM,
     "  private processBuildQueue(): void {",
     """  private resolveArtFarDistance(direction: GrassArtDirection): number {
     const radius = this.profile.compact
@@ -139,7 +66,7 @@ insert_before(
 )
 
 replace_once(
-    "src/world/WorldGrassSystem.ts",
+    SYSTEM,
     "      const boundsPadding = Math.max(impostorRadius, bladeExtent);",
     """      const boundsPadding = Math.max(
         impostorRadius + this.getFarImpostorOffsetRadius(),
@@ -148,7 +75,7 @@ replace_once(
 )
 
 replace_once(
-    "src/world/WorldGrassSystem.ts",
+    SYSTEM,
     """      lodConfig.farMaxDistance = Math.min(
         direction.farDistance,
         this.worldConfig.grassFarDistance,
@@ -157,7 +84,7 @@ replace_once(
 )
 
 insert_before(
-    "src/world/WorldGrassSystem.ts",
+    SYSTEM,
     "  private createFarImpostorInstances(",
     """  private getFarImpostorOffsetRadius(): number {
     return this.worldConfig.grassFarImpostorsPerPatch > 1
@@ -168,21 +95,22 @@ insert_before(
 """,
 )
 
-replace_section(
-    "src/world/WorldGrassSystem.ts",
-    "    const offsetRadius = cardsPerPatch > 1",
-    "      : 0;",
+replace_once(
+    SYSTEM,
+    """    const offsetRadius = cardsPerPatch > 1
+      ? this.worldConfig.grassPatchSize * 0.12
+      : 0;""",
     "    const offsetRadius = this.getFarImpostorOffsetRadius();",
 )
 
 insert_after(
-    "scripts/verify-lod-continuity.mjs",
+    VERIFY,
     'const worldGrassSystem = read("src/world/WorldGrassSystem.ts");',
     '\nconst artDirections = read("src/grass/GrassArtDirection.ts");',
 )
 
 insert_after(
-    "scripts/verify-lod-continuity.mjs",
+    VERIFY,
     """if (!impostorAtlasFactory.includes("shadeScale * material.rootDarkening")) {
   fail("The impostor atlas must share the configured blade-root darkening.");
 }""",
@@ -221,7 +149,7 @@ if (
 )
 
 insert_after(
-    "scripts/verify-lod-continuity.mjs",
+    VERIFY,
     """const farImpostorsPerPatch = readYamlNumber(
   worldConfig,
   "grassFarImpostorsPerPatch",
@@ -234,7 +162,7 @@ const renderBatchesPerAxis = readYamlNumber(
 )
 
 insert_after(
-    "scripts/verify-lod-continuity.mjs",
+    VERIFY,
     """if (farImpostorsPerPatch < 2) {
   fail("Far grass must use layered full-footprint impostors.");
 }""",
