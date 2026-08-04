@@ -1,0 +1,249 @@
+from pathlib import Path
+
+
+def read(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def write(path: str, source: str) -> None:
+    Path(path).write_text(source, encoding="utf-8")
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    source = read(path)
+    count = source.count(old)
+    if count != 1:
+        raise RuntimeError(f"Expected one match in {path}, found {count}: {old!r}")
+    write(path, source.replace(old, new, 1))
+
+
+def insert_after(path: str, marker: str, addition: str) -> None:
+    replace_once(path, marker, marker + addition)
+
+
+def insert_before(path: str, marker: str, addition: str) -> None:
+    replace_once(path, marker, addition + marker)
+
+
+def replace_section(path: str, start: str, end: str, replacement: str) -> None:
+    source = read(path)
+    start_index = source.find(start)
+    if start_index < 0:
+        raise RuntimeError(f"Start marker not found in {path}: {start!r}")
+    if source.find(start, start_index + 1) >= 0:
+        raise RuntimeError(f"Start marker is not unique in {path}: {start!r}")
+    end_index = source.find(end, start_index)
+    if end_index < 0:
+        raise RuntimeError(f"End marker not found in {path}: {end!r}")
+    end_index += len(end)
+    write(path, source[:start_index] + replacement + source[end_index:])
+
+
+replace_once(
+    "src/grass/GrassArtDirection.ts",
+    "value && value in GRASS_ART_DIRECTIONS",
+    "value &&\n    Object.prototype.hasOwnProperty.call(GRASS_ART_DIRECTIONS, value)",
+)
+
+replace_once(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+    """uniform float uArtDensityScale;
+uniform float uStreamCoverage;
+uniform vec3 uBaseColor;
+uniform vec3 uDryColor;""",
+    """uniform float uArtDensityScale;
+uniform float uRootDarkening;
+uniform float uStreamCoverage;
+uniform vec3 uBaseColor;
+uniform vec3 uTipColor;
+uniform vec3 uDryColor;""",
+)
+
+replace_section(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+    "  vec3 color = atlasColor.rgb / max(atlasColor.a, 0.001);",
+    "  color = mix(color, uDryColor, vDryness * 0.04);",
+    """  vec3 atlasSample = atlasColor.rgb / max(atlasColor.a, 0.001);
+  float atlasLuminance = dot(
+    atlasSample,
+    vec3(0.2126, 0.7152, 0.0722)
+  );
+  float bladeProgress = smoothstep(0.08, 0.92, vUv.y);
+  vec3 paletteColor = mix(
+    uBaseColor * uRootDarkening,
+    uTipColor,
+    bladeProgress
+  );
+  vec3 color = paletteColor * mix(
+    0.72,
+    1.18,
+    clamp(atlasLuminance, 0.0, 1.0)
+  );
+  float terrainMatch = mix(
+    uBaseColorBlend,
+    1.0,
+    smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
+  );
+  color = mix(color, uBaseColor, terrainMatch);
+  color = mix(color, uDryColor, vDryness * 0.04);""",
+)
+
+insert_after(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+    "      uArtDensityScale: { value: 1 },",
+    "\n      uRootDarkening: { value: materialConfig.rootDarkening },",
+)
+insert_after(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+    "      uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },",
+    "\n      uTipColor: { value: new THREE.Color(materialConfig.tipColor) },",
+)
+insert_after(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+    "    (this.uniforms.uBaseColor.value as THREE.Color).set(direction.baseColor);",
+    "\n    (this.uniforms.uTipColor.value as THREE.Color).set(direction.tipColor);",
+)
+insert_after(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+    "    (this.uniforms.uDryColor.value as THREE.Color).set(direction.dryColor);",
+    "\n    this.uniforms.uRootDarkening.value = direction.rootDarkening;",
+)
+
+replace_once(
+    "src/world/WorldGrassSystem.ts",
+    """    lodConfig.farMaxDistance = Math.min(
+      lodConfig.farMaxDistance,
+      this.artDirection.farDistance,
+    );""",
+    """    lodConfig.farMaxDistance = this.resolveArtFarDistance(
+      this.artDirection,
+    );""",
+)
+
+insert_before(
+    "src/world/WorldGrassSystem.ts",
+    "  private processBuildQueue(): void {",
+    """  private resolveArtFarDistance(direction: GrassArtDirection): number {
+    const radius = this.profile.compact
+      ? this.worldConfig.grassRadiusCompact
+      : this.worldConfig.grassRadiusDesktop;
+    const streamFadeEnd = radius * this.worldConfig.chunkSize;
+    return Math.min(
+      direction.farDistance,
+      this.worldConfig.grassFarDistance,
+      streamFadeEnd - direction.transitionDistance,
+    );
+  }
+
+""",
+)
+
+replace_once(
+    "src/world/WorldGrassSystem.ts",
+    "      const boundsPadding = Math.max(impostorRadius, bladeExtent);",
+    """      const boundsPadding = Math.max(
+        impostorRadius + this.getFarImpostorOffsetRadius(),
+        bladeExtent,
+      );""",
+)
+
+replace_once(
+    "src/world/WorldGrassSystem.ts",
+    """      lodConfig.farMaxDistance = Math.min(
+        direction.farDistance,
+        this.worldConfig.grassFarDistance,
+      );""",
+    "      lodConfig.farMaxDistance = this.resolveArtFarDistance(direction);",
+)
+
+insert_before(
+    "src/world/WorldGrassSystem.ts",
+    "  private createFarImpostorInstances(",
+    """  private getFarImpostorOffsetRadius(): number {
+    return this.worldConfig.grassFarImpostorsPerPatch > 1
+      ? this.worldConfig.grassPatchSize * 0.12
+      : 0;
+  }
+
+""",
+)
+
+replace_section(
+    "src/world/WorldGrassSystem.ts",
+    "    const offsetRadius = cardsPerPatch > 1",
+    "      : 0;",
+    "    const offsetRadius = this.getFarImpostorOffsetRadius();",
+)
+
+insert_after(
+    "scripts/verify-lod-continuity.mjs",
+    'const worldGrassSystem = read("src/world/WorldGrassSystem.ts");',
+    '\nconst artDirections = read("src/grass/GrassArtDirection.ts");',
+)
+
+insert_after(
+    "scripts/verify-lod-continuity.mjs",
+    """if (!impostorAtlasFactory.includes("shadeScale * material.rootDarkening")) {
+  fail("The impostor atlas must share the configured blade-root darkening.");
+}""",
+    """
+if (
+  !impostorMaterial.includes("uniform vec3 uTipColor") ||
+  !impostorMaterial.includes("uniform float uRootDarkening") ||
+  !impostorMaterial.includes("vec3 paletteColor")
+) {
+  fail("Far grass must reconstruct the active base-to-tip preset palette.");
+}
+if (
+  artDirections.includes("value in GRASS_ART_DIRECTIONS") ||
+  !artDirections.includes(
+    "Object.prototype.hasOwnProperty.call(GRASS_ART_DIRECTIONS, value)",
+  )
+) {
+  fail("Grass-art query validation must reject inherited object properties.");
+}
+if (
+  !worldGrassSystem.includes("resolveArtFarDistance") ||
+  !worldGrassSystem.includes("streamFadeEnd - direction.transitionDistance")
+) {
+  fail("Runtime art presets must preserve the streamed far-distance cap.");
+}
+if (
+  !worldGrassSystem.includes(
+    "impostorRadius + this.getFarImpostorOffsetRadius()",
+  ) ||
+  !worldGrassSystem.includes(
+    "const offsetRadius = this.getFarImpostorOffsetRadius()",
+  )
+) {
+  fail("Layered far-card offsets must be included in culling bounds.");
+}""",
+)
+
+insert_after(
+    "scripts/verify-lod-continuity.mjs",
+    """const farImpostorsPerPatch = readYamlNumber(
+  worldConfig,
+  "grassFarImpostorsPerPatch",
+);""",
+    """
+const renderBatchesPerAxis = readYamlNumber(
+  worldConfig,
+  "grassRenderBatchesPerAxis",
+);""",
+)
+
+insert_after(
+    "scripts/verify-lod-continuity.mjs",
+    """if (farImpostorsPerPatch < 2) {
+  fail("Far grass must use layered full-footprint impostors.");
+}""",
+    """
+if (
+  renderBatchesPerAxis > 2 ||
+  farImpostorsPerPatch > 2 ||
+  midBladeFraction * farImpostorsPerPatch > 2
+) {
+  fail("Grass mid/far density exceeds the reviewed rendering budget.");
+}""",
+)
