@@ -46,6 +46,10 @@ interface GrassChunkRequest {
 interface GrassRenderBatchBuild {
   batchX: number;
   batchZ: number;
+  // Horizontal centre of the batch cell rectangle. Instance transforms are
+  // written relative to it so each mesh carries a real world position.
+  originX: number;
+  originZ: number;
   matrixValues: Float32Array;
   variations: Float32Array;
   coverages: Float32Array;
@@ -53,6 +57,8 @@ interface GrassRenderBatchBuild {
   bounds: THREE.Box3;
   meshBounds?: THREE.Box3;
   variationValues?: Float32Array;
+  origin?: THREE.Vector3;
+  localBounds?: THREE.Box3;
 }
 
 interface GrassChunkBuildJob {
@@ -73,6 +79,7 @@ interface GrassChunkBuildJob {
   yaw: THREE.Quaternion;
   scale: THREE.Vector3;
   position: THREE.Vector3;
+  localPosition: THREE.Vector3;
   matrix: THREE.Matrix4;
   finalizeStage: number;
   variantIndex?: number;
@@ -132,6 +139,7 @@ export class WorldGrassSystem {
   private readonly wind = new WindField();
   private readonly chunks = new Map<string, WorldGrassChunk>();
   private readonly patches = new Set<WorldGrassPatch>();
+  private readonly fadingPatches = new Set<WorldGrassPatch>();
   private readonly queue: GrassChunkRequest[] = [];
   private readonly desired = new Map<string, GrassChunkRequest>();
   private readonly retirementQueue: string[] = [];
@@ -139,7 +147,6 @@ export class WorldGrassSystem {
   private readonly cameraPosition = new THREE.Vector3();
   private readonly previousReconcilePosition = new THREE.Vector2();
   private readonly nearField: WorldNearGrassField;
-  private nearGeometries: THREE.BufferGeometry[] = [];
   private midGeometries: THREE.BufferGeometry[] = [];
   private grassConfig?: GrassConfig;
   private resolvedLodConfig?: GrassLodConfig;
@@ -221,13 +228,17 @@ export class WorldGrassSystem {
 
     for (const patch of this.patches.values()) {
       bladePatches += patch.instanceCount;
-      visibleNearPatches += patch.nearMesh.visible ? 1 : 0;
+      // The near band is drawn entirely by single-blade tiles, whose real
+      // blades are already counted in nearField.getBladeCount(). Report the
+      // patches the band covers, and do not add a clump-blade estimate for a
+      // layer that no longer exists — that term used to double-count.
+      visibleNearPatches +=
+        patch.inFrustum && patch.nearCoverage > 0 ? 1 : 0;
       visibleMidPatches += patch.midMesh.visible ? 1 : 0;
       visibleFarPatches += patch.farMesh.visible ? 1 : 0;
       blades += Math.round(
         patch.instanceCount *
-          (patch.nearCoverage * this.nearBladesPerPatch +
-            patch.midCoverage * this.midBladesPerPatch +
+          (patch.midCoverage * this.midBladesPerPatch +
             patch.farCoverage * this.nearBladesPerPatch),
       );
       if (patch.farMesh.visible) {
@@ -265,6 +276,7 @@ export class WorldGrassSystem {
     }
     this.chunks.clear();
     this.patches.clear();
+    this.fadingPatches.clear();
     this.queue.length = 0;
     this.retirementQueue.length = 0;
     this.retiring.clear();
@@ -273,10 +285,9 @@ export class WorldGrassSystem {
     }
     this.activeBuild = undefined;
     this.desired.clear();
-    for (const geometry of [...this.nearGeometries, ...this.midGeometries]) {
+    for (const geometry of this.midGeometries) {
       geometry.dispose();
     }
-    this.nearGeometries = [];
     this.midGeometries = [];
     this.material.material.dispose();
     for (const impostorMaterial of this.impostorMaterials) {
@@ -305,7 +316,6 @@ export class WorldGrassSystem {
       WORLD_VARIANT_COUNT,
     );
     this.grassConfig = grassConfig;
-    this.nearGeometries = variants.near;
     this.midGeometries = variants.mid;
     this.nearBladesPerPatch = variants.nearBladesPerPatch;
     this.midBladesPerPatch = variants.midBladesPerPatch;
@@ -416,7 +426,8 @@ export class WorldGrassSystem {
           this.chunks.set(job.request.key, result.chunk);
           for (const patch of result.chunk.patches) {
             this.patches.add(patch);
-            this.scene.add(patch.nearMesh, patch.midMesh, patch.farMesh);
+            this.fadingPatches.add(patch);
+            this.scene.add(patch.midMesh, patch.farMesh);
           }
         }
         this.activeBuild = undefined;
@@ -473,15 +484,20 @@ export class WorldGrassSystem {
   }
 
   private updateStreamCoverage(deltaSeconds: number): void {
+    if (this.fadingPatches.size === 0) {
+      return;
+    }
+
+    // Only patches still fading in are walked. Sweeping every resident patch
+    // every frame cost hundreds of iterations to discover nothing to do.
     const coverageStep = deltaSeconds / STREAM_FADE_SECONDS;
-    for (const patch of this.patches.values()) {
-      if (patch.streamCoverage >= 1) {
-        continue;
-      }
+    for (const patch of this.fadingPatches) {
       patch.streamCoverage = Math.min(1, patch.streamCoverage + coverageStep);
-      patch.nearMesh.userData.grassStreamCoverage = patch.streamCoverage;
       patch.midMesh.userData.grassStreamCoverage = patch.streamCoverage;
       patch.farMesh.userData.grassStreamCoverage = patch.streamCoverage;
+      if (patch.streamCoverage >= 1) {
+        this.fadingPatches.delete(patch);
+      }
     }
   }
 
@@ -626,25 +642,33 @@ export class WorldGrassSystem {
     const cellSize = this.worldConfig.chunkSize / patchesPerAxis;
     const jitterRadius =
       cellSize * this.worldConfig.grassPatchJitter * 0.5;
+    const originX = request.chunkX * this.worldConfig.chunkSize;
+    const originZ = request.chunkZ * this.worldConfig.chunkSize;
     return {
       request,
       grassConfig,
       patchesPerAxis,
       cellSize,
       jitterRadius,
-      originX: request.chunkX * this.worldConfig.chunkSize,
-      originZ: request.chunkZ * this.worldConfig.chunkSize,
+      originX,
+      originZ,
       nextCell: 0,
       random: new SeededRandom(
         this.hash(request.chunkX, request.chunkZ, this.worldConfig.seed),
       ),
-      batches: this.createRenderBatchBuilds(patchesPerAxis),
+      batches: this.createRenderBatchBuilds(
+        patchesPerAxis,
+        originX,
+        originZ,
+        cellSize,
+      ),
       up: new THREE.Vector3(0, 1, 0),
       normal: new THREE.Vector3(),
       align: new THREE.Quaternion(),
       yaw: new THREE.Quaternion(),
       scale: new THREE.Vector3(),
       position: new THREE.Vector3(),
+      localPosition: new THREE.Vector3(),
       matrix: new THREE.Matrix4(),
       finalizeStage: 0,
       completedPatches: [],
@@ -653,6 +677,9 @@ export class WorldGrassSystem {
 
   private createRenderBatchBuilds(
     patchesPerAxis: number,
+    chunkOriginX: number,
+    chunkOriginZ: number,
+    cellSize: number,
   ): GrassRenderBatchBuild[] {
     const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
     const batches: GrassRenderBatchBuild[] = [];
@@ -670,6 +697,8 @@ export class WorldGrassSystem {
         batches.push({
           batchX,
           batchZ,
+          originX: chunkOriginX + ((startX + endX) * 0.5) * cellSize,
+          originZ: chunkOriginZ + ((startZ + endZ) * 0.5) * cellSize,
           matrixValues: new Float32Array(capacity * 16),
           variations: new Float32Array(capacity * 4),
           coverages: new Float32Array(capacity),
@@ -743,7 +772,6 @@ export class WorldGrassSystem {
           job.grassConfig.distribution.heightVariation,
         );
       job.scale.set(horizontalScale, heightScale, horizontalScale);
-      job.matrix.compose(job.position, job.align, job.scale);
       const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
       const batchX = Math.min(
         batchesPerAxis - 1,
@@ -755,8 +783,18 @@ export class WorldGrassSystem {
       );
       const batch = job.batches[batchZ * batchesPerAxis + batchX];
       const instanceIndex = batch.instanceCount;
-      job.matrix.toArray(batch.matrixValues, instanceIndex * 16);
       batch.bounds.expandByPoint(job.position);
+      // Instance transforms are stored relative to the batch origin so the
+      // mesh can carry a real world position. Every grass mesh previously sat
+      // at the scene origin, which collapsed three's opaque depth sort into a
+      // single key and left front-to-back ordering to chance.
+      job.localPosition.set(
+        job.position.x - batch.originX,
+        job.position.y,
+        job.position.z - batch.originZ,
+      );
+      job.matrix.compose(job.localPosition, job.align, job.scale);
+      job.matrix.toArray(batch.matrixValues, instanceIndex * 16);
       const variationOffset = instanceIndex * 4;
       batch.variations[variationOffset] = job.random.next();
       batch.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
@@ -813,6 +851,21 @@ export class WorldGrassSystem {
           batch.instanceCount * 4,
         );
         batch.meshBounds = batch.bounds.clone().expandByScalar(boundsPadding);
+        // Finish centring the batch vertically now that its terrain extent is
+        // known, so the mesh origin used for depth sorting sits inside the
+        // grass rather than at sea level.
+        const centerY = (batch.bounds.min.y + batch.bounds.max.y) * 0.5;
+        for (let index = 0; index < batch.instanceCount; index += 1) {
+          batch.matrixValues[index * 16 + 13] -= centerY;
+        }
+        batch.origin = new THREE.Vector3(
+          batch.originX,
+          centerY,
+          batch.originZ,
+        );
+        batch.localBounds = batch.meshBounds
+          .clone()
+          .translate(batch.origin.clone().negate());
       }
     }
 
@@ -839,21 +892,16 @@ export class WorldGrassSystem {
     const { request } = job;
     const variationValues = batch.variationValues;
     const bounds = batch.meshBounds;
-    if (!variationValues || !bounds) {
+    const origin = batch.origin;
+    const localBounds = batch.localBounds;
+    if (!variationValues || !bounds || !origin || !localBounds) {
       throw new Error(`Grass batch ${request.key} finalized before bounds.`);
     }
     const coverageValues = batch.coverages.subarray(0, batch.instanceCount);
     const batchKey = `${request.key}:${batch.batchX}:${batch.batchZ}`;
-    const nearMesh = this.createMesh(
-      `world-grass-near-${batchKey}`,
-      this.nearGeometries[variantIndex],
-      this.material.material,
-      batch.matrixValues,
-      batch.instanceCount,
-      variationValues,
-      coverageValues,
-      bounds,
-    );
+    // No near clump mesh is built here. Single-blade tiles own every blade
+    // inside the near band, so a streamed near clump layer would allocate and
+    // upload per-patch instance buffers that can never draw a pixel.
     const midMesh = this.createMesh(
       `world-grass-mid-${batchKey}`,
       this.midGeometries[variantIndex],
@@ -862,7 +910,8 @@ export class WorldGrassSystem {
       batch.instanceCount,
       variationValues,
       coverageValues,
-      bounds,
+      origin,
+      localBounds,
     );
     const impostorMaterial = this.impostorMaterials[variantIndex];
     const farInstances = this.createFarImpostorInstances(
@@ -879,7 +928,8 @@ export class WorldGrassSystem {
       farInstances.instanceCount,
       farInstances.variationValues,
       farInstances.coverageValues,
-      bounds,
+      origin,
+      localBounds,
     );
     midMesh.visible = false;
     farMesh.visible = false;
@@ -888,15 +938,6 @@ export class WorldGrassSystem {
       request.chunkX,
       request.chunkZ,
       this.worldConfig.seed + 193,
-    );
-    this.material.bindMesh(
-      nearMesh,
-      ditherSeed,
-      false,
-      1,
-      true,
-      MID_COLOR_SCALE,
-      0,
     );
     this.material.bindMesh(
       midMesh,
@@ -917,7 +958,6 @@ export class WorldGrassSystem {
       gridZ: request.chunkZ * batchesPerAxis + batch.batchZ,
       bounds: patchBounds,
       boundingSphere: patchBounds.getBoundingSphere(new THREE.Sphere()),
-      nearMesh,
       midMesh,
       farMesh,
       instanceCount: batch.instanceCount,
@@ -1031,7 +1071,8 @@ export class WorldGrassSystem {
     instanceCount: number,
     variationValues: Float32Array,
     coverageValues: Float32Array,
-    bounds?: THREE.Box3,
+    origin: THREE.Vector3,
+    localBounds: THREE.Box3,
   ): THREE.InstancedMesh {
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
@@ -1049,24 +1090,28 @@ export class WorldGrassSystem {
     // lookup. Ultra-near interactive blades retain received shadows.
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
-    mesh.instanceMatrix.array.set(
+    // Adopt the buffer the build already filled instead of letting
+    // InstancedMesh allocate a second one and copying into it. Streaming a
+    // chunk otherwise pays an extra allocation and copy per mesh inside the
+    // per-frame build budget.
+    mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
       matrixValues.subarray(0, instanceCount * 16),
+      16,
     );
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    mesh.instanceMatrix.needsUpdate = true;
-    if (bounds) {
-      mesh.boundingBox = bounds.clone();
-      mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
-    } else {
-      mesh.computeBoundingBox();
-      mesh.computeBoundingSphere();
-    }
+    mesh.position.copy(origin);
+    // Grass meshes never move, so skip the per-frame compose that
+    // Object3D.updateMatrixWorld would otherwise run for every resident patch.
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    mesh.boundingBox = localBounds.clone();
+    mesh.boundingSphere = localBounds.getBoundingSphere(new THREE.Sphere());
     return mesh;
   }
 
   private removePatch(patch: WorldGrassPatch): void {
-    this.scene.remove(patch.nearMesh, patch.midMesh, patch.farMesh);
-    this.geometryFactory.disposeInstancedMesh(patch.nearMesh);
+    this.fadingPatches.delete(patch);
+    this.scene.remove(patch.midMesh, patch.farMesh);
     this.geometryFactory.disposeInstancedMesh(patch.midMesh);
     this.geometryFactory.disposeInstancedMesh(patch.farMesh);
   }

@@ -17,7 +17,6 @@ export interface WorldGrassBladeSpec {
 }
 
 export interface WorldGrassPatchGeometryVariants {
-  near: THREE.BufferGeometry[];
   mid: THREE.BufferGeometry[];
   bladeVariants: readonly (readonly WorldGrassBladeSpec[])[];
   nearBladesPerPatch: number;
@@ -58,10 +57,13 @@ export class WorldGrassPatchGeometryFactory {
       1,
       Math.round(nearBladesPerPatch * world.grassMidBladeFraction),
     );
-    const near: THREE.BufferGeometry[] = [];
     const mid: THREE.BufferGeometry[] = [];
     const bladeVariants: WorldGrassBladeSpec[][] = [];
 
+    // Only the mid geometry is built. The near clump variant used to be
+    // generated alongside it, but the streamed near clump mesh is gone and,
+    // at grassMidBladeFraction 1 with unit mid scales, the two geometries held
+    // exactly the same blade set anyway.
     for (let variant = 0; variant < variantCount; variant += 1) {
       const specs = this.createBladeSpecs(
         nearBladesPerPatch,
@@ -71,7 +73,6 @@ export class WorldGrassPatchGeometryFactory {
         grass,
       );
       bladeVariants.push(specs);
-      near.push(this.createGeometry(specs, grass, false));
       mid.push(
         this.createGeometry(
           [...specs]
@@ -84,7 +85,6 @@ export class WorldGrassPatchGeometryFactory {
     }
 
     return {
-      near,
       mid,
       bladeVariants,
       nearBladesPerPatch,

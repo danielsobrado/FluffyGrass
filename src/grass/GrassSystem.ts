@@ -35,6 +35,8 @@ interface PatchBucket {
   placements: GrassPlacement[];
 }
 
+type IslandGrassPatch = GrassPatch & { nearMesh: THREE.InstancedMesh };
+
 export interface GrassDiagnostics {
   patchCount: number;
   patchesInFrustum: number;
@@ -121,7 +123,7 @@ export class GrassSystem {
         if (patch.inFrustum) {
           patchesInFrustum += 1;
         }
-        if (patch.nearMesh.visible) {
+        if (patch.nearMesh?.visible) {
           visibleNearPatches += 1;
           submittedNearClumps += patch.instanceCount;
         }
@@ -153,10 +155,11 @@ export class GrassSystem {
       }
     }
 
-    return selected
+    const bakeSource = selected?.nearMesh;
+    return selected && bakeSource
       ? {
           patchId: selected.id.replace(":", "-"),
-          object: selected.nearMesh,
+          object: bakeSource,
           bounds: selected.bounds.clone(),
         }
       : undefined;
@@ -234,11 +237,13 @@ export class GrassSystem {
     return buckets;
   }
 
+  // The legacy island path is two-stage and always builds a near clump mesh,
+  // unlike the streamed world path where GrassPatch.nearMesh is absent.
   private createPatch(
     bucket: PatchBucket,
     variants: GrassGeometryVariants,
     config: GrassConfig,
-  ): GrassPatch {
+  ): IslandGrassPatch {
     const variantIndex =
       this.hashPatch(bucket.gridX, bucket.gridZ, config.distribution.seed) %
       config.geometry.variantCount;

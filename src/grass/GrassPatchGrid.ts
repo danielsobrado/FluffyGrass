@@ -13,7 +13,10 @@ export interface GrassPatch {
   gridZ: number;
   bounds: THREE.Box3;
   boundingSphere: THREE.Sphere;
-  nearMesh: THREE.InstancedMesh;
+  // The streamed three-stage world path has no near clump mesh: single-blade
+  // tiles own everything inside the near band. Only the legacy two-stage
+  // island path still builds one.
+  nearMesh?: THREE.InstancedMesh;
   midMesh: THREE.InstancedMesh;
   farMesh?: THREE.InstancedMesh;
   instanceCount: number;

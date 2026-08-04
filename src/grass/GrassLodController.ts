@@ -68,10 +68,13 @@ export class GrassLodController {
     const terrainFadeEnd =
       this.config.farMaxDistance + this.config.transitionDistance;
 
-    patch.nearMesh.visible =
-      patch.nearMesh.userData.grassDisabledNearPatch !== true &&
-      patch.inFrustum &&
-      patch.distance < nearFadeEnd;
+    // The streamed world path builds no near clump mesh at all; single-blade
+    // tiles cover the whole near band.
+    if (patch.nearMesh) {
+      patch.nearMesh.visible = patch.inFrustum && patch.distance < nearFadeEnd;
+      patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
+      patch.nearMesh.userData.grassDistanceFade = 1;
+    }
     patch.midMesh.visible =
       patch.inFrustum &&
       farthestDistance > nearFadeStart &&
@@ -81,8 +84,6 @@ export class GrassLodController {
       farthestDistance > farEntryStart &&
       patch.distance < terrainFadeEnd;
 
-    patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
-    patch.nearMesh.userData.grassDistanceFade = 1;
     patch.midMesh.userData.grassLodThreshold = patch.nearCoverage;
     // World-space LOD coverage is already calculated per instance in the
     // material. Applying the patch-level mid coverage here as well intersects
@@ -93,17 +94,22 @@ export class GrassLodController {
   }
 
   private updateLegacyPatch(patch: GrassPatch): void {
+    const nearMesh = patch.nearMesh;
+    if (!nearMesh) {
+      return;
+    }
+
     patch.lod = this.resolveLevel(patch.distance, patch.lod, false);
     patch.nearCoverage = this.resolveNearCoverage(patch.distance);
     patch.midDistanceFade = this.resolveLegacyMidDistanceFade(patch.distance);
-    patch.nearMesh.visible =
+    nearMesh.visible =
       patch.inFrustum && patch.nearCoverage > VISIBILITY_EPSILON;
     patch.midMesh.visible =
       patch.inFrustum &&
       patch.nearCoverage < 1 - VISIBILITY_EPSILON &&
       patch.midDistanceFade > VISIBILITY_EPSILON;
-    patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
-    patch.nearMesh.userData.grassDistanceFade = 1;
+    nearMesh.userData.grassLodThreshold = patch.nearCoverage;
+    nearMesh.userData.grassDistanceFade = 1;
     patch.midMesh.userData.grassLodThreshold = patch.nearCoverage;
     patch.midMesh.userData.grassDistanceFade = patch.midDistanceFade;
   }

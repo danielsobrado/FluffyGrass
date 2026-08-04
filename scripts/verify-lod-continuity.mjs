@@ -331,7 +331,7 @@ assert(
 assert(
   worldGrassSystem.includes("mesh.receiveShadow = false") &&
     controller.includes("farthestDistance > farEntryStart") &&
-    controller.includes("grassDisabledNearPatch !== true"),
+    !worldGrassSystem.includes("world-grass-near-"),
   "Mid/far rendering must avoid distant shadow and pre-transition overdraw.",
 );
 assert(

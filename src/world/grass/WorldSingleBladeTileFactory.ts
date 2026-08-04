@@ -48,6 +48,8 @@ export class WorldSingleBladeTileFactory {
   private readonly align = new THREE.Quaternion();
   private readonly yaw = new THREE.Quaternion();
   private readonly position = new THREE.Vector3();
+  private readonly localPosition = new THREE.Vector3();
+  private readonly origin = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
   private readonly matrix = new THREE.Matrix4();
 
@@ -79,6 +81,8 @@ export class WorldSingleBladeTileFactory {
     const cellDepth = tileSize / rows;
     const originX = options.tileX * tileSize;
     const originZ = options.tileZ * tileSize;
+    const tileCenterX = originX + tileSize * 0.5;
+    const tileCenterZ = originZ + tileSize * 0.5;
     const random = new SeededRandom(
       this.hash(
         options.tileX,
@@ -129,7 +133,15 @@ export class WorldSingleBladeTileFactory {
         random.range(0.78, INSTANCE_VERTICAL_SCALE_MAX),
         random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
       );
-      this.matrix.compose(this.position, this.align, this.scale);
+      // Tile-relative transforms let the mesh carry a real world position, so
+      // three can depth-sort tiles against each other instead of giving every
+      // one the scene origin as its sort key.
+      this.localPosition.set(
+        this.position.x - tileCenterX,
+        this.position.y,
+        this.position.z - tileCenterZ,
+      );
+      this.matrix.compose(this.localPosition, this.align, this.scale);
       this.matrix.toArray(matrixValues, bladeCount * 16);
       const variationOffset = bladeCount * 4;
       variations[variationOffset] = random.next();
@@ -163,11 +175,30 @@ export class WorldSingleBladeTileFactory {
     mesh.castShadow = false;
     mesh.receiveShadow = options.receiveShadows && this.profile.shadows;
     mesh.frustumCulled = true;
-    mesh.instanceMatrix.array.set(matrixValues.subarray(0, bladeCount * 16));
+    // Finish centring vertically now that the tile's terrain extent is known,
+    // then convert the accumulated world bounds into the mesh-local space that
+    // frustum culling expects.
+    const centerY = (bounds.min.y + bounds.max.y) * 0.5;
+    for (let index = 0; index < bladeCount; index += 1) {
+      matrixValues[index * 16 + 13] -= centerY;
+    }
+    this.origin.set(tileCenterX, centerY, tileCenterZ);
+
+    // Adopt the buffer the loop already filled rather than copying it into the
+    // second one InstancedMesh allocates.
+    mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
+      matrixValues.subarray(0, bladeCount * 16),
+      16,
+    );
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    mesh.instanceMatrix.needsUpdate = true;
 
     bounds.expandByScalar(this.calculateBoundsPadding());
+    bounds.min.sub(this.origin);
+    bounds.max.sub(this.origin);
+    mesh.position.copy(this.origin);
+    // Single-blade tiles never move once built.
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     mesh.boundingBox = bounds;
     mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
     options.material.bindMesh(

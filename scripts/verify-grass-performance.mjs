@@ -228,6 +228,9 @@ const nearMaterial = read("src/grass/materials/GrassNearMaterial.ts");
 const worldGrassSystem = read("src/world/WorldGrassSystem.ts");
 const lodController = read("src/grass/GrassLodController.ts");
 const lodTuning = read("src/grass/GrassLodTuning.ts");
+const patchGeometryFactory = read(
+  "src/world/grass/WorldGrassPatchGeometryFactory.ts",
+);
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
 );
@@ -372,7 +375,12 @@ assert(nearField.includes("world-grass-ultra-near-base-detail") && nearField.inc
 assert(nearField.includes("MAXIMUM_ART_NEAR_FADE_DISTANCE") && nearField.includes("reconcileEveryFrame: true"), "The base tile shell must follow every-frame camera movement and the maximum preset fade.");
 assert(tileFactory.includes("calculateGrassSingleBladeRootBoundsRadius") && !tileFactory.includes("const BOUNDS_PADDING = 1.5"), "Near bounds must be configuration-derived.");
 assert(nearMaterial.includes("bool grassKeepBlade") && nearMaterial.includes("transformed = vec3(0.0)"), "Rejected blades must skip rasterization and wind work.");
-assert(nearMaterial.includes("mesh.count = 0") && nearMaterial.includes("grassDisabledNearPatch = true") && lodController.includes("grassDisabledNearPatch !== true"), "The redundant streamed near mesh must remain disabled and invisible.");
+assert(!worldGrassSystem.includes("world-grass-near-") && !worldGrassSystem.includes("nearGeometries") && !patchGeometryFactory.includes("near.push("), "The redundant streamed near clump mesh and its geometry must not be built at all.");
+assert(!nearMaterial.includes("discard;"), "The near/mid keep test must stay in the vertex stage so the fragment shader remains early-Z friendly.");
+assert(impostorMaterial.includes("if (effectiveCoverage <= 0.001)") && impostorMaterial.includes("gl_Position = vec4(2.0, 2.0, 2.0, 1.0)"), "Zero-coverage far cards must be clipped in the vertex stage.");
+assert(worldGrassSystem.includes("mesh.matrixAutoUpdate = false") && tileFactory.includes("mesh.matrixAutoUpdate = false"), "Static grass meshes must not recompose their matrix every frame.");
+assert(worldGrassSystem.includes("mesh.instanceMatrix = new THREE.InstancedBufferAttribute") && tileFactory.includes("mesh.instanceMatrix = new THREE.InstancedBufferAttribute"), "Instance matrices must be adopted, not copied into a second allocation.");
+assert(worldGrassSystem.includes("mesh.position.copy(origin)") && tileFactory.includes("mesh.position.copy(this.origin)"), "Grass meshes must carry a real world position so opaque depth sorting works.");
 assert(worldGrassSystem.includes("mesh.receiveShadow = false"), "Mid/far grass must not perform per-blade shadow reads.");
 const underfill = Number(lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1]);
 assert(underfill === 0, "Far-card underfill must remain disabled in the full mid band.");

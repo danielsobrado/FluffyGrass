@@ -50,12 +50,6 @@ varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
-varying float vGrassDither;
-varying float vGrassFieldDither;
-varying float vGrassFieldCoverage;
-varying float vGrassNearCoverage;
-varying float vGrassFarEntry;
-varying float vGrassDetailCoverage;
 `;
 
 const VERTEX_WIND = `
@@ -108,9 +102,12 @@ bool grassKeepBlade =
   grassDither <= uGrassStreamCoverage;
 
 if (!grassKeepBlade) {
-  // Every vertex in a blade shares the keep decision, so rejected blades can
-  // become degenerate before rasterization while the fragment guard remains
-  // as a precision-safe fallback.
+  // Every vertex in a blade shares the keep decision, so a rejected blade
+  // collapses to a zero-area triangle and is dropped at primitive assembly.
+  // This is the only place blades are rejected: evaluating it here rather than
+  // as a fragment discard is what lets the fragment shader stay early-Z
+  // friendly, and it is also exact, since the decision no longer depends on
+  // interpolating a constant varying across the triangle.
   transformed = vec3(0.0);
 }
 
@@ -193,16 +190,13 @@ if (grassKeepBlade && grassProgress > 0.001) {
   }
 }
 
+// Only the shading inputs cross to the fragment stage. The coverage and dither
+// terms are consumed entirely by the keep test above, so passing them on would
+// burn interpolators the fragment shader no longer reads.
 vGrassProgress = grassProgress;
 vGrassShade = grassBladeShade;
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
-vGrassDither = grassDither;
-vGrassFieldDither = grassFieldDither;
-vGrassFieldCoverage = instanceCoverage;
-vGrassNearCoverage = grassNearCoverage;
-vGrassFarEntry = grassFarDistanceEntry;
-vGrassDetailCoverage = grassDetailCoverage;
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -213,57 +207,21 @@ uniform float uGrassRootDarkening;
 uniform float uGrassTipColorStrength;
 uniform float uGrassAmbientBoost;
 uniform float uGrassBacklightStrength;
-uniform float uGrassLodThreshold;
-uniform float uGrassLodInvert;
-uniform float uGrassDistanceFade;
-uniform float uGrassUseWorldLod;
-uniform float uGrassLodColorScale;
-uniform float uGrassStreamCoverage;
-uniform float uGrassArtDensityScale;
-uniform float uGrassNearDistance;
-uniform float uGrassMidDistance;
-uniform float uGrassTransitionDistance;
-uniform float uGrassDetailMode;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
-varying float vGrassDither;
-varying float vGrassFieldDither;
-varying float vGrassFieldCoverage;
-varying float vGrassNearCoverage;
-varying float vGrassFarEntry;
-varying float vGrassDetailCoverage;
 ${GRASS_PALETTE_GLSL}
 `;
 
+// No discard here. Every input to the keep test is constant across a blade
+// (per-blade attributes, per-instance root distance, and uniforms), so the
+// vertex stage already collapsed rejected blades to zero area and nothing
+// reaching this point can fail the test. Keeping a discard in the shader would
+// force late depth writes and disable early-Z for a layer whose whole cost is
+// overdraw: near, mid, and single-blade grass all stack over the same pixels.
 const FRAGMENT_COLOR = `
 #include <color_fragment>
-float grassDither = vGrassDither;
-bool grassKeepLod;
-if (uGrassUseWorldLod > 0.5) {
-  grassKeepLod = uGrassLodInvert < 0.5
-    ? grassDither <= vGrassNearCoverage
-    : grassDither > vGrassNearCoverage &&
-      grassDither > vGrassFarEntry;
-} else {
-  grassKeepLod = uGrassLodInvert < 0.5
-    ? grassDither <= uGrassLodThreshold
-    : grassDither > uGrassLodThreshold;
-}
-bool grassKeepDetail = uGrassDetailMode < 0.5 ||
-  (uGrassDetailMode < 1.5
-    ? grassDither > vGrassDetailCoverage
-    : grassDither <= vGrassDetailCoverage);
-if (
-  !grassKeepLod ||
-  !grassKeepDetail ||
-  vGrassFieldDither > min(vGrassFieldCoverage * uGrassArtDensityScale, 1.0) ||
-  grassDither > uGrassDistanceFade ||
-  grassDither > uGrassStreamCoverage
-) {
-  discard;
-}
 diffuseColor.rgb = grassResolvePalette(
   uGrassBaseColor,
   uGrassTipColor,
@@ -381,7 +339,7 @@ export class GrassNearMaterial {
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v14";
+    this.material.customProgramCacheKey = () => "grass-near-material-v15";
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -445,10 +403,6 @@ export class GrassNearMaterial {
     renderSingleBladeNear = false,
     detailMode = 0,
   ): void {
-    if (useWorldLod && !invertLodCoverage && !renderSingleBladeNear) {
-      mesh.count = 0;
-      mesh.userData.grassDisabledNearPatch = true;
-    }
     mesh.userData.grassLodThreshold = 1;
     mesh.userData.grassDistanceFade = 1;
     mesh.userData.grassStreamCoverage = initialStreamCoverage;

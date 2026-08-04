@@ -36,6 +36,8 @@ uniform float uFarDistance;
 uniform float uTransitionDistance;
 uniform float uMidImpostorUnderfill;
 uniform float uNormalUp;
+uniform float uArtDensityScale;
+uniform float uStreamCoverage;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
@@ -75,6 +77,42 @@ void main() {
   );
   center += vec3(windDirection.x, 0.0, windDirection.y) *
     gust * uWindStrength * 0.22;
+
+  // Coverage is per instance: every term below is a uniform or an instance
+  // attribute, and only the comparison against the per-fragment dither is not.
+  // A visible far batch spans 32 m, so it routinely holds instances still
+  // inside the mid band whose coverage is zero — those are the closest, and
+  // therefore largest, cards on screen. Rejecting them here clips the card
+  // outright instead of rasterizing a full billboard that discards every pixel.
+  float cameraDistance = distance(cameraPosition, center);
+  float nearExit = smoothstep(
+    uNearDistance - uTransitionDistance,
+    uNearDistance + uTransitionDistance,
+    cameraDistance
+  );
+  float fullFarEntry = smoothstep(
+    uMidDistance - uTransitionDistance,
+    uMidDistance + uTransitionDistance,
+    cameraDistance
+  );
+  vFarEntry = mix(
+    nearExit * uMidImpostorUnderfill,
+    1.0,
+    fullFarEntry
+  );
+  vTerrainCoverage = 1.0 - smoothstep(
+    uFarDistance - uTransitionDistance,
+    uFarDistance + uTransitionDistance,
+    cameraDistance
+  );
+  vFieldCoverage = instanceCoverage;
+  float effectiveCoverage =
+    vFarEntry * vTerrainCoverage *
+    uStreamCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
+  if (effectiveCoverage <= 0.001) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
 
   vec3 worldPosition = center +
     billboardRight * position.x * scaleX * ${GRASS_IMPOSTOR_FOOTPRINT_SCALE.toFixed(2)} +
@@ -125,28 +163,6 @@ void main() {
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
   vRootAo = instanceVariation.z;
-  vFieldCoverage = instanceCoverage;
-  float cameraDistance = distance(cameraPosition, center);
-  float nearExit = smoothstep(
-    uNearDistance - uTransitionDistance,
-    uNearDistance + uTransitionDistance,
-    cameraDistance
-  );
-  float fullFarEntry = smoothstep(
-    uMidDistance - uTransitionDistance,
-    uMidDistance + uTransitionDistance,
-    cameraDistance
-  );
-  vFarEntry = mix(
-    nearExit * uMidImpostorUnderfill,
-    1.0,
-    fullFarEntry
-  );
-  vTerrainCoverage = 1.0 - smoothstep(
-    uFarDistance - uTransitionDistance,
-    uFarDistance + uTransitionDistance,
-    cameraDistance
-  );
   #include <fog_vertex>
 }
 `;
@@ -222,11 +238,11 @@ void main() {
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage *
     uStreamCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
+  // Cards with no coverage at all are already clipped in the vertex stage, so
+  // only the stochastic cut is left here. This discard has to stay: it depends
+  // on vUv, and the atlas alpha cutout below is a genuine per-fragment test.
   float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
-  if (
-    effectiveCoverage <= 0.001 ||
-    dither > effectiveCoverage
-  ) {
+  if (dither > effectiveCoverage) {
     discard;
   }
 
