@@ -1,4 +1,4 @@
-# FluffyGrass large-world performance benchmark.
+# Drusniel World large-world performance benchmark.
 seed: 42017
 worldSize: 2048
 chunkSize: 64
@@ -14,13 +14,39 @@ terrainFarResolution: 7
 terrainChunksPerFrame: 2
 grassChunksPerFrame: 1
 
-# Four-metre patches preserve blade density while reducing instance and impostor counts.
+# Multi-blade patches are used only by the mid and far grass LODs.
 grassPatchSize: 4
+# Split each streamed chunk into independently culled 32 m render batches.
+grassRenderBatchesPerAxis: 2
+# Use layered full-footprint octahedral cards to avoid sparse far silhouettes.
+grassFarImpostorsPerPatch: 2
 grassBladesPerSquareMeterDesktop: 36
 grassBladesPerSquareMeterCompact: 26
-grassMidBladeFraction: 0.5
+
+# Closest LOD uses individually instanced blades in streamed eight-metre tiles.
+grassNearTileSize: 8
+grassNearBladesPerSquareMeterDesktop: 72
+grassNearBladesPerSquareMeterCompact: 48
+
+# An additional single-blade layer doubles density at camera distance <= 4 m.
+grassUltraNearDistance: 4
+grassUltraNearTransitionDistance: 1
+grassUltraNearDensityMultiplier: 2
+
+# Mid blades use cheaper single triangles but retain every source blade.
+grassMidBladeFraction: 1
 grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
+
+# Character capsule wake and landing pulse.
+grassInteractionRadius: 1.55
+grassInteractionStrength: 0.94
+grassInteractionTrailLength: 2.8
+grassInteractionResponse: 7.5
+grassInteractionSpeedForFullEffect: 4
+grassLandingPulseRadius: 2.4
+grassLandingPulseStrength: 1.05
+grassLandingPulseDecay: 5.2
 
 spawnSearchRadius: 640
 spawnSearchStep: 24
@@ -38,12 +64,12 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-grassNearDistance: 32
+grassNearDistance: 24
 grassMidDistance: 80
-# Cheap two-triangle impostors now carry the matched blade palette almost to
-# the streamed terrain horizon, keeping the flat terrain handoff unobtrusive.
+# Cheap two-triangle impostors carry the matched blade palette almost to
+# the streamed terrain horizon, keeping the terrain handoff unobtrusive.
 grassFarDistance: 280
-grassTransitionDistance: 16
+grassTransitionDistance: 8
 grassHysteresisDistance: 3
 
 flySpeed: 45
@@ -52,3 +78,34 @@ flyMinSpeed: 8
 flyMaxSpeed: 240
 initialAltitude: 85
 initialDistance: 180
+
+# Third-person movement and terrain-aware jump physics.
+characterScale: 1
+characterWalkSpeed: 2.5
+characterRunSpeed: 5.4
+characterAcceleration: 26
+characterDeceleration: 30
+characterTurnRate: 11
+characterJumpSpeed: 7.4
+characterGravity: 23
+characterFallGravityMultiplier: 1.42
+characterAirControl: 0.38
+characterCoyoteTime: 0.13
+characterJumpBufferTime: 0.14
+characterJumpHoldTime: 0.17
+characterJumpHoldGravityScale: 0.42
+characterLandingRecoveryTime: 0.3
+characterLandingImpactForFullEffect: 10.5
+
+characterCameraDistance: 6
+characterCameraMinDistance: 2.8
+characterCameraMaxDistance: 10
+characterCameraLookHeight: 1.32
+characterCameraElevationDegrees: 18
+characterCameraMinElevationDegrees: 6
+characterCameraMaxElevationDegrees: 58
+characterCameraFollowRate: 4.5
+characterCameraGroundClearance: 0.7
+characterMouseLookSensitivity: 0.0022
+characterTouchLookSensitivity: 0.004
+characterZoomSensitivity: 0.004
