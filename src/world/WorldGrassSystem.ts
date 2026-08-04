@@ -314,9 +314,8 @@ export class WorldGrassSystem {
     const lodConfig = this.resolveLodConfig();
     lodConfig.nearMaxDistance = this.artDirection.nearDistance;
     lodConfig.midMaxDistance = this.artDirection.midDistance;
-    lodConfig.farMaxDistance = Math.min(
-      lodConfig.farMaxDistance,
-      this.artDirection.farDistance,
+    lodConfig.farMaxDistance = this.resolveArtFarDistance(
+      this.artDirection,
     );
     lodConfig.transitionDistance = this.artDirection.transitionDistance;
     this.resolvedLodConfig = lodConfig;
@@ -372,6 +371,18 @@ export class WorldGrassSystem {
     };
   }
 
+  private resolveArtFarDistance(direction: GrassArtDirection): number {
+    const radius = this.profile.compact
+      ? this.worldConfig.grassRadiusCompact
+      : this.worldConfig.grassRadiusDesktop;
+    const streamFadeEnd = radius * this.worldConfig.chunkSize;
+    return Math.min(
+      direction.farDistance,
+      this.worldConfig.grassFarDistance,
+      streamFadeEnd - direction.transitionDistance,
+    );
+  }
+
   private processBuildQueue(): void {
     if (this.buildCooldownFrames > 0) {
       this.buildCooldownFrames -= 1;
@@ -380,10 +391,7 @@ export class WorldGrassSystem {
 
     while (!this.activeBuild && this.queue.length > 0) {
       const request = this.queue.shift();
-      if (
-        request &&
-        this.desired.has(request.key)
-      ) {
+      if (request && this.desired.has(request.key)) {
         this.activeBuild = this.beginPatchBuild(request);
       }
     }
@@ -764,7 +772,9 @@ export class WorldGrassSystem {
     }
   }
 
-  private advancePatchFinalize(job: GrassChunkBuildJob): GrassChunkFinalizeResult {
+  private advancePatchFinalize(
+    job: GrassChunkBuildJob,
+  ): GrassChunkFinalizeResult {
     const { request, grassConfig } = job;
 
     if (!job.activeBatches || job.variantIndex === undefined) {
@@ -792,7 +802,10 @@ export class WorldGrassSystem {
         grassConfig.geometry.bladeLeanMax +
         grassConfig.wind.strength +
         grassConfig.wind.flutterStrength;
-      const boundsPadding = Math.max(impostorRadius, bladeExtent);
+      const boundsPadding = Math.max(
+        impostorRadius + this.getFarImpostorOffsetRadius(),
+        bladeExtent,
+      );
       for (const batch of job.activeBatches) {
         batch.variationValues = batch.variations.subarray(
           0,
@@ -925,10 +938,7 @@ export class WorldGrassSystem {
     if (lodConfig) {
       lodConfig.nearMaxDistance = direction.nearDistance;
       lodConfig.midMaxDistance = direction.midDistance;
-      lodConfig.farMaxDistance = Math.min(
-        direction.farDistance,
-        this.worldConfig.grassFarDistance,
-      );
+      lodConfig.farMaxDistance = this.resolveArtFarDistance(direction);
       lodConfig.transitionDistance = direction.transitionDistance;
       this.material.configureLod(lodConfig);
     }
@@ -938,6 +948,12 @@ export class WorldGrassSystem {
         impostorMaterial.configureLod(lodConfig);
       }
     }
+  }
+
+  private getFarImpostorOffsetRadius(): number {
+    return this.worldConfig.grassFarImpostorsPerPatch > 1
+      ? this.worldConfig.grassPatchSize * 0.12
+      : 0;
   }
 
   private createFarImpostorInstances(
@@ -951,9 +967,7 @@ export class WorldGrassSystem {
     const matrixValues = new Float32Array(instanceCount * 16);
     const variationValues = new Float32Array(instanceCount * 4);
     const coverageValues = new Float32Array(instanceCount);
-    const offsetRadius = cardsPerPatch > 1
-      ? this.worldConfig.grassPatchSize * 0.12
-      : 0;
+    const offsetRadius = this.getFarImpostorOffsetRadius();
 
     for (let sourceIndex = 0; sourceIndex < sourceCount; sourceIndex += 1) {
       const sourceMatrixOffset = sourceIndex * 16;
@@ -993,7 +1007,8 @@ export class WorldGrassSystem {
         );
         variationValues[targetVariationOffset] =
           (sourceVariations[sourceVariationOffset] +
-            cardIndex * 0.38196601125) % 1;
+            cardIndex * 0.38196601125) %
+          1;
         coverageValues[targetIndex] =
           sourceCoverages[sourceIndex] / cardsPerPatch;
       }
