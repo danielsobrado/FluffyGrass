@@ -208,7 +208,6 @@ void main() {
       vec2(maximumFrame)
     );
     atlasColor = sampleFrame(nearestFrame, vUv);
-    atlasColor.rgb *= atlasColor.a;
   } else {
     vec2 frameBase = floor(framePosition);
     vec2 frameBlend = fract(framePosition);
@@ -228,10 +227,6 @@ void main() {
     vec4 color10 = sampleFrame(vec2(frame11.x, frame00.y), vUv);
     vec4 color01 = sampleFrame(vec2(frame00.x, frame11.y), vUv);
     vec4 color11 = sampleFrame(frame11, vUv);
-    color00.rgb *= color00.a;
-    color10.rgb *= color10.a;
-    color01.rgb *= color01.a;
-    color11.rgb *= color11.a;
     vec4 color0 = mix(color00, color10, frameBlend.x);
     vec4 color1 = mix(color01, color11, frameBlend.x);
     atlasColor = mix(color0, color1, frameBlend.y);
@@ -241,29 +236,30 @@ void main() {
     discard;
   }
 
-  vec3 atlasSample = atlasColor.rgb / max(atlasColor.a, 0.001);
-  float atlasLuminance = dot(
-    atlasSample,
-    vec3(0.2126, 0.7152, 0.0722)
+  vec3 atlasData = atlasColor.rgb / max(atlasColor.a, 0.001);
+  float bladeProgress = clamp(atlasData.r, 0.0, 1.0);
+  float bladeShade = clamp(atlasData.g, 0.0, 1.0);
+  float bladeDryness = clamp(atlasData.b, 0.0, 1.0);
+  float tipBlend = smoothstep(0.08, 1.0, bladeProgress);
+  vec3 healthyColor = mix(uBaseColor, uTipColor, tipBlend * 0.32);
+  float combinedDryness = clamp(vDryness + bladeDryness, 0.0, 1.0);
+  float dryBlend = combinedDryness * (0.0324 + tipBlend * 0.0432);
+  vec3 color = mix(healthyColor, uDryColor, dryBlend);
+  float rootLight = mix(
+    uRootDarkening,
+    1.0,
+    smoothstep(0.0, 0.34, bladeProgress)
   );
-  float bladeProgress = smoothstep(0.08, 0.92, vUv.y);
-  vec3 paletteColor = mix(
-    uBaseColor * uRootDarkening,
-    uTipColor,
-    bladeProgress
-  );
-  vec3 color = paletteColor * mix(
-    0.72,
-    1.18,
-    clamp(atlasLuminance, 0.0, 1.0)
-  );
+  rootLight = mix(rootLight, 1.0, 0.45);
+  float bladeVariation = mix(0.88, 1.06, bladeShade);
+  bladeVariation = mix(bladeVariation, 1.0, 0.55);
+  color *= rootLight * bladeVariation;
   float terrainMatch = mix(
     uBaseColorBlend,
     1.0,
     smoothstep(uAerialFadeStart, uAerialFadeEnd, vViewElevation)
   );
   color = mix(color, uBaseColor, terrainMatch);
-  color = mix(color, uDryColor, vDryness * 0.04);
   color *= uColorScale;
   color *= mix(uRootLightMin, uRootLightMax, vRootAo);
   gl_FragColor = vec4(color, 1.0);
