@@ -39,6 +39,7 @@ export interface SnowflowCharacterRig {
   rightThigh: THREE.Group;
   rightShin: THREE.Group;
   rightFoot: THREE.Group;
+  materialSet: SnowflowCharacterMaterialSet;
   materials: THREE.Material[];
   geometries: THREE.BufferGeometry[];
 }
@@ -148,6 +149,7 @@ export function buildSnowflowCharacter(
     rightThigh,
     rightShin: requireGroup(rightThigh, "right-shin"),
     rightFoot: requireGroup(rightThigh, "right-foot"),
+    materialSet: materials,
     materials: Object.values(materials),
     geometries,
   };
@@ -164,13 +166,13 @@ function buildTorso(
   const chest = addMesh(
     torso,
     geometries,
-    new THREE.CylinderGeometry(0.155, 0.19, 0.46, 18, 4, false),
+    new THREE.CylinderGeometry(0.146, 0.178, 0.46, 18, 4, false),
     materials.tunic,
     0,
     0.2,
     0,
   );
-  chest.scale.z = 0.76;
+  chest.scale.z = 0.74;
 
   const belt = addMesh(
     torso.parent ?? torso,
@@ -190,25 +192,37 @@ function buildHead(
   geometries: THREE.BufferGeometry[],
   materials: SnowflowCharacterMaterialSet,
 ): void {
-  const face = addMesh(
+  const cranium = addMesh(
     head,
     geometries,
-    new THREE.SphereGeometry(0.112, 24, 16),
+    new THREE.SphereGeometry(0.112, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
     materials.skin,
     0,
-    0,
+    0.004,
     0.018,
   );
-  face.name = "drow-base-face";
-  face.scale.set(0.88, 1.08, 0.92);
+  cranium.name = "drow-cranium";
+  cranium.scale.set(0.8, 1.06, 0.9);
+
+  const jaw = addMesh(
+    head,
+    geometries,
+    new THREE.CylinderGeometry(0.11, 0.055, 0.098, 12, 2, false),
+    materials.skin,
+    0,
+    -0.067,
+    0.018,
+  );
+  jaw.name = "drow-jaw";
+  jaw.scale.set(0.8, 1, 0.9);
 
   const neckGuard = addMesh(
     head,
     geometries,
-    new THREE.CylinderGeometry(0.1, 0.088, 0.1, 20, 2, true),
+    new THREE.CylinderGeometry(0.084, 0.074, 0.11, 20, 2, true),
     materials.trim,
     0,
-    -0.105,
+    -0.108,
     0.006,
   );
   neckGuard.scale.z = 0.9;
@@ -228,7 +242,7 @@ function buildArm(
   const upperMesh = addMesh(
     upperArm,
     geometries,
-    new THREE.CylinderGeometry(0.052, 0.068, 0.3, 14, 3, false),
+    new THREE.CylinderGeometry(0.048, 0.062, 0.3, 14, 3, false),
     materials.tunic,
     side * 0.018,
     -0.145,
@@ -242,7 +256,7 @@ function buildArm(
   addMesh(
     forearm,
     geometries,
-    new THREE.CylinderGeometry(0.044, 0.054, 0.28, 14, 3, false),
+    new THREE.CylinderGeometry(0.04, 0.05, 0.28, 14, 3, false),
     materials.tunic,
     0,
     -0.135,
@@ -251,7 +265,7 @@ function buildArm(
   addMesh(
     forearm,
     geometries,
-    new THREE.CylinderGeometry(0.058, 0.052, 0.14, 14, 2, false),
+    new THREE.CylinderGeometry(0.054, 0.048, 0.14, 14, 2, false),
     materials.leather,
     0,
     -0.19,
@@ -287,7 +301,7 @@ function buildLeg(
   addMesh(
     thigh,
     geometries,
-    new THREE.CylinderGeometry(0.082, 0.105, 0.44, 14, 4, false),
+    new THREE.CylinderGeometry(0.077, 0.098, 0.44, 14, 4, false),
     materials.robe,
     0,
     -0.22,
@@ -300,7 +314,7 @@ function buildLeg(
   addMesh(
     shin,
     geometries,
-    new THREE.CylinderGeometry(0.068, 0.082, 0.37, 14, 4, false),
+    new THREE.CylinderGeometry(0.063, 0.077, 0.37, 14, 4, false),
     materials.leather,
     0,
     -0.185,

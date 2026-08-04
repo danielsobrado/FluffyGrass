@@ -4,6 +4,7 @@ import type { SnowflowCharacterMaterialSet } from "./SnowflowCharacterMaterials"
 
 const SHADOW_CASTER = true;
 const SHADOW_RECEIVER = true;
+const SPIDER_LEG_ANGLES = [0.96, 1.42, 1.88, 2.34];
 
 export function addDrowCostumeGeometry(
   rig: SnowflowCharacterRig,
@@ -29,27 +30,27 @@ function addShoulderMantle(
     const shoulder = addMesh(
       rig.torso,
       geometries,
-      new THREE.SphereGeometry(0.17, 14, 9),
+      new THREE.SphereGeometry(0.145, 14, 9),
       materials.fur,
-      side * 0.19,
+      side * 0.17,
       y,
       -0.015,
     );
-    shoulder.scale.set(1.3, 0.5, 0.86);
+    shoulder.scale.set(1.15, 0.44, 0.82);
     shoulder.rotation.z = side * 0.08;
 
     for (let tuftIndex = 0; tuftIndex < 4; tuftIndex += 1) {
       const tuft = addMesh(
         rig.torso,
         geometries,
-        new THREE.ConeGeometry(0.035, 0.15, 7),
+        new THREE.ConeGeometry(0.028, 0.13, 7),
         materials.fur,
-        side * (0.12 + tuftIndex * 0.045),
-        y - 0.06 - (tuftIndex % 2) * 0.018,
-        0.035 - tuftIndex * 0.01,
+        side * (0.11 + tuftIndex * 0.04),
+        y - 0.055 - (tuftIndex % 2) * 0.016,
+        0.03 - tuftIndex * 0.01,
       );
-      tuft.rotation.z = side * (0.2 + tuftIndex * 0.06);
-      tuft.rotation.x = -0.2;
+      tuft.rotation.z = side * -(0.2 + tuftIndex * 0.06);
+      tuft.rotation.x = Math.PI + 0.06;
     }
   }
 }
@@ -249,15 +250,51 @@ function addMedallion(
   );
   disc.rotation.x = Math.PI * 0.5;
 
-  addMesh(
+  addSpiderEmblem(medallion, materials, geometries);
+}
+
+function addSpiderEmblem(
+  medallion: THREE.Group,
+  materials: SnowflowCharacterMaterialSet,
+  geometries: THREE.BufferGeometry[],
+): void {
+  const abdomen = addMesh(
     medallion,
     geometries,
-    new THREE.TorusGeometry(0.038, 0.006, 6, 16),
+    new THREE.SphereGeometry(0.019, 10, 8),
     materials.metal,
     0,
-    0,
-    0.014,
+    -0.013,
+    0.018,
   );
+  abdomen.scale.set(1, 1.3, 0.55);
+
+  const thorax = addMesh(
+    medallion,
+    geometries,
+    new THREE.SphereGeometry(0.012, 10, 8),
+    materials.metal,
+    0,
+    0.016,
+    0.018,
+  );
+  thorax.scale.set(1, 0.9, 0.55);
+
+  for (const side of [-1, 1] as const) {
+    for (const angle of SPIDER_LEG_ANGLES) {
+      const leg = addMesh(
+        medallion,
+        geometries,
+        new THREE.CylinderGeometry(0.0035, 0.0022, 0.056, 5),
+        materials.metal,
+        side * 0.028 * Math.sin(angle),
+        0.02 + 0.028 * Math.cos(angle),
+        0.016,
+      );
+      leg.rotation.z = side * -angle;
+      leg.scale.z = 0.6;
+    }
+  }
 }
 
 function addBeltDagger(

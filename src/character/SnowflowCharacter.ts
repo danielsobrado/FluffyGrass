@@ -294,7 +294,9 @@ export class SnowflowCharacter {
       this.hairRightX.addImpulse(impulse * 0.45);
     }
 
-    const cloakTargetX = -0.035 - forward01 * 0.2 + vertical01 * 0.1;
+    // Cloak, hair and skirt panels all hang below their pivots, so a positive
+    // X rotation is what sweeps them behind the character.
+    const cloakTargetX = 0.035 + forward01 * 0.2 - vertical01 * 0.1;
     const sideTarget = -side01 * 0.14;
     this.rig.cloakBack.rotation.x = this.cloakBackX.update(
       cloakTargetX,
@@ -327,7 +329,7 @@ export class SnowflowCharacter {
       0.9,
     );
 
-    const hairTargetX = cloakTargetX * 0.72 + vertical01 * 0.05;
+    const hairTargetX = cloakTargetX * 0.72 - vertical01 * 0.05;
     this.rig.hairLeft.rotation.x = this.hairLeftX.update(
       hairTargetX,
       deltaSeconds,
