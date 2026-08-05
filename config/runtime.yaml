@@ -7,7 +7,10 @@ desktopCameraElevation: 0.72
 desktopMaxPixelRatio: 2
 desktopAutoRotate: true
 desktopShadows: true
-desktopShadowMapSize: 2048
+# The sun's shadow frustum follows the character in a ~14 m box rather than
+# covering the streamed world, so 1024 is still far sharper than the 2048 map
+# that used to be stretched across 360 m.
+desktopShadowMapSize: 1024
 desktopShowGui: true
 desktopShowDecorativeText: true
 
