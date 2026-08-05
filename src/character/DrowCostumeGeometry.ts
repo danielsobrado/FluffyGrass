@@ -14,6 +14,7 @@ export function addDrowCostumeGeometry(
   addShoulderMantle(rig, materials, geometries);
   addFoldedHood(rig, materials, geometries);
   addCloakPanels(rig, materials, geometries);
+  addCloakClasp(rig, materials, geometries);
   addLayeredSkirt(rig, materials, geometries);
   addLeatherHarness(rig, materials, geometries);
   addMedallion(rig, materials, geometries);
@@ -77,7 +78,7 @@ function addFoldedHood(
     rig.hood,
     geometries,
     new THREE.SphereGeometry(
-      0.19,
+      0.16,
       18,
       10,
       0,
@@ -87,11 +88,13 @@ function addFoldedHood(
     ),
     materials.cloak,
     0,
-    0.01,
-    -0.055,
+    0.008,
+    -0.045,
   );
-  fold.rotation.x = Math.PI * 0.5;
-  fold.scale.set(1.15, 0.55, 0.88);
+  // Opening faces the neck, so the viewer behind the character sees the
+  // convex outside of the fold rather than into a hollow shell.
+  fold.rotation.x = Math.PI * -0.5;
+  fold.scale.set(1.1, 0.58, 0.85);
 }
 
 function addCloakPanels(
@@ -99,44 +102,101 @@ function addCloakPanels(
   materials: SnowflowCharacterMaterialSet,
   geometries: THREE.BufferGeometry[],
 ): void {
-  rig.cloakBack.position.set(0, 0.34, -0.15);
+  rig.cloakBack.position.set(0, 0.36, -0.15);
   rig.cloakLeft.position.set(-0.2, 0.33, -0.06);
   rig.cloakRight.position.set(0.2, 0.33, -0.06);
 
-  const back = addMesh(
-    rig.cloakBack,
-    geometries,
-    createPanelGeometry(0.58, 0.88, 1.25, -0.08),
-    materials.cloak,
-    0,
-    -0.61,
-    0,
-  );
-  back.rotation.x = -0.035;
+  const backGeometry = createDrapedPanelGeometry({
+    topWidth: 0.6,
+    bottomWidth: 0.98,
+    height: 1.26,
+    wrap: 0.3,
+    foldCount: 3,
+    foldDepth: 0.075,
+    hemWave: 0.065,
+    shoulderDrop: 0.07,
+    columns: 18,
+    rows: 10,
+  });
+  geometries.push(backGeometry);
+  for (const layer of [materials.cloakShell, materials.cloakLining]) {
+    const back = new THREE.Mesh(backGeometry, layer);
+    back.position.set(0, 0, 0);
+    back.rotation.x = -0.035;
+    back.castShadow = SHADOW_CASTER;
+    back.receiveShadow = SHADOW_RECEIVER;
+    rig.cloakBack.add(back);
+  }
 
-  const left = addMesh(
-    rig.cloakLeft,
-    geometries,
-    createPanelGeometry(0.28, 0.48, 1.16, -0.035),
-    materials.mantle,
-    -0.09,
-    -0.56,
-    0,
-  );
-  left.rotation.y = -0.24;
-  left.rotation.z = -0.06;
+  addCloakSidePanel(rig.cloakLeft, materials, geometries, -1);
+  addCloakSidePanel(rig.cloakRight, materials, geometries, 1);
+}
 
-  const right = addMesh(
-    rig.cloakRight,
+function addCloakSidePanel(
+  parent: THREE.Group,
+  materials: SnowflowCharacterMaterialSet,
+  geometries: THREE.BufferGeometry[],
+  side: -1 | 1,
+): void {
+  const panel = addMesh(
+    parent,
     geometries,
-    createPanelGeometry(0.28, 0.48, 1.16, -0.035),
+    createDrapedPanelGeometry({
+      topWidth: 0.3,
+      bottomWidth: 0.52,
+      height: 1.17,
+      wrap: 0.13,
+      foldCount: 2,
+      foldDepth: 0.045,
+      hemWave: 0.04,
+      shoulderDrop: 0.035,
+      columns: 12,
+      rows: 8,
+    }),
     materials.mantle,
-    0.09,
-    -0.56,
+    side * 0.09,
+    0.03,
     0,
   );
-  right.rotation.y = 0.24;
-  right.rotation.z = 0.06;
+  panel.rotation.y = side * 0.24;
+  panel.rotation.z = side * 0.06;
+}
+
+function addCloakClasp(
+  rig: SnowflowCharacterRig,
+  materials: SnowflowCharacterMaterialSet,
+  geometries: THREE.BufferGeometry[],
+): void {
+  const clasp = new THREE.Group();
+  clasp.name = "drow-cloak-clasp";
+  // Sits in front of the harness straps, which cross the sternum at z=0.149.
+  clasp.position.set(0, 0.378, 0.148);
+  rig.torso.add(clasp);
+
+  // Domed rather than a flat plate: a +Z facing face only ever catches the sun
+  // at a graze and reads as black against the tunic.
+  const dome = addMesh(
+    clasp,
+    geometries,
+    new THREE.SphereGeometry(0.028, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+    materials.metal,
+    0,
+    0,
+    0,
+  );
+  dome.rotation.x = Math.PI * 0.5;
+  dome.scale.set(1, 1, 0.5);
+
+  const gem = addMesh(
+    clasp,
+    geometries,
+    new THREE.OctahedronGeometry(0.014),
+    materials.eye,
+    0,
+    0,
+    0.021,
+  );
+  gem.scale.set(0.8, 1, 0.7);
 }
 
 function addLayeredSkirt(
@@ -337,6 +397,82 @@ function addBeltDagger(
     0,
   );
   blade.scale.z = 0.32;
+}
+
+interface DrapedPanelOptions {
+  topWidth: number;
+  bottomWidth: number;
+  height: number;
+  /** How far the side edges curl forward to embrace the body. */
+  wrap: number;
+  /** Number of vertical fold ridges across the panel. */
+  foldCount: number;
+  foldDepth: number;
+  /** How far the hem dips under each fold ridge. */
+  hemWave: number;
+  /** How far the outer top corners sag, so the shoulder line is not a bar. */
+  shoulderDrop: number;
+  columns: number;
+  rows: number;
+}
+
+/**
+ * A cloth sheet hanging from y=0 down to -height, with vertical folds that
+ * open up toward the hem and a scalloped edge that follows them. Faces wind so
+ * that the side pointing away from the body is the front face.
+ */
+function createDrapedPanelGeometry(
+  options: DrapedPanelOptions,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const stride = options.columns + 1;
+
+  for (let row = 0; row <= options.rows; row += 1) {
+    const v = row / options.rows;
+    const width = THREE.MathUtils.lerp(
+      options.topWidth,
+      options.bottomWidth,
+      Math.pow(v, 0.75),
+    );
+    const fold = options.foldDepth * Math.pow(v, 1.35);
+    const curl = options.wrap * (0.22 + 0.78 * Math.pow(v, 0.9));
+    for (let column = 0; column <= options.columns; column += 1) {
+      const u = column / options.columns;
+      const spread = u * 2 - 1;
+      const ripple = Math.cos(u * options.foldCount * Math.PI * 2);
+      const sag = options.shoulderDrop * spread * spread * (1 - v);
+      positions.push(
+        spread * width * 0.5,
+        -(options.height + options.hemWave * ripple) * v - sag,
+        curl * spread * spread - fold * ripple,
+      );
+      uvs.push(u, 1 - v);
+    }
+  }
+
+  for (let row = 0; row < options.rows; row += 1) {
+    for (let column = 0; column < options.columns; column += 1) {
+      const a = row * stride + column;
+      const b = a + 1;
+      const c = (row + 1) * stride + column + 1;
+      const d = (row + 1) * stride + column;
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 function createPanelGeometry(

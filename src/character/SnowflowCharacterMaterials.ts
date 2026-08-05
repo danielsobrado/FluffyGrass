@@ -12,6 +12,8 @@ const PALETTE = Object.freeze({
   metal: 0xdbe1ee,
   hair: 0xd6cfe4,
   eye: 0xa81f36,
+  cloakShell: 0x42305a,
+  cloakLining: 0x6d2035,
 });
 
 const SKIN_SHEEN = 0x211a2e;
@@ -29,6 +31,8 @@ export interface SnowflowCharacterMaterialSet {
   metal: THREE.MeshStandardMaterial;
   hair: THREE.MeshStandardMaterial;
   eye: THREE.MeshStandardMaterial;
+  cloakShell: THREE.MeshStandardMaterial;
+  cloakLining: THREE.MeshStandardMaterial;
 }
 
 export function createSnowflowCharacterMaterials(): SnowflowCharacterMaterialSet {
@@ -54,6 +58,10 @@ export function createSnowflowCharacterMaterials(): SnowflowCharacterMaterialSet
     metal: createMaterial(PALETTE.metal, 0.34, THREE.FrontSide, 0.25),
     hair: createMaterial(PALETTE.hair, 0.82, THREE.DoubleSide),
     eye,
+    // The cloak panels are drawn twice off one geometry: the outer shell takes
+    // the faces pointing away from the body, the lining takes the rest.
+    cloakShell: createMaterial(PALETTE.cloakShell, 0.94, THREE.FrontSide),
+    cloakLining: createMaterial(PALETTE.cloakLining, 0.88, THREE.BackSide),
   };
 }
 
