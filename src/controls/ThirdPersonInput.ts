@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { WorldConfig } from "../world/WorldConfig";
+import {
+  isEditableInputTarget,
+  requestPointerLockSafely,
+} from "./InputTarget";
 
 interface PointerState {
   pointerId: number;
@@ -118,6 +122,9 @@ export class ThirdPersonInput {
     this.canvas.removeEventListener("wheel", this.handleWheel);
     this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
     this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
     this.mobileControls?.remove();
   }
 
@@ -294,6 +301,9 @@ export class ThirdPersonInput {
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
+    if (isEditableInputTarget(event.target)) {
+      return;
+    }
     if (event.code === "Space") {
       event.preventDefault();
       if (!event.repeat) {
@@ -324,7 +334,7 @@ export class ThirdPersonInput {
 
   private readonly handleCanvasClick = (): void => {
     if (!this.profile.compact && document.pointerLockElement !== this.canvas) {
-      void this.canvas.requestPointerLock();
+      requestPointerLockSafely(this.canvas);
     }
   };
 

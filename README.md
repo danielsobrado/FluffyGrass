@@ -15,7 +15,7 @@ The default experience places an articulated Drow ranger inside a very dense int
 - Double-density individually instanced grass in the ultra-near camera band.
 - Dense individually instanced grass throughout the normal near LOD.
 - Multi-blade patch geometry for the middle LOD.
-- Hemi-octahedral atlas impostors for middle-band underfill and the far LOD.
+- Hemi-octahedral atlas impostors for the far LOD.
 - Dithered cross-fades between grass representations.
 - Streamed terrain and grass chunks.
 - Character-driven grass separation and trailing wake.
@@ -29,20 +29,23 @@ The default experience places an articulated Drow ranger inside a very dense int
 
 The grass system deliberately uses a different representation for each distance band. Dense individual blades are reserved for the closest LODs. Multi-blade patches and impostors are used only when individual blades become too expensive.
 
-The default transition distances come from `public/config/world.yaml`.
+The default transition distances come from the `lush-hero` art preset.
 
 | Distance from camera | Representation | Purpose |
 | --- | --- | --- |
-| `0–4 m` | Two independent single-blade layers | Full 2× blade density where individual blades are most visible. |
-| `4–5 m` | Additional single-blade layer dithering out | Removes the extra density without a visible ring. |
-| `5–16 m` | Dense individual blades | Maximum normal close-range quality and character interaction. |
-| `16–32 m` | Individual blades fading out, patch geometry fading in, impostor underfill rising | Prevents a visible density drop at the first world LOD transition. |
-| `32–72 m` | Multi-blade patches plus 72% impostor underfill | Preserves apparent field density without close-range blade cost. |
-| `72–88 m` | Patches fading out while impostors rise to full coverage | Smooth transition into the far representation. |
-| `88–280 m` | Hemi-octahedral impostors | Cheap view-dependent grass silhouettes near the streamed horizon. |
-| Final distance band | Impostors fade into terrain | Avoids a hard grass cutoff at the world edge. |
+| `0–4 m` | Two single-blade density layers with segmented detail | Full 2× density and close-range bend detail. |
+| `4–5 m` | Extra density and segmented detail dithering out | Removes close detail without a visible ring. |
+| `5–14 m` | Dense one-triangle individual blades | Maintains normal close-range density and interaction at lower cost. |
+| `14–34 m` | Individual blades crossfading to full-density patch geometry | Preserves density through the near/mid transition. |
+| `34–44 m` | Full-density patch geometry | Avoids redundant impostor overdraw in the middle band. |
+| `44–64 m` | Patch geometry crossfading to impostors | Smoothly enters the far representation. |
+| `64–270 m` | Hemi-octahedral impostors | Maintains view-dependent silhouettes near the streamed horizon. |
+| `270–290 m` | Impostors fading into terrain | Avoids a hard grass cutoff at the world edge. |
 
-The main world transition ranges are derived from:
+The table shows the default `lush-hero` preset. Runtime preset values in
+`src/grass/GrassArtPresets.json` select the active near, mid, far, and transition
+distances. The values in `public/config/world.yaml` provide validated world and
+streaming limits:
 
 ```yaml
 grassNearDistance: 24
@@ -80,22 +83,25 @@ The production `WorldGrassSystem` initializes and updates `WorldNearGrassField` 
 
 Both close single-blade layers receive the full character interaction deformation. Roots remain planted while blade tips bend and flatten around the character.
 
-### Middle LOD: patches plus underfill
+### Middle LOD: full-density patches
 
-The middle LOD uses procedural multi-blade patch geometry. It is less expensive than storing dense individual blades across the world, but patches alone can expose large gaps when viewed from third-person camera height.
-
-To prevent that density collapse, the existing far impostor mesh is reused as a partial underfill layer. The underfill begins when the near blades start fading and remains at 72% through most of the middle band. The production impostor footprint is widened by 12% to overlap neighboring patch cells and hide exposed terrain seams.
+The middle LOD uses procedural multi-blade patch geometry and retains every
+source blade. Because that geometry now provides full density, far impostors
+remain out of the middle band and enter only during the mid-to-far crossfade.
+The production impostor footprint is widened by 12% to overlap neighboring
+patch cells and hide exposed terrain seams.
 
 ```ts
-export const GRASS_MID_IMPOSTOR_UNDERFILL = 0.72;
+export const GRASS_MID_IMPOSTOR_UNDERFILL = 0;
 export const GRASS_IMPOSTOR_FOOTPRINT_SCALE = 1.12;
 ```
 
-This is intentionally below 100%. Patch geometry still provides local volume and parallax, while impostors fill empty visual space.
+This removes redundant middle-distance overdraw while patch geometry provides
+the full blade density, local volume, and parallax.
 
 ### Far LOD: hemi-octahedral impostors
 
-The production renderer bakes a multi-view grass atlas and selects a view through hemi-octahedral direction encoding. The same instanced impostor geometry is used for middle-band underfill and the full far LOD.
+The production renderer bakes a multi-view grass atlas and selects a view through hemi-octahedral direction encoding. The instanced impostor geometry is used during the mid-to-far crossfade and throughout the far LOD.
 
 The impostor shader includes:
 
@@ -116,7 +122,7 @@ The grass LOD system follows these rules:
 1. The additional ultra-near layer only adds density; it does not replace the normal near layer.
 2. Individual blades never remain as a world-wide distant representation.
 3. Multi-blade patches do not render as the closest character-level grass.
-4. The impostor underfill appears before the patch-only band becomes visibly sparse.
+4. Full-density patches carry the middle band without a redundant impostor layer.
 5. Every transition overlaps through stochastic coverage rather than switching meshes abruptly.
 6. Color, wind response, height, and root placement should remain visually compatible across all representations.
 7. Terrain and grass streaming radii must be large enough to contain the configured LOD fades.
@@ -351,7 +357,7 @@ src/world/
 
 Requirements:
 
-- Node.js with npm.
+- Node.js 20 or newer with npm.
 - A browser with WebGL support.
 
 Install and start the development server:
@@ -371,7 +377,9 @@ The build command runs:
 
 1. TypeScript compilation.
 2. Grass LOD continuity verification.
-3. Vite production bundling.
+3. Grass color-parity verification.
+4. Grass performance-envelope verification.
+5. Vite production bundling.
 
 Preview the generated build:
 
@@ -381,7 +389,9 @@ npm run preview
 
 ## GitHub Pages deployment
 
-The generated site is published manually from the `gh-pages` branch. This repository does not use GitHub Actions for deployment.
+The generated site is published manually from the `gh-pages` branch. Repository
+instructions explicitly prohibit GitHub Actions; build and deployment checks
+must be run locally.
 
 Configure GitHub Pages:
 
@@ -409,19 +419,6 @@ Optional environment variables:
 - `GITHUB_PAGES_BRANCH`: deployment branch, defaults to `gh-pages`.
 - `GITHUB_PAGES_REMOTE`: Git remote, defaults to `origin`.
 - `ALLOW_DIRTY_DEPLOY=1`: permits deployment with uncommitted changes.
-
-### Pages validation harness
-
-The currently published Pages branch may contain a lightweight standalone validation harness used for direct mobile testing when a full local Vite build is unavailable.
-
-The harness approximates the production renderer:
-
-- Dense nearby individual blades.
-- Multi-blade middle patches.
-- Three deterministic terrain-aligned underfill clusters per source patch, each using two crossed cards.
-- Character wake and mobile controls.
-
-The production application in `main` remains the source of truth. It uses the proper streamed 2× ultra-near layer, normal near field, and baked hemi-octahedral atlas impostors. Running `npm run deploy:pages` replaces the harness with the actual production `dist/` build.
 
 ## Attribution
 

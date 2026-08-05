@@ -229,10 +229,9 @@ assert(
   "CPU visibility must not suppress far meshes by aerial angle.",
 );
 assert(
-  /patch\.midMesh\.userData\.grassDistanceFade\s*=\s*1\s*;/.test(
-    controller,
-  ),
-  "World mid coverage must not be applied a second time per patch.",
+  !controller.includes("grassDistanceFade") &&
+    nearMaterial.includes("grassDither > grassFarDistanceEntry"),
+  "World mid coverage must be resolved once from world distance in the shader.",
 );
 assert(
   !/vFarEntry\s*\*\s*vTerrainCoverage\s*\*\s*aerialVisibility/.test(
@@ -277,12 +276,20 @@ assert(
     ),
   "LOD shaders must map shared palette arguments and atlas channels identically.",
 );
+// Far cards now take the stochastic single-fetch path across the whole range,
+// not just past the handoff. The four-tap blend it replaced ran precisely where
+// the cards are largest on screen, and the real mid blades still drawing over
+// them there hide the difference. What must not come back is a multi-fetch
+// filter or a premultiply that would break the semantic channel decode.
 assert(
   !impostorMaterial.includes("atlasColor.rgb *= atlasColor.a") &&
-    impostorMaterial.includes("vec4 color00 = sampleFrame") &&
-    impostorMaterial.includes("if (vFarEntry < 0.999)") &&
+    !impostorMaterial.includes("vec4 color00 = sampleFrame") &&
     impostorMaterial.includes("Stable stochastic bilinear selection"),
-  "Far atlas filtering must blend views during transition and use one fetch fully far.",
+  "Far atlas filtering must reconstruct the view blend with a single fetch.",
+);
+assert(
+  (impostorMaterial.match(/atlasColor = sampleFrame\(/g) ?? []).length === 2,
+  "Far cards must sample the atlas exactly once per fragment (compact and blended paths).",
 );
 assert(
   impostorMaterial.includes("lights: true") &&

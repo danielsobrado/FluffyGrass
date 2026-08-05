@@ -22,10 +22,30 @@ export class GrassLodController {
     );
     this.frustum.setFromProjectionMatrix(this.projectionViewMatrix);
 
+    // Streaming keeps patches resident well past the far fade so they are ready
+    // when the camera turns, so a meaningful share of every sweep is patches
+    // that cannot draw. Distance is far cheaper than the frustum test, so take
+    // it first and skip the rest for anything past the fade.
+    const cullDistance =
+      this.config.farMaxDistance + this.config.transitionDistance;
+
     for (const patch of patches) {
-      patch.inFrustum = this.frustum.intersectsBox(patch.bounds);
       patch.bounds.clampPoint(this.cameraPosition, this.closestPoint);
       patch.distance = this.cameraPosition.distanceTo(this.closestPoint);
+
+      if (patch.distance >= cullDistance) {
+        patch.inFrustum = false;
+        if (patch.nearMesh) {
+          patch.nearMesh.visible = false;
+        }
+        patch.midMesh.visible = false;
+        if (patch.farMesh) {
+          patch.farMesh.visible = false;
+        }
+        continue;
+      }
+
+      patch.inFrustum = this.frustum.intersectsBox(patch.bounds);
 
       if (patch.farMesh) {
         this.updateThreeStagePatch(patch);
@@ -72,8 +92,6 @@ export class GrassLodController {
     // tiles cover the whole near band.
     if (patch.nearMesh) {
       patch.nearMesh.visible = patch.inFrustum && patch.distance < nearFadeEnd;
-      patch.nearMesh.userData.grassLodThreshold = patch.nearCoverage;
-      patch.nearMesh.userData.grassDistanceFade = 1;
     }
     patch.midMesh.visible =
       patch.inFrustum &&
@@ -83,14 +101,8 @@ export class GrassLodController {
       patch.inFrustum &&
       farthestDistance > farEntryStart &&
       patch.distance < terrainFadeEnd;
-
-    patch.midMesh.userData.grassLodThreshold = patch.nearCoverage;
-    // World-space LOD coverage is already calculated per instance in the
-    // material. Applying the patch-level mid coverage here as well intersects
-    // two opposing dither ranges and makes the mid layer disappear halfway
-    // through its transition to the far impostor.
-    patch.midMesh.userData.grassDistanceFade = 1;
-    farMesh.userData.grassImpostorCoverage = patch.farCoverage;
+    // Coverage itself is resolved per instance from world-space distance inside
+    // both materials. The patch-level values survive only as diagnostics.
   }
 
   private updateLegacyPatch(patch: GrassPatch): void {
@@ -108,10 +120,6 @@ export class GrassLodController {
       patch.inFrustum &&
       patch.nearCoverage < 1 - VISIBILITY_EPSILON &&
       patch.midDistanceFade > VISIBILITY_EPSILON;
-    nearMesh.userData.grassLodThreshold = patch.nearCoverage;
-    nearMesh.userData.grassDistanceFade = 1;
-    patch.midMesh.userData.grassLodThreshold = patch.nearCoverage;
-    patch.midMesh.userData.grassDistanceFade = patch.midDistanceFade;
   }
 
   private resolveLevel(

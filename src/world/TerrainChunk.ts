@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import type { TerrainField } from "./TerrainField";
 
+/** Every grass layer and the character stay at the default 0. */
+export const TERRAIN_RENDER_ORDER = 1;
+
 const VERTEX_STAGE = 0;
 const INDEX_STAGE = 1;
 const FINALIZE_STAGE = 2;
@@ -22,6 +25,13 @@ export class TerrainChunk {
     this.mesh.name = `terrain-${this.key}-r${resolution}`;
     this.mesh.receiveShadow = receiveShadow;
     this.mesh.castShadow = false;
+    // Terrain is the widest and most expensive per-pixel layer in the scene: a
+    // detail texture fetch plus shadow receiving over most of the frame. Its
+    // material is created before the grass materials, so three's opaque sort
+    // (renderOrder, then material.id, then depth) would otherwise shade it
+    // first with nothing occluding it. Pushing it behind every grass layer lets
+    // the depth buffer reject the terrain fragments the grass already covers.
+    this.mesh.renderOrder = TERRAIN_RENDER_ORDER;
   }
 
   dispose(): void {

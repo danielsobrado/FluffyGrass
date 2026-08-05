@@ -1,4 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
+import { readFileSync } from "node:fs";
+import packageMetadata from "./package.json";
 
 const DEPLOYMENT_BASE_PATH = "./";
 const PUBLIC_ASSET_PATH_PATTERN =
@@ -24,7 +26,26 @@ function rewriteRootPublicAssetPaths(): Plugin {
 	};
 }
 
+function includeLegalFiles(): Plugin {
+	return {
+		name: "include-legal-files",
+		generateBundle() {
+			for (const fileName of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+				this.emitFile({
+					type: "asset",
+					fileName,
+					source: readFileSync(new URL(fileName, import.meta.url), "utf8"),
+				});
+			}
+		},
+	};
+}
+
 export default defineConfig({
 	base: DEPLOYMENT_BASE_PATH,
-	plugins: [rewriteRootPublicAssetPaths()],
+	define: {
+		__APP_VERSION__: JSON.stringify(`v${packageMetadata.version}`),
+		__BUILD_LABEL__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+	},
+	plugins: [rewriteRootPublicAssetPaths(), includeLegalFiles()],
 });

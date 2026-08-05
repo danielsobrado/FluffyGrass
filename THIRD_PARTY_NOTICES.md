@@ -1,5 +1,22 @@
 # Third-party notices
 
+## Three.js
+
+Three.js is distributed under the MIT License.
+
+Copyright © 2010-2026 three.js authors
+
+The full license text is available in the installed package at
+`node_modules/three/LICENSE` and at <https://github.com/mrdoob/three.js/blob/dev/LICENSE>.
+
+## stats-gl
+
+stats-gl is distributed under the MIT License.
+
+Copyright (c) Renaud Rohlinger and contributors
+
+Project and license information: <https://github.com/RenaudRohlinger/stats-gl>.
+
 ## Snowflow procedural character
 
 The Three.js character in `src/character/` is adapted from the procedural

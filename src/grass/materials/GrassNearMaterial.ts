@@ -28,24 +28,45 @@ uniform float uGrassFlutterSpeed;
 uniform float uGrassNormalUp;
 uniform float uGrassWindLodScale;
 uniform float uGrassDitherSeed;
-uniform float uGrassUseWorldLod;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
 uniform float uGrassDetailMode;
 uniform float uGrassDetailNearDistance;
 uniform float uGrassDetailTransitionDistance;
-uniform float uGrassInteractionEnabled;
 uniform vec2 uGrassInteractionStart;
 uniform vec2 uGrassInteractionEnd;
 uniform vec2 uGrassInteractionDirection;
 uniform float uGrassInteractionRadius;
 uniform float uGrassInteractionStrength;
-uniform float uGrassLodThreshold;
 uniform float uGrassLodInvert;
-uniform float uGrassDistanceFade;
-uniform float uGrassStreamCoverage;
 uniform float uGrassArtDensityScale;
+`;
+
+// The streamed world resolves coverage per blade from its own camera distance.
+const VERTEX_KEEP_WORLD_LOD = `
+bool grassKeepLod = uGrassLodInvert < 0.5
+  ? grassDither <= grassNearCoverage
+  : grassDither > grassNearCoverage && grassDither > grassFarDistanceEntry;
+`;
+
+// The island regression scene is a single small object framed whole by an
+// orbiting camera, so its near/mid split is one threshold for the entire scene
+// rather than a per-blade distance fade. That threshold is a genuine
+// material-level uniform here; it used to be written per mesh, which three
+// silently collapsed to whichever patch drew first.
+const VERTEX_KEEP_THRESHOLD_LOD = `
+bool grassKeepLod = uGrassLodInvert < 0.5
+  ? grassDither <= uGrassLodThreshold
+  : grassDither > uGrassLodThreshold && grassDither <= uGrassDistanceFade;
+`;
+
+const VERTEX_THRESHOLD_DECLARATIONS = `
+uniform float uGrassLodThreshold;
+uniform float uGrassDistanceFade;
+`;
+
+const VERTEX_SHADING_DECLARATIONS = `
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
@@ -82,24 +103,19 @@ float grassDetailCoverage = 1.0 - smoothstep(
   uGrassDetailNearDistance + uGrassDetailTransitionDistance,
   grassCameraDistance
 );
-bool grassKeepLod = uGrassUseWorldLod > 0.5
-  ? (uGrassLodInvert < 0.5
-      ? grassDither <= grassNearCoverage
-      : grassDither > grassNearCoverage &&
-        grassDither > grassFarDistanceEntry)
-  : (uGrassLodInvert < 0.5
-      ? grassDither <= uGrassLodThreshold
-      : grassDither > uGrassLodThreshold);
+GRASS_KEEP_LOD
 bool grassKeepDetail = uGrassDetailMode < 0.5 ||
   (uGrassDetailMode < 1.5
     ? grassDither > grassDetailCoverage
     : grassDither <= grassDetailCoverage);
+// instanceCoverage carries both the per-instance field coverage and the
+// streaming fade-in. Both used to be separate uniforms, but three only uploads
+// a shared material's uniforms once per contiguous run of draws, so per-mesh
+// values never reached the GPU. Per-instance data has no such problem.
 bool grassKeepBlade =
   grassKeepLod &&
   grassKeepDetail &&
-  grassFieldDither <= min(instanceCoverage * uGrassArtDensityScale, 1.0) &&
-  grassDither <= uGrassDistanceFade &&
-  grassDither <= uGrassStreamCoverage;
+  grassFieldDither <= min(instanceCoverage * uGrassArtDensityScale, 1.0);
 
 if (!grassKeepBlade) {
   // Every vertex in a blade shares the keep decision, so a rejected blade
@@ -141,7 +157,12 @@ if (grassKeepBlade && grassProgress > 0.001) {
   );
   transformed += grassLocalWind * grassBend;
 
-  if (uGrassInteractionEnabled > 0.5) {
+  // uGrassInteractionStrength is zero whenever the wake is inactive, so the
+  // whole block folds away for free. This replaces a per-mesh "is this tile
+  // near the character" uniform that could never be uploaded per mesh: the
+  // falloff below is a strictly finer-grained, per-blade version of the same
+  // rejection.
+  if (uGrassInteractionStrength > 0.0) {
     vec2 interactionSegment = uGrassInteractionEnd - uGrassInteractionStart;
     float interactionLengthSquared = max(dot(interactionSegment, interactionSegment), 0.0001);
     float interactionT = clamp(
@@ -154,6 +175,12 @@ if (grassKeepBlade && grassProgress > 0.001) {
       uGrassInteractionStart + interactionSegment * interactionT;
     vec2 interactionOffset = grassWorldRoot.xz - interactionClosest;
     float interactionDistance = length(interactionOffset);
+    float interactionFalloff = 1.0 - smoothstep(
+      uGrassInteractionRadius * 0.16,
+      uGrassInteractionRadius,
+      interactionDistance
+    );
+    if (interactionFalloff > 0.0) {
     vec2 interactionPerpendicular = vec2(
       -uGrassInteractionDirection.y,
       uGrassInteractionDirection.x
@@ -167,11 +194,6 @@ if (grassKeepBlade && grassProgress > 0.001) {
     vec2 interactionAway = interactionDistance > 0.0001
       ? interactionOffset / interactionDistance
       : interactionPerpendicular * resolvedSide;
-    float interactionFalloff = 1.0 - smoothstep(
-      uGrassInteractionRadius * 0.16,
-      uGrassInteractionRadius,
-      interactionDistance
-    );
     float interactionProgress = pow(grassProgress, 1.22);
     float interactionBend =
       interactionFalloff * uGrassInteractionStrength * interactionProgress;
@@ -187,16 +209,50 @@ if (grassKeepBlade && grassProgress > 0.001) {
     );
     transformed += interactionLocalPush * interactionBend;
     transformed.y -= interactionFalloff * uGrassInteractionStrength * 0.2 * interactionProgress;
+    }
   }
 }
+
+`;
 
 // Only the shading inputs cross to the fragment stage. The coverage and dither
 // terms are consumed entirely by the keep test above, so passing them on would
 // burn interpolators the fragment shader no longer reads.
+const VERTEX_SHADING = `
 vGrassProgress = grassProgress;
 vGrassShade = grassBladeShade;
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
+`;
+
+// Layers whose blades are a single triangle resolve the palette here instead.
+// Three vertices is far fewer evaluations than the fragments they cover, and at
+// that size the difference between interpolating the resolved colour and
+// resolving an interpolated progress is well under a quantisation step. The
+// segmented ultra-near blades, which are the ones actually large on screen, keep
+// the per-fragment path.
+const VERTEX_PALETTE = `
+vGrassColor = grassResolvePalette(
+  uGrassBaseColor,
+  uGrassTipColor,
+  uGrassDryColor,
+  grassProgress,
+  grassBladeShade,
+  instanceVariation.w,
+  instanceVariation.z,
+  uGrassTipColorStrength,
+  uGrassRootDarkening
+);
+`;
+
+const VERTEX_PALETTE_DECLARATIONS = `
+uniform vec3 uGrassBaseColor;
+uniform vec3 uGrassTipColor;
+uniform vec3 uGrassDryColor;
+uniform float uGrassRootDarkening;
+uniform float uGrassTipColorStrength;
+varying vec3 vGrassColor;
+${GRASS_PALETTE_GLSL}
 `;
 
 const FRAGMENT_DECLARATIONS = `
@@ -212,6 +268,18 @@ varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
 ${GRASS_PALETTE_GLSL}
+`;
+
+const VERTEX_PALETTE_FRAGMENT_DECLARATIONS = `
+uniform float uGrassAmbientBoost;
+uniform float uGrassBacklightStrength;
+varying vec3 vGrassColor;
+`;
+
+const VERTEX_PALETTE_FRAGMENT_COLOR = `
+#include <color_fragment>
+diffuseColor.rgb = vGrassColor;
+totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
 // No discard here. Every input to the keep test is constant across a blade
@@ -253,6 +321,42 @@ vec3 outgoingLight =
   diffuseColor.rgb * grassBackLight * uGrassBacklightStrength * 0.2;
 `;
 
+/**
+ * Per-material constants. These used to be written per mesh from
+ * `onBeforeRender`, but three only uploads a material's custom uniforms on the
+ * first draw of each contiguous same-material run (see `refreshMaterial` in
+ * WebGLRenderer), and its opaque sort groups by `material.id` before depth. The
+ * result was that every mesh sharing a material silently inherited the first
+ * one's values. Anything that genuinely varies per mesh now lives in the
+ * per-instance buffers instead; anything constant for a layer lives here.
+ */
+export interface GrassNearMaterialOptions {
+  name: string;
+  /** Distinct per option set, otherwise three reuses a cached program. */
+  cacheKey: string;
+  /** Mid layers keep the blades the near layer drops. */
+  invertLodCoverage?: boolean;
+  windLodScale?: number;
+  /** 0 = no detail split, 1 = outside the detail radius, 2 = inside it. */
+  detailMode?: number;
+  /** Decorrelates the LOD dither between layers. */
+  ditherSeed?: number;
+  /**
+   * Resolve LOD coverage per blade from its world-space camera distance
+   * (default). The island regression scene instead drives one scene-wide
+   * threshold, because its camera frames the whole object at a distance well
+   * past the configured near and mid fades.
+   */
+  worldLod?: boolean;
+  /**
+   * Resolve the grass palette per vertex instead of per fragment. Only safe for
+   * layers whose blades are a single triangle: with three vertices the colour
+   * interpolates across a handful of pixels, but a segmented blade filling the
+   * screen would visibly band.
+   */
+  vertexPalette?: boolean;
+}
+
 export class GrassNearMaterial {
   readonly material: THREE.MeshLambertMaterial;
 
@@ -278,22 +382,18 @@ export class GrassNearMaterial {
     uGrassNormalUp: { value: 0.45 },
     uGrassAmbientBoost: { value: 0.12 },
     uGrassBacklightStrength: { value: 0.16 },
-    uGrassLodThreshold: { value: 1 },
     uGrassLodInvert: { value: 0 },
+    uGrassLodThreshold: { value: 1 },
     uGrassDistanceFade: { value: 1 },
     uGrassDitherSeed: { value: 0 },
     uGrassWindLodScale: { value: 1 },
-    uGrassUseWorldLod: { value: 0 },
     uGrassNearDistance: { value: 0 },
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
     uGrassDetailMode: { value: 0 },
     uGrassDetailNearDistance: { value: 0 },
     uGrassDetailTransitionDistance: { value: 1 },
-    uGrassLodColorScale: { value: 1 },
-    uGrassStreamCoverage: { value: 1 },
     uGrassArtDensityScale: { value: 1 },
-    uGrassInteractionEnabled: { value: 0 },
     uGrassInteractionStart: { value: new THREE.Vector2() },
     uGrassInteractionEnd: { value: new THREE.Vector2() },
     uGrassInteractionDirection: { value: new THREE.Vector2(0, 1) },
@@ -303,7 +403,12 @@ export class GrassNearMaterial {
   private baseWindStrength = 0.14;
   private baseFlutterStrength = 0.035;
 
-  constructor() {
+  constructor(options: GrassNearMaterialOptions) {
+    this.uniforms.uGrassLodInvert.value = options.invertLodCoverage ? 1 : 0;
+    this.uniforms.uGrassWindLodScale.value = options.windLodScale ?? 1;
+    this.uniforms.uGrassDetailMode.value = options.detailMode ?? 0;
+    this.uniforms.uGrassDitherSeed.value =
+      (options.ditherSeed ?? 0) / 4294967296;
     setBalancedGrassPaletteColors(
       this.uniforms.uGrassBaseColor.value,
       this.uniforms.uGrassTipColor.value,
@@ -318,28 +423,57 @@ export class GrassNearMaterial {
       transparent: false,
       depthWrite: true,
     });
-    this.material.name = "grass-near-material";
+    this.material.name = options.name;
+    const vertexPalette = options.vertexPalette === true;
+    const worldLod = options.worldLod !== false;
+    // Selected at compile time rather than branched on a uniform: this is the
+    // hottest code in the scene and the choice never varies for a material.
+    const keepLod = worldLod
+      ? VERTEX_KEEP_WORLD_LOD
+      : VERTEX_KEEP_THRESHOLD_LOD;
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", `#include <common>${VERTEX_DECLARATIONS}`)
+        .replace(
+          "#include <common>",
+          `#include <common>${VERTEX_DECLARATIONS}${
+            worldLod ? "" : VERTEX_THRESHOLD_DECLARATIONS
+          }${
+            vertexPalette
+              ? VERTEX_PALETTE_DECLARATIONS
+              : VERTEX_SHADING_DECLARATIONS
+          }`,
+        )
         .replace(
           "#include <beginnormal_vertex>",
           `#include <beginnormal_vertex>\nobjectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp));`,
         )
         .replace(
           "#include <begin_vertex>",
-          `#include <begin_vertex>${VERTEX_WIND}`,
+          `#include <begin_vertex>${VERTEX_WIND.replace(
+            "GRASS_KEEP_LOD",
+            keepLod,
+          )}${vertexPalette ? VERTEX_PALETTE : VERTEX_SHADING}`,
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>${FRAGMENT_DECLARATIONS}`)
-        .replace("#include <color_fragment>", FRAGMENT_COLOR)
+        .replace(
+          "#include <common>",
+          `#include <common>${
+            vertexPalette
+              ? VERTEX_PALETTE_FRAGMENT_DECLARATIONS
+              : FRAGMENT_DECLARATIONS
+          }`,
+        )
+        .replace(
+          "#include <color_fragment>",
+          vertexPalette ? VERTEX_PALETTE_FRAGMENT_COLOR : FRAGMENT_COLOR,
+        )
         .replace(
           "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
           FRAGMENT_OUTPUT,
         );
     };
-    this.material.customProgramCacheKey = () => "grass-near-material-v15";
+    this.material.customProgramCacheKey = () => options.cacheKey;
   }
 
   configure(material: GrassMaterialConfig, wind: GrassWindConfig): void {
@@ -380,6 +514,21 @@ export class GrassNearMaterial {
       this.baseFlutterStrength * direction.flutterStrengthScale;
   }
 
+  /**
+   * The `uGrassDitherSeed` value the vertex shader adds when deriving a blade's
+   * LOD dither. Callers that want to predict the shader's keep decision on the
+   * CPU need it.
+   */
+  getDitherSeed(): number {
+    return this.uniforms.uGrassDitherSeed.value;
+  }
+
+  /** Threshold-LOD materials only; ignored when coverage is resolved per blade. */
+  setLodThreshold(threshold: number, distanceFade = 1): void {
+    this.uniforms.uGrassLodThreshold.value = threshold;
+    this.uniforms.uGrassDistanceFade.value = distanceFade;
+  }
+
   configureLod(config: GrassLodConfig): void {
     this.uniforms.uGrassNearDistance.value = config.nearMaxDistance;
     this.uniforms.uGrassMidDistance.value = config.midMaxDistance;
@@ -390,41 +539,6 @@ export class GrassNearMaterial {
     this.uniforms.uGrassDetailNearDistance.value = config.nearMaxDistance;
     this.uniforms.uGrassDetailTransitionDistance.value =
       config.transitionDistance;
-  }
-
-  bindMesh(
-    mesh: THREE.InstancedMesh,
-    ditherSeed: number,
-    invertLodCoverage: boolean,
-    windScale: number,
-    useWorldLod = false,
-    lodColorScale = 1,
-    initialStreamCoverage = 1,
-    renderSingleBladeNear = false,
-    detailMode = 0,
-  ): void {
-    mesh.userData.grassLodThreshold = 1;
-    mesh.userData.grassDistanceFade = 1;
-    mesh.userData.grassStreamCoverage = initialStreamCoverage;
-    mesh.onBeforeRender = () => {
-      this.uniforms.uGrassLodThreshold.value =
-        mesh.userData.grassLodThreshold ?? 1;
-      this.uniforms.uGrassLodInvert.value = invertLodCoverage ? 1 : 0;
-      this.uniforms.uGrassDistanceFade.value =
-        mesh.userData.grassDistanceFade ?? 1;
-      this.uniforms.uGrassDitherSeed.value = ditherSeed / 4294967296;
-      this.uniforms.uGrassWindLodScale.value = windScale;
-      this.uniforms.uGrassUseWorldLod.value = useWorldLod ? 1 : 0;
-      this.uniforms.uGrassLodColorScale.value = lodColorScale;
-      this.uniforms.uGrassStreamCoverage.value =
-        mesh.userData.grassStreamCoverage ?? 1;
-      this.uniforms.uGrassDetailMode.value = detailMode;
-      this.uniforms.uGrassInteractionEnabled.value =
-        renderSingleBladeNear &&
-        mesh.userData.grassInteractionEnabled === true
-          ? 1
-          : 0;
-    };
   }
 
   update(elapsedSeconds: number): void {
@@ -450,38 +564,78 @@ export class GrassNearMaterial {
     );
   }
 
-  setupGUI(gui: GUI): void {
+  setupGUI(
+    gui: GUI,
+    linkedMaterials: readonly GrassNearMaterial[] = [],
+  ): void {
+    const materials = [this, ...linkedMaterials];
     const folder = gui.addFolder("Grass Props");
     folder.addColor(this.colorControls, "baseColor").onChange((value: string) => {
-      this.colorControls.baseColor = value;
-      this.setPaletteColors();
+      for (const material of materials) {
+        material.colorControls.baseColor = value;
+        material.setPaletteColors();
+      }
     });
     folder.addColor(this.colorControls, "tipColor").onChange((value: string) => {
-      this.colorControls.tipColor = value;
-      this.setPaletteColors();
+      for (const material of materials) {
+        material.colorControls.tipColor = value;
+        material.setPaletteColors();
+      }
     });
     folder.addColor(this.colorControls, "dryColor").onChange((value: string) => {
-      this.colorControls.dryColor = value;
-      this.setPaletteColors();
+      for (const material of materials) {
+        material.colorControls.dryColor = value;
+        material.setPaletteColors();
+      }
     });
     folder
       .add(this.uniforms.uGrassTipColorStrength, "value", 0.15, 0.75, 0.01)
-      .name("Tip Mix");
+      .name("Tip Mix")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassTipColorStrength.value = value;
+        }
+      });
     folder
       .add(this.uniforms.uGrassWindStrength, "value", 0, 0.45, 0.005)
-      .name("Wind Strength");
+      .name("Wind Strength")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassWindStrength.value = value;
+        }
+      });
     folder
       .add(this.uniforms.uGrassFlutterStrength, "value", 0, 0.15, 0.0025)
-      .name("Tip Flutter");
+      .name("Tip Flutter")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassFlutterStrength.value = value;
+        }
+      });
     folder
       .add(this.uniforms.uGrassNormalUp, "value", 0, 0.9, 0.01)
-      .name("Normal Up");
+      .name("Normal Up")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassNormalUp.value = value;
+        }
+      });
     folder
       .add(this.uniforms.uGrassAmbientBoost, "value", 0, 0.4, 0.01)
-      .name("Ambient Boost");
+      .name("Ambient Boost")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassAmbientBoost.value = value;
+        }
+      });
     folder
       .add(this.uniforms.uGrassBacklightStrength, "value", 0, 0.5, 0.01)
-      .name("Backlight");
+      .name("Backlight")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassBacklightStrength.value = value;
+        }
+      });
     folder.open();
   }
 }

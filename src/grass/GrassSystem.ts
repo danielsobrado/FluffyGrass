@@ -54,12 +54,31 @@ export interface GrassImpostorBakeTarget {
 }
 
 const MID_WIND_SCALE = 0.62;
+const LEGACY_DITHER_SEED = 0x85ebca6b;
 
 export class GrassSystem {
   private readonly configLoader = new GrassConfigLoader();
   private readonly distribution = new GrassDistribution();
   private readonly geometryFactory = new GrassGeometryFactory();
-  private readonly material = new GrassNearMaterial();
+  // This scene frames one small island whole, from a distance past the
+  // configured near and mid fades, so a per-blade world-space fade would cull
+  // every blade. It uses a single scene-wide near/mid threshold instead.
+  private readonly nearMaterial = new GrassNearMaterial({
+    name: "grass-near-material",
+    cacheKey: "grass-near-material-v16-legacy-near",
+    ditherSeed: LEGACY_DITHER_SEED,
+    worldLod: false,
+  });
+  private readonly midMaterial = new GrassNearMaterial({
+    name: "grass-mid-material",
+    cacheKey: "grass-near-material-v16-legacy-mid",
+    invertLodCoverage: true,
+    windLodScale: MID_WIND_SCALE,
+    ditherSeed: LEGACY_DITHER_SEED,
+    worldLod: false,
+  });
+  private readonly lodSamplePoint = new THREE.Vector3();
+  private readonly cameraPosition = new THREE.Vector3();
   private readonly wind = new WindField();
   private readonly meshes: THREE.InstancedMesh[] = [];
   private readonly sourceGeometries: THREE.BufferGeometry[] = [];
@@ -68,11 +87,12 @@ export class GrassSystem {
   private lodController?: GrassLodController;
   private config?: GrassConfig;
   private initialization?: Promise<void>;
+  private lodOverridden = false;
 
   constructor(private readonly dependencies: GrassSystemDependencies) {}
 
   attachGui(gui: GUI): void {
-    this.material.setupGUI(gui);
+    this.nearMaterial.setupGUI(gui, [this.midMaterial]);
   }
 
   initialize(surface: THREE.Mesh): Promise<void> {
@@ -84,15 +104,64 @@ export class GrassSystem {
   }
 
   update(deltaSeconds: number, camera: THREE.Camera): void {
-    this.material.update(this.wind.update(deltaSeconds));
+    const elapsedSeconds = this.wind.update(deltaSeconds);
+    this.nearMaterial.update(elapsedSeconds);
+    this.midMaterial.update(elapsedSeconds);
     if (this.patchGrid && this.lodController) {
       this.lodController.update(camera, this.patchGrid.values());
     }
+    this.updateLodThreshold(camera);
+  }
+
+  /**
+   * Drives the scene-wide near/mid split from the camera's distance to the
+   * grass. The two materials take complementary sides of the same threshold, so
+   * every blade is drawn exactly once.
+   */
+  private updateLodThreshold(camera: THREE.Camera): void {
+    const config = this.config;
+    if (!config || this.lodOverridden || this.worldBounds.isEmpty()) {
+      return;
+    }
+    camera.getWorldPosition(this.cameraPosition);
+    this.worldBounds.clampPoint(this.cameraPosition, this.lodSamplePoint);
+    const distance = this.cameraPosition.distanceTo(this.lodSamplePoint);
+    const { nearMaxDistance, farMaxDistance, transitionDistance } = config.lod;
+    const nearCoverage =
+      1 -
+      THREE.MathUtils.smoothstep(
+        distance,
+        nearMaxDistance - transitionDistance,
+        nearMaxDistance + transitionDistance,
+      );
+    const distanceFade =
+      1 -
+      THREE.MathUtils.smoothstep(
+        distance,
+        farMaxDistance - transitionDistance,
+        farMaxDistance + transitionDistance,
+      );
+    this.nearMaterial.setLodThreshold(nearCoverage);
+    this.midMaterial.setLodThreshold(nearCoverage, distanceFade);
   }
 
   getBounds(): THREE.Box3 {
     this.assertReady();
     return this.worldBounds.clone();
+  }
+
+  /**
+   * Pins the near layer to full coverage while an impostor is baked, and stops
+   * the per-frame threshold update from moving it back. (This replaces a pair of
+   * per-mesh userData overrides that three never actually uploaded.)
+   */
+  setLodBakeOverride(enabled: boolean): void {
+    this.assertReady();
+    this.lodOverridden = enabled;
+    if (enabled) {
+      this.nearMaterial.setLodThreshold(1);
+      this.midMaterial.setLodThreshold(1);
+    }
   }
 
   getLodConfig(): GrassLodConfig {
@@ -177,7 +246,8 @@ export class GrassSystem {
     }
     this.sourceGeometries.length = 0;
 
-    this.material.material.dispose();
+    this.nearMaterial.material.dispose();
+    this.midMaterial.material.dispose();
     this.patchGrid?.clear();
     this.worldBounds.makeEmpty();
     this.config = undefined;
@@ -192,7 +262,10 @@ export class GrassSystem {
     );
     this.sourceGeometries.push(...variants.near, ...variants.mid);
 
-    this.material.configure(config.material, config.wind);
+    for (const material of [this.nearMaterial, this.midMaterial]) {
+      material.configure(config.material, config.wind);
+      material.configureLod(config.lod);
+    }
     this.patchGrid = new GrassPatchGrid(config.patchSize);
     this.lodController = new GrassLodController(config.lod);
     this.worldBounds.makeEmpty();
@@ -248,28 +321,21 @@ export class GrassSystem {
       this.hashPatch(bucket.gridX, bucket.gridZ, config.distribution.seed) %
       config.geometry.variantCount;
     const variationValues = this.createVariationValues(bucket.placements);
-    const ditherSeed = this.hashPatch(
-      bucket.gridX,
-      bucket.gridZ,
-      config.distribution.seed ^ 0x85ebca6b,
-    );
-
     const nearMesh = this.createMesh(
       `grass-near-${bucket.id}`,
       variants.near[variantIndex],
       bucket.placements,
       variationValues,
+      this.nearMaterial.material,
     );
     const midMesh = this.createMesh(
       `grass-mid-${bucket.id}`,
       variants.mid[variantIndex],
       bucket.placements,
       variationValues,
+      this.midMaterial.material,
     );
     midMesh.visible = false;
-
-    this.material.bindMesh(nearMesh, ditherSeed, false, 1);
-    this.material.bindMesh(midMesh, ditherSeed, true, MID_WIND_SCALE);
 
     const bounds = new THREE.Box3();
     if (nearMesh.boundingBox) {
@@ -307,6 +373,7 @@ export class GrassSystem {
     sourceGeometry: THREE.BufferGeometry,
     placements: GrassPlacement[],
     variationValues: Float32Array,
+    material: THREE.Material,
   ): THREE.InstancedMesh {
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
@@ -314,7 +381,7 @@ export class GrassSystem {
     );
     const mesh = new THREE.InstancedMesh(
       geometry,
-      this.material.material,
+      material,
       placements.length,
     );
     mesh.name = name;

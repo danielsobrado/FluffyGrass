@@ -1,8 +1,11 @@
 {
   "name": "threejs-fluffy-grass",
   "private": true,
-  "version": "0.8.5",
+  "version": "0.9.5",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && vite build",
@@ -13,13 +16,13 @@
     "deploy:pages": "node scripts/deploy-github-pages.mjs"
   },
   "devDependencies": {
-    "@types/dat.gui": "^0.7.12",
-    "@types/three": "^0.159.0",
-    "typescript": "^5.2.2",
+    "@types/dat.gui": "0.7.13",
+    "@types/three": "0.185.0",
+    "typescript": "5.9.3",
     "vite": "^6.4.3"
   },
   "dependencies": {
     "stats-gl": "2.0.1",
-    "three": "^0.159.0"
+    "three": "0.185.1"
   }
 }

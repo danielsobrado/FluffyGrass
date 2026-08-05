@@ -9,21 +9,28 @@ import type { WorldConfig } from "../WorldConfig";
 import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
 
 export interface WorldSingleBladeTile {
-  key: string;
+  key: number;
   tileX: number;
   tileZ: number;
   mesh: THREE.InstancedMesh;
   bladeCount: number;
+  /**
+   * Every blade's LOD dither, ascending, matching the instance order in the
+   * buffers. The vertex shader keeps a blade when `dither <= coverage`, so with
+   * the instances sorted the survivors are always a prefix and the draw can be
+   * truncated with `mesh.count` instead of submitting blades that the shader
+   * would only collapse to zero area.
+   */
+  sortedDithers: Float32Array;
 }
 
 export interface WorldSingleBladeTileBuildOptions {
-  key: string;
+  key: number;
   tileX: number;
   tileZ: number;
   densityMultiplier: number;
   bladeSegments: number;
   receiveShadows: boolean;
-  detailMode: number;
   seedSalt: number;
   namePrefix: string;
   material: GrassNearMaterial;
@@ -39,6 +46,9 @@ const MAXIMUM_INSTANCE_WIND_SCALE = 1.16;
 const MAXIMUM_WIND_STIFFNESS = 1.12;
 const INTERACTION_VERTICAL_SCALE = 0.2;
 const BOUNDS_SAFETY_MARGIN = 0.05;
+// 0.5 * 0.754877666 + 0.5 * 0.569840296 — the constant part of the vertex
+// shader's dither for single-blade geometry, whose shade and phase are both 0.5.
+const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 
 export class WorldSingleBladeTileFactory {
   private readonly geometryFactory = new GrassGeometryFactory();
@@ -160,6 +170,14 @@ export class WorldSingleBladeTileFactory {
       return undefined;
     }
 
+    const sortedDithers = this.sortInstancesByDither(
+      matrixValues,
+      variations,
+      coverages,
+      bladeCount,
+      options.material.getDitherSeed(),
+    );
+
     const sourceGeometry = this.getSourceGeometry(options.bladeSegments);
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
@@ -201,21 +219,6 @@ export class WorldSingleBladeTileFactory {
     mesh.updateMatrix();
     mesh.boundingBox = bounds;
     mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
-    options.material.bindMesh(
-      mesh,
-      this.hash(
-        options.tileX,
-        options.tileZ,
-        this.worldConfig.seed ^ options.seedSalt,
-      ),
-      false,
-      1,
-      true,
-      1,
-      1,
-      true,
-      options.detailMode,
-    );
 
     return {
       key: options.key,
@@ -223,7 +226,57 @@ export class WorldSingleBladeTileFactory {
       tileZ: options.tileZ,
       mesh,
       bladeCount,
+      sortedDithers,
     };
+  }
+
+  /**
+   * Reorders a tile's instance rows by the dither value the vertex shader
+   * derives for each blade, ascending, and returns that sorted key array.
+   *
+   * The shader computes
+   *   `fract(shade * 0.754877666 + phase * 0.569840296 + variation.x + seed)`.
+   * Single-blade source geometry carries a constant 0.5 for both `shade` and
+   * `phase` on every vertex, so the whole expression is per instance and can be
+   * reproduced exactly here.
+   */
+  private sortInstancesByDither(
+    matrixValues: Float32Array,
+    variations: Float32Array,
+    coverages: Float32Array,
+    bladeCount: number,
+    ditherSeed: number,
+  ): Float32Array {
+    const order = new Uint32Array(bladeCount);
+    const dithers = new Float32Array(bladeCount);
+    for (let index = 0; index < bladeCount; index += 1) {
+      order[index] = index;
+      const value = SINGLE_BLADE_DITHER_BIAS + variations[index * 4] + ditherSeed;
+      dithers[index] = value - Math.floor(value);
+    }
+    order.sort((left, right) => dithers[left] - dithers[right]);
+
+    const sortedMatrix = new Float32Array(bladeCount * 16);
+    const sortedVariations = new Float32Array(bladeCount * 4);
+    const sortedCoverages = new Float32Array(bladeCount);
+    const sortedDithers = new Float32Array(bladeCount);
+    for (let target = 0; target < bladeCount; target += 1) {
+      const source = order[target];
+      sortedMatrix.set(
+        matrixValues.subarray(source * 16, source * 16 + 16),
+        target * 16,
+      );
+      sortedVariations.set(
+        variations.subarray(source * 4, source * 4 + 4),
+        target * 4,
+      );
+      sortedCoverages[target] = coverages[source];
+      sortedDithers[target] = dithers[source];
+    }
+    matrixValues.set(sortedMatrix);
+    variations.set(sortedVariations);
+    coverages.set(sortedCoverages);
+    return sortedDithers;
   }
 
   disposeTile(tile: WorldSingleBladeTile): void {

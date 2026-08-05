@@ -21,16 +21,34 @@ const BASE_TILES_PER_FRAME = 1;
 const DESKTOP_ULTRA_NEAR_TILES_PER_FRAME = 2;
 const COMPACT_ULTRA_NEAR_TILES_PER_FRAME = 1;
 const SINGLE_BLADE_BOUNDS_MARGIN = 2;
-const MAXIMUM_ART_NEAR_FADE_DISTANCE = Math.max(
-  ...Object.values(GRASS_ART_DIRECTIONS).map(
-    (direction) => direction.nearDistance + direction.transitionDistance,
-  ),
-);
-
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
-  private readonly baseMaterial = new GrassNearMaterial();
-  private readonly ultraNearMaterial = new GrassNearMaterial();
+  // The base and detail layers are complementary halves of the same near band
+  // and must run with different detailMode values. They used to share one
+  // material, which three cannot express: a shared material uploads its custom
+  // uniforms once per contiguous run of draws, so whichever layer happened to
+  // draw first silently decided the mode for both. Separate materials make the
+  // split real.
+  private readonly baseMaterial = new GrassNearMaterial({
+    name: "world-grass-single-blade-material",
+    cacheKey: "grass-near-material-v16-base-vertex-palette",
+    detailMode: 1,
+    ditherSeed: BASE_SEED_SALT,
+    // One triangle per blade, and the layer that covers the most screen area.
+    vertexPalette: true,
+  });
+  private readonly baseDetailMaterial = new GrassNearMaterial({
+    name: "world-grass-base-detail-material",
+    cacheKey: "grass-near-material-v16-detail",
+    detailMode: 2,
+    ditherSeed: BASE_SEED_SALT,
+  });
+  private readonly ultraNearMaterial = new GrassNearMaterial({
+    name: "world-grass-ultra-near-single-blade-material",
+    cacheKey: "grass-near-material-v16-ultra",
+    detailMode: 0,
+    ditherSeed: ULTRA_NEAR_SEED_SALT,
+  });
   private readonly wind = new WindField();
   private factory?: WorldSingleBladeTileFactory;
   private baseField?: WorldSingleBladeTileField;
@@ -47,11 +65,7 @@ export class WorldNearGrassField {
     private readonly field: TerrainField,
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
-  ) {
-    this.baseMaterial.material.name = "world-grass-single-blade-material";
-    this.ultraNearMaterial.material.name =
-      "world-grass-ultra-near-single-blade-material";
-  }
+  ) {}
 
   initialize(grassConfig?: GrassConfig): Promise<void> {
     if (this.disposed) {
@@ -70,6 +84,7 @@ export class WorldNearGrassField {
 
     const elapsedSeconds = this.wind.update(deltaSeconds);
     this.baseMaterial.update(elapsedSeconds);
+    this.baseDetailMaterial.update(elapsedSeconds);
     this.ultraNearMaterial.update(elapsedSeconds);
 
     // Build the very close layer first so the player sees the requested
@@ -86,17 +101,65 @@ export class WorldNearGrassField {
     );
   }
 
+  // Single-blade tile builds are the one unbudgeted builder left in the frame
+  // path, so report them alongside the streamed chunk timings instead of
+  // leaving the spike invisible in the HUD.
+  getBuildDiagnostics(): {
+    nearTiles: number;
+    nearTileBuildMs: number;
+    maxNearTileBuildMs: number;
+  } {
+    const fields = [
+      this.baseField,
+      this.baseDetailedField,
+      this.ultraNearField,
+    ];
+    let nearTiles = 0;
+    let nearTileBuildMs = 0;
+    let maxNearTileBuildMs = 0;
+    for (const field of fields) {
+      if (!field) {
+        continue;
+      }
+      nearTiles += field.getTileCount();
+      nearTileBuildMs += field.getLastBuildMs();
+      maxNearTileBuildMs = Math.max(maxNearTileBuildMs, field.getMaxBuildMs());
+    }
+    return { nearTiles, nearTileBuildMs, maxNearTileBuildMs };
+  }
+
   setArtDirection(direction: GrassArtDirection): void {
     this.artDirection = direction;
-    this.baseMaterial.applyArtDirection(direction);
     this.ultraNearMaterial.applyArtDirection(direction);
-    this.baseMaterial.configureLod({
+    const lodConfig: GrassLodConfig = {
       nearMaxDistance: direction.nearDistance,
       midMaxDistance: direction.midDistance,
       farMaxDistance: direction.farDistance,
       transitionDistance: direction.transitionDistance,
       hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-    });
+    };
+    for (const material of [this.baseMaterial, this.baseDetailMaterial]) {
+      material.applyArtDirection(direction);
+      material.configureLod(lodConfig);
+    }
+    // Tiles past the active preset's near fade contribute no blades at all, so
+    // there is no reason to build, stream, or draw them. The radius used to be
+    // fixed at the maximum across every preset.
+    this.baseField?.setVisibilityRadius(
+      this.resolveBaseVisibilityRadius(direction),
+    );
+    this.baseField?.setLodFade(
+      direction.nearDistance,
+      direction.transitionDistance,
+    );
+  }
+
+  private resolveBaseVisibilityRadius(direction: GrassArtDirection): number {
+    return (
+      direction.nearDistance +
+      direction.transitionDistance +
+      SINGLE_BLADE_BOUNDS_MARGIN
+    );
   }
 
   dispose(): void {
@@ -114,6 +177,7 @@ export class WorldNearGrassField {
     this.factory?.dispose();
     this.factory = undefined;
     this.baseMaterial.material.dispose();
+    this.baseDetailMaterial.material.dispose();
     this.ultraNearMaterial.material.dispose();
   }
 
@@ -147,10 +211,14 @@ export class WorldNearGrassField {
       hysteresisDistance: 0,
     };
 
-    this.baseMaterial.configure(grassConfig.material, grassConfig.wind);
-    this.baseMaterial.applyArtDirection(this.artDirection);
-    this.baseMaterial.configureLod(baseLodConfig);
-    this.baseMaterial.configureDetailLod(ultraNearLodConfig);
+    // The base and detail layers partition the same blade set against the same
+    // detail radius, so they must agree on every LOD input.
+    for (const material of [this.baseMaterial, this.baseDetailMaterial]) {
+      material.configure(grassConfig.material, grassConfig.wind);
+      material.applyArtDirection(this.artDirection);
+      material.configureLod(baseLodConfig);
+      material.configureDetailLod(ultraNearLodConfig);
+    }
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
@@ -169,19 +237,13 @@ export class WorldNearGrassField {
       tileSize,
       {
         namePrefix: "world-grass-single-blades",
-        visibilityRadius:
-          MAXIMUM_ART_NEAR_FADE_DISTANCE +
-          SINGLE_BLADE_BOUNDS_MARGIN,
+        visibilityRadius: this.resolveBaseVisibilityRadius(this.artDirection),
         densityMultiplier: 1,
         // The base layer keeps every blade but uses the same one-triangle
         // silhouette as the mid LOD. The segmented ultra-near layer supplies
         // the bend detail that is visible while walking through the grass.
         bladeSegments: 1,
         receiveShadows: false,
-        detailMode: 1,
-        interactionDistance:
-          this.worldConfig.grassInteractionRadius +
-          this.worldConfig.grassInteractionTrailLength,
         seedSalt: BASE_SEED_SALT,
         material: this.baseMaterial,
         tilesPerFrame: BASE_TILES_PER_FRAME,
@@ -189,6 +251,14 @@ export class WorldNearGrassField {
         // 8 m tile set as well so moving inside a tile cannot omit the outer
         // near-fade ring.
         reconcileEveryFrame: true,
+        lodNearDistance: baseLodConfig.nearMaxDistance,
+        lodTransitionDistance: baseLodConfig.transitionDistance,
+        // detailMode 1 drops blades inside the detail radius, which is not a
+        // prefix of the dither order, so tiles that reach it draw in full.
+        // Coverage is 1 that close anyway, so nothing is lost.
+        lodGuardDistance:
+          ultraNearLodConfig.nearMaxDistance +
+          ultraNearLodConfig.transitionDistance,
       },
     );
 
@@ -205,16 +275,17 @@ export class WorldNearGrassField {
         densityMultiplier: 1,
         bladeSegments: grassConfig.geometry.bladeSegments,
         receiveShadows: true,
-        detailMode: 2,
-        interactionDistance:
-          this.worldConfig.grassInteractionRadius +
-          this.worldConfig.grassInteractionTrailLength,
         seedSalt: BASE_SEED_SALT,
-        material: this.baseMaterial,
+        material: this.baseDetailMaterial,
         tilesPerFrame: this.profile.compact
           ? COMPACT_ULTRA_NEAR_TILES_PER_FRAME
           : DESKTOP_ULTRA_NEAR_TILES_PER_FRAME,
         reconcileEveryFrame: true,
+        // detailMode 2 keeps `dither <= min(nearCoverage, detailCoverage)`,
+        // still a prefix. The detail fade is the tighter of the two.
+        lodNearDistance: ultraNearLodConfig.nearMaxDistance,
+        lodTransitionDistance: ultraNearLodConfig.transitionDistance,
+        lodGuardDistance: 0,
       },
     );
 
@@ -233,16 +304,16 @@ export class WorldNearGrassField {
           densityMultiplier: ultraAdditionalDensity,
           bladeSegments: grassConfig.geometry.bladeSegments,
           receiveShadows: true,
-          detailMode: 0,
-          interactionDistance:
-            this.worldConfig.grassInteractionRadius +
-            this.worldConfig.grassInteractionTrailLength,
           seedSalt: ULTRA_NEAR_SEED_SALT,
           material: this.ultraNearMaterial,
           tilesPerFrame: this.profile.compact
             ? COMPACT_ULTRA_NEAR_TILES_PER_FRAME
             : DESKTOP_ULTRA_NEAR_TILES_PER_FRAME,
           reconcileEveryFrame: true,
+          // detailMode 0: the keep set is the plain near-coverage prefix.
+          lodNearDistance: ultraNearLodConfig.nearMaxDistance,
+          lodTransitionDistance: ultraNearLodConfig.transitionDistance,
+          lodGuardDistance: 0,
         },
       );
     }

@@ -1,2 +1,2 @@
-export const APP_VERSION = "v0.9.5-lod-color-performance";
-export const BUILD_LABEL = "2026-08-04";
+export const APP_VERSION = __APP_VERSION__;
+export const BUILD_LABEL = __BUILD_LABEL__;

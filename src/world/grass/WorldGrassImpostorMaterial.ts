@@ -18,6 +18,7 @@ import {
   IMPOSTOR_ALPHA_CUTOFF,
   IMPOSTOR_BASE_COLOR_BLEND,
   IMPOSTOR_COLOR_SCALE,
+  IMPOSTOR_DITHER_SEED,
 } from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
@@ -37,7 +38,6 @@ uniform float uTransitionDistance;
 uniform float uMidImpostorUnderfill;
 uniform float uNormalUp;
 uniform float uArtDensityScale;
-uniform float uStreamCoverage;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
 varying float vInstanceSeed;
@@ -105,10 +105,13 @@ void main() {
     uFarDistance + uTransitionDistance,
     cameraDistance
   );
+  // instanceCoverage carries the streaming fade-in, scaled on the CPU while a
+  // chunk arrives. It used to be a separate uStreamCoverage uniform written per
+  // mesh, which three collapses to one value across every card sharing this
+  // material, so no card but the first ever faded.
   vFieldCoverage = instanceCoverage;
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage *
-    uStreamCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
+    vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
   if (effectiveCoverage <= 0.001) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -178,7 +181,6 @@ uniform float uBlendViews;
 uniform float uBaseColorBlend;
 uniform float uColorScale;
 uniform float uArtDensityScale;
-uniform float uStreamCoverage;
 uniform vec3 uBaseColor;
 uniform vec3 uTipColor;
 uniform vec3 uDryColor;
@@ -236,8 +238,7 @@ float coverageNoise(vec2 position, float seed) {
 
 void main() {
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage *
-    uStreamCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
+    vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
   // Cards with no coverage at all are already clipped in the vertex stage, so
   // only the stochastic cut is left here. This discard has to stay: it depends
   // on vUv, and the atlas alpha cutout below is a genuine per-fragment test.
@@ -277,38 +278,28 @@ void main() {
       frame11.y = frame00.y;
     }
 
-    if (vFarEntry < 0.999) {
-      // Preserve a smooth silhouette while real blades are still crossfading.
-      // Atlas values are premultiplied, so the semantic channels and alpha can
-      // be blended together before the single decode below.
-      vec4 color00 = sampleFrame(frame00, vUv);
-      vec4 color10 = sampleFrame(vec2(frame11.x, frame00.y), vUv);
-      vec4 color01 = sampleFrame(vec2(frame00.x, frame11.y), vUv);
-      vec4 color11 = sampleFrame(frame11, vUv);
-      atlasColor = mix(
-        mix(color00, color10, frameBlend.x),
-        mix(color01, color11, frameBlend.x),
-        frameBlend.y
-      );
-    } else {
-      float weight00 = (1.0 - frameBlend.x) * (1.0 - frameBlend.y);
-      float weight10 = frameBlend.x * (1.0 - frameBlend.y);
-      float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
-      float viewDither = coverageNoise(
-        floor(vUv * 48.0),
-        vInstanceSeed * 173.0 + 0.37
-      );
-      vec2 selectedFrame = viewDither < weight00
-        ? frame00
-        : viewDither < weight00 + weight10
-          ? vec2(frame11.x, frame00.y)
-          : viewDither < weight00 + weight10 + weight01
-            ? vec2(frame00.x, frame11.y)
-            : frame11;
-      // Stable stochastic bilinear selection preserves the four-view average
-      // with one atlas fetch once the cards are the only grass representation.
-      atlasColor = sampleFrame(selectedFrame, vUv);
-    }
+    float weight00 = (1.0 - frameBlend.x) * (1.0 - frameBlend.y);
+    float weight10 = frameBlend.x * (1.0 - frameBlend.y);
+    float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
+    float viewDither = coverageNoise(
+      floor(vUv * 48.0),
+      vInstanceSeed * 173.0 + 0.37
+    );
+    vec2 selectedFrame = viewDither < weight00
+      ? frame00
+      : viewDither < weight00 + weight10
+        ? vec2(frame11.x, frame00.y)
+        : viewDither < weight00 + weight10 + weight01
+          ? vec2(frame00.x, frame11.y)
+          : frame11;
+    // Stable stochastic bilinear selection reproduces the four-view average
+    // with one atlas fetch. A true four-tap blend used to run whenever
+    // vFarEntry < 0.999 — across the entire mid-to-far crossfade, which is
+    // exactly where the cards are largest on screen and therefore where the
+    // extra three fetches cost the most. Real mid blades are still drawing over
+    // the cards throughout that band, so the slightly noisier silhouette the
+    // stochastic path produces is not visible.
+    atlasColor = sampleFrame(selectedFrame, vUv);
   }
 
   if (atlasColor.a < uAlphaCutoff) {
@@ -380,8 +371,9 @@ export class WorldGrassImpostorMaterial {
       uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
       uColorScale: { value: IMPOSTOR_COLOR_SCALE },
       uArtDensityScale: { value: 1 },
-      uStreamCoverage: { value: 1 },
-      uDitherSeed: { value: 0 },
+      // Material-level: three cannot upload a per-mesh value for meshes that
+      // share a material, so a per-chunk seed was never reaching the GPU.
+      uDitherSeed: { value: IMPOSTOR_DITHER_SEED },
       uNearDistance: { value: lodConfig.nearMaxDistance },
       uMidDistance: { value: lodConfig.midMaxDistance },
       uFarDistance: { value: lodConfig.farMaxDistance },
@@ -453,15 +445,6 @@ export class WorldGrassImpostorMaterial {
     this.uniforms.uMidDistance.value = config.midMaxDistance;
     this.uniforms.uFarDistance.value = config.farMaxDistance;
     this.uniforms.uTransitionDistance.value = config.transitionDistance;
-  }
-
-  bindMesh(mesh: THREE.InstancedMesh, ditherSeed: number): void {
-    mesh.userData.grassStreamCoverage = 0;
-    mesh.onBeforeRender = () => {
-      this.uniforms.uDitherSeed.value = ditherSeed / 4294967296;
-      this.uniforms.uStreamCoverage.value =
-        mesh.userData.grassStreamCoverage ?? 1;
-    };
   }
 
   update(elapsedSeconds: number): void {

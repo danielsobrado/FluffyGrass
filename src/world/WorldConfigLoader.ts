@@ -269,6 +269,11 @@ export class WorldConfigLoader {
         "Single-blade and patch LOD densities must match for a continuous handoff.",
       );
     }
+    if (patchesPerChunk % config.grassRenderBatchesPerAxis !== 0) {
+      throw new Error(
+        "grassRenderBatchesPerAxis must divide the patches per chunk axis evenly.",
+      );
+    }
     if (
       config.grassInteractionRadius >= config.grassNearDistance ||
       config.grassLandingPulseRadius >= config.grassNearDistance

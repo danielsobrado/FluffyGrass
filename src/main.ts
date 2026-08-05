@@ -35,10 +35,14 @@ async function bootstrap(): Promise<void> {
   document.body.dataset.control = flyMode ? "fly" : "third-person";
 
   const versionElement = document.querySelector<HTMLElement>("#build-version");
+  const titleElement = document.querySelector<HTMLElement>(".app-title strong");
   const sceneElement = document.querySelector<HTMLElement>("#scene-mode");
   const helpElement = document.querySelector<HTMLElement>("#control-help");
   if (versionElement) {
     versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
+  }
+  if (titleElement) {
+    titleElement.textContent = `${WORLD_NAME} · ${APP_VERSION}`;
   }
   if (sceneElement) {
     sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
@@ -81,7 +85,8 @@ bootstrap().catch((error) => {
   console.error(`[${WORLD_NAME}] Startup failed.`, error);
   const output = document.createElement("pre");
   output.className = "startup-error";
-  output.textContent =
-    error instanceof Error ? error.stack ?? error.message : String(error);
+  output.setAttribute("role", "alert");
+  const message = error instanceof Error ? error.message : String(error);
+  output.textContent = `Unable to start ${WORLD_NAME}. ${message}`;
   document.body.appendChild(output);
 });

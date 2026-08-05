@@ -29,6 +29,12 @@ interface WorldGrassPatch extends GrassPatch {
   midCoverage: number;
   farCoverage: number;
   streamCoverage: number;
+  // Streaming fade-in is applied by scaling the per-instance coverage
+  // attributes, so the unfaded values have to survive somewhere. A per-mesh
+  // uniform cannot do this job: three uploads a shared material's uniforms once
+  // per contiguous run of draws, so only the first patch would ever fade.
+  baseMidCoverage: Float32Array;
+  baseFarCoverage: Float32Array;
 }
 
 interface WorldGrassChunk {
@@ -111,11 +117,36 @@ export interface WorldGrassDiagnostics {
   impostors: number;
   lastBuildMs: number;
   maxBuildMs: number;
+  nearTiles: number;
+  nearTileBuildMs: number;
+  maxNearTileBuildMs: number;
+}
+
+/**
+ * Scales a patch's per-instance coverage by its streaming fade so a chunk
+ * arrives gradually instead of popping in. The fade only ever touches the small
+ * `fadingPatches` set, and stops uploading once it reaches full coverage.
+ */
+function applyStreamCoverage(
+  mesh: THREE.InstancedMesh,
+  baseCoverage: Float32Array,
+  streamCoverage: number,
+): void {
+  const attribute = mesh.geometry.getAttribute("instanceCoverage");
+  const values = attribute.array as Float32Array;
+  for (let index = 0; index < baseCoverage.length; index += 1) {
+    values[index] = baseCoverage[index] * streamCoverage;
+  }
+  attribute.needsUpdate = true;
 }
 
 const TWO_PI = Math.PI * 2;
 const MID_WIND_SCALE = 0.85;
-const MID_COLOR_SCALE = 1;
+// The dither seed decorrelates the LOD cull pattern between layers. It is a
+// material-level constant: three cannot upload a per-mesh value for meshes that
+// share a material, so the per-chunk seed this used to compute never reached
+// the GPU for any mesh but the first one drawn.
+const MID_DITHER_SEED = 0x9e3779b9;
 const HOMOGENEOUS_VARIANT_INDEX = 0;
 const WORLD_VARIANT_COUNT = 1;
 const FIELD_COVERAGE_MIN = 0.16;
@@ -134,7 +165,16 @@ export class WorldGrassSystem {
   private readonly geometryFactory = new GrassGeometryFactory();
   private readonly patchGeometryFactory = new WorldGrassPatchGeometryFactory();
   private readonly impostorAtlasFactory = new WorldGrassImpostorAtlasFactory();
-  private readonly material = new GrassNearMaterial();
+  private readonly material = new GrassNearMaterial({
+    name: "world-grass-mid-material",
+    cacheKey: "grass-near-material-v16-mid-vertex-palette",
+    // The mid layer draws exactly the blades the near layer drops.
+    invertLodCoverage: true,
+    windLodScale: MID_WIND_SCALE,
+    ditherSeed: MID_DITHER_SEED,
+    // Single-triangle blades starting 24 m out: a few pixels each.
+    vertexPalette: true,
+  });
   private readonly impostorMaterials: WorldGrassImpostorMaterial[] = [];
   private readonly wind = new WindField();
   private readonly chunks = new Map<string, WorldGrassChunk>();
@@ -259,6 +299,7 @@ export class WorldGrassSystem {
       impostors,
       lastBuildMs: this.lastBuildMs,
       maxBuildMs: this.maxBuildMs,
+      ...this.nearField.getBuildDiagnostics(),
     };
   }
 
@@ -493,8 +534,16 @@ export class WorldGrassSystem {
     const coverageStep = deltaSeconds / STREAM_FADE_SECONDS;
     for (const patch of this.fadingPatches) {
       patch.streamCoverage = Math.min(1, patch.streamCoverage + coverageStep);
-      patch.midMesh.userData.grassStreamCoverage = patch.streamCoverage;
-      patch.farMesh.userData.grassStreamCoverage = patch.streamCoverage;
+      applyStreamCoverage(
+        patch.midMesh,
+        patch.baseMidCoverage,
+        patch.streamCoverage,
+      );
+      applyStreamCoverage(
+        patch.farMesh,
+        patch.baseFarCoverage,
+        patch.streamCoverage,
+      );
       if (patch.streamCoverage >= 1) {
         this.fadingPatches.delete(patch);
       }
@@ -934,21 +983,10 @@ export class WorldGrassSystem {
     midMesh.visible = false;
     farMesh.visible = false;
 
-    const ditherSeed = this.hash(
-      request.chunkX,
-      request.chunkZ,
-      this.worldConfig.seed + 193,
-    );
-    this.material.bindMesh(
-      midMesh,
-      ditherSeed,
-      true,
-      MID_WIND_SCALE,
-      true,
-      MID_COLOR_SCALE,
-      0,
-    );
-    impostorMaterial.bindMesh(farMesh, ditherSeed);
+    const baseMidCoverage = Float32Array.from(coverageValues);
+    const baseFarCoverage = Float32Array.from(farInstances.coverageValues);
+    applyStreamCoverage(midMesh, baseMidCoverage, 0);
+    applyStreamCoverage(farMesh, baseFarCoverage, 0);
 
     const patchBounds = bounds.clone();
     const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
@@ -968,6 +1006,8 @@ export class WorldGrassSystem {
       midCoverage: 0,
       farCoverage: 0,
       streamCoverage: 0,
+      baseMidCoverage,
+      baseFarCoverage,
     };
   }
 

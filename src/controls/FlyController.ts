@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { WorldConfig } from "../world/WorldConfig";
+import {
+  isEditableInputTarget,
+  requestPointerLockSafely,
+} from "./InputTarget";
 
 interface PointerState {
   pointerId: number;
@@ -146,6 +150,9 @@ export class FlyController {
     this.canvas.removeEventListener("click", this.handleCanvasClick);
     this.canvas.removeEventListener("wheel", this.handleWheel);
     this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
 
     if (this.usesPointerEvents) {
       this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
@@ -341,6 +348,9 @@ export class FlyController {
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
+    if (isEditableInputTarget(event.target)) {
+      return;
+    }
     this.keys.add(event.code);
     this.lastInputType = "keyboard";
     this.inputEventCount += 1;
@@ -365,7 +375,7 @@ export class FlyController {
 
   private readonly handleCanvasClick = (): void => {
     if (!this.profile.compact && document.pointerLockElement !== this.canvas) {
-      void this.canvas.requestPointerLock();
+      requestPointerLockSafely(this.canvas);
     }
   };
 

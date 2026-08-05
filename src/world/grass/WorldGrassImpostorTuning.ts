@@ -5,3 +5,5 @@ export const IMPOSTOR_ALPHA_CUTOFF = 0.16;
 // base bias for sub-pixel stability instead of flattening the tip gradient.
 export const IMPOSTOR_BASE_COLOR_BLEND = 0;
 export const IMPOSTOR_COLOR_SCALE = 1;
+/** Decorrelates the card coverage dither from the real-blade LOD dither. */
+export const IMPOSTOR_DITHER_SEED = 0.3819660112501051;

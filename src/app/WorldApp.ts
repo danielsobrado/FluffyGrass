@@ -24,8 +24,17 @@ const ERROR_MESSAGE_MAX_LENGTH = 180;
 const FRAME_WATCHDOG_INTERVAL_MS = 500;
 const FRAME_STALL_THRESHOLD_MS = 1500;
 const CONTEXT_LOST_ERROR = "renderer: WebGL context lost";
+// Sun elevation and azimuth are unchanged; only the shadow frustum moved.
+const SUN_DIRECTION = new THREE.Vector3(350, 500, 220).normalize();
+const SUN_SHADOW_DISTANCE = 200;
+const SUN_SHADOW_HALF_EXTENT = 7;
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
 type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
+
+// Smoothing for the per-subsystem frame timings. Raw per-frame values jitter far
+// too much to read off a HUD that only refreshes four times a second.
+const FRAME_TIMING_SMOOTHING = 0.1;
 
 export class WorldApp {
   private readonly scene = new THREE.Scene();
@@ -39,6 +48,9 @@ export class WorldApp {
   private readonly grass: WorldGrassSystem;
   private readonly controls: WorldController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
+  private sun?: THREE.DirectionalLight;
+  private readonly shadowAxisX = new THREE.Vector3();
+  private readonly shadowAxisY = new THREE.Vector3();
   private readonly pixelRatio: number;
   private frameHandle = 0;
   private watchdogHandle = 0;
@@ -47,6 +59,13 @@ export class WorldApp {
   private fpsSampleElapsed = 0;
   private averageFps = 0;
   private lastFrameTimestamp = performance.now();
+  private readonly subsystemMs: Record<FrameSubsystem, number> = {
+    controls: 0,
+    terrain: 0,
+    grass: 0,
+    renderer: 0,
+    hud: 0,
+  };
   private hudElapsed = 0;
   private sampledGroundX = Number.NaN;
   private sampledGroundZ = Number.NaN;
@@ -89,7 +108,11 @@ export class WorldApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // A 14 m shadow box at 1024 resolves ~13 mm per texel, so the extra taps
+    // PCFSoft spends hiding a coarse map are wasted here — and they were being
+    // paid by the terrain and ultra-near grass fragment shaders, the two
+    // largest receivers on screen.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.pixelRatio = Math.min(window.devicePixelRatio, profile.maxPixelRatio);
     this.applyRendererSize();
 
@@ -275,6 +298,7 @@ export class WorldApp {
     if (this.controls.getMode() === "fly") {
       this.constrainCamera();
     }
+    this.updateSunShadow();
   };
 
   private readonly updateTerrain = (): void => {
@@ -316,8 +340,12 @@ export class WorldApp {
     callback: (deltaSeconds: number) => void,
     deltaSeconds: number,
   ): void {
+    const startedAt = performance.now();
     try {
       callback(deltaSeconds);
+      this.subsystemMs[subsystem] +=
+        (performance.now() - startedAt - this.subsystemMs[subsystem]) *
+        FRAME_TIMING_SMOOTHING;
     } catch (error) {
       this.recordRuntimeError(subsystem, error);
       if (subsystem === "controls") {
@@ -356,18 +384,65 @@ export class WorldApp {
   private addLights(): void {
     this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
-    sun.position.set(350, 500, 220);
+    sun.position.copy(SUN_DIRECTION).multiplyScalar(SUN_SHADOW_DISTANCE);
     sun.castShadow = this.profile.shadows;
-    sun.shadow.camera.left = -180;
-    sun.shadow.camera.right = 180;
-    sun.shadow.camera.top = 180;
-    sun.shadow.camera.bottom = -180;
-    sun.shadow.camera.far = 1000;
+    // The character meshes are the only shadow casters in the world scene:
+    // terrain and every grass layer set castShadow = false. A frustum sized for
+    // the streamed world therefore spent its whole resolution on empty ground.
+    sun.shadow.camera.left = -SUN_SHADOW_HALF_EXTENT;
+    sun.shadow.camera.right = SUN_SHADOW_HALF_EXTENT;
+    sun.shadow.camera.top = SUN_SHADOW_HALF_EXTENT;
+    sun.shadow.camera.bottom = -SUN_SHADOW_HALF_EXTENT;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = SUN_SHADOW_DISTANCE * 2;
+    sun.shadow.camera.updateProjectionMatrix();
+    // Texels are now ~13 mm instead of ~176 mm, so the constant depth bias that
+    // a coarse map needs would detach the shadow. Scale-aware normal bias only.
+    sun.shadow.normalBias = 0.02;
     sun.shadow.mapSize.set(
       this.profile.shadowMapSize,
       this.profile.shadowMapSize,
     );
     this.scene.add(sun);
+    this.scene.add(sun.target);
+    this.sun = sun;
+    this.updateSunShadow();
+  }
+
+  /**
+   * Keeps the sun's shadow box centred on the only shadow caster in the scene.
+   * The centre is quantised to whole shadow texels in the light's own basis;
+   * without that the shadow edge crawls as the character walks.
+   */
+  private updateSunShadow(): void {
+    const sun = this.sun;
+    if (!sun || !sun.castShadow) {
+      return;
+    }
+
+    const focus = this.controls.getStreamingPosition();
+    const texelSize =
+      (2 * SUN_SHADOW_HALF_EXTENT) / Math.max(1, this.profile.shadowMapSize);
+    // Match three's lookAt basis: z points from the target back to the light.
+    const zAxis = SUN_DIRECTION;
+    this.shadowAxisX.crossVectors(UP_AXIS, zAxis).normalize();
+    this.shadowAxisY.crossVectors(zAxis, this.shadowAxisX);
+    const snappedX =
+      Math.round(focus.dot(this.shadowAxisX) / texelSize) * texelSize;
+    const snappedY =
+      Math.round(focus.dot(this.shadowAxisY) / texelSize) * texelSize;
+    const alongLight = focus.dot(zAxis);
+
+    sun.target.position
+      .copy(this.shadowAxisX)
+      .multiplyScalar(snappedX)
+      .addScaledVector(this.shadowAxisY, snappedY)
+      .addScaledVector(zAxis, alongLight);
+    sun.position
+      .copy(sun.target.position)
+      .addScaledVector(zAxis, SUN_SHADOW_DISTANCE);
+    sun.target.updateMatrixWorld();
+    sun.updateMatrixWorld();
   }
 
   private async setupStats(): Promise<void> {
@@ -425,6 +500,8 @@ export class WorldApp {
         ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
         : grassStatus,
       `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.pixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} / peak ${grass.maxBuildMs.toFixed(1)} ms`,
+      `Frame ctrl ${this.subsystemMs.controls.toFixed(2)} · terr ${this.subsystemMs.terrain.toFixed(2)} · grass ${this.subsystemMs.grass.toFixed(2)} · draw ${this.subsystemMs.renderer.toFixed(2)} ms`,
+      `Near tiles ${grass.nearTiles.toLocaleString()} · Tile build ${grass.nearTileBuildMs.toFixed(1)} / peak ${grass.maxNearTileBuildMs.toFixed(1)} ms`,
       this.runtimeError ? `Error ${this.runtimeError}` : "",
     ]
       .filter(Boolean)

@@ -61,12 +61,9 @@ export class GrassDevelopmentController {
     const { controls } = this.dependencies;
     const previousEnabled = controls.enabled;
     const previousAutoRotate = controls.autoRotate;
-    const previousThreshold = target.object.userData.grassLodThreshold;
-    const previousDistanceFade = target.object.userData.grassDistanceFade;
     controls.enabled = false;
     controls.autoRotate = false;
-    target.object.userData.grassLodThreshold = 1;
-    target.object.userData.grassDistanceFade = 1;
+    this.dependencies.grassSystem.setLodBakeOverride(true);
 
     try {
       const baker = new OctahedralImpostorBaker(this.dependencies.renderer);
@@ -83,8 +80,7 @@ export class GrassDevelopmentController {
     } finally {
       controls.enabled = previousEnabled;
       controls.autoRotate = previousAutoRotate;
-      target.object.userData.grassLodThreshold = previousThreshold;
-      target.object.userData.grassDistanceFade = previousDistanceFade;
+      this.dependencies.grassSystem.setLodBakeOverride(false);
     }
   }
 
