@@ -26,6 +26,10 @@ const MAX_P95_SAMPLE_DELTA = 0.03;
 // browser smoke pass.
 const MAX_ROOT_TIP_CONTRAST = 0.08;
 const MAX_ROOT_TIP_LOD_DELTA = 0.01;
+// The far light offset is a deliberate art control rather than LOD drift, so it
+// is bounded to the art menu range instead of the parity tolerances above.
+const MIN_FAR_LIGHT = 0.7;
+const MAX_FAR_LIGHT = 1.15;
 const MIN_FAR_SPATIAL_LUMINANCE_RANGE = 0.08;
 const MAX_BACKLIGHT_STRENGTH = 0.12;
 const LOD_DISTRIBUTION_SAMPLE_COUNT = 16384;
@@ -108,7 +112,8 @@ function validateInputs() {
       preset.tipColorStrength > 1 ||
       preset.impostorBaseColorBlend < 0 ||
       preset.impostorBaseColorBlend > 1 ||
-      preset.impostorColorScale <= 0
+      preset.impostorColorScale < MIN_FAR_LIGHT ||
+      preset.impostorColorScale > MAX_FAR_LIGHT
     ) {
       fail(`Preset ${key} contains an out-of-range palette control.`);
     }
@@ -274,12 +279,18 @@ function resolveImpostorPalette(
     dryness,
     rootAo,
   );
-  const flattened = mixColor(
+  return mixColor(
     semanticColor,
     palette.baseColor,
     preset.impostorBaseColorBlend,
   );
-  return multiplyColor(flattened, preset.impostorColorScale);
+}
+
+// The far light offset dims every impostor channel uniformly, so parity is
+// measured before it is applied: the guard keeps catching semantic, blend, and
+// palette divergence while the art direction stays free to darken the horizon.
+function applyFarLight(preset, color) {
+  return multiplyColor(color, preset.impostorColorScale);
 }
 
 function add(target, color) {
@@ -361,6 +372,7 @@ function analyzePreset(preset) {
   const nearTotal = [0, 0, 0];
   const midTotal = [0, 0, 0];
   const farTotal = [0, 0, 0];
+  const farParityTotal = [0, 0, 0];
   const nearRootTotal = [0, 0, 0];
   const midRootTotal = [0, 0, 0];
   const farRootTotal = [0, 0, 0];
@@ -388,7 +400,7 @@ function analyzePreset(preset) {
       sample.mid.dryness,
       sample.mid.rootAo,
     );
-    const far = resolveImpostorPalette(
+    const farParity = resolveImpostorPalette(
       preset,
       palette,
       sample.progress,
@@ -396,13 +408,15 @@ function analyzePreset(preset) {
       sample.mid.dryness,
       sample.mid.rootAo,
     );
+    const far = applyFarLight(preset, farParity);
     add(nearTotal, near);
     add(midTotal, mid);
     add(farTotal, far);
+    add(farParityTotal, farParity);
     distributionDeltas.push(
       Math.max(
         colorDistance(near, mid),
-        colorDistance(mid, far),
+        colorDistance(mid, farParity),
       ),
     );
     farSpatialLuminances.push(luminance(far));
@@ -424,18 +438,20 @@ function analyzePreset(preset) {
   const nearAverage = average(nearTotal, distributionCount);
   const midAverage = average(midTotal, distributionCount);
   const farAverage = average(farTotal, distributionCount);
+  const farParityAverage = average(farParityTotal, distributionCount);
   const nearLuminance = luminance(nearAverage);
   const midLuminance = luminance(midAverage);
   const farLuminance = luminance(farAverage);
+  const farParityLuminance = luminance(farParityAverage);
   const luminanceDelta = Math.max(
     Math.abs(midLuminance - nearLuminance) /
       Math.max(nearLuminance, 1e-6),
-    Math.abs(farLuminance - midLuminance) /
+    Math.abs(farParityLuminance - midLuminance) /
       Math.max(midLuminance, 1e-6),
   );
   const averageRgbDelta = Math.max(
     colorDistance(nearAverage, midAverage),
-    colorDistance(midAverage, farAverage),
+    colorDistance(midAverage, farParityAverage),
   );
   const sampleRmse = Math.sqrt(squaredError / (sampleCount * 3));
   const p95SampleDelta = Math.max(
@@ -471,6 +487,7 @@ function analyzePreset(preset) {
     ...nearAverage,
     ...midAverage,
     ...farAverage,
+    ...farParityAverage,
     luminanceDelta,
     averageRgbDelta,
     sampleRmse,
@@ -508,6 +525,7 @@ for (const preset of Object.values(presets)) {
   console.log(
     `[lod-color] ${preset.label.padEnd(17)} near ${formatColor(result.nearAverage)} ` +
       `mid ${formatColor(result.midAverage)} far ${formatColor(result.farAverage)} ` +
+      `far light ${formatPercent(preset.impostorColorScale)} ` +
       `ΔL ${formatPercent(result.luminanceDelta)} ` +
       `p95 ${result.p95SampleDelta.toFixed(4)} ` +
       `root↔tip ${formatPercent(result.nearRootTipContrast)} / ` +

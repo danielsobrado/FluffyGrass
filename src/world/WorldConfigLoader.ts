@@ -42,14 +42,22 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassMidBladeFraction: { minimum: 0.05, maximum: 1 },
   grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
   grassPatchJitter: { minimum: 0, maximum: 0.9 },
-  grassInteractionRadius: POSITIVE,
   grassInteractionStrength: { minimum: 0, maximum: 2 },
-  grassInteractionTrailLength: NON_NEGATIVE,
-  grassInteractionResponse: POSITIVE,
   grassInteractionSpeedForFullEffect: POSITIVE,
   grassLandingPulseRadius: POSITIVE,
   grassLandingPulseStrength: { minimum: 0, maximum: 2 },
   grassLandingPulseDecay: POSITIVE,
+  grassTrailResolution: { minimum: 64, maximum: 1024, integer: true },
+  grassTrailCoverage: POSITIVE,
+  grassTrailRecoveryRate: POSITIVE,
+  grassTrailFreshnessRate: POSITIVE,
+  grassTrailMaxAngleDegrees: { minimum: 10, maximum: 85 },
+  grassTrailWobbleFrequency: NON_NEGATIVE,
+  grassTrailWobbleAmplitude: { minimum: 0, maximum: 0.6 },
+  grassFootContactRadius: POSITIVE,
+  grassFootContactStrength: { minimum: 0, maximum: 2 },
+  grassBodyContactRadius: POSITIVE,
+  grassBodyContactStrength: { minimum: 0, maximum: 2 },
   spawnSearchRadius: POSITIVE,
   spawnSearchStep: POSITIVE,
   spawnNeighborhoodRadius: POSITIVE,
@@ -275,11 +283,44 @@ export class WorldConfigLoader {
       );
     }
     if (
-      config.grassInteractionRadius >= config.grassNearDistance ||
-      config.grassLandingPulseRadius >= config.grassNearDistance
+      config.grassLandingPulseRadius >= config.grassNearDistance ||
+      config.grassFootContactRadius >= config.grassNearDistance ||
+      config.grassBodyContactRadius >= config.grassNearDistance
     ) {
       throw new Error(
         "Grass interaction radii must be lower than grassNearDistance.",
+      );
+    }
+    // The trail square is centred on the character, so anything it must record
+    // has to fit inside half of it.
+    if (config.grassLandingPulseRadius >= config.grassTrailCoverage * 0.5) {
+      throw new Error(
+        "grassLandingPulseRadius must fit inside half of grassTrailCoverage.",
+      );
+    }
+    // Only the near single-blade layers sample the trail; the mid layer compiles
+    // the bend out entirely. Mid blades start grassNearDistance from the CAMERA
+    // and the trail square is centred on the CHARACTER, so the nearest mid blade
+    // sits (grassNearDistance - characterCameraMaxDistance) from the trail
+    // centre. Once half the coverage reaches that far, crushed grass springs
+    // upright across the near/mid handoff instead of continuing into it.
+    if (
+      config.grassTrailCoverage * 0.5 >=
+      config.grassNearDistance - config.characterCameraMaxDistance
+    ) {
+      throw new Error(
+        "Half of grassTrailCoverage must stay inside the interactive near band " +
+          "(grassNearDistance minus characterCameraMaxDistance).",
+      );
+    }
+    // A footprint has to survive rasterization into the trail texture. Below
+    // roughly two texels across it aliases into a flickering speck instead of a
+    // print, and no amount of shader tuning recovers it.
+    const trailTexelSize = config.grassTrailCoverage / config.grassTrailResolution;
+    if (config.grassFootContactRadius < trailTexelSize) {
+      throw new Error(
+        "grassFootContactRadius must be at least one grass trail texel " +
+          "(grassTrailCoverage / grassTrailResolution).",
       );
     }
     if (config.characterWalkSpeed >= config.characterRunSpeed) {

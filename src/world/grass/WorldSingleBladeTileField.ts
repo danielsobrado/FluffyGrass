@@ -3,6 +3,7 @@ import type { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial"
 import {
   WorldSingleBladeTileFactory,
   type WorldSingleBladeTile,
+  type WorldSingleBladeTileBuildJob,
 } from "./WorldSingleBladeTileFactory";
 
 export interface WorldSingleBladeTileFieldOptions {
@@ -35,6 +36,13 @@ interface TileRequest {
 
 /** Below this the tile residency set provably cannot change. */
 const RECONCILE_MOVEMENT_EPSILON = 0.25;
+/**
+ * How far the focus may drift before instance counts are recomputed. The fade
+ * used to derive a count is pulled this much nearer to compensate, so a count
+ * held across the gap is never short of what the shader keeps — only, at worst,
+ * a fraction of a percent longer than it needs to be.
+ */
+const COUNT_MOVEMENT_EPSILON = 0.25;
 /**
  * The CPU reproduces the shader's dither in float64 and stores it as float32,
  * so the two can disagree in the last bit. Widening the kept prefix by this much
@@ -84,6 +92,15 @@ export class WorldSingleBladeTileField {
     Number.POSITIVE_INFINITY,
     Number.POSITIVE_INFINITY,
   );
+  private readonly countedFocus = new THREE.Vector3(
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  );
+  /** Set whenever the tile set or the fade changes under a stationary focus. */
+  private countsDirty = true;
+  private activeBuild?: WorldSingleBladeTileBuildJob;
+  private enabled = true;
   private centerTileX = Number.NaN;
   private centerTileZ = Number.NaN;
   private visibilityRadius: number;
@@ -111,15 +128,40 @@ export class WorldSingleBladeTileField {
     this.visibilityRadius = radius;
     this.centerTileX = Number.NaN;
     this.centerTileZ = Number.NaN;
+    this.countsDirty = true;
   }
 
   /** Must track whatever `configureLod` was given for this field's material. */
   setLodFade(nearDistance: number, transitionDistance: number): void {
     this.lodNearDistance = nearDistance;
     this.lodTransitionDistance = transitionDistance;
+    this.countsDirty = true;
   }
 
-  update(focus: THREE.Vector3): void {
+  setEnabled(enabled: boolean): void {
+    if (enabled === this.enabled) {
+      return;
+    }
+    this.enabled = enabled;
+    this.queue.length = 0;
+    this.activeBuild = undefined;
+    this.countsDirty = true;
+    for (const tile of this.tiles.values()) {
+      tile.mesh.visible = enabled;
+    }
+    if (enabled) {
+      this.centerTileX = Number.NaN;
+      this.centerTileZ = Number.NaN;
+    }
+  }
+
+  update(
+    focus: THREE.Vector3,
+    buildDeadline = Number.POSITIVE_INFINITY,
+  ): void {
+    if (!this.enabled) {
+      return;
+    }
     const tileX = Math.floor(focus.x / this.tileSize);
     const tileZ = Math.floor(focus.z / this.tileSize);
     const tileChanged =
@@ -141,8 +183,21 @@ export class WorldSingleBladeTileField {
       this.reconcile(focus);
     }
 
-    this.processQueue();
-    this.updateInstanceCounts(focus);
+    this.processQueue(buildDeadline);
+
+    // Counts only depend on the focus distance and the fade, and the fade is
+    // widened below by exactly the distance the focus is allowed to drift, so a
+    // stale count can only ever be too generous. Skipping the walk over every
+    // resident tile while standing still is therefore free of visible effect.
+    if (
+      this.countsDirty ||
+      focus.distanceToSquared(this.countedFocus) >
+        COUNT_MOVEMENT_EPSILON * COUNT_MOVEMENT_EPSILON
+    ) {
+      this.countedFocus.copy(focus);
+      this.countsDirty = false;
+      this.updateInstanceCounts(focus);
+    }
   }
 
   /**
@@ -160,12 +215,16 @@ export class WorldSingleBladeTileField {
     const fadeStart = this.lodNearDistance - this.lodTransitionDistance;
     const fadeEnd = this.lodNearDistance + this.lodTransitionDistance;
     for (const tile of this.tiles.values()) {
-      const distance = this.distanceToTile(
-        focus.x,
-        focus.z,
-        tile.tileX * this.tileSize,
-        tile.tileZ * this.tileSize,
-      );
+      // Charge the tile as if the focus had already closed the full drift this
+      // count is allowed to survive, so approaching between recomputes can
+      // never leave the draw short.
+      const distance =
+        this.distanceToTile(
+          focus.x,
+          focus.z,
+          tile.tileX * this.tileSize,
+          tile.tileZ * this.tileSize,
+        ) - COUNT_MOVEMENT_EPSILON;
       if (distance < guardDistance || distance <= fadeStart) {
         tile.mesh.count = tile.bladeCount;
         continue;
@@ -210,6 +269,7 @@ export class WorldSingleBladeTileField {
     this.tiles.clear();
     this.desired.clear();
     this.queue.length = 0;
+    this.activeBuild = undefined;
   }
 
   private reconcile(focus: THREE.Vector3): void {
@@ -239,7 +299,10 @@ export class WorldSingleBladeTileField {
 
         const key = tileKey(tileX, tileZ);
         this.desired.add(key);
-        if (!this.tiles.has(key)) {
+        if (
+          !this.tiles.has(key) &&
+          this.activeBuild?.options.key !== key
+        ) {
           requests.push({ key, tileX, tileZ, distance });
         }
       }
@@ -252,6 +315,14 @@ export class WorldSingleBladeTileField {
       this.scene.remove(tile.mesh);
       this.factory.disposeTile(tile);
       this.tiles.delete(key);
+      this.countsDirty = true;
+    }
+
+    if (
+      this.activeBuild &&
+      !this.desired.has(this.activeBuild.options.key)
+    ) {
+      this.activeBuild = undefined;
     }
 
     requests.sort((left, right) => left.distance - right.distance);
@@ -263,38 +334,63 @@ export class WorldSingleBladeTileField {
     }
   }
 
-  private processQueue(): void {
+  private processQueue(buildDeadline: number): void {
     let built = 0;
-    const startedAt = this.queue.length > 0 ? performance.now() : 0;
-    while (built < this.options.tilesPerFrame && this.queue.length > 0) {
-      const request = this.queue.shift();
-      if (
-        !request ||
-        !this.desired.has(request.key) ||
-        this.tiles.has(request.key)
-      ) {
+    const hasWork = this.activeBuild !== undefined || this.queue.length > 0;
+    const startedAt = hasWork ? performance.now() : 0;
+    while (
+      built < this.options.tilesPerFrame &&
+      performance.now() < buildDeadline
+    ) {
+      while (!this.activeBuild && this.queue.length > 0) {
+        const request = this.queue.shift();
+        if (
+          !request ||
+          !this.desired.has(request.key) ||
+          this.tiles.has(request.key)
+        ) {
+          continue;
+        }
+        this.activeBuild = this.factory.beginBuild({
+          key: request.key,
+          tileX: request.tileX,
+          tileZ: request.tileZ,
+          densityMultiplier: this.options.densityMultiplier,
+          bladeSegments: this.options.bladeSegments,
+          receiveShadows: this.options.receiveShadows,
+          seedSalt: this.options.seedSalt,
+          namePrefix: this.options.namePrefix,
+          material: this.options.material,
+        });
+      }
+
+      const job = this.activeBuild;
+      if (!job) {
+        break;
+      }
+      if (!this.desired.has(job.options.key)) {
+        this.activeBuild = undefined;
         continue;
       }
 
-      const tile = this.factory.build({
-        key: request.key,
-        tileX: request.tileX,
-        tileZ: request.tileZ,
-        densityMultiplier: this.options.densityMultiplier,
-        bladeSegments: this.options.bladeSegments,
-        receiveShadows: this.options.receiveShadows,
-        seedSalt: this.options.seedSalt,
-        namePrefix: this.options.namePrefix,
-        material: this.options.material,
-      });
-      if (tile) {
-        this.tiles.set(request.key, tile);
+      const result = this.factory.advanceBuild(job, buildDeadline);
+      if (!result.complete) {
+        break;
+      }
+      this.activeBuild = undefined;
+      const tile = result.tile;
+      if (tile && this.desired.has(tile.key) && !this.tiles.has(tile.key)) {
+        this.tiles.set(tile.key, tile);
         this.scene.add(tile.mesh);
+        // A new tile starts at whatever count the mesh was built with.
+        this.countsDirty = true;
+      } else if (tile) {
+        this.factory.disposeTile(tile);
       }
       built += 1;
     }
 
-    if (built > 0) {
+    if (hasWork) {
       this.lastBuildMs = performance.now() - startedAt;
       this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
     }

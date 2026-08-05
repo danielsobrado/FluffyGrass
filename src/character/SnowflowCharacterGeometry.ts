@@ -236,7 +236,9 @@ function buildArm(
   name: "left" | "right",
 ): THREE.Group {
   const upperArm = namedGroup(`${name}-upper-arm`);
-  upperArm.position.set(side * 0.215, 0.33, 0);
+  // Shoulders sit ahead of the spine, which also keeps the swing arc in front
+  // of the cloak side panels hanging off the back of the torso.
+  upperArm.position.set(side * 0.215, 0.33, 0.03);
   parent.add(upperArm);
 
   const upperMesh = addMesh(

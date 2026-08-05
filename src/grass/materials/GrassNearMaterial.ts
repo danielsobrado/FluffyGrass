@@ -6,11 +6,15 @@ import type {
   GrassWindConfig,
 } from "../GrassConfig";
 import type { GrassArtDirection } from "../GrassArtDirection";
-import { grassInteractionField } from "../interaction/GrassInteractionField";
+import { grassTrailField } from "../interaction/GrassTrailField";
 import {
   GRASS_PALETTE_GLSL,
   setBalancedGrassPaletteColors,
 } from "./GrassPaletteShader";
+
+const DEFAULT_TRAIL_MAX_ANGLE = 1.29;
+const DEFAULT_TRAIL_WOBBLE_FREQUENCY = 12;
+const DEFAULT_TRAIL_WOBBLE_AMPLITUDE = 0.16;
 
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
@@ -34,13 +38,24 @@ uniform float uGrassTransitionDistance;
 uniform float uGrassDetailMode;
 uniform float uGrassDetailNearDistance;
 uniform float uGrassDetailTransitionDistance;
-uniform vec2 uGrassInteractionStart;
-uniform vec2 uGrassInteractionEnd;
-uniform vec2 uGrassInteractionDirection;
-uniform float uGrassInteractionRadius;
-uniform float uGrassInteractionStrength;
 uniform float uGrassLodInvert;
 uniform float uGrassArtDensityScale;
+`;
+
+// Only materials that can actually be reached by the character compile these.
+// Mid blades start grassNearDistance from the CAMERA while the trail square is
+// centred on the CHARACTER, so the nearest mid blade sits grassNearDistance
+// minus characterCameraMaxDistance from the trail centre — 14 m against a 12 m
+// half-extent as configured. WorldConfigLoader enforces that margin; without it
+// mid blades would fall inside the trail and spring upright at the handoff.
+const VERTEX_TRAIL_DECLARATIONS = `
+uniform sampler2D uGrassTrailMap;
+uniform vec2 uGrassTrailCenter;
+uniform float uGrassTrailInverseCoverage;
+uniform float uGrassTrailStrength;
+uniform float uGrassTrailMaxAngle;
+uniform float uGrassTrailWobbleFrequency;
+uniform float uGrassTrailWobbleAmplitude;
 `;
 
 // The streamed world resolves coverage per blade from its own camera distance.
@@ -156,63 +171,74 @@ if (grassKeepBlade && grassProgress > 0.001) {
     dot(grassWorldWind, grassInstanceBasis[2] / grassDepthScale)
   );
   transformed += grassLocalWind * grassBend;
-
-  // uGrassInteractionStrength is zero whenever the wake is inactive, so the
-  // whole block folds away for free. This replaces a per-mesh "is this tile
-  // near the character" uniform that could never be uploaded per mesh: the
-  // falloff below is a strictly finer-grained, per-blade version of the same
-  // rejection.
-  if (uGrassInteractionStrength > 0.0) {
-    vec2 interactionSegment = uGrassInteractionEnd - uGrassInteractionStart;
-    float interactionLengthSquared = max(dot(interactionSegment, interactionSegment), 0.0001);
-    float interactionT = clamp(
-      dot(grassWorldRoot.xz - uGrassInteractionStart, interactionSegment) /
-        interactionLengthSquared,
-      0.0,
-      1.0
-    );
-    vec2 interactionClosest =
-      uGrassInteractionStart + interactionSegment * interactionT;
-    vec2 interactionOffset = grassWorldRoot.xz - interactionClosest;
-    float interactionDistance = length(interactionOffset);
-    float interactionFalloff = 1.0 - smoothstep(
-      uGrassInteractionRadius * 0.16,
-      uGrassInteractionRadius,
-      interactionDistance
-    );
-    if (interactionFalloff > 0.0) {
-    vec2 interactionPerpendicular = vec2(
-      -uGrassInteractionDirection.y,
-      uGrassInteractionDirection.x
-    );
-    float interactionSide = dot(interactionOffset, interactionPerpendicular);
-    float interactionFallbackSide =
-      fract(instanceVariation.x * 91.173 + grassPhase * 17.731) < 0.5 ? -1.0 : 1.0;
-    float resolvedSide = abs(interactionSide) > 0.0001
-      ? sign(interactionSide)
-      : interactionFallbackSide;
-    vec2 interactionAway = interactionDistance > 0.0001
-      ? interactionOffset / interactionDistance
-      : interactionPerpendicular * resolvedSide;
-    float interactionProgress = pow(grassProgress, 1.22);
-    float interactionBend =
-      interactionFalloff * uGrassInteractionStrength * interactionProgress;
-    vec3 interactionWorldPush = vec3(
-      interactionAway.x,
-      0.0,
-      interactionAway.y
-    );
-    vec3 interactionLocalPush = vec3(
-      dot(interactionWorldPush, grassInstanceBasis[0] / grassHorizontalScale),
-      dot(interactionWorldPush, grassInstanceBasis[1] / grassVerticalScale),
-      dot(interactionWorldPush, grassInstanceBasis[2] / grassDepthScale)
-    );
-    transformed += interactionLocalPush * interactionBend;
-    transformed.y -= interactionFalloff * uGrassInteractionStrength * 0.2 * interactionProgress;
-    }
-  }
+GRASS_TRAIL_BEND
 }
 
+`;
+
+// The blade rotates about its root instead of being translated sideways. The
+// old path did `transformed += push * bend`, which made a bent blade longer than
+// a straight one — the source of the rubbery look — and then subtracted a fixed
+// fraction of the height to fake the crush back out. Rotating conserves the
+// blade's length by construction, so the fudge is gone.
+const VERTEX_TRAIL_BEND = `
+  if (uGrassTrailStrength > 0.0) {
+    // The AABB reject is the whole early-out: two compares before any fetch,
+    // and the trail square only ever covers a couple of dozen metres around the
+    // character while this layer draws every blade in the near band.
+    vec2 grassTrailUv =
+      (grassWorldRoot.xz - uGrassTrailCenter) * uGrassTrailInverseCoverage + 0.5;
+    vec2 grassTrailInside = step(vec2(0.0), grassTrailUv) * step(grassTrailUv, vec2(1.0));
+    if (grassTrailInside.x * grassTrailInside.y > 0.0) {
+      vec4 grassTrailSample = texture2D(uGrassTrailMap, grassTrailUv);
+      float grassTrailCrush = grassTrailSample.b;
+      vec2 grassTrailDirection = grassTrailSample.rg * 2.0 - 1.0;
+      float grassTrailDirectionLength = length(grassTrailDirection);
+      if (grassTrailCrush > 0.004 && grassTrailDirectionLength > 0.02) {
+        grassTrailDirection /= grassTrailDirectionLength;
+        // Blades differ in how hard they resist, so a footprint is not a
+        // uniformly flattened disc. This mixes in instanceVariation as well as
+        // grassPhase: the single-blade layers instance one source blade, so a
+        // phase-only seed would be identical for every blade in the field.
+        float grassTrailSeed = fract(instanceVariation.x * 3.719 + grassPhase * 2.61803398875);
+        float grassTrailStiffness = mix(1.22, 0.78, grassTrailSeed);
+        // Saturating: blades directly under a foot flatten hard without the
+        // response running away and pushing them through the ground.
+        float grassTrailResponse = 1.0 - exp(-3.4 * grassTrailCrush * grassTrailStiffness);
+        // Alpha is contact recency, re-seeded for as long as a contact covers
+        // the texel, so this rings hardest while a foot is working the grass
+        // and dies away over the second or so after it lifts.
+        float grassTrailWobble = 1.0 + uGrassTrailWobbleAmplitude * grassTrailSample.a *
+          sin(uGrassTime * uGrassTrailWobbleFrequency + grassTrailSeed * 6.28318530718);
+        float grassTrailAngle = clamp(
+          uGrassTrailMaxAngle * uGrassTrailStrength * grassTrailResponse * grassTrailWobble,
+          0.0,
+          1.48
+        );
+        // The angle grows towards the tip, so the blade curves instead of
+        // tilting rigidly out of the ground.
+        float grassTrailTheta = grassTrailAngle * pow(grassProgress, 0.85);
+        float grassTrailSin = sin(grassTrailTheta);
+        float grassTrailCos = cos(grassTrailTheta);
+        vec3 grassTrailWorld = vec3(grassTrailDirection.x, 0.0, grassTrailDirection.y);
+        vec2 grassTrailLocal = vec2(
+          dot(grassTrailWorld, grassInstanceBasis[0] / grassHorizontalScale),
+          dot(grassTrailWorld, grassInstanceBasis[2] / grassDepthScale)
+        );
+        // World height of this vertex is localY * verticalScale; a rotation by
+        // theta moves it localY * verticalScale * sin(theta) horizontally and
+        // leaves localY * cos(theta) of local height. Converting the horizontal
+        // part back through the instance's own scales keeps non-uniformly
+        // scaled blades correct.
+        float grassTrailHeight = transformed.y;
+        transformed.x += grassTrailLocal.x * grassTrailHeight * grassTrailSin *
+          (grassVerticalScale / grassHorizontalScale);
+        transformed.z += grassTrailLocal.y * grassTrailHeight * grassTrailSin *
+          (grassVerticalScale / grassDepthScale);
+        transformed.y *= grassTrailCos;
+      }
+    }
+  }
 `;
 
 // Only the shading inputs cross to the fragment stage. The coverage and dither
@@ -355,6 +381,13 @@ export interface GrassNearMaterialOptions {
    * screen would visibly band.
    */
   vertexPalette?: boolean;
+  /**
+   * Sample the character's grass trail and bend blades into it. Only layers the
+   * character can physically reach need this; for everything else the sampling
+   * and the bend are compiled out entirely rather than branched over at
+   * runtime, which is what the mid layer used to pay for on every blade.
+   */
+  interactive?: boolean;
 }
 
 export class GrassNearMaterial {
@@ -394,16 +427,20 @@ export class GrassNearMaterial {
     uGrassDetailNearDistance: { value: 0 },
     uGrassDetailTransitionDistance: { value: 1 },
     uGrassArtDensityScale: { value: 1 },
-    uGrassInteractionStart: { value: new THREE.Vector2() },
-    uGrassInteractionEnd: { value: new THREE.Vector2() },
-    uGrassInteractionDirection: { value: new THREE.Vector2(0, 1) },
-    uGrassInteractionRadius: { value: 1 },
-    uGrassInteractionStrength: { value: 0 },
+    uGrassTrailMap: { value: null as THREE.Texture | null },
+    uGrassTrailCenter: { value: new THREE.Vector2() },
+    uGrassTrailInverseCoverage: { value: 1 },
+    uGrassTrailStrength: { value: 0 },
+    uGrassTrailMaxAngle: { value: DEFAULT_TRAIL_MAX_ANGLE },
+    uGrassTrailWobbleFrequency: { value: DEFAULT_TRAIL_WOBBLE_FREQUENCY },
+    uGrassTrailWobbleAmplitude: { value: DEFAULT_TRAIL_WOBBLE_AMPLITUDE },
   };
+  private readonly interactive: boolean;
   private baseWindStrength = 0.14;
   private baseFlutterStrength = 0.035;
 
   constructor(options: GrassNearMaterialOptions) {
+    this.interactive = options.interactive === true;
     this.uniforms.uGrassLodInvert.value = options.invertLodCoverage ? 1 : 0;
     this.uniforms.uGrassWindLodScale.value = options.windLodScale ?? 1;
     this.uniforms.uGrassDetailMode.value = options.detailMode ?? 0;
@@ -437,6 +474,8 @@ export class GrassNearMaterial {
         .replace(
           "#include <common>",
           `#include <common>${VERTEX_DECLARATIONS}${
+            this.interactive ? VERTEX_TRAIL_DECLARATIONS : ""
+          }${
             worldLod ? "" : VERTEX_THRESHOLD_DECLARATIONS
           }${
             vertexPalette
@@ -453,6 +492,9 @@ export class GrassNearMaterial {
           `#include <begin_vertex>${VERTEX_WIND.replace(
             "GRASS_KEEP_LOD",
             keepLod,
+          ).replace(
+            "GRASS_TRAIL_BEND",
+            this.interactive ? VERTEX_TRAIL_BEND : "",
           )}${vertexPalette ? VERTEX_PALETTE : VERTEX_SHADING}`,
         );
       shader.fragmentShader = shader.fragmentShader
@@ -543,14 +585,29 @@ export class GrassNearMaterial {
 
   update(elapsedSeconds: number): void {
     this.uniforms.uGrassTime.value = elapsedSeconds;
-    const interaction = grassInteractionField.getState();
-    this.uniforms.uGrassInteractionStart.value.copy(interaction.start);
-    this.uniforms.uGrassInteractionEnd.value.copy(interaction.end);
-    this.uniforms.uGrassInteractionDirection.value.copy(interaction.direction);
-    this.uniforms.uGrassInteractionRadius.value = interaction.radius;
-    this.uniforms.uGrassInteractionStrength.value = interaction.active
-      ? interaction.strength
-      : 0;
+    if (!this.interactive) {
+      return;
+    }
+    if (!grassTrailField.isEnabled()) {
+      this.uniforms.uGrassTrailStrength.value = 0;
+      return;
+    }
+    this.uniforms.uGrassTrailMap.value = grassTrailField.getTexture();
+    this.uniforms.uGrassTrailCenter.value.copy(grassTrailField.getCenter());
+    this.uniforms.uGrassTrailInverseCoverage.value =
+      grassTrailField.getInverseCoverage();
+    this.uniforms.uGrassTrailStrength.value = 1;
+  }
+
+  /** Bend shape for the character trail; supplied from the world config. */
+  configureTrail(config: {
+    maxAngleRadians: number;
+    wobbleFrequency: number;
+    wobbleAmplitude: number;
+  }): void {
+    this.uniforms.uGrassTrailMaxAngle.value = config.maxAngleRadians;
+    this.uniforms.uGrassTrailWobbleFrequency.value = config.wobbleFrequency;
+    this.uniforms.uGrassTrailWobbleAmplitude.value = config.wobbleAmplitude;
   }
 
   private setPaletteColors(): void {

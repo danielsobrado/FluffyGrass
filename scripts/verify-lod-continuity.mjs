@@ -304,9 +304,8 @@ assert(
 );
 assert(
   worldGrassSystem.includes("await this.nearField.initialize(grassConfig)") &&
-    worldGrassSystem.includes(
-      "this.nearField.update(deltaSeconds, this.cameraPosition)",
-    ),
+    worldGrassSystem.includes("this.nearField.update(") &&
+    worldGrassSystem.includes("this.cameraPosition"),
   "The dense single-blade fields must remain wired into WorldGrassSystem.",
 );
 assert(

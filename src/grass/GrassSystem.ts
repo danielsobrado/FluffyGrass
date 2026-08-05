@@ -65,13 +65,13 @@ export class GrassSystem {
   // every blade. It uses a single scene-wide near/mid threshold instead.
   private readonly nearMaterial = new GrassNearMaterial({
     name: "grass-near-material",
-    cacheKey: "grass-near-material-v16-legacy-near",
+    cacheKey: "grass-near-material-v17-legacy-near",
     ditherSeed: LEGACY_DITHER_SEED,
     worldLod: false,
   });
   private readonly midMaterial = new GrassNearMaterial({
     name: "grass-mid-material",
-    cacheKey: "grass-near-material-v16-legacy-mid",
+    cacheKey: "grass-near-material-v17-legacy-mid",
     invertLodCoverage: true,
     windLodScale: MID_WIND_SCALE,
     ditherSeed: LEGACY_DITHER_SEED,

@@ -21,6 +21,9 @@ const BASE_TILES_PER_FRAME = 1;
 const DESKTOP_ULTRA_NEAR_TILES_PER_FRAME = 2;
 const COMPACT_ULTRA_NEAR_TILES_PER_FRAME = 1;
 const SINGLE_BLADE_BOUNDS_MARGIN = 2;
+const NEAR_FIELD_ALTITUDE_MARGIN = 4;
+const DESKTOP_NEAR_BUILD_BUDGET_MS = 2.5;
+const COMPACT_NEAR_BUILD_BUDGET_MS = 1.5;
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
   // The base and detail layers are complementary halves of the same near band
@@ -31,23 +34,26 @@ export class WorldNearGrassField {
   // split real.
   private readonly baseMaterial = new GrassNearMaterial({
     name: "world-grass-single-blade-material",
-    cacheKey: "grass-near-material-v16-base-vertex-palette",
+    cacheKey: "grass-near-material-v17-base-vertex-palette",
     detailMode: 1,
     ditherSeed: BASE_SEED_SALT,
     // One triangle per blade, and the layer that covers the most screen area.
     vertexPalette: true,
+    interactive: true,
   });
   private readonly baseDetailMaterial = new GrassNearMaterial({
     name: "world-grass-base-detail-material",
-    cacheKey: "grass-near-material-v16-detail",
+    cacheKey: "grass-near-material-v17-detail",
     detailMode: 2,
     ditherSeed: BASE_SEED_SALT,
+    interactive: true,
   });
   private readonly ultraNearMaterial = new GrassNearMaterial({
     name: "world-grass-ultra-near-single-blade-material",
-    cacheKey: "grass-near-material-v16-ultra",
+    cacheKey: "grass-near-material-v17-ultra",
     detailMode: 0,
     ditherSeed: ULTRA_NEAR_SEED_SALT,
+    interactive: true,
   });
   private readonly wind = new WindField();
   private factory?: WorldSingleBladeTileFactory;
@@ -77,8 +83,28 @@ export class WorldNearGrassField {
     return this.initialization;
   }
 
-  update(deltaSeconds: number, focus: THREE.Vector3): void {
+  update(
+    deltaSeconds: number,
+    focus: THREE.Vector3,
+    focusGroundHeight?: number,
+    buildDeadline = Number.POSITIVE_INFINITY,
+  ): void {
     if (!this.initialized || this.disposed) {
+      return;
+    }
+
+    // Near-blade residency is horizontal, while the shader's LOD distance is
+    // three-dimensional. Suspend these dense tiles when a fly camera is high
+    // enough that every local blade would be rejected in the vertex shader.
+    const nearFieldsEnabled =
+      focusGroundHeight === undefined ||
+      focus.y - focusGroundHeight <=
+        this.resolveBaseVisibilityRadius(this.artDirection) +
+          NEAR_FIELD_ALTITUDE_MARGIN;
+    this.baseField?.setEnabled(nearFieldsEnabled);
+    this.baseDetailedField?.setEnabled(nearFieldsEnabled);
+    this.ultraNearField?.setEnabled(nearFieldsEnabled);
+    if (!nearFieldsEnabled) {
       return;
     }
 
@@ -89,9 +115,16 @@ export class WorldNearGrassField {
 
     // Build the very close layer first so the player sees the requested
     // density immediately after spawn or a tile crossing.
-    this.ultraNearField?.update(focus);
-    this.baseDetailedField?.update(focus);
-    this.baseField?.update(focus);
+    const nearBuildBudget = this.profile.compact
+      ? COMPACT_NEAR_BUILD_BUDGET_MS
+      : DESKTOP_NEAR_BUILD_BUDGET_MS;
+    const nearBuildDeadline = Math.min(
+      buildDeadline,
+      performance.now() + nearBuildBudget,
+    );
+    this.ultraNearField?.update(focus, nearBuildDeadline);
+    this.baseDetailedField?.update(focus, nearBuildDeadline);
+    this.baseField?.update(focus, nearBuildDeadline);
   }
 
   getBladeCount(): number {
@@ -101,9 +134,7 @@ export class WorldNearGrassField {
     );
   }
 
-  // Single-blade tile builds are the one unbudgeted builder left in the frame
-  // path, so report them alongside the streamed chunk timings instead of
-  // leaving the spike invisible in the HUD.
+  // Report incremental tile-build slices alongside the streamed chunk timings.
   getBuildDiagnostics(): {
     nearTiles: number;
     nearTileBuildMs: number;
@@ -223,6 +254,21 @@ export class WorldNearGrassField {
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
 
+    const trailBend = {
+      maxAngleRadians: THREE.MathUtils.degToRad(
+        this.worldConfig.grassTrailMaxAngleDegrees,
+      ),
+      wobbleFrequency: this.worldConfig.grassTrailWobbleFrequency,
+      wobbleAmplitude: this.worldConfig.grassTrailWobbleAmplitude,
+    };
+    for (const material of [
+      this.baseMaterial,
+      this.baseDetailMaterial,
+      this.ultraNearMaterial,
+    ]) {
+      material.configureTrail(trailBend);
+    }
+
     const factory = new WorldSingleBladeTileFactory(
       this.field,
       this.worldConfig,
@@ -298,9 +344,15 @@ export class WorldNearGrassField {
         tileSize,
         {
           namePrefix: "world-grass-ultra-near-blades",
+          // The margin is what makes a tile resident before its blades can
+          // draw: without it the residency radius lands exactly on the fade
+          // end, so a tile is requested at the distance where the shader
+          // already keeps blades and the whole tile appears at once as soon as
+          // the build lands. Both other layers reserve the same lead.
           visibilityRadius:
             this.worldConfig.grassUltraNearDistance +
-            this.worldConfig.grassUltraNearTransitionDistance,
+            this.worldConfig.grassUltraNearTransitionDistance +
+            SINGLE_BLADE_BOUNDS_MARGIN,
           densityMultiplier: ultraAdditionalDensity,
           bladeSegments: grassConfig.geometry.bladeSegments,
           receiveShadows: true,

@@ -167,7 +167,7 @@ export class WorldGrassSystem {
   private readonly impostorAtlasFactory = new WorldGrassImpostorAtlasFactory();
   private readonly material = new GrassNearMaterial({
     name: "world-grass-mid-material",
-    cacheKey: "grass-near-material-v16-mid-vertex-palette",
+    cacheKey: "grass-near-material-v17-mid-vertex-palette",
     // The mid layer draws exactly the blades the near layer drops.
     invertLodCoverage: true,
     windLodScale: MID_WIND_SCALE,
@@ -231,7 +231,12 @@ export class WorldGrassSystem {
     return this.initialization;
   }
 
-  update(deltaSeconds: number, camera: THREE.Camera): void {
+  update(
+    deltaSeconds: number,
+    camera: THREE.Camera,
+    focusGroundHeight?: number,
+    buildDeadline = Number.POSITIVE_INFINITY,
+  ): void {
     if (!this.initialized || !this.lodController) {
       return;
     }
@@ -243,7 +248,12 @@ export class WorldGrassSystem {
     }
 
     camera.getWorldPosition(this.cameraPosition);
-    this.nearField.update(deltaSeconds, this.cameraPosition);
+    this.nearField.update(
+      deltaSeconds,
+      this.cameraPosition,
+      focusGroundHeight,
+      buildDeadline,
+    );
     const chunkX = Math.floor(this.cameraPosition.x / this.worldConfig.chunkSize);
     const chunkZ = Math.floor(this.cameraPosition.z / this.worldConfig.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -253,7 +263,7 @@ export class WorldGrassSystem {
     }
 
     this.processRetirementQueue();
-    this.processBuildQueue();
+    this.processBuildQueue(buildDeadline);
     this.updateStreamCoverage(deltaSeconds);
     this.lodController.update(camera, this.patches.values());
   }
@@ -433,9 +443,13 @@ export class WorldGrassSystem {
     );
   }
 
-  private processBuildQueue(): void {
+  private processBuildQueue(buildDeadline: number): void {
     if (this.buildCooldownFrames > 0) {
       this.buildCooldownFrames -= 1;
+      return;
+    }
+    if (performance.now() >= buildDeadline) {
+      this.lastBuildMs = 0;
       return;
     }
 
@@ -484,10 +498,15 @@ export class WorldGrassSystem {
           : this.profile.compact
             ? COMPACT_BUILD_BUDGET_MS
             : DESKTOP_BUILD_BUDGET_MS;
-      this.advancePatchBuild(
-        job,
+      const availableBudget = Math.min(
         sliceBudget * this.worldConfig.grassChunksPerFrame,
+        buildDeadline - performance.now(),
       );
+      if (availableBudget <= 0) {
+        this.lastBuildMs = 0;
+        return;
+      }
+      this.advancePatchBuild(job, availableBudget);
     }
 
     this.lastBuildMs = performance.now() - startedAt;
@@ -1119,26 +1138,21 @@ export class WorldGrassSystem {
       variationValues,
       coverageValues,
     );
-    const mesh = new THREE.InstancedMesh(
-      geometry,
-      material,
-      instanceCount,
-    );
+    const mesh = new THREE.InstancedMesh(geometry, material, 0);
     mesh.name = name;
     mesh.castShadow = false;
     // Millions of mid-distance blades do not need an individual shadow-map
     // lookup. Ultra-near interactive blades retain received shadows.
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
-    // Adopt the buffer the build already filled instead of letting
-    // InstancedMesh allocate a second one and copying into it. Streaming a
-    // chunk otherwise pays an extra allocation and copy per mesh inside the
-    // per-frame build budget.
+    // Adopt the buffer the build already filled; constructing with zero above
+    // avoids allocating and initializing a throwaway matrix array.
     mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
       matrixValues.subarray(0, instanceCount * 16),
       16,
     );
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.count = instanceCount;
     mesh.position.copy(origin);
     // Grass meshes never move, so skip the per-frame compose that
     // Object3D.updateMatrixWorld would otherwise run for every resident patch.

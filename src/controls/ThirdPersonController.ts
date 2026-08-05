@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { SnowflowCharacter } from "../character/SnowflowCharacter";
-import { grassInteractionField } from "../grass/interaction/GrassInteractionField";
+import {
+  grassInteractionField,
+  type GrassInteractionPose,
+} from "../grass/interaction/GrassInteractionField";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { DenseWorldSpawn } from "../world/DenseSpawnLocator";
 import type { TerrainField } from "../world/TerrainField";
@@ -31,6 +34,15 @@ export class ThirdPersonController implements WorldController {
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraPosition = new THREE.Vector3();
   private readonly cameraSample = new THREE.Vector3();
+  // The grass field needs the stride phase as well as the position, so it can
+  // stamp under each foot instead of dragging one capsule through the field.
+  private readonly grassPose: GrassInteractionPose = {
+    position: this.position,
+    velocity: this.velocity,
+    facing: 0,
+    distanceTravelled: 0,
+    grounded: true,
+  };
   private facing = 0;
   private spawnFacing = 0;
   private cameraYaw = 0;
@@ -65,14 +77,15 @@ export class ThirdPersonController implements WorldController {
       config.characterLandingRecoveryTime,
     );
     grassInteractionField.configure({
-      radius: config.grassInteractionRadius,
       strength: config.grassInteractionStrength,
-      trailLength: config.grassInteractionTrailLength,
-      response: config.grassInteractionResponse,
       speedForFullEffect: config.grassInteractionSpeedForFullEffect,
       landingPulseRadius: config.grassLandingPulseRadius,
       landingPulseStrength: config.grassLandingPulseStrength,
       landingPulseDecay: config.grassLandingPulseDecay,
+      footContactRadius: config.grassFootContactRadius,
+      footContactStrength: config.grassFootContactStrength,
+      bodyContactRadius: config.grassBodyContactRadius,
+      bodyContactStrength: config.grassBodyContactStrength,
     });
     this.cameraElevation = THREE.MathUtils.degToRad(
       config.characterCameraElevationDegrees,
@@ -103,7 +116,10 @@ export class ThirdPersonController implements WorldController {
 
     this.updateCameraInput();
     this.updateMovement(delta);
-    grassInteractionField.update(delta, this.position, this.velocity);
+    this.grassPose.facing = this.facing;
+    this.grassPose.distanceTravelled = this.distanceTravelled;
+    this.grassPose.grounded = this.grounded;
+    grassInteractionField.update(delta, this.grassPose);
     this.updateCamera(delta, false);
     this.animationVelocity.set(
       this.velocity.x,

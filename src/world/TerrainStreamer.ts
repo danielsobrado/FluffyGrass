@@ -70,6 +70,8 @@ export interface TerrainDiagnostics {
 }
 
 const TERRAIN_BUILD_BUDGET_MS = 3;
+const DESKTOP_TERRAIN_FRAME_BUDGET_MS = 2.5;
+const COMPACT_TERRAIN_FRAME_BUDGET_MS = 1.5;
 
 export class TerrainStreamer {
   private readonly chunks = new Map<string, TerrainChunk>();
@@ -134,7 +136,10 @@ export class TerrainStreamer {
     this.material.userData.shadows = shadows;
   }
 
-  update(position: THREE.Vector3): void {
+  update(
+    position: THREE.Vector3,
+    buildDeadline = Number.POSITIVE_INFINITY,
+  ): void {
     const chunkX = Math.floor(position.x / this.config.chunkSize);
     const chunkZ = Math.floor(position.z / this.config.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -143,7 +148,7 @@ export class TerrainStreamer {
       this.reconcile();
     }
 
-    this.processBuildQueue();
+    this.processBuildQueue(buildDeadline);
   }
 
   getDiagnostics(): TerrainDiagnostics {
@@ -267,7 +272,7 @@ export class TerrainStreamer {
     this.queue.sort((left, right) => left.distance - right.distance);
   }
 
-  private processBuildQueue(): void {
+  private processBuildQueue(buildDeadline: number): void {
     while (!this.activeBuild && this.queue.length > 0) {
       const request = this.queue.shift();
       const desired = request ? this.desired.get(request.key) : undefined;
@@ -300,10 +305,21 @@ export class TerrainStreamer {
       return;
     }
 
-    const startedAt = performance.now();
-    const chunk = build.advance(
+    const frameBudget = this.compact
+      ? COMPACT_TERRAIN_FRAME_BUDGET_MS
+      : DESKTOP_TERRAIN_FRAME_BUDGET_MS;
+    const availableBudget = Math.min(
       TERRAIN_BUILD_BUDGET_MS * this.config.terrainChunksPerFrame,
+      frameBudget,
+      buildDeadline - performance.now(),
     );
+    if (availableBudget <= 0) {
+      this.lastBuildMs = 0;
+      return;
+    }
+
+    const startedAt = performance.now();
+    const chunk = build.advance(availableBudget);
     this.lastBuildMs = performance.now() - startedAt;
     this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
     if (!chunk) {

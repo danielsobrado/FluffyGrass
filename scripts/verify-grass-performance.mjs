@@ -236,6 +236,13 @@ const patchGeometryFactory = read(
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
 );
+const trailField = read("src/grass/interaction/GrassTrailField.ts");
+const interactionField = read(
+  "src/grass/interaction/GrassInteractionField.ts",
+);
+const worldApp = read("src/app/WorldApp.ts");
+const terrainStreamer = read("src/world/TerrainStreamer.ts");
+const denseSpawnLocator = read("src/world/DenseSpawnLocator.ts");
 
 const bladeSegments = readYamlNumber(grassConfig, "bladeSegments");
 const tileSize = readYamlNumber(worldConfig, "grassNearTileSize");
@@ -387,6 +394,41 @@ assert(!nearMaterial.includes("discard;"), "The near/mid keep test must stay in 
 assert(impostorMaterial.includes("if (effectiveCoverage <= 0.001)") && impostorMaterial.includes("gl_Position = vec4(2.0, 2.0, 2.0, 1.0)"), "Zero-coverage far cards must be clipped in the vertex stage.");
 assert(worldGrassSystem.includes("mesh.matrixAutoUpdate = false") && tileFactory.includes("mesh.matrixAutoUpdate = false"), "Static grass meshes must not recompose their matrix every frame.");
 assert(worldGrassSystem.includes("mesh.instanceMatrix = new THREE.InstancedBufferAttribute") && tileFactory.includes("mesh.instanceMatrix = new THREE.InstancedBufferAttribute"), "Instance matrices must be adopted, not copied into a second allocation.");
+assert(
+  tileFactory.includes(
+    "new THREE.InstancedMesh(geometry, options.material.material, 0)",
+  ) &&
+    worldGrassSystem.includes(
+      "new THREE.InstancedMesh(geometry, material, 0)",
+    ),
+  "Prefilled instanced meshes must not allocate and initialize a throwaway matrix buffer.",
+);
+assert(
+  tileFactory.includes("beginBuild(") &&
+    tileFactory.includes("advanceBuild(") &&
+    tileField.includes("buildDeadline"),
+  "Dense near-tile placement must remain incremental and deadline-bound.",
+);
+assert(
+  nearField.includes("focusGroundHeight") &&
+    nearField.includes("setEnabled(nearFieldsEnabled)"),
+  "Dense near grass must suspend when a fly camera is above its 3D LOD range.",
+);
+assert(
+  terrainStreamer.includes("buildDeadline - performance.now()") &&
+    worldGrassSystem.includes("buildDeadline - performance.now()"),
+  "Terrain and grass streaming must share the frame build deadline.",
+);
+assert(
+  worldApp.includes("profile.shadows && !this.flyMode") &&
+    worldApp.includes("if (!useFlyControls)"),
+  "Fly mode must not allocate character-only trail targets or render an empty shadow map.",
+);
+assert(
+  denseSpawnLocator.includes("COARSE_STEP_MULTIPLIER") &&
+    denseSpawnLocator.includes("REFINE_CANDIDATE_COUNT"),
+  "Spawn selection must retain the coarse-to-fine search instead of scanning the full fine grid.",
+);
 assert(worldGrassSystem.includes("mesh.position.copy(origin)") && tileFactory.includes("mesh.position.copy(this.origin)"), "Grass meshes must carry a real world position so opaque depth sorting works.");
 assert(worldGrassSystem.includes("mesh.receiveShadow = false"), "Mid/far grass must not perform per-blade shadow reads.");
 const underfill = Number(lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1]);
@@ -412,6 +454,21 @@ assert(
   worldGrassSystem.includes("applyStreamCoverage") &&
     !worldGrassSystem.includes("userData.grassStreamCoverage"),
   "Streaming fade-in must ride on the per-instance coverage attribute.",
+);
+assert(
+  trailField.includes("const UPDATE_INTERVAL_SECONDS = 1 / 30") &&
+    trailField.includes("accumulatedDeltaSeconds"),
+  "The trail feedback pass must remain capped at 30 Hz with accumulated decay time.",
+);
+assert(
+  trailField.indexOf("float distanceSquared = dot(offset, offset)") <
+    trailField.indexOf("float distanceToContact = sqrt(distanceSquared)"),
+  "Trail contacts must reject out-of-radius texels before square-root and falloff work.",
+);
+assert(
+  trailField.includes("private readonly contacts = new Float32Array") &&
+    !interactionField.includes("submitContact({"),
+  "Frame-loop trail contacts must use fixed storage instead of transient objects.",
 );
 assert(
   nearMaterial.includes("vertexPalette") &&

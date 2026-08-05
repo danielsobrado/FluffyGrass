@@ -8,6 +8,13 @@ const COLOR_HIGH_ROCK = new THREE.Color("#85857f");
 const COLOR_DIRT = new THREE.Color("#665b45");
 const COLOR_SCRATCH = new THREE.Color();
 
+/**
+ * Central-difference step for {@link TerrainField.sampleNormal}. Exported so a
+ * cache reproducing the normal can use the identical step; the two disagree
+ * silently otherwise.
+ */
+export const TERRAIN_NORMAL_STEP = 1.5;
+
 // These helpers mirror THREE.MathUtils exactly, but keep the procedural field's
 // innermost loops free of repeated namespace lookups and function indirection.
 // A single grass placement evaluates hundreds of interpolations while sampling
@@ -34,6 +41,8 @@ function clamp(value: number, minimum: number, maximum: number): number {
 export class TerrainField {
   private readonly grassSlopeLimit: number;
   private readonly grassSlopeFadeEnd: number;
+  private noisePairLow = 0;
+  private noisePairHigh = 0;
 
   constructor(private readonly config: WorldConfig) {
     this.grassSlopeLimit = Math.cos(
@@ -43,54 +52,33 @@ export class TerrainField {
   }
 
   sampleHeight(x: number, z: number): number {
-    const broad = this.fbm(
-      x * this.config.mountainScale,
-      z * this.config.mountainScale,
-      4,
-      this.config.seed,
-    );
-    const warpedX =
-      x +
-      (this.valueNoise(
-        x * this.config.mountainScale * 0.55,
-        z * this.config.mountainScale * 0.55,
-        this.config.seed + 17,
-      ) -
-        0.5) *
-        210;
-    const warpedZ =
-      z +
-      (this.valueNoise(
-        x * this.config.mountainScale * 0.55,
-        z * this.config.mountainScale * 0.55,
-        this.config.seed + 29,
-      ) -
-        0.5) *
-        210;
+    // Hoisted: this runs 19 value-noise evaluations deep and the config reads
+    // sit between calls the optimizer cannot see through.
+    const mountainScale = this.config.mountainScale;
+    const detailScale = this.config.detailScale;
+    const seed = this.config.seed;
+
+    const broad = this.fbm(x * mountainScale, z * mountainScale, 4, seed);
+    // Both warp axes read the same lattice cell and differ only by seed, so the
+    // floor and smoothstep setup is shared instead of being done twice.
+    const warpX = x * mountainScale * 0.55;
+    const warpZ = z * mountainScale * 0.55;
+    this.valueNoisePair(warpX, warpZ, seed + 17, seed + 29);
+    const warpedX = x + (this.noisePairLow - 0.5) * 210;
+    const warpedZ = z + (this.noisePairHigh - 0.5) * 210;
     const ridgeNoise = this.fbm(
-      warpedX * this.config.mountainScale * 1.7,
-      warpedZ * this.config.mountainScale * 1.7,
+      warpedX * mountainScale * 1.7,
+      warpedZ * mountainScale * 1.7,
       5,
-      this.config.seed + 101,
+      seed + 101,
     );
     const ridges = Math.pow(1 - Math.abs(ridgeNoise * 2 - 1), 2.35);
     const mountainMask = smoothstep(broad, 0.48, 0.86);
     const rolling =
-      (this.fbm(
-        x * this.config.detailScale,
-        z * this.config.detailScale,
-        5,
-        this.config.seed + 211,
-      ) -
-        0.5) *
+      (this.fbm(x * detailScale, z * detailScale, 5, seed + 211) - 0.5) *
       this.config.rollingHeight;
     const micro =
-      (this.fbm(
-        x * this.config.detailScale * 3.1,
-        z * this.config.detailScale * 3.1,
-        3,
-        this.config.seed + 307,
-      ) -
+      (this.fbm(x * detailScale * 3.1, z * detailScale * 3.1, 3, seed + 307) -
         0.5) *
       3.5;
 
@@ -103,7 +91,7 @@ export class TerrainField {
   }
 
   sampleNormal(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
-    const step = 1.5;
+    const step = TERRAIN_NORMAL_STEP;
     const left = this.sampleHeight(x - step, z);
     const right = this.sampleHeight(x + step, z);
     const down = this.sampleHeight(x, z - step);
@@ -117,11 +105,38 @@ export class TerrainField {
     height: number,
     normal: THREE.Vector3,
   ): number {
-    const slopeMask = smoothstep(
+    return (
+      this.sampleGrassSlopeMask(normal) *
+      this.sampleGrassSuitabilityWithoutSlope(x, z, height)
+    );
+  }
+
+  /**
+   * The slope factor of {@link sampleGrassSuitability}, split out because it is
+   * the only one that needs a normal — and the normal costs four extra height
+   * samples, roughly three quarters of the work of placing a blade.
+   */
+  sampleGrassSlopeMask(normal: THREE.Vector3): number {
+    return smoothstep(
       normal.y,
       this.grassSlopeLimit,
       this.grassSlopeFadeEnd,
     );
+  }
+
+  /**
+   * Every suitability factor except the slope mask.
+   *
+   * Suitability is a product of masks that are each in [0,1], so this value is
+   * an upper bound on the final result: a caller whose acceptance threshold is
+   * already missed here can reject before sampling a normal at all, and get
+   * exactly the same answer it would have got the long way round.
+   */
+  sampleGrassSuitabilityWithoutSlope(
+    x: number,
+    z: number,
+    height: number,
+  ): number {
     const lowAltitude = smoothstep(
       height,
       this.config.grassMinAltitude,
@@ -166,12 +181,7 @@ export class TerrainField {
       1 - smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
 
     return clamp(
-      slopeMask *
-        lowAltitude *
-        highAltitude *
-        biomeMask *
-        localDensity *
-        ridgeMask,
+      lowAltitude * highAltitude * biomeMask * localDensity * ridgeMask,
       0,
       1,
     );
@@ -223,6 +233,45 @@ export class TerrainField {
     }
 
     return value / normalization;
+  }
+
+  /**
+   * Two seeds sampled at one point, writing {@link noisePairLow} and
+   * {@link noisePairHigh}. Only the hashes differ between the two, so the cell
+   * coordinates and both smoothstep weights are computed once. Results go to
+   * fields rather than a returned tuple to keep the streaming path allocation
+   * free.
+   */
+  private valueNoisePair(
+    x: number,
+    z: number,
+    seedLow: number,
+    seedHigh: number,
+  ): void {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const x1 = x0 + 1;
+    const z1 = z0 + 1;
+    const tx = x - x0;
+    const tz = z - z0;
+    const sx = tx * tx * (3 - 2 * tx);
+    const sz = tz * tz * (3 - 2 * tz);
+
+    const lowA = this.hash(x0, z0, seedLow);
+    const lowB = this.hash(x1, z0, seedLow);
+    const lowC = this.hash(x0, z1, seedLow);
+    const lowD = this.hash(x1, z1, seedLow);
+    const lowLower = lowA + (lowB - lowA) * sx;
+    const lowUpper = lowC + (lowD - lowC) * sx;
+    this.noisePairLow = lowLower + (lowUpper - lowLower) * sz;
+
+    const highA = this.hash(x0, z0, seedHigh);
+    const highB = this.hash(x1, z0, seedHigh);
+    const highC = this.hash(x0, z1, seedHigh);
+    const highD = this.hash(x1, z1, seedHigh);
+    const highLower = highA + (highB - highA) * sx;
+    const highUpper = highC + (highD - highC) * sx;
+    this.noisePairHigh = highLower + (highUpper - highLower) * sz;
   }
 
   private valueNoise(x: number, z: number, seed: number): number {

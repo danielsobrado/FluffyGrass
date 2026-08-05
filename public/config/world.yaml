@@ -38,15 +38,26 @@ grassMidBladeFraction: 1
 grassUnderlayerFraction: 0.3
 grassPatchJitter: 0.3
 
-# Character capsule wake and landing pulse.
-grassInteractionRadius: 1.55
+# Character footfalls and landing pulse.
 grassInteractionStrength: 0.94
-grassInteractionTrailLength: 2.8
-grassInteractionResponse: 7.5
 grassInteractionSpeedForFullEffect: 4
 grassLandingPulseRadius: 2.4
 grassLandingPulseStrength: 1.05
 grassLandingPulseDecay: 5.2
+
+# Persistent crush map. 256 texels over 24 m resolves ~9.4 cm per texel, finer
+# than a footprint. The recovery rate is what sets how long a trail lasts.
+grassTrailResolution: 256
+grassTrailCoverage: 24
+grassTrailRecoveryRate: 0.5
+grassTrailFreshnessRate: 1.4
+grassTrailMaxAngleDegrees: 74
+grassTrailWobbleFrequency: 12
+grassTrailWobbleAmplitude: 0.16
+grassFootContactRadius: 0.32
+grassFootContactStrength: 1
+grassBodyContactRadius: 0.4
+grassBodyContactStrength: 0.5
 
 spawnSearchRadius: 640
 spawnSearchStep: 24

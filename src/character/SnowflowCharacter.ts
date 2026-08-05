@@ -7,12 +7,19 @@ import {
 } from "./SnowflowCharacterGeometry";
 
 const UP = new THREE.Vector3(0, 1, 0);
-const STRIDE_LENGTH_METERS = 1.55;
+/** Metres of travel per full gait cycle. The grass trail stamps feet from it. */
+export const STRIDE_LENGTH_METERS = 1.55;
 const MAX_SLOPE_TILT_RADIANS = THREE.MathUtils.degToRad(18);
 const TAKEOFF_DURATION_SECONDS = 0.11;
 const APEX_VELOCITY_THRESHOLD = 1.15;
 const SECONDARY_FREQUENCY = 2.8;
 const HAIR_FREQUENCY = 3.6;
+// A positive arm rotation swings the hand behind the hip, and the cloak side
+// panels only sweep clear of the body once the character is running — so an
+// even arc pushed the hands through the cloth at walking pace. Damp the back
+// half of the swing and bias the whole arc forward instead of shortening it.
+const ARM_BACKSWING_SCALE = 0.55;
+const ARM_FORWARD_BIAS = 0.09;
 
 type CharacterMotionState =
   | "idle"
@@ -38,6 +45,14 @@ export interface SnowflowCharacterPose {
   jumpStarted: boolean;
   landed: boolean;
   landingImpact: number;
+}
+
+function armSwing(stride: number, gaitBlend: number): number {
+  const swing = stride * 0.5 * gaitBlend;
+  return (
+    (swing > 0 ? swing * ARM_BACKSWING_SCALE : swing) -
+    ARM_FORWARD_BIAS * gaitBlend
+  );
 }
 
 export class SnowflowCharacter {
@@ -169,8 +184,8 @@ export class SnowflowCharacter {
     let rightThighX = stride * 0.68 * gaitBlend;
     let leftShinX = Math.max(0, stride) * 0.5 * gaitBlend;
     let rightShinX = Math.max(0, oppositeStride) * 0.5 * gaitBlend;
-    let leftArmX = stride * 0.5 * gaitBlend;
-    let rightArmX = oppositeStride * 0.5 * gaitBlend;
+    let leftArmX = armSwing(stride, gaitBlend);
+    let rightArmX = armSwing(oppositeStride, gaitBlend);
     let leftArmZ = 0;
     let rightArmZ = 0;
     let forearmX = -0.12;

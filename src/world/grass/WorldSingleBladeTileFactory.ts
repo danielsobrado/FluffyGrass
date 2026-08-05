@@ -4,7 +4,8 @@ import { GrassGeometryFactory } from "../../grass/GrassGeometryFactory";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import type { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
-import type { TerrainField } from "../TerrainField";
+import { TERRAIN_NORMAL_STEP, type TerrainField } from "../TerrainField";
+import { TerrainHeightLattice } from "../TerrainHeightLattice";
 import type { WorldConfig } from "../WorldConfig";
 import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
 
@@ -36,9 +37,60 @@ export interface WorldSingleBladeTileBuildOptions {
   material: GrassNearMaterial;
 }
 
+export interface WorldSingleBladeTileBuildJob {
+  options: WorldSingleBladeTileBuildOptions;
+  requestedCount: number;
+  columns: number;
+  cellWidth: number;
+  cellDepth: number;
+  originX: number;
+  originZ: number;
+  tileCenterX: number;
+  tileCenterZ: number;
+  random: SeededRandom;
+  matrixValues: Float32Array;
+  variations: Float32Array;
+  coverages: Float32Array;
+  bounds: THREE.Box3;
+  nextIndex: number;
+  bladeCount: number;
+  /** Cached heights for this tile's normals; see {@link TerrainHeightLattice}. */
+  heightLattice: TerrainHeightLattice;
+}
+
+export interface WorldSingleBladeTileBuildResult {
+  complete: boolean;
+  tile?: WorldSingleBladeTile;
+}
+
 const TWO_PI = Math.PI * 2;
 const POSITION_JITTER = 0.46;
 const MIN_SUITABILITY = 0.08;
+/**
+ * Half the normal's own central-difference step, so the cached field still
+ * resolves everything the normal is able to express. Measured worst-case
+ * deviation from a directly sampled normal is under 0.07 degrees.
+ */
+const HEIGHT_LATTICE_SPACING = TERRAIN_NORMAL_STEP * 0.5;
+/**
+ * Slack on the acceptance threshold, covering the slope mask's error when the
+ * normal comes from the lattice rather than from four direct height samples.
+ *
+ * The lattice normal deviates by well under a tenth of a degree, but suitability
+ * is compared against a hard threshold, so a blade sitting exactly on it could
+ * fall either way. Widening the test in the keep direction makes the accepted
+ * set a superset of the directly sampled one: the tile can gain a couple of
+ * borderline blades, never lose one. The slope mask's steepest slope is
+ * 1.5 / 0.2 per unit of normal.y, so this covers roughly a half-degree of
+ * deviation — several times the observed worst case.
+ */
+const LATTICE_SUITABILITY_TOLERANCE = 0.05;
+/**
+ * Reading the clock per blade cost more than 3% of a tile build, and closer to
+ * a tenth of one once the sampling above got cheaper. Blades are uniform enough
+ * that checking a block at a time still lands well inside a millisecond.
+ */
+const DEADLINE_CHECK_INTERVAL = 256;
 const INSTANCE_HORIZONTAL_SCALE_MAX = 1.2;
 const INSTANCE_VERTICAL_SCALE_MAX = 1.22;
 const MAXIMUM_ART_WIND_SCALE = 2;
@@ -70,7 +122,9 @@ export class WorldSingleBladeTileFactory {
     private readonly grassConfig: GrassConfig,
   ) {}
 
-  build(options: WorldSingleBladeTileBuildOptions): WorldSingleBladeTile | undefined {
+  beginBuild(
+    options: WorldSingleBladeTileBuildOptions,
+  ): WorldSingleBladeTileBuildJob | undefined {
     if (options.densityMultiplier <= 0) {
       return undefined;
     }
@@ -93,39 +147,93 @@ export class WorldSingleBladeTileFactory {
     const originZ = options.tileZ * tileSize;
     const tileCenterX = originX + tileSize * 0.5;
     const tileCenterZ = originZ + tileSize * 0.5;
-    const random = new SeededRandom(
-      this.hash(
-        options.tileX,
-        options.tileZ,
-        this.worldConfig.seed ^ options.seedSalt,
-      ),
+    // Jitter can push a blade a little outside the nominal tile and its normal
+    // taps reach a further step beyond that, so the cached area is grown on
+    // every side by both. A few hundred samples here replace roughly eighteen
+    // thousand across the tile's blades.
+    const latticeMargin = TERRAIN_NORMAL_STEP + Math.max(cellWidth, cellDepth);
+    const heightLattice = new TerrainHeightLattice();
+    heightLattice.build(
+      this.field,
+      originX - latticeMargin,
+      originZ - latticeMargin,
+      tileSize + latticeMargin * 2,
+      HEIGHT_LATTICE_SPACING,
     );
-    const matrixValues = new Float32Array(requestedCount * 16);
-    const variations = new Float32Array(requestedCount * 4);
-    const coverages = new Float32Array(requestedCount);
-    const bounds = new THREE.Box3();
-    let bladeCount = 0;
+    return {
+      options,
+      requestedCount,
+      columns,
+      cellWidth,
+      cellDepth,
+      originX,
+      originZ,
+      tileCenterX,
+      tileCenterZ,
+      random: new SeededRandom(
+        this.hash(
+          options.tileX,
+          options.tileZ,
+          this.worldConfig.seed ^ options.seedSalt,
+        ),
+      ),
+      matrixValues: new Float32Array(requestedCount * 16),
+      variations: new Float32Array(requestedCount * 4),
+      coverages: new Float32Array(requestedCount),
+      bounds: new THREE.Box3(),
+      nextIndex: 0,
+      bladeCount: 0,
+      heightLattice,
+    };
+  }
 
-    for (let index = 0; index < requestedCount; index += 1) {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
+  advanceBuild(
+    job: WorldSingleBladeTileBuildJob,
+    deadline: number,
+  ): WorldSingleBladeTileBuildResult {
+    if (job.nextIndex >= job.requestedCount) {
+      return { complete: true, tile: this.finalizeBuild(job) };
+    }
+
+    let processed = 0;
+    while (
+      job.nextIndex < job.requestedCount &&
+      (processed === 0 ||
+        processed % DEADLINE_CHECK_INTERVAL !== 0 ||
+        performance.now() < deadline)
+    ) {
+      const index = job.nextIndex;
+      job.nextIndex += 1;
+      processed += 1;
+      const column = index % job.columns;
+      const row = Math.floor(index / job.columns);
       const x =
-        originX +
-        (column + 0.5) * cellWidth +
-        random.range(-cellWidth * POSITION_JITTER, cellWidth * POSITION_JITTER);
+        job.originX +
+        (column + 0.5) * job.cellWidth +
+        job.random.range(
+          -job.cellWidth * POSITION_JITTER,
+          job.cellWidth * POSITION_JITTER,
+        );
       const z =
-        originZ +
-        (row + 0.5) * cellDepth +
-        random.range(-cellDepth * POSITION_JITTER, cellDepth * POSITION_JITTER);
+        job.originZ +
+        (row + 0.5) * job.cellDepth +
+        job.random.range(
+          -job.cellDepth * POSITION_JITTER,
+          job.cellDepth * POSITION_JITTER,
+        );
       const height = this.field.sampleHeight(x, z);
-      this.field.sampleNormal(x, z, this.normal);
-      const suitability = this.field.sampleGrassSuitability(
-        x,
-        z,
-        height,
-        this.normal,
-      );
-      if (suitability < MIN_SUITABILITY) {
+      // Suitability is a product of masks in [0,1], so the slope-free part
+      // bounds the whole. Blades that already fail here can never pass, and
+      // rejecting now skips the four extra height samples a normal costs.
+      const suitabilityWithoutSlope =
+        this.field.sampleGrassSuitabilityWithoutSlope(x, z, height);
+      if (suitabilityWithoutSlope < MIN_SUITABILITY) {
+        continue;
+      }
+      job.heightLattice.sampleNormal(x, z, TERRAIN_NORMAL_STEP, this.normal);
+      const suitability =
+        this.field.sampleGrassSlopeMask(this.normal) * suitabilityWithoutSlope;
+      if (suitability < MIN_SUITABILITY - LATTICE_SUITABILITY_TOLERANCE) {
         continue;
       }
 
@@ -134,38 +242,48 @@ export class WorldSingleBladeTileFactory {
         height - this.grassConfig.distribution.rootSink,
         z,
       );
-      bounds.expandByPoint(this.position);
+      job.bounds.expandByPoint(this.position);
       this.align.setFromUnitVectors(this.up, this.normal);
-      this.yaw.setFromAxisAngle(this.up, random.range(0, TWO_PI));
+      this.yaw.setFromAxisAngle(this.up, job.random.range(0, TWO_PI));
       this.align.multiply(this.yaw);
       this.scale.set(
-        random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
-        random.range(0.78, INSTANCE_VERTICAL_SCALE_MAX),
-        random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
+        job.random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
+        job.random.range(0.78, INSTANCE_VERTICAL_SCALE_MAX),
+        job.random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
       );
       // Tile-relative transforms let the mesh carry a real world position, so
       // three can depth-sort tiles against each other instead of giving every
       // one the scene origin as its sort key.
       this.localPosition.set(
-        this.position.x - tileCenterX,
+        this.position.x - job.tileCenterX,
         this.position.y,
-        this.position.z - tileCenterZ,
+        this.position.z - job.tileCenterZ,
       );
       this.matrix.compose(this.localPosition, this.align, this.scale);
-      this.matrix.toArray(matrixValues, bladeCount * 16);
-      const variationOffset = bladeCount * 4;
-      variations[variationOffset] = random.next();
-      variations[variationOffset + 1] = random.range(0.84, 1.16);
-      variations[variationOffset + 2] = random.range(0.97, 1.03);
-      variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        (1 - suitability) * 0.25 + random.range(0, 0.06),
+      this.matrix.toArray(job.matrixValues, job.bladeCount * 16);
+      const variationOffset = job.bladeCount * 4;
+      job.variations[variationOffset] = job.random.next();
+      job.variations[variationOffset + 1] = job.random.range(0.84, 1.16);
+      job.variations[variationOffset + 2] = job.random.range(0.97, 1.03);
+      job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
+        (1 - suitability) * 0.25 + job.random.range(0, 0.06),
         0,
         1,
       );
-      coverages[bladeCount] = 1;
-      bladeCount += 1;
+      job.coverages[job.bladeCount] = 1;
+      job.bladeCount += 1;
     }
 
+    // Sorting and GPU resource creation get their own later slice rather than
+    // extending a sampling slice that has already exhausted its deadline.
+    return { complete: false };
+  }
+
+  private finalizeBuild(
+    job: WorldSingleBladeTileBuildJob,
+  ): WorldSingleBladeTile | undefined {
+    const { options, bladeCount, matrixValues, variations, coverages, bounds } =
+      job;
     if (bladeCount === 0) {
       return undefined;
     }
@@ -184,11 +302,9 @@ export class WorldSingleBladeTileFactory {
       variations.subarray(0, bladeCount * 4),
       coverages.subarray(0, bladeCount),
     );
-    const mesh = new THREE.InstancedMesh(
-      geometry,
-      options.material.material,
-      bladeCount,
-    );
+    // InstancedMesh otherwise allocates and fills an identity matrix for every
+    // instance before the completed static buffer replaces it.
+    const mesh = new THREE.InstancedMesh(geometry, options.material.material, 0);
     mesh.name = `${options.namePrefix}-${options.key}`;
     mesh.castShadow = false;
     mesh.receiveShadow = options.receiveShadows && this.profile.shadows;
@@ -200,15 +316,15 @@ export class WorldSingleBladeTileFactory {
     for (let index = 0; index < bladeCount; index += 1) {
       matrixValues[index * 16 + 13] -= centerY;
     }
-    this.origin.set(tileCenterX, centerY, tileCenterZ);
+    this.origin.set(job.tileCenterX, centerY, job.tileCenterZ);
 
-    // Adopt the buffer the loop already filled rather than copying it into the
-    // second one InstancedMesh allocates.
+    // Adopt the buffer the sampling loop already filled.
     mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
       matrixValues.subarray(0, bladeCount * 16),
       16,
     );
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.count = bladeCount;
 
     bounds.expandByScalar(this.calculateBoundsPadding());
     bounds.min.sub(this.origin);

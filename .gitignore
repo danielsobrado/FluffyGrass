@@ -24,3 +24,11 @@ dist-ssr
 *.sw?
 tmp-uniform-probe/
 .character-check/
+preview-tmp/
+
+# Local dev probe pages. Each is a root html entry plus its tools/ module; they
+# are served by the dev server only and are not inputs to `npm run build`.
+lod-blink.html
+trail-probe.html
+tools/lod-blink/
+tools/trail-probe/

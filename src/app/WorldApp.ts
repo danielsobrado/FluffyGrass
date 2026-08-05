@@ -5,6 +5,7 @@ import {
   resolveGrassArtDirectionKey,
   type GrassArtDirection,
 } from "../grass/GrassArtDirection";
+import { grassTrailField } from "../grass/interaction/GrassTrailField";
 import { FlyWorldController } from "../controls/FlyWorldController";
 import { ThirdPersonController } from "../controls/ThirdPersonController";
 import type { WorldController } from "../controls/WorldController";
@@ -24,6 +25,8 @@ const ERROR_MESSAGE_MAX_LENGTH = 180;
 const FRAME_WATCHDOG_INTERVAL_MS = 500;
 const FRAME_STALL_THRESHOLD_MS = 1500;
 const CONTEXT_LOST_ERROR = "renderer: WebGL context lost";
+const DESKTOP_STREAMING_BUILD_BUDGET_MS = 8;
+const COMPACT_STREAMING_BUILD_BUDGET_MS = 5;
 // Sun elevation and azimuth are unchanged; only the shadow frustum moved.
 const SUN_DIRECTION = new THREE.Vector3(350, 500, 220).normalize();
 const SUN_SHADOW_DISTANCE = 200;
@@ -52,9 +55,11 @@ export class WorldApp {
   private readonly shadowAxisX = new THREE.Vector3();
   private readonly shadowAxisY = new THREE.Vector3();
   private readonly pixelRatio: number;
+  private readonly flyMode: boolean;
   private frameHandle = 0;
   private watchdogHandle = 0;
   private frameCount = 0;
+  private streamingBuildDeadline = Number.POSITIVE_INFINITY;
   private fpsSampleFrames = 0;
   private fpsSampleElapsed = 0;
   private averageFps = 0;
@@ -121,6 +126,7 @@ export class WorldApp {
     const params = new URLSearchParams(window.location.search);
     const useFlyControls =
       params.get("control") === "fly" || params.get("view") === "aerial";
+    this.flyMode = useFlyControls;
     if (params.get("view") === "aerial") {
       spawn.position.y += 48;
       spawn.pitch = THREE.MathUtils.degToRad(-34);
@@ -131,7 +137,7 @@ export class WorldApp {
       this.field,
       config,
       profile.compact,
-      profile.shadows,
+      profile.shadows && !useFlyControls,
     );
     this.grass = new WorldGrassSystem(
       this.scene,
@@ -139,6 +145,17 @@ export class WorldApp {
       config,
       profile,
     );
+    // The trail texture must exist before the controller spawns, because the
+    // controller resets the interaction field and that seeds the trail centre.
+    grassTrailField.configure({
+      resolution: config.grassTrailResolution,
+      coverage: config.grassTrailCoverage,
+      recoveryRate: config.grassTrailRecoveryRate,
+      freshnessRate: config.grassTrailFreshnessRate,
+    });
+    if (!useFlyControls) {
+      grassTrailField.attach(this.renderer);
+    }
     const artKey = resolveGrassArtDirectionKey(params.get("grassArt"));
     this.applyGrassArtDirection(GRASS_ART_DIRECTIONS[artKey]);
     if (profile.showGui) {
@@ -214,6 +231,7 @@ export class WorldApp {
     this.controls.dispose();
     this.terrain.dispose();
     this.grass.dispose();
+    grassTrailField.dispose();
     this.renderer.dispose();
     this.stats?.dom.remove();
     this.artMenu?.dispose();
@@ -256,6 +274,10 @@ export class WorldApp {
     this.lastFrameTimestamp = performance.now();
     this.frameCount += 1;
     const deltaSeconds = this.clock.getDelta();
+    const streamingBudgetMs = this.profile.compact
+      ? COMPACT_STREAMING_BUILD_BUDGET_MS
+      : DESKTOP_STREAMING_BUILD_BUDGET_MS;
+    this.streamingBuildDeadline = performance.now() + streamingBudgetMs;
     this.updateAverageFps(deltaSeconds);
 
     if (this.controlsEnabled) {
@@ -302,11 +324,25 @@ export class WorldApp {
   };
 
   private readonly updateTerrain = (): void => {
-    this.terrain.update(this.controls.getStreamingPosition());
+    this.terrain.update(
+      this.controls.getStreamingPosition(),
+      this.streamingBuildDeadline,
+    );
   };
 
   private readonly updateGrass = (deltaSeconds: number): void => {
-    this.grass.update(deltaSeconds, this.camera);
+    // Consumes the contacts the controller submitted this frame, so it has to
+    // run before the materials pick up the texture.
+    grassTrailField.render(deltaSeconds);
+    const cameraGroundHeight = this.flyMode
+      ? this.sampleGroundHeight(this.camera.position)
+      : undefined;
+    this.grass.update(
+      deltaSeconds,
+      this.camera,
+      cameraGroundHeight,
+      this.streamingBuildDeadline,
+    );
   };
 
   private readonly renderScene = (): void => {
@@ -385,7 +421,7 @@ export class WorldApp {
     this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
     sun.position.copy(SUN_DIRECTION).multiplyScalar(SUN_SHADOW_DISTANCE);
-    sun.castShadow = this.profile.shadows;
+    sun.castShadow = this.profile.shadows && !this.flyMode;
     // The character meshes are the only shadow casters in the world scene:
     // terrain and every grass layer set castShadow = false. A frustum sized for
     // the streamed world therefore spent its whole resolution on empty ground.
