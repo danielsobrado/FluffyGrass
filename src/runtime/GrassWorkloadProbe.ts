@@ -4,6 +4,7 @@ const MID_INDICES_PER_BLADE = 3;
 const FAR_INDICES_PER_CARD = 6;
 
 type GrassMeshKind = "near-base" | "near-detail" | "near-ultra" | "mid" | "far";
+type RenderCallback = THREE.InstancedMesh["onBeforeRender"];
 
 interface RuntimeTile {
   bladeCount: number;
@@ -57,6 +58,11 @@ interface FrameWorkload {
   farSubmittedCards: number;
 }
 
+interface RenderHook {
+  original: RenderCallback;
+  wrapped: RenderCallback;
+}
+
 export interface WorldDiagnosticsRuntime {
   scene: THREE.Scene;
   renderer: THREE.WebGLRenderer;
@@ -90,6 +96,7 @@ export function resolveWorldDiagnosticsRuntime(
 export class GrassWorkloadProbe {
   private readonly instrumentedMeshes = new WeakSet<THREE.InstancedMesh>();
   private readonly meshKinds = new WeakMap<THREE.InstancedMesh, GrassMeshKind>();
+  private readonly renderHooks = new Map<THREE.InstancedMesh, RenderHook>();
   private currentFrame = createEmptyFrameWorkload();
   private lastFrame = createEmptyFrameWorkload();
 
@@ -112,6 +119,15 @@ export class GrassWorkloadProbe {
 
   finishFrame(): void {
     this.lastFrame = this.currentFrame;
+  }
+
+  dispose(): void {
+    for (const [mesh, hook] of this.renderHooks) {
+      if (mesh.onBeforeRender === hook.wrapped) {
+        mesh.onBeforeRender = hook.original;
+      }
+    }
+    this.renderHooks.clear();
   }
 
   getSnapshot(): GrassWorkloadSnapshot {
@@ -170,7 +186,7 @@ export class GrassWorkloadProbe {
     }
     this.instrumentedMeshes.add(mesh);
     const original = mesh.onBeforeRender;
-    mesh.onBeforeRender = (
+    const wrapped: RenderCallback = (
       renderer,
       scene,
       camera,
@@ -189,6 +205,8 @@ export class GrassWorkloadProbe {
         group,
       );
     };
+    this.renderHooks.set(mesh, { original, wrapped });
+    mesh.onBeforeRender = wrapped;
   }
 
   private recordSubmission(mesh: THREE.InstancedMesh): void {
