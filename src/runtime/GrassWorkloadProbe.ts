@@ -97,6 +97,7 @@ export class GrassWorkloadProbe {
   private readonly instrumentedMeshes = new WeakSet<THREE.InstancedMesh>();
   private readonly meshKinds = new WeakMap<THREE.InstancedMesh, GrassMeshKind>();
   private readonly renderHooks = new Map<THREE.InstancedMesh, RenderHook>();
+  private readonly activeMeshes = new Set<THREE.InstancedMesh>();
   private currentFrame = createEmptyFrameWorkload();
   private lastFrame = createEmptyFrameWorkload();
 
@@ -104,6 +105,7 @@ export class GrassWorkloadProbe {
 
   prepareFrame(): void {
     this.currentFrame = createEmptyFrameWorkload();
+    this.activeMeshes.clear();
     const near = this.grass.nearField;
     this.instrumentTileField(near?.baseField, "near-base");
     this.instrumentTileField(near?.baseDetailedField, "near-detail");
@@ -115,6 +117,7 @@ export class GrassWorkloadProbe {
     for (const group of this.grass.farGroups ?? []) {
       this.instrumentMesh(group.mesh, "far");
     }
+    this.releaseInactiveHooks();
   }
 
   finishFrame(): void {
@@ -123,11 +126,10 @@ export class GrassWorkloadProbe {
 
   dispose(): void {
     for (const [mesh, hook] of this.renderHooks) {
-      if (mesh.onBeforeRender === hook.wrapped) {
-        mesh.onBeforeRender = hook.original;
-      }
+      this.restoreHook(mesh, hook);
     }
     this.renderHooks.clear();
+    this.activeMeshes.clear();
   }
 
   getSnapshot(): GrassWorkloadSnapshot {
@@ -180,6 +182,7 @@ export class GrassWorkloadProbe {
     mesh: THREE.InstancedMesh,
     kind: GrassMeshKind,
   ): void {
+    this.activeMeshes.add(mesh);
     this.meshKinds.set(mesh, kind);
     if (this.instrumentedMeshes.has(mesh)) {
       return;
@@ -207,6 +210,23 @@ export class GrassWorkloadProbe {
     };
     this.renderHooks.set(mesh, { original, wrapped });
     mesh.onBeforeRender = wrapped;
+  }
+
+  private releaseInactiveHooks(): void {
+    for (const [mesh, hook] of this.renderHooks) {
+      if (this.activeMeshes.has(mesh)) {
+        continue;
+      }
+      this.restoreHook(mesh, hook);
+      this.renderHooks.delete(mesh);
+      this.meshKinds.delete(mesh);
+    }
+  }
+
+  private restoreHook(mesh: THREE.InstancedMesh, hook: RenderHook): void {
+    if (mesh.onBeforeRender === hook.wrapped) {
+      mesh.onBeforeRender = hook.original;
+    }
   }
 
   private recordSubmission(mesh: THREE.InstancedMesh): void {
