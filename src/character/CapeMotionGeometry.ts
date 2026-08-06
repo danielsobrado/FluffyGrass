@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import {
-  CAPE_BOUNDS_EXPANSION,
+  CAPE_BOUNDS_PADDING,
   CAPE_FLUTTER_FREQUENCY,
   CAPE_FLUTTER_HORIZONTAL_VARIATION,
   CAPE_FLUTTER_PHASE_SPREAD,
+  CAPE_FLUTTER_STRENGTH,
+  CAPE_GEOMETRY_UPDATE_EPSILON,
 } from "./CapeMotionTuning";
 
 const TWO_PI = Math.PI * 2;
@@ -20,6 +22,9 @@ interface CapePanelState {
 
 export class CapeMotionGeometry {
   private readonly panels: CapePanelState[];
+  private previousBendX = Number.NaN;
+  private previousBendZ = Number.NaN;
+  private previousFlutterAmplitude = Number.NaN;
 
   constructor(
     back: THREE.Group,
@@ -39,10 +44,14 @@ export class CapeMotionGeometry {
     bendZ: number,
     flutterAmplitude: number,
   ): void {
+    if (!this.shouldUpdate(bendX, bendZ, flutterAmplitude)) {
+      return;
+    }
+
     const flutterTime = elapsedSeconds * CAPE_FLUTTER_FREQUENCY * TWO_PI;
     for (const panel of this.panels) {
-      const positions = panel.position;
-      for (let index = 0; index < positions.count; index += 1) {
+      const values = panel.position.array as Float32Array;
+      for (let index = 0; index < panel.position.count; index += 1) {
         const offset = index * 3;
         const baseX = panel.basePositions[offset];
         const baseY = panel.basePositions[offset + 1];
@@ -68,11 +77,34 @@ export class CapeMotionGeometry {
           ) *
           flutterAmplitude *
           smoothWeight;
-        positions.setXYZ(index, rotatedX, finalY, rotatedZ);
+        values[offset] = rotatedX;
+        values[offset + 1] = finalY;
+        values[offset + 2] = rotatedZ;
       }
-      positions.needsUpdate = true;
+      panel.position.needsUpdate = true;
       panel.geometry.computeVertexNormals();
     }
+
+    this.previousBendX = bendX;
+    this.previousBendZ = bendZ;
+    this.previousFlutterAmplitude = flutterAmplitude;
+  }
+
+  private shouldUpdate(
+    bendX: number,
+    bendZ: number,
+    flutterAmplitude: number,
+  ): boolean {
+    if (!Number.isFinite(this.previousBendX)) {
+      return true;
+    }
+    return (
+      Math.abs(flutterAmplitude) > CAPE_GEOMETRY_UPDATE_EPSILON ||
+      Math.abs(bendX - this.previousBendX) > CAPE_GEOMETRY_UPDATE_EPSILON ||
+      Math.abs(bendZ - this.previousBendZ) > CAPE_GEOMETRY_UPDATE_EPSILON ||
+      Math.abs(flutterAmplitude - this.previousFlutterAmplitude) >
+        CAPE_GEOMETRY_UPDATE_EPSILON
+    );
   }
 }
 
@@ -94,7 +126,11 @@ function collectPanels(
     }
     visited.add(geometry);
     const position = geometry.getAttribute("position");
-    if (!(position instanceof THREE.BufferAttribute)) {
+    if (
+      !(position instanceof THREE.BufferAttribute) ||
+      position.itemSize !== 3 ||
+      position.count === 0
+    ) {
       return;
     }
 
@@ -102,10 +138,7 @@ function collectPanels(
       position.array as ArrayLike<number>,
     );
     position.setUsage(THREE.DynamicDrawUsage);
-    geometry.computeBoundingSphere();
-    if (geometry.boundingSphere) {
-      geometry.boundingSphere.radius *= CAPE_BOUNDS_EXPANSION;
-    }
+    setConservativeBounds(geometry, basePositions);
     panels.push({
       geometry,
       position,
@@ -117,6 +150,26 @@ function collectPanels(
     });
   });
   return panels;
+}
+
+function setConservativeBounds(
+  geometry: THREE.BufferGeometry,
+  positions: Float32Array,
+): void {
+  let radiusSquared = 0;
+  for (let offset = 0; offset < positions.length; offset += 3) {
+    const x = positions[offset];
+    const y = positions[offset + 1];
+    const z = positions[offset + 2];
+    radiusSquared = Math.max(radiusSquared, x * x + y * y + z * z);
+  }
+  const radius =
+    Math.sqrt(radiusSquared) + CAPE_FLUTTER_STRENGTH + CAPE_BOUNDS_PADDING;
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), radius);
+  geometry.boundingBox = new THREE.Box3(
+    new THREE.Vector3(-radius, -radius, -radius),
+    new THREE.Vector3(radius, radius, radius),
+  );
 }
 
 function createWeights(
