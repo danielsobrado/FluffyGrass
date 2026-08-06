@@ -16,9 +16,50 @@
     content="default-src 'self'; base-uri 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; form-action 'none'"
   />
   <meta name="theme-color" content="#312742" />
-  <title>Drusniel World</title>
+  <title>Drusniel World</title>
   <script type="module" crossorigin src="./assets/index-DGnfmPUm.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-nZww8weF.css">
+  <style>
+    .ui-toggle {
+      position: fixed;
+      top: max(14px, env(safe-area-inset-top));
+      right: max(14px, env(safe-area-inset-right));
+      z-index: 160;
+      min-width: 42px;
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid rgb(255 255 255 / 18%);
+      border-radius: 10px;
+      background: rgb(18 24 22 / 78%);
+      color: #f3f7f0;
+      box-shadow: 0 6px 20px rgb(0 0 0 / 20%);
+      font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      cursor: pointer;
+      backdrop-filter: blur(9px);
+      touch-action: manipulation;
+    }
+    .ui-toggle:active {
+      background: rgb(83 126 63 / 88%);
+    }
+    #world-stats {
+      top: calc(max(14px, env(safe-area-inset-top)) + 44px);
+    }
+    html[data-ui-minimized="true"] .app-title,
+    html[data-ui-minimized="true"] #world-stats,
+    html[data-ui-minimized="true"] .flight-help,
+    html[data-ui-minimized="true"] .grass-art-menu {
+      display: none !important;
+    }
+    html[data-viewport="compact"] #world-stats {
+      top: auto;
+      max-width: 72vw;
+      max-height: 48dvh;
+      overflow: hidden;
+    }
+    body[data-scene="island"] .ui-toggle {
+      display: none;
+    }
+  </style>
 </head>
 <body>
   <header class="app-title">
@@ -26,6 +67,14 @@
     <span id="scene-mode">Drow Ranger · Full-Density LOD · Grass Presets</span>
     <span id="build-version">Loading build…</span>
   </header>
+  <button
+    id="ui-toggle"
+    class="ui-toggle"
+    type="button"
+    aria-pressed="false"
+    aria-label="Minimize interface"
+    title="Minimize interface"
+  >−</button>
   <pre id="world-stats">Loading Drusniel World…</pre>
   <div id="control-help" class="flight-help">
     Desktop: click, mouse orbit, WASD, Shift run, Space jump, wheel zoom, F reset ·
