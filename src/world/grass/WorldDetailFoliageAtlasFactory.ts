@@ -341,7 +341,12 @@ export class WorldDetailFoliageAtlasFactory {
     const centerX = lean;
     const centerY = height;
     const petals = 9;
-    const petalLength = random.range(0.15, 0.19);
+    // Bloom size is a fraction of the *plant*, and the plant is now a canopy
+    // multiple, so this reads directly as a real-world size: a 1 m daisy with a
+    // 0.2 m bloom. It was 0.15-0.19 here, which put a 0.4 m flower head on the
+    // same stem — eight times life size, and on screen it read as a white splat
+    // rather than as the scattered specks the reference look is made of.
+    const petalLength = random.range(0.085, 0.105);
     for (let index = 0; index < petals; index += 1) {
       const angle = (index / petals) * Math.PI * 2 + random.range(-0.08, 0.08);
       context.save();
@@ -376,7 +381,8 @@ export class WorldDetailFoliageAtlasFactory {
     const height = random.range(0.66, 0.76);
     const lean = random.range(-0.1, 0.1);
     this.drawStem(context, random, height, lean, random.range(0.32, 0.46));
-    const radius = random.range(0.13, 0.16);
+    // Matched to the daisy above: a poppy head roughly a fifth of a metre.
+    const radius = random.range(0.075, 0.095);
     for (let index = 0; index < 5; index += 1) {
       const angle = (index / 5) * Math.PI * 2 + random.range(-0.12, 0.12);
       context.fillStyle = encode(0.85 + index * 0.02, 0.82, 1);

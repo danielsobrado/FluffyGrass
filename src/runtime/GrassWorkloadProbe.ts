@@ -3,7 +3,13 @@ import type * as THREE from "three";
 const MID_INDICES_PER_BLADE = 3;
 const FAR_INDICES_PER_CARD = 6;
 
-type GrassMeshKind = "near-base" | "near-detail" | "near-ultra" | "mid" | "far";
+type GrassMeshKind =
+  | "near-base"
+  | "near-detail"
+  | "near-ultra"
+  | "mid"
+  | "far"
+  | "accent";
 type RenderCallback = THREE.InstancedMesh["onBeforeRender"];
 
 interface RuntimeTile {
@@ -15,10 +21,20 @@ interface RuntimeTileField {
   tiles?: Map<number, RuntimeTile>;
 }
 
+/**
+ * The accent layer's tiles carry a card count rather than a blade count, and a
+ * card is not a blade equivalent, so they are instrumented for submission only
+ * and stay out of the logical-blade totals.
+ */
+interface RuntimeAccentField {
+  tiles?: Map<number, { mesh: THREE.InstancedMesh }>;
+}
+
 interface RuntimeNearField {
   baseField?: RuntimeTileField;
   baseDetailedField?: RuntimeTileField;
   ultraNearField?: RuntimeTileField;
+  detailFoliageField?: RuntimeAccentField;
 }
 
 interface RuntimePatch {
@@ -56,6 +72,7 @@ interface FrameWorkload {
   midSubmittedBlades: number;
   midSubmittedVertices: number;
   farSubmittedCards: number;
+  accentSubmittedCards: number;
 }
 
 interface RenderHook {
@@ -109,6 +126,9 @@ export class GrassWorkloadProbe {
     this.instrumentTileField(near?.baseField, "near-base");
     this.instrumentTileField(near?.baseDetailedField, "near-detail");
     this.instrumentTileField(near?.ultraNearField, "near-ultra");
+    for (const tile of near?.detailFoliageField?.tiles?.values() ?? []) {
+      this.instrumentMesh(tile.mesh, "accent");
+    }
 
     for (const patch of this.grass.patches ?? []) {
       this.instrumentMesh(patch.midMesh, "mid");
@@ -257,6 +277,11 @@ export class GrassWorkloadProbe {
         this.currentFrame.farSubmittedCards +=
           Math.floor(submittedIndices / FAR_INDICES_PER_CARD) * instances;
         break;
+      case "accent":
+        // One card per instance: the accent geometry is a single card, so the
+        // trimmed instance count is the number of plants on screen.
+        this.currentFrame.accentSubmittedCards += instances;
+        break;
     }
   }
 
@@ -275,6 +300,7 @@ function createEmptyFrameWorkload(): FrameWorkload {
     midSubmittedBlades: 0,
     midSubmittedVertices: 0,
     farSubmittedCards: 0,
+    accentSubmittedCards: 0,
   };
 }
 

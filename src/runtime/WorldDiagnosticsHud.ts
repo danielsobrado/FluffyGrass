@@ -95,7 +95,7 @@ function formatWorkloadLines(snapshot: GrassWorkloadSnapshot): string[] {
   return [
     `Grass logical ${formatCompact(snapshot.logicalBladeEquivalents)} · visible ${formatCompact(snapshot.visibleLogicalBladeEquivalents)} · patch inst ${formatInteger(snapshot.residentPatchInstances)}`,
     `Near resident ${formatCompact(snapshot.nearResidentUniqueInstances)} unique · submit ${formatCompact(nearSubmitted)} inst / ${formatCompact(snapshot.nearSubmittedTriangles)} tris`,
-    `Mid submit ${formatInteger(snapshot.midSubmittedBlades)} blades / ${formatCompact(snapshot.midSubmittedVertices)} verts · Far ${formatInteger(snapshot.farSubmittedCards)} cards`,
+    `Mid submit ${formatInteger(snapshot.midSubmittedBlades)} blades / ${formatCompact(snapshot.midSubmittedVertices)} verts · Far ${formatInteger(snapshot.farSubmittedCards)} cards · Accents ${formatInteger(snapshot.accentSubmittedCards)} cards`,
   ];
 }
 

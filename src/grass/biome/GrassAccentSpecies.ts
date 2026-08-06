@@ -36,8 +36,36 @@ export interface GrassAccentSpeciesDefinition {
   /** Wind response, in [0.3, 1]; the per-texel mask the article uses cannot act
    * in a vertex stage, so this scalar times a height ramp is its equivalent. */
   windWeight: number;
-  /** Card height band in metres, sampled per instance. */
-  heightBand: readonly [number, number];
+  /**
+   * Card height band as a **multiple of the grass canopy height**, sampled per
+   * instance and resolved to metres at build time.
+   *
+   * Relative, not absolute, and that is the whole point: an accent layer exists
+   * to be seen, so every one of these bands is a statement about where a species
+   * sits against the blades around it — a daisy's bloom at the canopy line, a
+   * seed head above it, a small fern below. Absolute metres cannot express that.
+   * They were tried first and the layer rendered invisible: the blade silhouette
+   * pass had meanwhile taken the canopy from 0.83 m to 0.73 m while the accents
+   * kept 0.3-0.7 m heights authored against an older, taller field, so ~1 500
+   * cards were streaming, building, and drawing entirely underneath the grass.
+   *
+   * Anchoring to the canopy makes that failure impossible to reintroduce: blade
+   * heights are config (`bladeHeightMin`/`Max`) and have changed once already.
+   */
+  canopyHeightBand: readonly [number, number];
+}
+
+/**
+ * The canopy a band of 1.0 refers to: the height {@link
+ * WorldSingleBladeTileFactory.createSingleBladeGeometry} builds a blade at,
+ * which is the mean of the configured blade height range. Per-instance vertical
+ * scale varies individual blades around it by roughly ±20%.
+ */
+export function resolveGrassCanopyHeight(
+  bladeHeightMin: number,
+  bladeHeightMax: number,
+): number {
+  return (bladeHeightMin + bladeHeightMax) * 0.5;
 }
 
 export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
@@ -49,56 +77,56 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
           category: "tuft",
           aspect: 0.9,
           windWeight: 0.85,
-          heightBand: [0.34, 0.5],
+          canopyHeightBand: [0.7, 0.95],
         },
         {
           key: "tall-tuft",
           category: "tuft",
           aspect: 0.6,
           windWeight: 1,
-          heightBand: [0.5, 0.72],
+          canopyHeightBand: [1.0, 1.3],
         },
         {
           key: "fern",
           category: "fern",
           aspect: 1,
           windWeight: 0.35,
-          heightBand: [0.4, 0.6],
+          canopyHeightBand: [0.85, 1.15],
         },
         {
           key: "small-fern",
           category: "fern",
           aspect: 0.95,
           windWeight: 0.4,
-          heightBand: [0.26, 0.4],
+          canopyHeightBand: [0.58, 0.82],
         },
         {
           key: "daisy",
           category: "flower",
           aspect: 0.75,
           windWeight: 0.7,
-          heightBand: [0.3, 0.44],
+          canopyHeightBand: [1.08, 1.38],
         },
         {
           key: "round-bloom",
           category: "flower",
           aspect: 0.8,
           windWeight: 0.65,
-          heightBand: [0.32, 0.48],
+          canopyHeightBand: [1.05, 1.32],
         },
         {
           key: "seed-head",
           category: "seed",
           aspect: 0.5,
           windWeight: 1,
-          heightBand: [0.46, 0.66],
+          canopyHeightBand: [1.3, 1.72],
         },
         {
           key: "sprig",
           category: "tuft",
           aspect: 0.7,
           windWeight: 0.55,
-          heightBand: [0.28, 0.42],
+          canopyHeightBand: [0.7, 1.0],
         },
       ] as const
     ).map((definition, index) =>

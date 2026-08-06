@@ -3,6 +3,7 @@ import {
   GRASS_ACCENT_SPECIES,
   packGrassAccent,
   resolveGrassAccentTintRow,
+  resolveGrassCanopyHeight,
   type GrassAccentCategory,
 } from "../../grass/biome/GrassAccentSpecies";
 import {
@@ -81,6 +82,19 @@ const MIN_SUITABILITY = 0.08;
 const TWO_PI = Math.PI * 2;
 /** Matches the blade field: below this the residency set cannot change. */
 const COUNT_MOVEMENT_EPSILON = 0.25;
+/**
+ * How far the focus may drift before the residency set is recomputed.
+ *
+ * Reconciling only on tile crossings is not enough, which is worth spelling out
+ * because it looks like it should be: residency is a disc measured from the
+ * *focus*, and the focus can travel the full diagonal of a tile — 22.6 m at
+ * this tile size — without ever leaving it. A tile 45 m away at the last
+ * crossing is not resident, and after that diagonal it sits 22.7 m away, well
+ * inside the 30 m fade. It would stay empty until the next crossing and then
+ * appear at once. One reconcile is ~25 distance tests over a reused request
+ * array, so paying it per half-metre of travel is cheaper than the pop.
+ */
+const RECONCILE_MOVEMENT_EPSILON = 0.5;
 /** float64 CPU dither versus float32 storage; keeps the trim conservative. */
 const DITHER_SAFETY_MARGIN = 1 / 1024;
 const EVICTION_HYSTERESIS_TILES = 0.5;
@@ -89,13 +103,18 @@ const BOUNDS_SAFETY_MARGIN = 0.05;
 const MAXIMUM_ART_WIND_SCALE = 2;
 const MAXIMUM_INSTANCE_WIND_SCALE = 1.16;
 
-const ACCENT_HEIGHT_MAX = GRASS_ACCENT_SPECIES.reduce(
-  (maximum, species) => Math.max(maximum, species.heightBand[1]),
+/**
+ * Tallest and widest a card can be, as multiples of the canopy height. Resolved
+ * to metres against the live blade config in the factory below, so a change to
+ * `bladeHeightMin`/`Max` carries the accents and their reserved bounds with it.
+ */
+const ACCENT_CANOPY_HEIGHT_MAX = GRASS_ACCENT_SPECIES.reduce(
+  (maximum, species) => Math.max(maximum, species.canopyHeightBand[1]),
   0,
 );
-const ACCENT_WIDTH_MAX = GRASS_ACCENT_SPECIES.reduce(
+const ACCENT_CANOPY_WIDTH_MAX = GRASS_ACCENT_SPECIES.reduce(
   (maximum, species) =>
-    Math.max(maximum, species.heightBand[1] * species.aspect),
+    Math.max(maximum, species.canopyHeightBand[1] * species.aspect),
   0,
 );
 
@@ -201,6 +220,8 @@ export class WorldDetailFoliageFactory {
   private readonly scale = new THREE.Vector3();
   private readonly matrix = new THREE.Matrix4();
   private readonly boundsPadding: number;
+  /** What a species' `canopyHeightBand` of 1.0 resolves to, in metres. */
+  private readonly canopyHeight: number;
 
   constructor(
     private readonly field: TerrainField,
@@ -209,9 +230,13 @@ export class WorldDetailFoliageFactory {
     private readonly material: WorldDetailFoliageMaterial,
   ) {
     this.geometry = createDetailFoliageCardGeometry();
+    this.canopyHeight = resolveGrassCanopyHeight(
+      grassConfig.geometry.bladeHeightMin,
+      grassConfig.geometry.bladeHeightMax,
+    );
     this.boundsPadding = calculateGrassSingleBladeRootBoundsRadius({
-      bladeHeight: ACCENT_HEIGHT_MAX,
-      bladeWidth: ACCENT_WIDTH_MAX,
+      bladeHeight: ACCENT_CANOPY_HEIGHT_MAX * this.canopyHeight,
+      bladeWidth: ACCENT_CANOPY_WIDTH_MAX * this.canopyHeight,
       bladeLean: 0,
       maximumHorizontalScale: 1,
       maximumVerticalScale: 1,
@@ -309,10 +334,13 @@ export class WorldDetailFoliageFactory {
       }
 
       const species = GRASS_ACCENT_SPECIES[pick.speciesIndex];
-      const cardHeight = random.range(
-        species.heightBand[0],
-        species.heightBand[1],
-      );
+      // Bands are multiples of the canopy, so a daisy's bloom lands on the
+      // blade tips around it whatever the configured blade height is.
+      const cardHeight =
+        random.range(
+          species.canopyHeightBand[0],
+          species.canopyHeightBand[1],
+        ) * this.canopyHeight;
       const cardWidth = cardHeight * species.aspect;
       this.position.set(
         x,
@@ -550,6 +578,13 @@ export class WorldDetailFoliageField {
   private readonly emptyTiles = new Set<number>();
   private readonly desired = new Set<number>();
   private readonly queue: TileRequest[] = [];
+  /** Reused across reconciles; rebuilding it per call allocated every frame. */
+  private readonly requests: TileRequest[] = [];
+  private readonly reconciledFocus = new THREE.Vector3(
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  );
   private readonly countedFocus = new THREE.Vector3(
     Number.POSITIVE_INFINITY,
     Number.POSITIVE_INFINITY,
@@ -603,11 +638,20 @@ export class WorldDetailFoliageField {
     }
     const tileX = Math.floor(focus.x / DETAIL_FOLIAGE_TILE_SIZE);
     const tileZ = Math.floor(focus.z / DETAIL_FOLIAGE_TILE_SIZE);
-    // Tile-crossing reconcile is enough at this radius: a 16 m tile is wide
-    // relative to the fade, so nothing enters the visible band mid-tile.
-    if (tileX !== this.centerTileX || tileZ !== this.centerTileZ) {
+    const tileChanged =
+      tileX !== this.centerTileX || tileZ !== this.centerTileZ;
+    if (tileChanged) {
       this.centerTileX = tileX;
       this.centerTileZ = tileZ;
+    }
+    // See RECONCILE_MOVEMENT_EPSILON: crossing a tile is not the only way a
+    // tile can enter the residency disc, because the disc follows the focus.
+    if (
+      tileChanged ||
+      focus.distanceToSquared(this.reconciledFocus) >
+        RECONCILE_MOVEMENT_EPSILON * RECONCILE_MOVEMENT_EPSILON
+    ) {
+      this.reconciledFocus.copy(focus);
       this.reconcile(focus);
     }
     this.processQueue(buildDeadline);
@@ -692,7 +736,8 @@ export class WorldDetailFoliageField {
       1,
       Math.ceil(DETAIL_FOLIAGE_VISIBILITY_RADIUS / DETAIL_FOLIAGE_TILE_SIZE),
     );
-    const requests: TileRequest[] = [];
+    const requests = this.requests;
+    requests.length = 0;
     this.desired.clear();
 
     for (let dz = -offset; dz <= offset; dz += 1) {
