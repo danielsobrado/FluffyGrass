@@ -53,6 +53,7 @@ export class WorldDiagnosticsController {
     if (this.renderer.render === this.renderWithDiagnostics) {
       this.renderer.render = this.originalRender;
     }
+    this.probe.dispose();
     this.hud.dispose();
     this.gpuTimer.dispose();
   }
@@ -102,6 +103,7 @@ export class WorldDiagnosticsController {
       return;
     }
     this.enabled = false;
+    this.probe.dispose();
     this.gpuTimer.dispose();
     this.hud.dispose();
     console.warn("[Drusniel World] Workload diagnostics disabled.", error);
