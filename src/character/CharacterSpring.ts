@@ -1,10 +1,13 @@
 const MAX_DELTA_SECONDS = 0.1;
+const MIN_FREQUENCY_HZ = 0.01;
 const TWO_PI = Math.PI * 2;
 
 export class CharacterSpring {
   private velocity = 0;
 
-  constructor(private value = 0) {}
+  constructor(private value = 0) {
+    this.value = finiteOrDefault(value, 0);
+  }
 
   update(
     target: number,
@@ -12,9 +15,18 @@ export class CharacterSpring {
     frequency: number,
     damping = 1,
   ): number {
-    const delta = Math.min(Math.max(deltaSeconds, 0), MAX_DELTA_SECONDS);
-    const angularFrequency = Math.max(frequency, 0.01) * TWO_PI;
-    const dampingTerm = 1 + 2 * delta * damping * angularFrequency;
+    const delta = Math.min(
+      Math.max(finiteOrDefault(deltaSeconds, 0), 0),
+      MAX_DELTA_SECONDS,
+    );
+    const resolvedTarget = finiteOrDefault(target, this.value);
+    const resolvedFrequency = Math.max(
+      finiteOrDefault(frequency, MIN_FREQUENCY_HZ),
+      MIN_FREQUENCY_HZ,
+    );
+    const resolvedDamping = Math.max(finiteOrDefault(damping, 1), 0);
+    const angularFrequency = resolvedFrequency * TWO_PI;
+    const dampingTerm = 1 + 2 * delta * resolvedDamping * angularFrequency;
     const frequencySquared = angularFrequency * angularFrequency;
     const velocityTerm = delta * frequencySquared;
     const positionTerm = delta * velocityTerm;
@@ -22,22 +34,35 @@ export class CharacterSpring {
     const nextValue =
       (dampingTerm * this.value +
         delta * this.velocity +
-        positionTerm * target) *
+        positionTerm * resolvedTarget) *
       inverseDeterminant;
     const nextVelocity =
-      (this.velocity + velocityTerm * (target - this.value)) *
+      (this.velocity + velocityTerm * (resolvedTarget - this.value)) *
       inverseDeterminant;
+
+    if (!Number.isFinite(nextValue) || !Number.isFinite(nextVelocity)) {
+      this.value = resolvedTarget;
+      this.velocity = 0;
+      return this.value;
+    }
+
     this.value = nextValue;
     this.velocity = nextVelocity;
     return this.value;
   }
 
   addImpulse(velocity: number): void {
-    this.velocity += velocity;
+    if (Number.isFinite(velocity)) {
+      this.velocity += velocity;
+    }
   }
 
   reset(value = 0): void {
-    this.value = value;
+    this.value = finiteOrDefault(value, 0);
     this.velocity = 0;
   }
+}
+
+function finiteOrDefault(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
 }
