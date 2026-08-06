@@ -18,8 +18,8 @@ grassChunksPerFrame: 1
 grassPatchSize: 4
 # Split each streamed chunk into independently culled 32 m render batches.
 grassRenderBatchesPerAxis: 2
-# Use layered full-footprint octahedral cards to avoid sparse far silhouettes.
-grassFarImpostorsPerPatch: 2
+# One instance now contains four genuine 2x2 m subpatch impostors.
+grassFarImpostorsPerPatch: 1
 grassBladesPerSquareMeterDesktop: 72
 grassBladesPerSquareMeterCompact: 48
 
@@ -85,8 +85,8 @@ grassMaxSlopeDegrees: 44
 
 grassNearDistance: 24
 grassMidDistance: 80
-# Cheap two-triangle impostors carry the matched blade palette almost to
-# the streamed terrain horizon, keeping the terrain handoff unobtrusive.
+# Cheap subpatch impostors carry the matched blade palette almost to the
+# streamed terrain horizon, keeping the terrain handoff unobtrusive.
 grassFarDistance: 280
 grassTransitionDistance: 8
 grassHysteresisDistance: 3
