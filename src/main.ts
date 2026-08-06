@@ -1,5 +1,7 @@
 import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
+import { UiVisibilityController } from "./runtime/UiVisibilityController";
 import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
+import { WorldDiagnosticsController } from "./runtime/WorldDiagnosticsController";
 import { APP_VERSION, BUILD_LABEL } from "./version";
 
 interface RunnableApp {
@@ -33,6 +35,7 @@ async function bootstrap(): Promise<void> {
     (params.get("control") === "fly" || params.get("view") === "aerial");
   document.body.dataset.scene = sceneMode;
   document.body.dataset.control = flyMode ? "fly" : "third-person";
+  new UiVisibilityController().initialize();
 
   const versionElement = document.querySelector<HTMLElement>("#build-version");
   const titleElement = document.querySelector<HTMLElement>(".app-title strong");
@@ -63,7 +66,12 @@ async function bootstrap(): Promise<void> {
     app = island;
   } else {
     const { WorldApp } = await import("./app/WorldApp");
-    app = await WorldApp.create(canvas, profile);
+    const world = await WorldApp.create(canvas, profile);
+    WorldDiagnosticsController.attach(world, {
+      gpuTiming: params.get("gpuTiming") === "1",
+      statsPanelEnabled: params.get("stats") === "1",
+    });
+    app = world;
   }
 
   app.start();
