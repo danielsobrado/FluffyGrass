@@ -75,7 +75,7 @@ export class GpuFrameTimer {
       this.gl.beginQuery(this.extension.TIME_ELAPSED_EXT, query);
       this.activeQuery = query;
     } catch (error) {
-      this.gl.deleteQuery(query);
+      this.safeDeleteQuery(query);
       this.disableAfterFailure(error);
     }
   }
@@ -91,7 +91,7 @@ export class GpuFrameTimer {
       this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);
       this.inFlight.push(query);
     } catch (error) {
-      this.gl.deleteQuery(query);
+      this.safeDeleteQuery(query);
       this.disableAfterFailure(error);
     }
   }
@@ -115,17 +115,7 @@ export class GpuFrameTimer {
   }
 
   dispose(): void {
-    if (!this.gl) {
-      return;
-    }
-    if (this.activeQuery) {
-      this.gl.deleteQuery(this.activeQuery);
-      this.activeQuery = undefined;
-    }
-    for (const query of this.inFlight) {
-      this.gl.deleteQuery(query);
-    }
-    this.inFlight.length = 0;
+    this.releaseQueries();
     this.samples.length = 0;
   }
 
@@ -139,46 +129,73 @@ export class GpuFrameTimer {
       return;
     }
 
-    const disjoint = Boolean(
-      this.gl.getParameter(this.extension.GPU_DISJOINT_EXT),
-    );
-    if (disjoint) {
-      for (const query of this.inFlight) {
-        this.gl.deleteQuery(query);
-      }
-      this.inFlight.length = 0;
-      this.samples.length = 0;
-      return;
-    }
-
-    while (this.inFlight.length > 0) {
-      const query = this.inFlight[0];
-      const available = Boolean(
-        this.gl.getQueryParameter(query, this.gl.QUERY_RESULT_AVAILABLE),
+    try {
+      const disjoint = Boolean(
+        this.gl.getParameter(this.extension.GPU_DISJOINT_EXT),
       );
-      if (!available) {
-        break;
+      if (disjoint) {
+        for (const query of this.inFlight) {
+          this.safeDeleteQuery(query);
+        }
+        this.inFlight.length = 0;
+        this.samples.length = 0;
+        return;
       }
 
-      const nanoseconds = Number(
-        this.gl.getQueryParameter(query, this.gl.QUERY_RESULT),
-      );
-      this.gl.deleteQuery(query);
-      this.inFlight.shift();
-      const milliseconds = nanoseconds / NANOSECONDS_PER_MILLISECOND;
-      if (Number.isFinite(milliseconds) && milliseconds >= 0) {
-        this.samples.push(milliseconds);
-        if (this.samples.length > MAX_SAMPLES) {
-          this.samples.shift();
+      while (this.inFlight.length > 0) {
+        const query = this.inFlight[0];
+        const available = Boolean(
+          this.gl.getQueryParameter(query, this.gl.QUERY_RESULT_AVAILABLE),
+        );
+        if (!available) {
+          break;
+        }
+
+        const nanoseconds = Number(
+          this.gl.getQueryParameter(query, this.gl.QUERY_RESULT),
+        );
+        this.safeDeleteQuery(query);
+        this.inFlight.shift();
+        const milliseconds = nanoseconds / NANOSECONDS_PER_MILLISECOND;
+        if (Number.isFinite(milliseconds) && milliseconds >= 0) {
+          this.samples.push(milliseconds);
+          if (this.samples.length > MAX_SAMPLES) {
+            this.samples.shift();
+          }
         }
       }
+    } catch (error) {
+      this.disableAfterFailure(error);
     }
   }
 
   private disableAfterFailure(error: unknown): void {
+    if (this.failed) {
+      return;
+    }
     this.failed = true;
     this.status = "unsupported";
+    this.releaseQueries();
     console.warn("[Drusniel World] GPU frame timing disabled.", error);
+  }
+
+  private releaseQueries(): void {
+    if (this.activeQuery) {
+      this.safeDeleteQuery(this.activeQuery);
+      this.activeQuery = undefined;
+    }
+    for (const query of this.inFlight) {
+      this.safeDeleteQuery(query);
+    }
+    this.inFlight.length = 0;
+  }
+
+  private safeDeleteQuery(query: WebGLQuery): void {
+    try {
+      this.gl?.deleteQuery(query);
+    } catch {
+      // A lost WebGL context may reject cleanup; the browser owns the resource.
+    }
   }
 }
 
