@@ -5,12 +5,7 @@ const MAX_SAMPLES = 120;
 const NANOSECONDS_PER_MILLISECOND = 1_000_000;
 
 interface DisjointTimerQueryExtension {
-  readonly QUERY_COUNTER_BITS_EXT: number;
-  readonly CURRENT_QUERY_EXT: number;
-  readonly QUERY_RESULT_EXT: number;
-  readonly QUERY_RESULT_AVAILABLE_EXT: number;
   readonly TIME_ELAPSED_EXT: number;
-  readonly TIMESTAMP_EXT: number;
   readonly GPU_DISJOINT_EXT: number;
 }
 
