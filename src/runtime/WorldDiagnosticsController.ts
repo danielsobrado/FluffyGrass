@@ -21,6 +21,7 @@ export class WorldDiagnosticsController {
   private readonly gpuTimer: GpuFrameTimer;
   private readonly hud = new WorldDiagnosticsHud();
   private lastHudUpdate = 0;
+  private enabled = true;
 
   private constructor(app: unknown, options: WorldDiagnosticsOptions) {
     const runtime = resolveWorldDiagnosticsRuntime(app);
@@ -48,7 +49,10 @@ export class WorldDiagnosticsController {
   }
 
   dispose(): void {
-    this.renderer.render = this.originalRender;
+    this.enabled = false;
+    if (this.renderer.render === this.renderWithDiagnostics) {
+      this.renderer.render = this.originalRender;
+    }
     this.hud.dispose();
     this.gpuTimer.dispose();
   }
@@ -57,19 +61,30 @@ export class WorldDiagnosticsController {
     scene,
     camera,
   ): void => {
-    if (scene !== this.scene) {
+    if (scene !== this.scene || !this.enabled) {
       this.originalRender.call(this.renderer, scene, camera);
       return;
     }
 
-    this.probe.prepareFrame();
-    this.gpuTimer.beginFrame();
+    try {
+      this.probe.prepareFrame();
+      this.gpuTimer.beginFrame();
+    } catch (error) {
+      this.disableAfterFailure(error);
+      this.originalRender.call(this.renderer, scene, camera);
+      return;
+    }
+
     try {
       this.originalRender.call(this.renderer, scene, camera);
     } finally {
-      this.gpuTimer.endFrame();
-      this.probe.finishFrame();
-      this.updateHudIfDue();
+      try {
+        this.gpuTimer.endFrame();
+        this.probe.finishFrame();
+        this.updateHudIfDue();
+      } catch (error) {
+        this.disableAfterFailure(error);
+      }
     }
   };
 
@@ -80,5 +95,15 @@ export class WorldDiagnosticsController {
     }
     this.lastHudUpdate = now;
     this.hud.update(this.probe.getSnapshot(), this.gpuTimer.getStats());
+  }
+
+  private disableAfterFailure(error: unknown): void {
+    if (!this.enabled) {
+      return;
+    }
+    this.enabled = false;
+    this.gpuTimer.dispose();
+    this.hud.dispose();
+    console.warn("[Drusniel World] Workload diagnostics disabled.", error);
   }
 }
