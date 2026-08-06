@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 
 const MAX_IN_FLIGHT_QUERIES = 6;
 const MAX_SAMPLES = 120;
