@@ -94,7 +94,6 @@ export function resolveWorldDiagnosticsRuntime(
 }
 
 export class GrassWorkloadProbe {
-  private readonly instrumentedMeshes = new WeakSet<THREE.InstancedMesh>();
   private readonly meshKinds = new WeakMap<THREE.InstancedMesh, GrassMeshKind>();
   private readonly renderHooks = new Map<THREE.InstancedMesh, RenderHook>();
   private readonly activeMeshes = new Set<THREE.InstancedMesh>();
@@ -184,10 +183,9 @@ export class GrassWorkloadProbe {
   ): void {
     this.activeMeshes.add(mesh);
     this.meshKinds.set(mesh, kind);
-    if (this.instrumentedMeshes.has(mesh)) {
+    if (this.renderHooks.has(mesh)) {
       return;
     }
-    this.instrumentedMeshes.add(mesh);
     const original = mesh.onBeforeRender;
     const wrapped: RenderCallback = (
       renderer,
