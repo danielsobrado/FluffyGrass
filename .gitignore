@@ -15,6 +15,8 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+# Per-machine agent/editor settings, not shared project configuration.
+.claude/
 .idea
 .DS_Store
 *.suo
