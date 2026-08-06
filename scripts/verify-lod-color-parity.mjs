@@ -24,7 +24,16 @@ const MAX_P95_SAMPLE_DELTA = 0.03;
 // Semantic/source-distribution guard. Runtime WebGL compilation, atlas
 // filtering, lighting, fog, and minification are verified separately in the
 // browser smoke pass.
-const MAX_ROOT_TIP_CONTRAST = 0.08;
+//
+// This bounds the canopy depth an art preset may ask for. It is not what keeps
+// an LOD handoff invisible — MAX_ROOT_TIP_LOD_DELTA below is, and it stays at
+// one percent. Every LOD resolves the same palette function from the same root
+// darkening uniform, so raising the absolute contrast moves near, mid, and far
+// together: measured drift between them is under a twentieth of the budget at
+// every value in this range. The bound sat at 8% while the presets all shipped
+// root darkening around 0.97, which is a two percent effect and left the field
+// with no canopy depth at all.
+const MAX_ROOT_TIP_CONTRAST = 0.3;
 const MAX_ROOT_TIP_LOD_DELTA = 0.01;
 // The far light offset is a deliberate art control rather than LOD drift, so it
 // is bounded to the art menu range instead of the parity tolerances above.
@@ -34,7 +43,16 @@ const MIN_FAR_SPATIAL_LUMINANCE_RANGE = 0.08;
 const MAX_BACKLIGHT_STRENGTH = 0.12;
 const LOD_DISTRIBUTION_SAMPLE_COUNT = 16384;
 const SAMPLE_DRYNESS = [0, 0.05, 0.15, 0.3];
-const SAMPLE_ROOT_AO = [0.94, 1, 1.06];
+// Spans the canopy-occlusion range GrassFieldVariation can produce, not just
+// the old zero-mean per-blade tone jitter.
+const SAMPLE_ROOT_AO = [0.82, 0.94, 1, 1.06];
+// Mirrors GRASS_MACRO_DRYNESS_STRENGTH and CANOPY_AO_STRENGTH in
+// src/grass/GrassFieldVariation.ts. Both LODs apply them at the same world
+// position from the same functions; the independent draws below are the
+// worst case for the near-to-mid delta, since in the field the macro terms
+// agree exactly and only the per-blade jitter differs.
+const MACRO_DRYNESS_STRENGTH = 0.22;
+const CANOPY_AO_STRENGTH = 0.17;
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const PRESET_NUMBER_FIELDS = [
   "rootDarkening",
@@ -154,18 +172,33 @@ function createLodDistributionSamples() {
     // A uniformly sampled triangle has twice as much root area as tip area.
     const progress = 1 - Math.sqrt(1 - random());
     const suitability = 0.08 + random() * 0.92;
+    const vigor = random();
+    const macroDryness = random();
+    const canopyAo = 1 - CANOPY_AO_STRENGTH * vigor * suitability;
     const underlayer = random() < 0.3;
     samples.push({
       progress,
       near: {
         shade: 0.5,
-        dryness: clamp((1 - suitability) * 0.25 + random() * 0.06, 0, 1),
-        rootAo: 0.97 + random() * 0.06,
+        dryness: clamp(
+          (1 - suitability) * 0.25 +
+            macroDryness * MACRO_DRYNESS_STRENGTH +
+            random() * 0.06,
+          0,
+          1,
+        ),
+        rootAo: canopyAo * (0.985 + random() * 0.03),
       },
       mid: {
         shade: underlayer ? random() * 0.2 : 0.24 + random() * 0.76,
-        dryness: clamp((1 - suitability) * 0.34 + random() * 0.09, 0, 1),
-        rootAo: 0.94 + random() * 0.12,
+        dryness: clamp(
+          (1 - suitability) * 0.34 +
+            macroDryness * MACRO_DRYNESS_STRENGTH +
+            random() * 0.09,
+          0,
+          1,
+        ),
+        rootAo: canopyAo * (0.97 + random() * 0.06),
       },
     });
   }

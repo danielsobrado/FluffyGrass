@@ -1,5 +1,11 @@
 import * as THREE from "three";
 import type { GrassConfig } from "../../grass/GrassConfig";
+import {
+  GRASS_MACRO_DRYNESS_STRENGTH,
+  resolveGrassCanopyAo,
+  sampleGrassMacroDryness,
+  sampleGrassMacroVigor,
+} from "../../grass/GrassFieldVariation";
 import { GrassGeometryFactory } from "../../grass/GrassGeometryFactory";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import type { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial";
@@ -23,6 +29,8 @@ export interface WorldSingleBladeTile {
    * would only collapse to zero area.
    */
   sortedDithers: Float32Array;
+  /** Reference-counted placement data shared by complementary near layers. */
+  placementKey: string;
 }
 
 export interface WorldSingleBladeTileBuildOptions {
@@ -39,8 +47,12 @@ export interface WorldSingleBladeTileBuildOptions {
 
 export interface WorldSingleBladeTileBuildJob {
   options: WorldSingleBladeTileBuildOptions;
+  placementKey: string;
+  stage: TileBuildStage;
+  cachedPlacement?: WorldSingleBladePlacement;
   requestedCount: number;
   columns: number;
+  rows: number;
   cellWidth: number;
   cellDepth: number;
   originX: number;
@@ -55,17 +67,70 @@ export interface WorldSingleBladeTileBuildJob {
   nextIndex: number;
   bladeCount: number;
   /** Cached heights for this tile's normals; see {@link TerrainHeightLattice}. */
-  heightLattice: TerrainHeightLattice;
+  heightLattice?: TerrainHeightLattice;
+  sortOrder?: Uint32Array;
+  sortScratch?: Uint32Array;
+  dithers?: Float32Array;
+  ditherBits?: Uint32Array;
+  radixCounts?: Uint32Array;
+  radixOffsets?: Uint32Array;
+  radixPass: number;
+  finalizeIndex: number;
+  sortedDithers?: Float32Array;
+  reorderVisited?: Uint8Array;
+  reorderMatrixScratch?: Float32Array;
+  reorderVariationScratch?: Float32Array;
+  reorderCycleStart?: number;
+  reorderCycleTarget?: number;
+  reorderCoverageScratch?: number;
+  centerY: number;
 }
 
 export interface WorldSingleBladeTileBuildResult {
   complete: boolean;
   tile?: WorldSingleBladeTile;
+  /** The placement completed successfully but contains no drawable blades. */
+  empty?: boolean;
 }
 
 const TWO_PI = Math.PI * 2;
-const POSITION_JITTER = 0.46;
 const MIN_SUITABILITY = 0.08;
+/**
+ * Cells per axis in a tuft. Grass does not grow on a lattice: it grows in
+ * tufts whose blades share a root, fan outwards, and match each other in
+ * height. A jittered grid of independently oriented blades is uniform at every
+ * scale above one blade, and that uniformity is the single largest structural
+ * difference between this field and a hand-authored one.
+ *
+ * Three cells is about nine blades per tuft at the configured density, which
+ * puts a tuft at roughly 35 cm across — the scale real grass clumps at.
+ */
+const CLUMP_CELLS = 3;
+/** Tuft radius as a fraction of its cell block, leaving gaps between tufts. */
+const CLUMP_RADIUS_SCALE = 0.42;
+/** How far a tuft's centre wanders from its block centre. */
+const CLUMP_CENTER_JITTER = 0.15;
+/** Yaw spread of a blade about the direction it fans away from the centre. */
+const CLUMP_FAN_SPREAD = 0.55;
+const CLUMP_HEIGHT_MIN = 0.86;
+const CLUMP_HEIGHT_MAX = 1.14;
+/**
+ * Per-blade height jitter within a tuft. Composed with the tuft's own scale
+ * above, the product stays inside {@link INSTANCE_VERTICAL_SCALE_MAX}, which
+ * the reserved bounds depend on.
+ */
+const BLADE_HEIGHT_JITTER_MIN = 0.94;
+const BLADE_HEIGHT_JITTER_MAX = 1.06;
+/**
+ * Furthest a blade can end up from the cell that enumerated it, in cells: half
+ * the block it belongs to, plus the tuft centre's own wander, plus the tuft
+ * radius. The cached height lattice is grown by this so a tufted blade still
+ * samples its normal from inside the cached area.
+ */
+const CLUMP_MAX_CELL_OFFSET =
+  (CLUMP_CELLS - 1) * 0.5 +
+  CLUMP_CENTER_JITTER * CLUMP_CELLS +
+  CLUMP_RADIUS_SCALE * CLUMP_CELLS;
 /**
  * Half the normal's own central-difference step, so the cached field still
  * resolves everything the normal is able to express. Measured worst-case
@@ -97,10 +162,47 @@ const MAXIMUM_ART_WIND_SCALE = 2;
 const MAXIMUM_INSTANCE_WIND_SCALE = 1.16;
 const MAXIMUM_WIND_STIFFNESS = 1.12;
 const INTERACTION_VERTICAL_SCALE = 0.2;
-const BOUNDS_SAFETY_MARGIN = 0.05;
+/**
+ * Covers the residual the analytic terms above do not name, plus the sub-pixel
+ * width clamp, which can widen a blade's half-width by up to two centimetres
+ * before the shader's own ceiling stops it.
+ */
+const BOUNDS_SAFETY_MARGIN = 0.08;
 // 0.5 * 0.754877666 + 0.5 * 0.569840296 — the constant part of the vertex
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
+/** Bound negative-placement memory while retaining far more than one view. */
+const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
+
+type TileBuildStage =
+  | "lattice"
+  | "sampling"
+  | "prepare-sort"
+  | "prepare-dithers"
+  | "radix-count"
+  | "radix-scatter"
+  | "reorder"
+  | "center"
+  | "mesh";
+
+interface TileBuildBuffers {
+  matrixValues: Float32Array;
+  variations: Float32Array;
+  coverages: Float32Array;
+}
+
+interface WorldSingleBladePlacement extends TileBuildBuffers {
+  key: string;
+  bladeCount: number;
+  sortedDithers: Float32Array;
+  instanceMatrix: THREE.InstancedBufferAttribute;
+  variationAttribute: THREE.InstancedBufferAttribute;
+  coverageAttribute: THREE.InstancedBufferAttribute;
+  origin: THREE.Vector3;
+  localBounds: THREE.Box3;
+  boundingSphere: THREE.Sphere;
+  references: number;
+}
 
 export class WorldSingleBladeTileFactory {
   private readonly geometryFactory = new GrassGeometryFactory();
@@ -111,9 +213,12 @@ export class WorldSingleBladeTileFactory {
   private readonly yaw = new THREE.Quaternion();
   private readonly position = new THREE.Vector3();
   private readonly localPosition = new THREE.Vector3();
-  private readonly origin = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
   private readonly matrix = new THREE.Matrix4();
+  private readonly placementCache = new Map<string, WorldSingleBladePlacement>();
+  private readonly emptyPlacementCache = new Map<string, true>();
+  private readonly buildBufferPool = new Map<number, TileBuildBuffers[]>();
+  private readonly latticePool: TerrainHeightLattice[] = [];
 
   constructor(
     private readonly field: TerrainField,
@@ -124,7 +229,8 @@ export class WorldSingleBladeTileFactory {
 
   beginBuild(
     options: WorldSingleBladeTileBuildOptions,
-  ): WorldSingleBladeTileBuildJob | undefined {
+    cachedOnly = false,
+  ): WorldSingleBladeTileBuildJob | null | undefined {
     if (options.densityMultiplier <= 0) {
       return undefined;
     }
@@ -139,6 +245,44 @@ export class WorldSingleBladeTileFactory {
         tileSize * tileSize * baseDensity * options.densityMultiplier,
       ),
     );
+    const placementKey = this.createPlacementKey(options);
+    const cachedPlacement = this.placementCache.get(placementKey);
+    if (cachedPlacement) {
+      return {
+        options,
+        placementKey,
+        stage: "mesh",
+        cachedPlacement,
+        requestedCount,
+        columns: 0,
+        rows: 0,
+        cellWidth: 0,
+        cellDepth: 0,
+        originX: 0,
+        originZ: 0,
+        tileCenterX: cachedPlacement.origin.x,
+        tileCenterZ: cachedPlacement.origin.z,
+        random: new SeededRandom(0),
+        matrixValues: cachedPlacement.matrixValues,
+        variations: cachedPlacement.variations,
+        coverages: cachedPlacement.coverages,
+        bounds: cachedPlacement.localBounds,
+        nextIndex: requestedCount,
+        bladeCount: cachedPlacement.bladeCount,
+        radixPass: 0,
+        finalizeIndex: 0,
+        centerY: cachedPlacement.origin.y,
+      };
+    }
+    if (this.emptyPlacementCache.has(placementKey)) {
+      // Refresh insertion order so the bounded cache behaves as an LRU.
+      this.emptyPlacementCache.delete(placementKey);
+      this.emptyPlacementCache.set(placementKey, true);
+      return null;
+    }
+    if (cachedOnly) {
+      return undefined;
+    }
     const columns = Math.ceil(Math.sqrt(requestedCount));
     const rows = Math.ceil(requestedCount / columns);
     const cellWidth = tileSize / columns;
@@ -147,23 +291,30 @@ export class WorldSingleBladeTileFactory {
     const originZ = options.tileZ * tileSize;
     const tileCenterX = originX + tileSize * 0.5;
     const tileCenterZ = originZ + tileSize * 0.5;
-    // Jitter can push a blade a little outside the nominal tile and its normal
+    // Tufting can push a blade a couple of cells outside the one it was
+    // enumerated from, it can leave the nominal tile entirely, and its normal
     // taps reach a further step beyond that, so the cached area is grown on
-    // every side by both. A few hundred samples here replace roughly eighteen
-    // thousand across the tile's blades.
-    const latticeMargin = TERRAIN_NORMAL_STEP + Math.max(cellWidth, cellDepth);
-    const heightLattice = new TerrainHeightLattice();
-    heightLattice.build(
+    // every side by all three. A few hundred samples here replace roughly
+    // eighteen thousand across the tile's blades.
+    const latticeMargin =
+      TERRAIN_NORMAL_STEP +
+      CLUMP_MAX_CELL_OFFSET * Math.max(cellWidth, cellDepth);
+    const heightLattice = this.latticePool.pop() ?? new TerrainHeightLattice();
+    heightLattice.beginBuild(
       this.field,
       originX - latticeMargin,
       originZ - latticeMargin,
       tileSize + latticeMargin * 2,
       HEIGHT_LATTICE_SPACING,
     );
+    const buffers = this.acquireBuildBuffers(requestedCount);
     return {
       options,
+      placementKey,
+      stage: "lattice",
       requestedCount,
       columns,
+      rows,
       cellWidth,
       cellDepth,
       originX,
@@ -177,13 +328,16 @@ export class WorldSingleBladeTileFactory {
           this.worldConfig.seed ^ options.seedSalt,
         ),
       ),
-      matrixValues: new Float32Array(requestedCount * 16),
-      variations: new Float32Array(requestedCount * 4),
-      coverages: new Float32Array(requestedCount),
+      matrixValues: buffers.matrixValues,
+      variations: buffers.variations,
+      coverages: buffers.coverages,
       bounds: new THREE.Box3(),
       nextIndex: 0,
       bladeCount: 0,
       heightLattice,
+      radixPass: 0,
+      finalizeIndex: 0,
+      centerY: 0,
     };
   }
 
@@ -191,10 +345,49 @@ export class WorldSingleBladeTileFactory {
     job: WorldSingleBladeTileBuildJob,
     deadline: number,
   ): WorldSingleBladeTileBuildResult {
-    if (job.nextIndex >= job.requestedCount) {
-      return { complete: true, tile: this.finalizeBuild(job) };
+    if (job.cachedPlacement) {
+      return {
+        complete: true,
+        tile: this.createTile(job.options, job.cachedPlacement),
+      };
     }
 
+    if (job.stage === "lattice") {
+      if (!job.heightLattice?.advanceBuild(deadline)) {
+        return { complete: false };
+      }
+      job.stage = "sampling";
+      return this.continueBuild(job, deadline);
+    }
+
+    if (job.stage === "sampling") {
+      if (!this.advanceSampling(job, deadline)) {
+        return { complete: false };
+      }
+      if (job.heightLattice) {
+        this.latticePool.push(job.heightLattice);
+        job.heightLattice = undefined;
+      }
+      if (job.bladeCount === 0) {
+        this.releaseBuildBuffers(job.requestedCount, job);
+        this.rememberEmptyPlacement(job.placementKey);
+        return { complete: true, empty: true };
+      }
+      job.stage = "prepare-sort";
+      return this.continueBuild(job, deadline);
+    }
+
+    return this.advanceFinalize(job, deadline);
+  }
+
+  private advanceSampling(
+    job: WorldSingleBladeTileBuildJob,
+    deadline: number,
+  ): boolean {
+    const heightLattice = job.heightLattice;
+    if (!heightLattice) {
+      throw new Error(`Grass tile ${job.options.key} has no height lattice.`);
+    }
     let processed = 0;
     while (
       job.nextIndex < job.requestedCount &&
@@ -207,20 +400,39 @@ export class WorldSingleBladeTileFactory {
       processed += 1;
       const column = index % job.columns;
       const row = Math.floor(index / job.columns);
-      const x =
-        job.originX +
-        (column + 0.5) * job.cellWidth +
-        job.random.range(
-          -job.cellWidth * POSITION_JITTER,
-          job.cellWidth * POSITION_JITTER,
-        );
-      const z =
-        job.originZ +
-        (row + 0.5) * job.cellDepth +
-        job.random.range(
-          -job.cellDepth * POSITION_JITTER,
-          job.cellDepth * POSITION_JITTER,
-        );
+      // Clump coordinates are global rather than tile-local, so a tuft that
+      // straddles a tile edge is generated identically from both sides. Cell
+      // width divides the tile exactly, so a tile's own cells are already a
+      // slice of one world-wide lattice.
+      const globalColumn = job.options.tileX * job.columns + column;
+      const globalRow = job.options.tileZ * job.rows + row;
+      const clumpColumn = Math.floor(globalColumn / CLUMP_CELLS);
+      const clumpRow = Math.floor(globalRow / CLUMP_CELLS);
+      const clumpSpanX = job.cellWidth * CLUMP_CELLS;
+      const clumpSpanZ = job.cellDepth * CLUMP_CELLS;
+      const clumpCenterX =
+        (clumpColumn + 0.5) * clumpSpanX +
+        (this.clumpValue(clumpColumn, clumpRow, 0x1f) - 0.5) *
+          2 *
+          CLUMP_CENTER_JITTER *
+          clumpSpanX;
+      const clumpCenterZ =
+        (clumpRow + 0.5) * clumpSpanZ +
+        (this.clumpValue(clumpColumn, clumpRow, 0x2b) - 0.5) *
+          2 *
+          CLUMP_CENTER_JITTER *
+          clumpSpanZ;
+      // Density falls off linearly from the tuft's core, which is what leaves
+      // bare ground visible between tufts instead of spreading every blade
+      // evenly over the block.
+      const bladeAngle = job.random.range(0, TWO_PI);
+      const bladeRadius = job.random.next();
+      const offsetX =
+        Math.cos(bladeAngle) * bladeRadius * CLUMP_RADIUS_SCALE * clumpSpanX;
+      const offsetZ =
+        Math.sin(bladeAngle) * bladeRadius * CLUMP_RADIUS_SCALE * clumpSpanZ;
+      const x = clumpCenterX + offsetX;
+      const z = clumpCenterZ + offsetZ;
       const height = this.field.sampleHeight(x, z);
       // Suitability is a product of masks in [0,1], so the slope-free part
       // bounds the whole. Blades that already fail here can never pass, and
@@ -230,9 +442,18 @@ export class WorldSingleBladeTileFactory {
       if (suitabilityWithoutSlope < MIN_SUITABILITY) {
         continue;
       }
-      job.heightLattice.sampleNormal(x, z, TERRAIN_NORMAL_STEP, this.normal);
+      // Walking ways are tested after the terrain's own masks: the path field
+      // is the more expensive of the two, and a blade the biome has already
+      // rejected must not pay for it.
+      const pathMask = this.field.samplePathGrassMask(x, z, height);
+      if (pathMask <= 0) {
+        continue;
+      }
+      heightLattice.sampleNormal(x, z, TERRAIN_NORMAL_STEP, this.normal);
       const suitability =
-        this.field.sampleGrassSlopeMask(this.normal) * suitabilityWithoutSlope;
+        this.field.sampleGrassSlopeMask(this.normal) *
+        suitabilityWithoutSlope *
+        pathMask;
       if (suitability < MIN_SUITABILITY - LATTICE_SUITABILITY_TOLERANCE) {
         continue;
       }
@@ -244,12 +465,45 @@ export class WorldSingleBladeTileFactory {
       );
       job.bounds.expandByPoint(this.position);
       this.align.setFromUnitVectors(this.up, this.normal);
-      this.yaw.setFromAxisAngle(this.up, job.random.range(0, TWO_PI));
+      // Blades fan away from the tuft's core. A blade sitting on the core has
+      // no outward direction, so it falls back to the tuft's own heading.
+      const fanAngle =
+        bladeRadius > 1e-4
+          ? Math.atan2(offsetX, offsetZ)
+          : this.clumpValue(clumpColumn, clumpRow, 0x3d) * TWO_PI;
+      this.yaw.setFromAxisAngle(
+        this.up,
+        fanAngle + job.random.range(-CLUMP_FAN_SPREAD, CLUMP_FAN_SPREAD),
+      );
       this.align.multiply(this.yaw);
+      const vigor = sampleGrassMacroVigor(x, z);
+      // Blades in a tuft grew together and match each other in height far more
+      // closely than two blades a metre apart do. Folding the vigour band into
+      // the tuft's own scale, rather than multiplying on top of it, keeps the
+      // product inside the scale ceilings the reserved bounds are built from.
+      const clumpHeightScale =
+        CLUMP_HEIGHT_MIN +
+        (CLUMP_HEIGHT_MAX - CLUMP_HEIGHT_MIN) *
+          (this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.45 + vigor * 0.55);
+      const verticalScale = THREE.MathUtils.clamp(
+        clumpHeightScale *
+          job.random.range(BLADE_HEIGHT_JITTER_MIN, BLADE_HEIGHT_JITTER_MAX),
+        0.78,
+        INSTANCE_VERTICAL_SCALE_MAX,
+      );
+      const horizontalScale = THREE.MathUtils.clamp(
+        clumpHeightScale * job.random.range(0.86, 1.1),
+        0.76,
+        INSTANCE_HORIZONTAL_SCALE_MAX,
+      );
       this.scale.set(
-        job.random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
-        job.random.range(0.78, INSTANCE_VERTICAL_SCALE_MAX),
-        job.random.range(0.76, INSTANCE_HORIZONTAL_SCALE_MAX),
+        horizontalScale,
+        verticalScale,
+        THREE.MathUtils.clamp(
+          clumpHeightScale * job.random.range(0.86, 1.1),
+          0.76,
+          INSTANCE_HORIZONTAL_SCALE_MAX,
+        ),
       );
       // Tile-relative transforms let the mesh carry a real world position, so
       // three can depth-sort tiles against each other instead of giving every
@@ -264,9 +518,16 @@ export class WorldSingleBladeTileFactory {
       const variationOffset = job.bladeCount * 4;
       job.variations[variationOffset] = job.random.next();
       job.variations[variationOffset + 1] = job.random.range(0.84, 1.16);
-      job.variations[variationOffset + 2] = job.random.range(0.97, 1.03);
+      // Whole-blade occlusion from the canopy around it, which is what gives a
+      // dense field depth rather than an even green sheet. Mid patches resolve
+      // it from the same function so the two LODs agree at the handoff.
+      job.variations[variationOffset + 2] =
+        resolveGrassCanopyAo(vigor, suitability) *
+        job.random.range(0.985, 1.015);
       job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        (1 - suitability) * 0.25 + job.random.range(0, 0.06),
+        (1 - suitability) * 0.25 +
+          sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
+          job.random.range(0, 0.06),
         0,
         1,
       );
@@ -274,129 +535,387 @@ export class WorldSingleBladeTileFactory {
       job.bladeCount += 1;
     }
 
-    // Sorting and GPU resource creation get their own later slice rather than
-    // extending a sampling slice that has already exhausted its deadline.
-    return { complete: false };
+    return job.nextIndex >= job.requestedCount;
   }
 
-  private finalizeBuild(
+  private advanceFinalize(
     job: WorldSingleBladeTileBuildJob,
-  ): WorldSingleBladeTile | undefined {
-    const { options, bladeCount, matrixValues, variations, coverages, bounds } =
-      job;
-    if (bladeCount === 0) {
-      return undefined;
+    deadline: number,
+  ): WorldSingleBladeTileBuildResult {
+    if (job.stage === "prepare-sort") {
+      job.sortOrder = new Uint32Array(job.bladeCount);
+      job.sortScratch = new Uint32Array(job.bladeCount);
+      job.dithers = new Float32Array(job.bladeCount);
+      job.ditherBits = new Uint32Array(
+        job.dithers.buffer,
+        job.dithers.byteOffset,
+        job.dithers.length,
+      );
+      job.radixCounts = new Uint32Array(256);
+      job.radixOffsets = new Uint32Array(256);
+      job.finalizeIndex = 0;
+      job.stage = "prepare-dithers";
+      return this.continueBuild(job, deadline);
     }
 
-    const sortedDithers = this.sortInstancesByDither(
-      matrixValues,
-      variations,
-      coverages,
-      bladeCount,
-      options.material.getDitherSeed(),
-    );
+    if (job.stage === "prepare-dithers") {
+      const order = job.sortOrder;
+      const dithers = job.dithers;
+      if (!order || !dithers) {
+        throw new Error(`Grass tile ${job.options.key} has no sort storage.`);
+      }
+      const ditherSeed = job.options.material.getDitherSeed();
+      let processed = 0;
+      while (
+        job.finalizeIndex < job.bladeCount &&
+        (processed === 0 ||
+          processed % DEADLINE_CHECK_INTERVAL !== 0 ||
+          performance.now() < deadline)
+      ) {
+        const index = job.finalizeIndex;
+        order[index] = index;
+        const value =
+          SINGLE_BLADE_DITHER_BIAS +
+          job.variations[index * 4] +
+          ditherSeed;
+        dithers[index] = value - Math.floor(value);
+        job.finalizeIndex += 1;
+        processed += 1;
+      }
+      if (job.finalizeIndex < job.bladeCount) {
+        return { complete: false };
+      }
+      job.finalizeIndex = 0;
+      job.radixCounts?.fill(0);
+      job.stage = "radix-count";
+      return this.continueBuild(job, deadline);
+    }
 
+    if (job.stage === "radix-count") {
+      const order = job.sortOrder;
+      const bits = job.ditherBits;
+      const counts = job.radixCounts;
+      const offsets = job.radixOffsets;
+      if (!order || !bits || !counts || !offsets) {
+        throw new Error(`Grass tile ${job.options.key} has incomplete radix state.`);
+      }
+      const shift = job.radixPass * 8;
+      let processed = 0;
+      while (
+        job.finalizeIndex < job.bladeCount &&
+        (processed === 0 ||
+          processed % DEADLINE_CHECK_INTERVAL !== 0 ||
+          performance.now() < deadline)
+      ) {
+        const source = order[job.finalizeIndex];
+        counts[(bits[source] >>> shift) & 0xff] += 1;
+        job.finalizeIndex += 1;
+        processed += 1;
+      }
+      if (job.finalizeIndex < job.bladeCount) {
+        return { complete: false };
+      }
+      let offset = 0;
+      for (let bucket = 0; bucket < counts.length; bucket += 1) {
+        offsets[bucket] = offset;
+        offset += counts[bucket];
+      }
+      job.finalizeIndex = 0;
+      job.stage = "radix-scatter";
+      return this.continueBuild(job, deadline);
+    }
+
+    if (job.stage === "radix-scatter") {
+      const order = job.sortOrder;
+      const scratch = job.sortScratch;
+      const bits = job.ditherBits;
+      const offsets = job.radixOffsets;
+      if (!order || !scratch || !bits || !offsets) {
+        throw new Error(`Grass tile ${job.options.key} has incomplete radix state.`);
+      }
+      const shift = job.radixPass * 8;
+      let processed = 0;
+      while (
+        job.finalizeIndex < job.bladeCount &&
+        (processed === 0 ||
+          processed % DEADLINE_CHECK_INTERVAL !== 0 ||
+          performance.now() < deadline)
+      ) {
+        const source = order[job.finalizeIndex];
+        const bucket = (bits[source] >>> shift) & 0xff;
+        scratch[offsets[bucket]] = source;
+        offsets[bucket] += 1;
+        job.finalizeIndex += 1;
+        processed += 1;
+      }
+      if (job.finalizeIndex < job.bladeCount) {
+        return { complete: false };
+      }
+      job.sortOrder = scratch;
+      job.sortScratch = order;
+      job.radixPass += 1;
+      job.finalizeIndex = 0;
+      if (job.radixPass < 4) {
+        job.radixCounts?.fill(0);
+        job.stage = "radix-count";
+      } else {
+        job.sortedDithers = new Float32Array(job.bladeCount);
+        job.reorderVisited = new Uint8Array(job.bladeCount);
+        job.reorderMatrixScratch = new Float32Array(16);
+        job.reorderVariationScratch = new Float32Array(4);
+        job.stage = "reorder";
+      }
+      return this.continueBuild(job, deadline);
+    }
+
+    if (job.stage === "reorder") {
+      if (!this.advanceInPlaceReorder(job, deadline)) {
+        return { complete: false };
+      }
+      job.centerY = (job.bounds.min.y + job.bounds.max.y) * 0.5;
+      job.finalizeIndex = 0;
+      job.stage = "center";
+      return this.continueBuild(job, deadline);
+    }
+
+    if (job.stage === "center") {
+      let processed = 0;
+      while (
+        job.finalizeIndex < job.bladeCount &&
+        (processed === 0 ||
+          processed % DEADLINE_CHECK_INTERVAL !== 0 ||
+          performance.now() < deadline)
+      ) {
+        job.matrixValues[job.finalizeIndex * 16 + 13] -= job.centerY;
+        job.finalizeIndex += 1;
+        processed += 1;
+      }
+      if (job.finalizeIndex < job.bladeCount) {
+        return { complete: false };
+      }
+      job.stage = "mesh";
+      return this.continueBuild(job, deadline);
+    }
+
+    const placement = this.createPlacement(job);
+    return {
+      complete: true,
+      tile: this.createTile(job.options, placement),
+    };
+  }
+
+  private continueBuild(
+    job: WorldSingleBladeTileBuildJob,
+    deadline: number,
+  ): WorldSingleBladeTileBuildResult {
+    return performance.now() < deadline
+      ? this.advanceBuild(job, deadline)
+      : { complete: false };
+  }
+
+  private advanceInPlaceReorder(
+    job: WorldSingleBladeTileBuildJob,
+    deadline: number,
+  ): boolean {
+    const order = job.sortOrder;
+    const dithers = job.dithers;
+    const sortedDithers = job.sortedDithers;
+    const visited = job.reorderVisited;
+    const tempMatrix = job.reorderMatrixScratch;
+    const tempVariation = job.reorderVariationScratch;
+    if (
+      !order ||
+      !dithers ||
+      !sortedDithers ||
+      !visited ||
+      !tempMatrix ||
+      !tempVariation
+    ) {
+      throw new Error(`Grass tile ${job.options.key} has no reorder state.`);
+    }
+    let processed = 0;
+    while (
+      job.reorderCycleTarget !== undefined ||
+      job.finalizeIndex < job.bladeCount
+    ) {
+      if (
+        processed > 0 &&
+        processed % DEADLINE_CHECK_INTERVAL === 0 &&
+        performance.now() >= deadline
+      ) {
+        return false;
+      }
+
+      if (job.reorderCycleTarget === undefined) {
+        const start = job.finalizeIndex;
+        job.finalizeIndex += 1;
+        if (visited[start]) {
+          processed += 1;
+          continue;
+        }
+        for (let component = 0; component < 16; component += 1) {
+          tempMatrix[component] = job.matrixValues[start * 16 + component];
+        }
+        for (let component = 0; component < 4; component += 1) {
+          tempVariation[component] = job.variations[start * 4 + component];
+        }
+        job.reorderCoverageScratch = job.coverages[start];
+        job.reorderCycleStart = start;
+        job.reorderCycleTarget = start;
+      }
+
+      const start = job.reorderCycleStart;
+      const target = job.reorderCycleTarget;
+      if (start === undefined || target === undefined) {
+        throw new Error(`Grass tile ${job.options.key} lost its reorder cycle.`);
+      }
+      visited[target] = 1;
+      sortedDithers[target] = dithers[order[target]];
+      const source = order[target];
+      if (source === start) {
+        job.matrixValues.set(tempMatrix, target * 16);
+        job.variations.set(tempVariation, target * 4);
+        job.coverages[target] = job.reorderCoverageScratch ?? 1;
+        job.reorderCycleStart = undefined;
+        job.reorderCycleTarget = undefined;
+        job.reorderCoverageScratch = undefined;
+      } else {
+        job.matrixValues.copyWithin(target * 16, source * 16, source * 16 + 16);
+        job.variations.copyWithin(target * 4, source * 4, source * 4 + 4);
+        job.coverages[target] = job.coverages[source];
+        job.reorderCycleTarget = source;
+      }
+      processed += 1;
+    }
+    return true;
+  }
+
+  private createPlacement(
+    job: WorldSingleBladeTileBuildJob,
+  ): WorldSingleBladePlacement {
+    const sortedDithers = job.sortedDithers;
+    if (!sortedDithers) {
+      throw new Error(`Grass tile ${job.options.key} finalized without dithers.`);
+    }
+    const origin = new THREE.Vector3(
+      job.tileCenterX,
+      job.centerY,
+      job.tileCenterZ,
+    );
+    const localBounds = job.bounds
+      .clone()
+      .expandByScalar(this.calculateBoundsPadding());
+    localBounds.min.sub(origin);
+    localBounds.max.sub(origin);
+    const instanceMatrix = new THREE.InstancedBufferAttribute(
+      job.matrixValues.subarray(0, job.bladeCount * 16),
+      16,
+    );
+    instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    const variationAttribute = new THREE.InstancedBufferAttribute(
+      job.variations.subarray(0, job.bladeCount * 4),
+      4,
+    );
+    const coverageAttribute = new THREE.InstancedBufferAttribute(
+      job.coverages.subarray(0, job.bladeCount),
+      1,
+    );
+    const placement: WorldSingleBladePlacement = {
+      key: job.placementKey,
+      matrixValues: job.matrixValues,
+      variations: job.variations,
+      coverages: job.coverages,
+      bladeCount: job.bladeCount,
+      sortedDithers,
+      instanceMatrix,
+      variationAttribute,
+      coverageAttribute,
+      origin,
+      localBounds,
+      boundingSphere: localBounds.getBoundingSphere(new THREE.Sphere()),
+      references: 0,
+    };
+    this.placementCache.set(placement.key, placement);
+    job.sortOrder = undefined;
+    job.sortScratch = undefined;
+    job.dithers = undefined;
+    job.ditherBits = undefined;
+    job.radixCounts = undefined;
+    job.radixOffsets = undefined;
+    job.reorderVisited = undefined;
+    job.reorderMatrixScratch = undefined;
+    job.reorderVariationScratch = undefined;
+    job.reorderCycleStart = undefined;
+    job.reorderCycleTarget = undefined;
+    job.reorderCoverageScratch = undefined;
+    return placement;
+  }
+
+  private createTile(
+    options: WorldSingleBladeTileBuildOptions,
+    placement: WorldSingleBladePlacement,
+  ): WorldSingleBladeTile {
     const sourceGeometry = this.getSourceGeometry(options.bladeSegments);
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
-      variations.subarray(0, bladeCount * 4),
-      coverages.subarray(0, bladeCount),
+      placement.variations.subarray(0, placement.bladeCount * 4),
+      placement.coverages.subarray(0, placement.bladeCount),
+      {
+        variation: placement.variationAttribute,
+        coverage: placement.coverageAttribute,
+      },
     );
-    // InstancedMesh otherwise allocates and fills an identity matrix for every
-    // instance before the completed static buffer replaces it.
     const mesh = new THREE.InstancedMesh(geometry, options.material.material, 0);
     mesh.name = `${options.namePrefix}-${options.key}`;
     mesh.castShadow = false;
     mesh.receiveShadow = options.receiveShadows && this.profile.shadows;
     mesh.frustumCulled = true;
-    // Finish centring vertically now that the tile's terrain extent is known,
-    // then convert the accumulated world bounds into the mesh-local space that
-    // frustum culling expects.
-    const centerY = (bounds.min.y + bounds.max.y) * 0.5;
-    for (let index = 0; index < bladeCount; index += 1) {
-      matrixValues[index * 16 + 13] -= centerY;
-    }
-    this.origin.set(job.tileCenterX, centerY, job.tileCenterZ);
-
-    // Adopt the buffer the sampling loop already filled.
-    mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
-      matrixValues.subarray(0, bladeCount * 16),
-      16,
-    );
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    mesh.count = bladeCount;
-
-    bounds.expandByScalar(this.calculateBoundsPadding());
-    bounds.min.sub(this.origin);
-    bounds.max.sub(this.origin);
-    mesh.position.copy(this.origin);
-    // Single-blade tiles never move once built.
+    mesh.instanceMatrix = placement.instanceMatrix;
+    mesh.count = placement.bladeCount;
+    mesh.position.copy(placement.origin);
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
-    mesh.boundingBox = bounds;
-    mesh.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+    mesh.boundingBox = placement.localBounds;
+    mesh.boundingSphere = placement.boundingSphere;
+    placement.references += 1;
 
     return {
       key: options.key,
       tileX: options.tileX,
       tileZ: options.tileZ,
       mesh,
-      bladeCount,
-      sortedDithers,
+      bladeCount: placement.bladeCount,
+      sortedDithers: placement.sortedDithers,
+      placementKey: placement.key,
     };
   }
 
-  /**
-   * Reorders a tile's instance rows by the dither value the vertex shader
-   * derives for each blade, ascending, and returns that sorted key array.
-   *
-   * The shader computes
-   *   `fract(shade * 0.754877666 + phase * 0.569840296 + variation.x + seed)`.
-   * Single-blade source geometry carries a constant 0.5 for both `shade` and
-   * `phase` on every vertex, so the whole expression is per instance and can be
-   * reproduced exactly here.
-   */
-  private sortInstancesByDither(
-    matrixValues: Float32Array,
-    variations: Float32Array,
-    coverages: Float32Array,
-    bladeCount: number,
-    ditherSeed: number,
-  ): Float32Array {
-    const order = new Uint32Array(bladeCount);
-    const dithers = new Float32Array(bladeCount);
-    for (let index = 0; index < bladeCount; index += 1) {
-      order[index] = index;
-      const value = SINGLE_BLADE_DITHER_BIAS + variations[index * 4] + ditherSeed;
-      dithers[index] = value - Math.floor(value);
+  disposeTile(tile: WorldSingleBladeTile): void {
+    const placement = this.placementCache.get(tile.placementKey);
+    if (!placement) {
+      this.geometryFactory.disposeInstancedMesh(tile.mesh);
+      return;
     }
-    order.sort((left, right) => dithers[left] - dithers[right]);
-
-    const sortedMatrix = new Float32Array(bladeCount * 16);
-    const sortedVariations = new Float32Array(bladeCount * 4);
-    const sortedCoverages = new Float32Array(bladeCount);
-    const sortedDithers = new Float32Array(bladeCount);
-    for (let target = 0; target < bladeCount; target += 1) {
-      const source = order[target];
-      sortedMatrix.set(
-        matrixValues.subarray(source * 16, source * 16 + 16),
-        target * 16,
-      );
-      sortedVariations.set(
-        variations.subarray(source * 4, source * 4 + 4),
-        target * 4,
-      );
-      sortedCoverages[target] = coverages[source];
-      sortedDithers[target] = dithers[source];
+    placement.references -= 1;
+    this.geometryFactory.disposeInstancedMesh(
+      tile.mesh,
+      placement.references > 0,
+    );
+    if (placement.references <= 0) {
+      this.placementCache.delete(placement.key);
+      this.releaseBuildBuffers(placement.matrixValues.length / 16, placement);
     }
-    matrixValues.set(sortedMatrix);
-    variations.set(sortedVariations);
-    coverages.set(sortedCoverages);
-    return sortedDithers;
   }
 
-  disposeTile(tile: WorldSingleBladeTile): void {
-    this.geometryFactory.disposeInstancedMesh(tile.mesh);
+  cancelBuild(job: WorldSingleBladeTileBuildJob): void {
+    if (job.cachedPlacement) {
+      return;
+    }
+    if (job.heightLattice) {
+      this.latticePool.push(job.heightLattice);
+      job.heightLattice = undefined;
+    }
+    this.releaseBuildBuffers(job.requestedCount, job);
   }
 
   dispose(): void {
@@ -404,6 +923,59 @@ export class WorldSingleBladeTileFactory {
       geometry.dispose();
     }
     this.sourceGeometries.clear();
+    this.placementCache.clear();
+    this.emptyPlacementCache.clear();
+    this.buildBufferPool.clear();
+    this.latticePool.length = 0;
+  }
+
+  private createPlacementKey(options: WorldSingleBladeTileBuildOptions): string {
+    return `${options.tileX}:${options.tileZ}:${options.densityMultiplier}:${options.seedSalt}:${options.material.getDitherSeed()}`;
+  }
+
+  private rememberEmptyPlacement(key: string): void {
+    this.emptyPlacementCache.delete(key);
+    this.emptyPlacementCache.set(key, true);
+    while (this.emptyPlacementCache.size > EMPTY_PLACEMENT_CACHE_LIMIT) {
+      const oldest = this.emptyPlacementCache.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.emptyPlacementCache.delete(oldest);
+    }
+  }
+
+  private acquireBuildBuffers(requestedCount: number): TileBuildBuffers {
+    const pool = this.buildBufferPool.get(requestedCount);
+    const buffers = pool?.pop();
+    if (buffers) {
+      return buffers;
+    }
+    return {
+      matrixValues: new Float32Array(requestedCount * 16),
+      variations: new Float32Array(requestedCount * 4),
+      coverages: new Float32Array(requestedCount),
+    };
+  }
+
+  private releaseBuildBuffers(
+    requestedCount: number,
+    buffers: TileBuildBuffers,
+  ): void {
+    let pool = this.buildBufferPool.get(requestedCount);
+    if (!pool) {
+      pool = [];
+      this.buildBufferPool.set(requestedCount, pool);
+    }
+    // Three fields can build concurrently. Keeping a small bounded reserve
+    // absorbs tile churn without retaining every buffer ever streamed.
+    if (pool.length < 4) {
+      pool.push({
+        matrixValues: buffers.matrixValues,
+        variations: buffers.variations,
+        coverages: buffers.coverages,
+      });
+    }
   }
 
   private getSourceGeometry(bladeSegments: number): THREE.BufferGeometry {
@@ -511,6 +1083,19 @@ export class WorldSingleBladeTileFactory {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;
+  }
+
+  /**
+   * A value in [0, 1) shared by every blade of one tuft. Blades of a tuft are
+   * not contiguous in the enumeration order — the tuft spans several rows — so
+   * these cannot come from the job's sequential stream and are hashed from the
+   * tuft's global coordinates instead.
+   */
+  private clumpValue(clumpX: number, clumpZ: number, salt: number): number {
+    return (
+      this.hash(clumpX, clumpZ, (this.worldConfig.seed ^ salt) >>> 0) /
+      4294967296
+    );
   }
 
   private hash(x: number, z: number, seed: number): number {

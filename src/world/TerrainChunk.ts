@@ -51,9 +51,11 @@ export class TerrainChunkBuilder {
   private readonly positions: Float32Array;
   private readonly normals: Float32Array;
   private readonly colors: Float32Array;
+  private readonly paths: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
+  private readonly pathDistances = new THREE.Vector2();
   private stage = VERTEX_STAGE;
   private nextVertex = 0;
   private nextCell = 0;
@@ -77,6 +79,7 @@ export class TerrainChunkBuilder {
     this.positions = new Float32Array(vertexCount * 3);
     this.normals = new Float32Array(vertexCount * 3);
     this.colors = new Float32Array(vertexCount * 3);
+    this.paths = new Float32Array(vertexCount * 3);
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
@@ -130,8 +133,16 @@ export class TerrainChunkBuilder {
         suitability,
         this.color,
       );
+      // Signed distances, not a coverage mask: a signed distance field stays
+      // close to linear across a cell, so interpolating it between vertices
+      // metres apart still resolves a way barely wider than one of them.
+      this.field.samplePathDistances(x, z, this.pathDistances);
 
       const offset = this.nextVertex * 3;
+      const pathOffset = this.nextVertex * 3;
+      this.paths[pathOffset] = this.pathDistances.x;
+      this.paths[pathOffset + 1] = this.pathDistances.y;
+      this.paths[pathOffset + 2] = this.field.samplePathVisibility(height);
       this.positions[offset] = x;
       this.positions[offset + 1] = height;
       this.positions[offset + 2] = z;
@@ -189,6 +200,10 @@ export class TerrainChunkBuilder {
     geometry.setAttribute(
       "color",
       new THREE.BufferAttribute(this.colors, 3),
+    );
+    geometry.setAttribute(
+      "terrainPath",
+      new THREE.BufferAttribute(this.paths, 3),
     );
     geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
     geometry.computeBoundingBox();

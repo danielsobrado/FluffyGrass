@@ -5,18 +5,36 @@ import type { TerrainField } from "./TerrainField";
 import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
 
 const TERRAIN_DETAIL_VERTEX = `
+attribute vec3 terrainPath;
 varying vec3 vTerrainWorldPosition;
+varying vec3 vTerrainPath;
 `;
 
 const TERRAIN_DETAIL_POSITION = `
 vTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vTerrainPath = terrainPath;
 `;
 
 const TERRAIN_DETAIL_FRAGMENT = `
 uniform sampler2D uTerrainGrassDetail;
 uniform vec3 uTerrainGrassTint;
 uniform float uTerrainGrassTintStrength;
+uniform vec2 uTerrainPathHalfWidth;
+uniform float uTerrainPathEdge;
+uniform vec3 uTerrainPathSoil;
+uniform vec3 uTerrainPathDust;
+uniform vec3 uTerrainPathGrit;
 varying vec3 vTerrainWorldPosition;
+varying vec3 vTerrainPath;
+
+/** Metres of soft inner edge, so the tread does not end on a hard line. */
+const float TERRAIN_PATH_FEATHER = 0.15;
+/**
+ * Metres of scuffed ground beyond the tread. Grass stops a little short of a
+ * way to leave it room to be walked on, and soil fading out across that margin
+ * is what keeps the gap from reading as a mown strip of bare lawn.
+ */
+const float TERRAIN_PATH_VERGE = 0.85;
 `;
 
 const TERRAIN_DETAIL_COLOR = `
@@ -51,6 +69,89 @@ diffuseColor.rgb = mix(
   terrainTintedGrass,
   terrainGrassMask * uTerrainGrassTintStrength
 );
+
+// vTerrainPath carries the signed distance in metres to each walking way, so
+// how far outside the tread this fragment lies is known before anything is
+// sampled. Everything past the widest the ragged edge can reach is terrain
+// that will not change, and the whole soil pass is skipped for it.
+float terrainPathMargin = min(
+  abs(vTerrainPath.x) - uTerrainPathHalfWidth.x,
+  abs(vTerrainPath.y) - uTerrainPathHalfWidth.y
+);
+// The soil is sampled with explicit gradients taken out here, in uniform
+// control flow. Implicit mip selection inside the branch below is undefined
+// for a quad that straddles the verge, and what it actually does is fall to
+// the coarsest mip: the grain and the ragged edge both average away to a flat
+// ribbon of one colour.
+vec2 terrainSoilDdx = dFdx(vTerrainWorldPosition.xz);
+vec2 terrainSoilDdy = dFdy(vTerrainWorldPosition.xz);
+float terrainPathVisibility = saturate(vTerrainPath.z);
+if (
+  terrainPathVisibility > 0.001 &&
+  terrainPathMargin < uTerrainPathEdge + TERRAIN_PATH_VERGE
+) {
+  // Three octaves of the detail noise do double duty: they crumble the edge of
+  // the tread and they are the soil's own grain, so the verge breaks up along
+  // the same grit the way is made of. The scales are metres per repeat of a
+  // texture whose own features are about a twelfth of it: 2.5 m clods, 40 cm
+  // scuffing, and 10 cm grit.
+  vec2 terrainSoilUv = vTerrainWorldPosition.xz;
+  float terrainSoilCoarse = textureGrad(
+    uTerrainGrassDetail,
+    terrainSoilUv * 0.033,
+    terrainSoilDdx * 0.033,
+    terrainSoilDdy * 0.033
+  ).r;
+  float terrainSoilMedium = textureGrad(
+    uTerrainGrassDetail,
+    terrainSoilUv * 0.21,
+    terrainSoilDdx * 0.21,
+    terrainSoilDdy * 0.21
+  ).r;
+  float terrainSoilFine = textureGrad(
+    uTerrainGrassDetail,
+    terrainSoilUv * 0.83,
+    terrainSoilDdx * 0.83,
+    terrainSoilDdy * 0.83
+  ).r;
+  // The detail texture is a fractal perlin whose values cluster around the
+  // middle, so every term below is stretched away from it. Clamping the sum to
+  // a unit range is what keeps the widest possible verge equal to
+  // uTerrainPathEdge, which the branch above is sized for.
+  float terrainSoilEdgeNoise = clamp(
+    (terrainSoilCoarse - 0.5) * 4.0 + (terrainSoilMedium - 0.5) * 2.0,
+    -1.0,
+    1.0
+  );
+  vec2 terrainPathDistance =
+    abs(vTerrainPath.xy) + uTerrainPathEdge * terrainSoilEdgeNoise;
+  vec2 terrainPathBands = vec2(1.0) - smoothstep(
+    uTerrainPathHalfWidth - TERRAIN_PATH_FEATHER,
+    uTerrainPathHalfWidth + TERRAIN_PATH_VERGE,
+    terrainPathDistance
+  );
+  float terrainPathMask =
+    max(terrainPathBands.x, terrainPathBands.y) * terrainPathVisibility;
+
+  float terrainSoilGrain = clamp(
+    0.5 +
+      (terrainSoilCoarse - 0.5) * 1.5 +
+      (terrainSoilMedium - 0.5) * 1.1 +
+      (terrainSoilFine - 0.5) * 0.7,
+    0.0,
+    1.0
+  );
+  vec3 terrainSoil = mix(uTerrainPathSoil, uTerrainPathDust, terrainSoilGrain);
+  // Boots polish the middle of a way darker and smoother than the loose soil
+  // they push out to its edges.
+  terrainSoil *= mix(1.0, 0.86, terrainPathMask * terrainPathMask);
+  // The coarse fraction that survives being walked on. It is the finest term
+  // here, so it is also the first to alias: it fades with the grass detail.
+  float terrainSoilGrit =
+    smoothstep(0.58, 0.78, terrainSoilFine) * terrainDetailFade;
+  terrainSoil = mix(terrainSoil, uTerrainPathGrit, terrainSoilGrit * 0.35);
+  diffuseColor.rgb = mix(diffuseColor.rgb, terrainSoil, terrainPathMask);
+}
 `;
 
 interface ChunkRequest {
@@ -87,6 +188,13 @@ export class TerrainStreamer {
     uTerrainGrassTint: { value: new THREE.Color("#4d923f") },
     uTerrainGrassTintStrength: { value: 0.5 },
   };
+  private readonly pathUniforms = {
+    uTerrainPathHalfWidth: { value: new THREE.Vector2() },
+    uTerrainPathEdge: { value: 0 },
+    uTerrainPathSoil: { value: new THREE.Color("#574833") },
+    uTerrainPathDust: { value: new THREE.Color("#8d7350") },
+    uTerrainPathGrit: { value: new THREE.Color("#a1968a") },
+  };
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private activeBuild?: TerrainChunkBuilder;
@@ -109,11 +217,17 @@ export class TerrainStreamer {
     this.grassDetailTexture.generateMipmaps = true;
     this.material.name = "world-terrain-material";
     this.material.dithering = true;
+    this.pathUniforms.uTerrainPathHalfWidth.value.set(
+      config.pathWidth * 0.5,
+      config.pathBranchWidth * 0.5,
+    );
+    this.pathUniforms.uTerrainPathEdge.value = config.pathEdgeRoughness;
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTerrainGrassDetail = {
         value: this.grassDetailTexture,
       };
       Object.assign(shader.uniforms, this.grassArtUniforms);
+      Object.assign(shader.uniforms, this.pathUniforms);
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>${TERRAIN_DETAIL_VERTEX}`)
         .replace(
@@ -131,7 +245,7 @@ export class TerrainStreamer {
         );
     };
     this.material.customProgramCacheKey = () =>
-      "world-terrain-grass-detail-v2";
+      "world-terrain-grass-detail-v3-paths";
     this.material.needsUpdate = true;
     this.material.userData.shadows = shadows;
   }

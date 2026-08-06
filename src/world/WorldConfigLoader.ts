@@ -68,6 +68,11 @@ const CONFIG_SCHEMA: ConfigSchema = {
   mountainHeight: NON_NEGATIVE,
   mountainScale: POSITIVE,
   detailScale: POSITIVE,
+  pathWidth: { minimum: 0.5, maximum: 12 },
+  pathBranchWidth: { minimum: 0.4, maximum: 12 },
+  pathSpacing: { minimum: 120, maximum: 4000 },
+  pathEdgeRoughness: { minimum: 0, maximum: 2 },
+  pathGrassClearance: { minimum: 0, maximum: 4 },
   grassMinAltitude: {},
   grassMaxAltitude: {},
   grassMaxSlopeDegrees: { minimum: 1, maximum: 89 },
@@ -183,6 +188,14 @@ export class WorldConfigLoader {
       config.grassRadiusCompact > config.terrainRadiusCompact
     ) {
       throw new Error("Grass streaming radius must not exceed terrain radius.");
+    }
+    if (config.pathBranchWidth > config.pathWidth) {
+      throw new Error("pathBranchWidth must not exceed pathWidth.");
+    }
+    // A way whose cleared band approaches the spacing between neighbouring ways
+    // stops reading as a path through the grass and starts erasing the field.
+    if (config.pathWidth >= config.pathSpacing * 0.05) {
+      throw new Error("pathWidth must stay far below pathSpacing.");
     }
     if (config.grassMinAltitude >= config.grassMaxAltitude) {
       throw new Error("grassMinAltitude must be lower than grassMaxAltitude.");

@@ -16,6 +16,30 @@ const DEFAULT_TRAIL_MAX_ANGLE = 1.29;
 const DEFAULT_TRAIL_WOBBLE_FREQUENCY = 12;
 const DEFAULT_TRAIL_WOBBLE_AMPLITUDE = 0.16;
 
+/** How far the normal tilts towards each edge of the blade's trough. */
+const DEFAULT_BLADE_CURVATURE = 0.55;
+const DEFAULT_SHEEN_STRENGTH = 0.09;
+const DEFAULT_SHEEN_POWER = 42;
+const DEFAULT_SHEEN_FADE_DISTANCE = 18;
+/** Radians per metre along the wind; roughly seventy metres between crests. */
+const DEFAULT_GUST_FRONT_SCALE = 0.085;
+const DEFAULT_GUST_FRONT_SPEED = 0.55;
+/** How far a lull drops the bend. The envelope only ever scales it down. */
+const DEFAULT_GUST_FRONT_DEPTH = 0.55;
+/**
+ * World size of one device pixel per metre of camera distance,
+ * `2 * tan(fov / 2) / drawingBufferHeight`. Replaced on the first resize; the
+ * default matches a 60-degree vertical field of view at 1080 device pixels.
+ */
+const DEFAULT_PIXEL_WORLD_SCALE = 0.00107;
+const MINIMUM_BLADE_PIXEL_WIDTH = 1.15;
+/**
+ * Ceiling on the widened half-width. The single-blade bounds reserve a safety
+ * margin an order larger than a blade's own half-width, and this stays inside
+ * it so a widened blade cannot leave the bound its tile is culled against.
+ */
+const MAXIMUM_BLADE_WIDEN_METRES = 0.02;
+
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
 attribute float grassPhase;
@@ -40,6 +64,31 @@ uniform float uGrassDetailNearDistance;
 uniform float uGrassDetailTransitionDistance;
 uniform float uGrassLodInvert;
 uniform float uGrassArtDensityScale;
+uniform float uGrassBladeCurvature;
+uniform float uGrassGustFrontScale;
+uniform float uGrassGustFrontSpeed;
+uniform float uGrassGustFrontDepth;
+uniform float uGrassSheenFadeDistance;
+varying vec2 vGrassSheen;
+
+vec3 grassRotateAroundAxis(
+  vec3 value,
+  vec3 axis,
+  float sine,
+  float cosine
+) {
+  return value * cosine + cross(axis, value) * sine +
+    axis * dot(axis, value) * (1.0 - cosine);
+}
+`;
+
+// Only the layer that is actually large enough on screen to shimmer compiles
+// the sub-pixel width clamp. Everything else keeps the plain vertex path.
+const VERTEX_SUBPIXEL_DECLARATIONS = `
+uniform float uGrassPixelWorldScale;
+uniform float uGrassMinPixelWidth;
+uniform float uGrassBladeHalfWidth;
+uniform float uGrassMaxWidenDistance;
 `;
 
 // Only materials that can actually be reached by the character compile these.
@@ -79,6 +128,29 @@ bool grassKeepLod = uGrassLodInvert < 0.5
 const VERTEX_THRESHOLD_DECLARATIONS = `
 uniform float uGrassLodThreshold;
 uniform float uGrassDistanceFade;
+`;
+
+// A real blade is troughed across its width, so its two edges catch the light
+// at different angles and every blade in the field carries its own gradient.
+// Flat quad normals biased towards the canopy give the whole field one shading
+// response instead, which is most of why procedural grass reads as a carpet.
+//
+// The width direction is recovered from the flat quad's own face normal rather
+// than stored per vertex, so this works unchanged for the single-blade geometry
+// (width along local X) and for clump geometry, whose blades each face a
+// different way. It also leaves `grassWidthAxis` and `grassSide` in scope for
+// the sub-pixel width clamp further down.
+const VERTEX_NORMAL = `
+vec3 grassWidthAxis = cross(vec3(0.0, 1.0, 0.0), objectNormal);
+float grassWidthAxisLength = length(grassWidthAxis);
+grassWidthAxis = grassWidthAxisLength > 0.0001
+  ? grassWidthAxis / grassWidthAxisLength
+  : vec3(1.0, 0.0, 0.0);
+float grassSide = uv.x * 2.0 - 1.0;
+objectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp));
+objectNormal = normalize(
+  objectNormal + grassWidthAxis * (grassSide * uGrassBladeCurvature)
+);
 `;
 
 const VERTEX_SHADING_DECLARATIONS = `
@@ -142,12 +214,29 @@ if (!grassKeepBlade) {
   transformed = vec3(0.0);
 }
 
+GRASS_SHEEN_VARYING
+
+float grassCoverage = 1.0;
+GRASS_SUBPIXEL_WIDTH
+
 if (grassKeepBlade && grassProgress > 0.001) {
   vec2 grassWindDirection = uGrassWindDirection;
   mat3 grassInstanceBasis = mat3(instanceMatrix);
   float grassHorizontalScale = max(length(grassInstanceBasis[0]), 0.0001);
   float grassVerticalScale = max(length(grassInstanceBasis[1]), 0.0001);
   float grassDepthScale = max(length(grassInstanceBasis[2]), 0.0001);
+  // A gust front travelling along the wind, tens of metres between crests. The
+  // local term below has a sub-metre wavelength and a per-instance phase, so on
+  // its own it can only ever produce uncorrelated chatter — no amount of tuning
+  // makes a wave out of it. The envelope only ever scales the bend down, which
+  // is what lets the reserved bounds and the configured wind strength keep
+  // their existing meaning.
+  float grassGustFront = sin(
+    dot(grassWorldRoot.xz, grassWindDirection) * uGrassGustFrontScale -
+    uGrassTime * uGrassGustFrontSpeed
+  );
+  float grassGustEnvelope =
+    1.0 - uGrassGustFrontDepth * (0.5 - 0.5 * grassGustFront);
   float grassGust = sin(
     dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
     uGrassTime * uGrassGustSpeed +
@@ -163,17 +252,85 @@ if (grassKeepBlade && grassProgress > 0.001) {
   float grassBend = (
     grassGust * uGrassWindStrength +
     grassFlutter * uGrassFlutterStrength
-  ) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) * uGrassWindLodScale;
+  ) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) *
+    uGrassWindLodScale * grassGustEnvelope;
   vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
-  vec3 grassLocalWind = vec3(
+  // Rotate about the root instead of translating the vertex. Translation makes
+  // a bent blade longer than a straight one; the trail bend below documents
+  // that as the source of the rubbery look and was rewritten to rotate, but the
+  // wind path kept the old form and stretched every blade it moved.
+  vec2 grassWindLocal = vec2(
     dot(grassWorldWind, grassInstanceBasis[0] / grassHorizontalScale),
-    dot(grassWorldWind, grassInstanceBasis[1] / grassVerticalScale),
     dot(grassWorldWind, grassInstanceBasis[2] / grassDepthScale)
   );
-  transformed += grassLocalWind * grassBend;
+  float grassWindSin = sin(grassBend);
+  float grassWindCos = cos(grassBend);
+  float grassWindHeight = transformed.y;
+  transformed.x += grassWindLocal.x * grassWindHeight * grassWindSin *
+    (grassVerticalScale / grassHorizontalScale);
+  transformed.z += grassWindLocal.y * grassWindHeight * grassWindSin *
+    (grassVerticalScale / grassDepthScale);
+  transformed.y *= grassWindCos;
+  vec3 grassWindAxis = vec3(grassWindLocal.y, 0.0, -grassWindLocal.x);
+  float grassWindAxisLength = length(grassWindAxis);
+  if (grassWindAxisLength > 0.0001) {
+    vec3 grassWindAxisView = normalize(
+      mat3(modelViewMatrix) * grassInstanceBasis *
+        (grassWindAxis / grassWindAxisLength)
+    );
+    vNormal = normalize(grassRotateAroundAxis(
+      vNormal,
+      grassWindAxisView,
+      grassWindSin,
+      grassWindCos
+    ));
+  }
 GRASS_TRAIL_BEND
 }
 
+`;
+
+// x: how much of the specular lobe survives at this distance, y: how thin the
+// blade is here. The mid material compiles out the fade calculation entirely.
+const VERTEX_SHEEN_VARYING = `
+vGrassSheen = vec2(
+  1.0 - smoothstep(
+    uGrassSheenFadeDistance * 0.55,
+    uGrassSheenFadeDistance,
+    grassCameraDistance
+  ),
+  mix(0.55, 1.0, grassProgress)
+);
+`;
+
+const VERTEX_NO_SHEEN_VARYING = `
+vGrassSheen = vec2(0.0, mix(0.55, 1.0, grassProgress));
+`;
+
+// A blade narrower than a pixel does not antialias away — it alternately covers
+// and misses the pixel centre as the camera moves, and an opaque field of them
+// sparkles. Widening the blade to a minimum projected width fixes the coverage;
+// blending back towards the canopy colour by exactly the area that widening
+// invented keeps the field's average brightness where it was, so the near band
+// still matches the mid patches it hands over to.
+//
+// The widening is clamped well inside the bounds safety margin, so a blade can
+// never grow out of the tile bound that frustum culling uses.
+const VERTEX_SUBPIXEL_WIDTH = `
+if (grassKeepBlade) {
+  float grassWidthScale = max(length(vec3(instanceMatrix[0])), 0.0001);
+  float grassSourceHalfWidth = uGrassBladeHalfWidth * grassWidthScale;
+  float grassTargetHalfWidth = min(
+    grassCameraDistance * uGrassPixelWorldScale * uGrassMinPixelWidth * 0.5,
+    uGrassMaxWidenDistance
+  );
+  float grassWidenedHalfWidth = max(grassSourceHalfWidth, grassTargetHalfWidth);
+  grassCoverage = grassSourceHalfWidth / grassWidenedHalfWidth;
+  // grassSide is 0 at the single-triangle blade's apex, so the blade widens at
+  // the base and keeps its point.
+  transformed += grassWidthAxis *
+    (grassSide * (grassWidenedHalfWidth - grassSourceHalfWidth) / grassWidthScale);
+}
 `;
 
 // The blade rotates about its root instead of being translated sideways. The
@@ -236,6 +393,24 @@ const VERTEX_TRAIL_BEND = `
         transformed.z += grassTrailLocal.y * grassTrailHeight * grassTrailSin *
           (grassVerticalScale / grassDepthScale);
         transformed.y *= grassTrailCos;
+        vec3 grassTrailAxis = vec3(
+          grassTrailLocal.y,
+          0.0,
+          -grassTrailLocal.x
+        );
+        float grassTrailAxisLength = length(grassTrailAxis);
+        if (grassTrailAxisLength > 0.0001) {
+          vec3 grassTrailAxisView = normalize(
+            mat3(modelViewMatrix) * grassInstanceBasis *
+              (grassTrailAxis / grassTrailAxisLength)
+          );
+          vNormal = normalize(grassRotateAroundAxis(
+            vNormal,
+            grassTrailAxisView,
+            grassTrailSin,
+            grassTrailCos
+          ));
+        }
       }
     }
   }
@@ -258,16 +433,20 @@ vGrassRootAo = instanceVariation.z;
 // segmented ultra-near blades, which are the ones actually large on screen, keep
 // the per-fragment path.
 const VERTEX_PALETTE = `
-vGrassColor = grassResolvePalette(
-  uGrassBaseColor,
-  uGrassTipColor,
-  uGrassDryColor,
-  grassProgress,
-  grassBladeShade,
-  instanceVariation.w,
-  instanceVariation.z,
-  uGrassTipColorStrength,
-  uGrassRootDarkening
+vGrassColor = mix(
+  grassResolvePalette(
+    uGrassBaseColor,
+    uGrassTipColor,
+    uGrassDryColor,
+    grassProgress,
+    grassBladeShade,
+    instanceVariation.w,
+    instanceVariation.z,
+    uGrassTipColorStrength,
+    uGrassRootDarkening
+  ),
+  uGrassCanopyColor,
+  1.0 - grassCoverage
 );
 `;
 
@@ -275,6 +454,7 @@ const VERTEX_PALETTE_DECLARATIONS = `
 uniform vec3 uGrassBaseColor;
 uniform vec3 uGrassTipColor;
 uniform vec3 uGrassDryColor;
+uniform vec3 uGrassCanopyColor;
 uniform float uGrassRootDarkening;
 uniform float uGrassTipColorStrength;
 varying vec3 vGrassColor;
@@ -289,17 +469,24 @@ uniform float uGrassRootDarkening;
 uniform float uGrassTipColorStrength;
 uniform float uGrassAmbientBoost;
 uniform float uGrassBacklightStrength;
+uniform float uGrassSheenStrength;
+uniform float uGrassSheenPower;
 varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
+varying vec2 vGrassSheen;
 ${GRASS_PALETTE_GLSL}
 `;
 
 const VERTEX_PALETTE_FRAGMENT_DECLARATIONS = `
+uniform vec3 uGrassTipColor;
 uniform float uGrassAmbientBoost;
 uniform float uGrassBacklightStrength;
+uniform float uGrassSheenStrength;
+uniform float uGrassSheenPower;
 varying vec3 vGrassColor;
+varying vec2 vGrassSheen;
 `;
 
 const VERTEX_PALETTE_FRAGMENT_COLOR = `
@@ -332,11 +519,19 @@ totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 
 const FRAGMENT_OUTPUT = `
 float grassBackLight = 0.0;
+vec3 grassSheen = vec3(0.0);
 #if NUM_DIR_LIGHTS > 0
-  grassBackLight = pow(
-    saturate(dot(-normalize(vViewPosition), directionalLights[0].direction)),
-    2.0
-  );
+  vec3 grassViewDirection = normalize(vViewPosition);
+  vec3 grassSunDirection = directionalLights[0].direction;
+  // Transmission, not a rim. Light has to reach the camera through the blade,
+  // so the sun must be behind it, the blade must be turned edge-on to the sun,
+  // and a thin tip passes more of it than the thick base. The term this
+  // replaces had only the first of those three and so lit every blade facing
+  // the camera equally, which reads as a plastic outline rather than a leaf.
+  float grassIntoSun = saturate(dot(-grassViewDirection, grassSunDirection));
+  float grassThinness = 1.0 - abs(dot(normal, grassSunDirection));
+  grassBackLight = grassIntoSun * grassIntoSun * grassThinness * vGrassSheen.y;
+GRASS_SHEEN_OUTPUT
 #endif
 vec3 grassLambertLight =
   reflectedLight.directDiffuse +
@@ -344,7 +539,21 @@ vec3 grassLambertLight =
   totalEmissiveRadiance;
 vec3 outgoingLight =
   mix(diffuseColor.rgb, grassLambertLight, 0.38) +
-  diffuseColor.rgb * grassBackLight * uGrassBacklightStrength * 0.2;
+  mix(diffuseColor.rgb, uGrassTipColor, 0.35) *
+    grassBackLight * uGrassBacklightStrength * 0.3 +
+  grassSheen;
+`;
+
+const FRAGMENT_SHEEN_OUTPUT = `
+  // Skip both the half-vector normalization and the high-power lobe once the
+  // contribution has faded. This branch is coherent across distant quads.
+  if (vGrassSheen.x > 0.001) {
+    vec3 grassHalfVector = normalize(grassSunDirection + grassViewDirection);
+    grassSheen = directionalLights[0].color * (
+      pow(saturate(dot(normal, grassHalfVector)), uGrassSheenPower) *
+      uGrassSheenStrength * vGrassSheen.x
+    );
+  }
 `;
 
 /**
@@ -388,6 +597,15 @@ export interface GrassNearMaterialOptions {
    * runtime, which is what the mid layer used to pay for on every blade.
    */
   interactive?: boolean;
+  /**
+   * Widen blades that project to less than a pixel, and pay the coverage back
+   * in colour. Only the layer that owns the band where blades go sub-pixel
+   * needs it; nearer layers never trigger the clamp and would pay for the test,
+   * and the mid patches past it are already a different representation.
+   */
+  subPixelWidth?: boolean;
+  /** Compile the close-range waxy highlight; distant mid grass disables it. */
+  sheen?: boolean;
 }
 
 export class GrassNearMaterial {
@@ -427,6 +645,18 @@ export class GrassNearMaterial {
     uGrassDetailNearDistance: { value: 0 },
     uGrassDetailTransitionDistance: { value: 1 },
     uGrassArtDensityScale: { value: 1 },
+    uGrassCanopyColor: { value: new THREE.Color("#4d923f") },
+    uGrassBladeCurvature: { value: DEFAULT_BLADE_CURVATURE },
+    uGrassSheenStrength: { value: DEFAULT_SHEEN_STRENGTH },
+    uGrassSheenPower: { value: DEFAULT_SHEEN_POWER },
+    uGrassSheenFadeDistance: { value: DEFAULT_SHEEN_FADE_DISTANCE },
+    uGrassGustFrontScale: { value: DEFAULT_GUST_FRONT_SCALE },
+    uGrassGustFrontSpeed: { value: DEFAULT_GUST_FRONT_SPEED },
+    uGrassGustFrontDepth: { value: DEFAULT_GUST_FRONT_DEPTH },
+    uGrassPixelWorldScale: { value: DEFAULT_PIXEL_WORLD_SCALE },
+    uGrassMinPixelWidth: { value: MINIMUM_BLADE_PIXEL_WIDTH },
+    uGrassBladeHalfWidth: { value: 0.017 },
+    uGrassMaxWidenDistance: { value: MAXIMUM_BLADE_WIDEN_METRES },
     uGrassTrailMap: { value: null as THREE.Texture | null },
     uGrassTrailCenter: { value: new THREE.Vector2() },
     uGrassTrailInverseCoverage: { value: 1 },
@@ -463,6 +693,8 @@ export class GrassNearMaterial {
     this.material.name = options.name;
     const vertexPalette = options.vertexPalette === true;
     const worldLod = options.worldLod !== false;
+    const subPixelWidth = options.subPixelWidth === true;
+    const sheen = options.sheen !== false;
     // Selected at compile time rather than branched on a uniform: this is the
     // hottest code in the scene and the choice never varies for a material.
     const keepLod = worldLod
@@ -478,6 +710,8 @@ export class GrassNearMaterial {
           }${
             worldLod ? "" : VERTEX_THRESHOLD_DECLARATIONS
           }${
+            subPixelWidth ? VERTEX_SUBPIXEL_DECLARATIONS : ""
+          }${
             vertexPalette
               ? VERTEX_PALETTE_DECLARATIONS
               : VERTEX_SHADING_DECLARATIONS
@@ -485,17 +719,26 @@ export class GrassNearMaterial {
         )
         .replace(
           "#include <beginnormal_vertex>",
-          `#include <beginnormal_vertex>\nobjectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp));`,
+          `#include <beginnormal_vertex>${VERTEX_NORMAL}`,
         )
         .replace(
           "#include <begin_vertex>",
           `#include <begin_vertex>${VERTEX_WIND.replace(
             "GRASS_KEEP_LOD",
             keepLod,
-          ).replace(
-            "GRASS_TRAIL_BEND",
-            this.interactive ? VERTEX_TRAIL_BEND : "",
-          )}${vertexPalette ? VERTEX_PALETTE : VERTEX_SHADING}`,
+          )
+            .replace(
+              "GRASS_SHEEN_VARYING",
+              sheen ? VERTEX_SHEEN_VARYING : VERTEX_NO_SHEEN_VARYING,
+            )
+            .replace(
+              "GRASS_SUBPIXEL_WIDTH",
+              subPixelWidth ? VERTEX_SUBPIXEL_WIDTH : "",
+            )
+            .replace(
+              "GRASS_TRAIL_BEND",
+              this.interactive ? VERTEX_TRAIL_BEND : "",
+            )}${vertexPalette ? VERTEX_PALETTE : VERTEX_SHADING}`,
         );
       shader.fragmentShader = shader.fragmentShader
         .replace(
@@ -512,7 +755,10 @@ export class GrassNearMaterial {
         )
         .replace(
           "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
-          FRAGMENT_OUTPUT,
+          FRAGMENT_OUTPUT.replace(
+            "GRASS_SHEEN_OUTPUT",
+            sheen ? FRAGMENT_SHEEN_OUTPUT : "",
+          ),
         );
     };
     this.material.customProgramCacheKey = () => options.cacheKey;
@@ -554,6 +800,29 @@ export class GrassNearMaterial {
       this.baseWindStrength * direction.windStrengthScale;
     this.uniforms.uGrassFlutterStrength.value =
       this.baseFlutterStrength * direction.flutterStrengthScale;
+    // What a widened sub-pixel blade blends towards. The terrain already tints
+    // itself with this colour under the canopy, so a blade that gives back the
+    // coverage it did not earn converges on the ground it is standing in.
+    this.uniforms.uGrassCanopyColor.value.set(direction.terrainGrassColor);
+    // The specular lobe is gone before the near band hands over to the mid
+    // patches, which do not carry one. Tying the fade to the preset's own near
+    // distance keeps that true for every preset.
+    this.uniforms.uGrassSheenFadeDistance.value = direction.nearDistance;
+  }
+
+  /**
+   * World size of one device pixel per metre of camera distance. Only the
+   * sub-pixel width clamp reads it, and only for the layer compiled with it.
+   */
+  setViewportPixelScale(pixelWorldScale: number): void {
+    if (Number.isFinite(pixelWorldScale) && pixelWorldScale > 0) {
+      this.uniforms.uGrassPixelWorldScale.value = pixelWorldScale;
+    }
+  }
+
+  /** Half-width of the source blade the sub-pixel clamp is widening. */
+  setBladeHalfWidth(halfWidth: number): void {
+    this.uniforms.uGrassBladeHalfWidth.value = Math.max(halfWidth, 0.0001);
   }
 
   /**
@@ -691,6 +960,46 @@ export class GrassNearMaterial {
       .onChange((value: number) => {
         for (const material of linkedMaterials) {
           material.uniforms.uGrassBacklightStrength.value = value;
+        }
+      });
+    folder
+      .add(this.uniforms.uGrassBladeCurvature, "value", 0, 1.2, 0.01)
+      .name("Blade Curve")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassBladeCurvature.value = value;
+        }
+      });
+    folder
+      .add(this.uniforms.uGrassSheenStrength, "value", 0, 0.3, 0.005)
+      .name("Sheen")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassSheenStrength.value = value;
+        }
+      });
+    folder
+      .add(this.uniforms.uGrassSheenPower, "value", 8, 96, 1)
+      .name("Sheen Focus")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassSheenPower.value = value;
+        }
+      });
+    folder
+      .add(this.uniforms.uGrassGustFrontDepth, "value", 0, 0.9, 0.01)
+      .name("Gust Fronts")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassGustFrontDepth.value = value;
+        }
+      });
+    folder
+      .add(this.uniforms.uGrassGustFrontSpeed, "value", 0, 1.6, 0.01)
+      .name("Gust Speed")
+      .onChange((value: number) => {
+        for (const material of linkedMaterials) {
+          material.uniforms.uGrassGustFrontSpeed.value = value;
         }
       });
     folder.open();

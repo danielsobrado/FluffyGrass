@@ -53,6 +53,10 @@ export class GrassGeometryFactory {
     source: THREE.BufferGeometry,
     variationValues: Float32Array,
     coverageValues?: Float32Array,
+    sharedAttributes?: {
+      variation: THREE.InstancedBufferAttribute;
+      coverage: THREE.InstancedBufferAttribute;
+    },
   ): THREE.InstancedBufferGeometry {
     const geometry = new THREE.InstancedBufferGeometry();
     if (source.index) {
@@ -65,34 +69,47 @@ export class GrassGeometryFactory {
 
     geometry.setAttribute(
       "instanceVariation",
-      new THREE.InstancedBufferAttribute(variationValues, 4),
+      sharedAttributes?.variation ??
+        new THREE.InstancedBufferAttribute(variationValues, 4),
     );
     const instanceCount = variationValues.length / 4;
     const resolvedCoverage =
       coverageValues ?? new Float32Array(instanceCount).fill(1);
     geometry.setAttribute(
       "instanceCoverage",
-      new THREE.InstancedBufferAttribute(resolvedCoverage, 1),
+      sharedAttributes?.coverage ??
+        new THREE.InstancedBufferAttribute(resolvedCoverage, 1),
     );
     geometry.boundingBox = source.boundingBox?.clone() ?? null;
     geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
     return geometry;
   }
 
-  disposeInstancedMesh(mesh: THREE.InstancedMesh): void {
+  disposeInstancedMesh(
+    mesh: THREE.InstancedMesh,
+    preserveSharedInstanceData = false,
+  ): void {
     const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
 
     // Base attributes and the index are borrowed from a shared LOD variant.
     // Detach them before disposal so streaming one chunk out cannot
     // invalidate the GPU buffers used by every other chunk.
     for (const name of Object.keys(geometry.attributes)) {
-      if (name !== "instanceVariation" && name !== "instanceCoverage") {
+      if (
+        preserveSharedInstanceData ||
+        (name !== "instanceVariation" && name !== "instanceCoverage")
+      ) {
         geometry.deleteAttribute(name);
       }
     }
     geometry.setIndex(null);
     geometry.dispose();
-    mesh.dispose();
+    // A complementary mesh may still own these same instance attributes. Its
+    // final disposal releases the shared GPU buffers; disposing this object now
+    // would evict instanceMatrix and force the survivor to upload it again.
+    if (!preserveSharedInstanceData) {
+      mesh.dispose();
+    }
   }
 
   private createVariants(

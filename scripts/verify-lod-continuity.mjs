@@ -507,7 +507,7 @@ const nearBoundsRadius =
       readYamlNumber(worldConfig, "grassLandingPulseStrength"),
     ),
     interactionVerticalScale: 0.2,
-    safetyMargin: 0.05,
+    safetyMargin: 0.08,
   });
 assert(
   nearBoundsRadius > bladeHeightMax &&
@@ -515,9 +515,50 @@ assert(
       "calculateGrassSingleBladeRootBoundsRadius",
     ) &&
     singleBladeFactory.includes(
-      "bounds.expandByScalar(this.calculateBoundsPadding())",
+      ".expandByScalar(this.calculateBoundsPadding())",
     ),
   "Near bounds must include configured blade, wind, and interaction displacement.",
+);
+
+// Wind bends a blade by rotating it about its root. Translating the vertices
+// instead makes a bent blade longer than a straight one, which is both the
+// rubbery look the trail bend was rewritten to avoid and a silent overrun of
+// the reserved bounds, since those charge a rotation.
+assert(
+  !nearMaterial.includes("transformed += grassLocalWind") &&
+    nearMaterial.includes("transformed.y *= grassWindCos"),
+  "Wind must rotate blades about the root, not translate their vertices.",
+);
+// The gust front is an envelope in [1 - depth, 1]. Adding a second bend term
+// instead would push past the wind displacement the bounds reserve.
+assert(
+  nearMaterial.includes(
+    "1.0 - uGrassGustFrontDepth * (0.5 - 0.5 * grassGustFront)",
+  ) && nearMaterial.includes("uGrassWindLodScale * grassGustEnvelope"),
+  "Gust fronts must scale the configured bend down, never add to it.",
+);
+assert(
+  nearMaterial.includes("grassWidthAxis * (grassSide * uGrassBladeCurvature)"),
+  "Blades must carry a normal curved across their width.",
+);
+// Both single-blade tiles and mid patches must apply the macro field, at the
+// same world position and from the same functions, or the terms would show up
+// as a brightness step at an LOD handoff instead of as field variation.
+for (const [label, source] of [
+  ["near tiles", singleBladeFactory],
+  ["mid patches", worldGrassSystem],
+]) {
+  assert(
+    source.includes("resolveGrassCanopyAo(") &&
+      source.includes("sampleGrassMacroDryness(x, z)") &&
+      source.includes("GRASS_MACRO_DRYNESS_STRENGTH"),
+    `Grass ${label} must resolve canopy occlusion and macro dryness from the shared field.`,
+  );
+}
+assert(
+  singleBladeFactory.includes("CLUMP_MAX_CELL_OFFSET * Math.max(cellWidth") &&
+    singleBladeFactory.includes("Math.atan2(offsetX, offsetZ)"),
+  "Tufted blades must fan from their clump and stay inside the cached height lattice.",
 );
 
 const baseBlend = Number(

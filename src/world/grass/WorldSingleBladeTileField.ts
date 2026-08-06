@@ -16,6 +16,8 @@ export interface WorldSingleBladeTileFieldOptions {
   material: GrassNearMaterial;
   tilesPerFrame: number;
   reconcileEveryFrame: boolean;
+  /** Reuse placement data produced by a wider complementary field. */
+  cachedPlacementOnly?: boolean;
   /** Near-fade midpoint and half-width this field's material culls against. */
   lodNearDistance: number;
   lodTransitionDistance: number;
@@ -49,6 +51,8 @@ const COUNT_MOVEMENT_EPSILON = 0.25;
  * keeps the truncation strictly conservative; it costs about 0.1% of a tile.
  */
 const DITHER_SAFETY_MARGIN = 1 / 1024;
+/** Avoid retaining a fully populated near field throughout a long aerial view. */
+const DISABLED_TILE_EVICTION_MS = 12_000;
 
 /** Matches the GLSL `smoothstep(edge0, edge1, x)` the vertex shader uses. */
 function smoothstep(value: number, edge0: number, edge1: number): number {
@@ -84,6 +88,8 @@ function tileKey(tileX: number, tileZ: number): number {
 
 export class WorldSingleBladeTileField {
   private readonly tiles = new Map<number, WorldSingleBladeTile>();
+  /** Desired tiles known to contain no blades for this immutable field setup. */
+  private readonly emptyTiles = new Set<number>();
   private readonly desired = new Set<number>();
   private readonly queue: TileRequest[] = [];
   private readonly requests: TileRequest[] = [];
@@ -101,6 +107,7 @@ export class WorldSingleBladeTileField {
   private countsDirty = true;
   private activeBuild?: WorldSingleBladeTileBuildJob;
   private enabled = true;
+  private disabledAt = 0;
   private centerTileX = Number.NaN;
   private centerTileZ = Number.NaN;
   private visibilityRadius: number;
@@ -140,18 +147,31 @@ export class WorldSingleBladeTileField {
 
   setEnabled(enabled: boolean): void {
     if (enabled === this.enabled) {
+      if (
+        !enabled &&
+        this.tiles.size > 0 &&
+        performance.now() - this.disabledAt >= DISABLED_TILE_EVICTION_MS
+      ) {
+        this.evictTiles();
+      }
       return;
     }
     this.enabled = enabled;
     this.queue.length = 0;
-    this.activeBuild = undefined;
+    if (this.activeBuild) {
+      this.factory.cancelBuild(this.activeBuild);
+      this.activeBuild = undefined;
+    }
     this.countsDirty = true;
     for (const tile of this.tiles.values()) {
       tile.mesh.visible = enabled;
     }
     if (enabled) {
+      this.disabledAt = 0;
       this.centerTileX = Number.NaN;
       this.centerTileZ = Number.NaN;
+    } else {
+      this.disabledAt = performance.now();
     }
   }
 
@@ -262,14 +282,14 @@ export class WorldSingleBladeTileField {
   }
 
   dispose(): void {
-    for (const tile of this.tiles.values()) {
-      this.scene.remove(tile.mesh);
-      this.factory.disposeTile(tile);
+    if (this.activeBuild) {
+      this.factory.cancelBuild(this.activeBuild);
+      this.activeBuild = undefined;
     }
-    this.tiles.clear();
+    this.evictTiles();
     this.desired.clear();
+    this.emptyTiles.clear();
     this.queue.length = 0;
-    this.activeBuild = undefined;
   }
 
   private reconcile(focus: THREE.Vector3): void {
@@ -301,6 +321,7 @@ export class WorldSingleBladeTileField {
         this.desired.add(key);
         if (
           !this.tiles.has(key) &&
+          !this.emptyTiles.has(key) &&
           this.activeBuild?.options.key !== key
         ) {
           requests.push({ key, tileX, tileZ, distance });
@@ -317,11 +338,17 @@ export class WorldSingleBladeTileField {
       this.tiles.delete(key);
       this.countsDirty = true;
     }
+    for (const key of this.emptyTiles) {
+      if (!this.desired.has(key)) {
+        this.emptyTiles.delete(key);
+      }
+    }
 
     if (
       this.activeBuild &&
       !this.desired.has(this.activeBuild.options.key)
     ) {
+      this.factory.cancelBuild(this.activeBuild);
       this.activeBuild = undefined;
     }
 
@@ -351,17 +378,32 @@ export class WorldSingleBladeTileField {
         ) {
           continue;
         }
-        this.activeBuild = this.factory.beginBuild({
-          key: request.key,
-          tileX: request.tileX,
-          tileZ: request.tileZ,
-          densityMultiplier: this.options.densityMultiplier,
-          bladeSegments: this.options.bladeSegments,
-          receiveShadows: this.options.receiveShadows,
-          seedSalt: this.options.seedSalt,
-          namePrefix: this.options.namePrefix,
-          material: this.options.material,
-        });
+        const job = this.factory.beginBuild(
+          {
+            key: request.key,
+            tileX: request.tileX,
+            tileZ: request.tileZ,
+            densityMultiplier: this.options.densityMultiplier,
+            bladeSegments: this.options.bladeSegments,
+            receiveShadows: this.options.receiveShadows,
+            seedSalt: this.options.seedSalt,
+            namePrefix: this.options.namePrefix,
+            material: this.options.material,
+          },
+          this.options.cachedPlacementOnly === true,
+        );
+        if (job === null) {
+          this.emptyTiles.add(request.key);
+          built += 1;
+          break;
+        }
+        if (!job) {
+          // The complementary wide field has not produced this placement yet.
+          // Preserve the request and let the other fields spend this deadline.
+          this.queue.push(request);
+          break;
+        }
+        this.activeBuild = job;
       }
 
       const job = this.activeBuild;
@@ -369,6 +411,7 @@ export class WorldSingleBladeTileField {
         break;
       }
       if (!this.desired.has(job.options.key)) {
+        this.factory.cancelBuild(job);
         this.activeBuild = undefined;
         continue;
       }
@@ -379,6 +422,9 @@ export class WorldSingleBladeTileField {
       }
       this.activeBuild = undefined;
       const tile = result.tile;
+      if (result.empty && this.desired.has(job.options.key)) {
+        this.emptyTiles.add(job.options.key);
+      }
       if (tile && this.desired.has(tile.key) && !this.tiles.has(tile.key)) {
         this.tiles.set(tile.key, tile);
         this.scene.add(tile.mesh);
@@ -393,7 +439,22 @@ export class WorldSingleBladeTileField {
     if (hasWork) {
       this.lastBuildMs = performance.now() - startedAt;
       this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
+    } else {
+      this.lastBuildMs = 0;
     }
+  }
+
+  private evictTiles(): void {
+    for (const tile of this.tiles.values()) {
+      this.scene.remove(tile.mesh);
+      this.factory.disposeTile(tile);
+    }
+    this.tiles.clear();
+    this.emptyTiles.clear();
+    this.desired.clear();
+    this.centerTileX = Number.NaN;
+    this.centerTileZ = Number.NaN;
+    this.countsDirty = true;
   }
 
   private distanceToTile(

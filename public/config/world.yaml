@@ -71,6 +71,14 @@ mountainHeight: 210
 mountainScale: 0.00115
 detailScale: 0.0055
 
+# Bare walking ways worn through the grass. Ways follow the contours of two
+# procedural fields; the branch field is the finer of the two.
+pathWidth: 3
+pathBranchWidth: 1.7
+pathSpacing: 640
+pathEdgeRoughness: 0.5
+pathGrassClearance: 0.15
+
 grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44

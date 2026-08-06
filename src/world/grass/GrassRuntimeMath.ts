@@ -68,11 +68,17 @@ export function calculateGrassSingleBladeRootBoundsRadius(
   const verticalExtent =
     parameters.bladeHeight * parameters.maximumVerticalScale;
   const sourceExtent = Math.hypot(horizontalExtent, verticalExtent);
+  // Wind rotates a blade about its root rather than translating its vertices,
+  // so the configured strengths are a bend angle in radians and the horizontal
+  // sweep they produce scales with how tall the blade is. `sin` is bounded by
+  // its argument, so charging the full angle keeps the bound conservative.
   const windExtent =
     (parameters.windStrength + parameters.flutterStrength) *
     parameters.maximumArtWindScale *
     parameters.maximumInstanceWindScale *
-    parameters.maximumWindStiffness;
+    parameters.maximumWindStiffness *
+    parameters.bladeHeight *
+    parameters.maximumVerticalScale;
   const interactionExtent = Math.hypot(
     parameters.maximumInteractionStrength,
     parameters.maximumInteractionStrength *

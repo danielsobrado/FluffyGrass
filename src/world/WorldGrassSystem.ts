@@ -5,6 +5,12 @@ import {
   type GrassArtDirection,
 } from "../grass/GrassArtDirection";
 import type { GrassConfig, GrassLodConfig } from "../grass/GrassConfig";
+import {
+  GRASS_MACRO_DRYNESS_STRENGTH,
+  resolveGrassCanopyAo,
+  sampleGrassMacroDryness,
+  sampleGrassMacroVigor,
+} from "../grass/GrassFieldVariation";
 import { GrassGeometryFactory } from "../grass/GrassGeometryFactory";
 import { GrassLodController } from "../grass/GrassLodController";
 import {
@@ -167,13 +173,14 @@ export class WorldGrassSystem {
   private readonly impostorAtlasFactory = new WorldGrassImpostorAtlasFactory();
   private readonly material = new GrassNearMaterial({
     name: "world-grass-mid-material",
-    cacheKey: "grass-near-material-v17-mid-vertex-palette",
+    cacheKey: "grass-near-material-v18-mid-vertex-palette-no-sheen",
     // The mid layer draws exactly the blades the near layer drops.
     invertLodCoverage: true,
     windLodScale: MID_WIND_SCALE,
     ditherSeed: MID_DITHER_SEED,
     // Single-triangle blades starting 24 m out: a few pixels each.
     vertexPalette: true,
+    sheen: false,
   });
   private readonly impostorMaterials: WorldGrassImpostorMaterial[] = [];
   private readonly wind = new WindField();
@@ -815,11 +822,22 @@ export class WorldGrassSystem {
         height,
         job.normal,
       );
-      const coverage = THREE.MathUtils.smoothstep(
-        suitability,
-        FIELD_COVERAGE_MIN,
-        FIELD_COVERAGE_FULL,
-      );
+      // A patch is a single clump of blades spread over grassPatchSize, so it
+      // is cleared by a walking way as one piece. Widening the way by the
+      // clump's own reach drops the patches that would otherwise grow across
+      // the tread rather than beside it.
+      const coverage =
+        THREE.MathUtils.smoothstep(
+          suitability,
+          FIELD_COVERAGE_MIN,
+          FIELD_COVERAGE_FULL,
+        ) *
+        this.field.samplePathGrassMask(
+          x,
+          z,
+          height,
+          this.worldConfig.grassPatchSize * 0.5,
+        );
       if (coverage <= 0.02) {
         continue;
       }
@@ -867,10 +885,18 @@ export class WorldGrassSystem {
       batch.variations[variationOffset] = job.random.next();
       batch.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
       // Patch-scale tone survives impostor minification and avoids a uniform
-      // far field while remaining zero-mean across the landscape.
-      batch.variations[variationOffset + 2] = job.random.range(0.94, 1.06);
+      // far field. The canopy occlusion it now carries is resolved from the
+      // same function the near tiles use, at the same world position: a macro
+      // term applied to one representation and not another would show up as a
+      // brightness step exactly at an LOD handoff, which is what
+      // verify-lod-color-parity bounds.
+      batch.variations[variationOffset + 2] =
+        resolveGrassCanopyAo(sampleGrassMacroVigor(x, z), suitability) *
+        job.random.range(0.97, 1.03);
       batch.variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        (1 - suitability) * 0.34 + job.random.range(0, 0.09),
+        (1 - suitability) * 0.34 +
+          sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
+          job.random.range(0, 0.09),
         0,
         1,
       );
@@ -1028,6 +1054,16 @@ export class WorldGrassSystem {
       baseMidCoverage,
       baseFarCoverage,
     };
+  }
+
+  /**
+   * World size of one device pixel per metre of camera distance, which the
+   * near band uses to keep blades from falling below a pixel wide. Depends on
+   * both the vertical field of view and the drawing buffer height, so it is
+   * pushed in from the app rather than derived from the camera alone.
+   */
+  setViewportPixelScale(pixelWorldScale: number): void {
+    this.nearField.setViewportPixelScale(pixelWorldScale);
   }
 
   setArtDirection(direction: GrassArtDirection): void {

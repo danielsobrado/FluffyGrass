@@ -18,6 +18,7 @@ The default experience places an articulated Drow ranger inside a very dense int
 - Hemi-octahedral atlas impostors for the far LOD.
 - Dithered cross-fades between grass representations.
 - Streamed terrain and grass chunks.
+- Procedural walking ways: bare dirt paths worn through the grass field.
 - Character-driven grass separation and trailing wake.
 - Landing shockwave that briefly pushes and flattens nearby grass.
 - Third-person walking, running, jumping, camera orbit, zoom, and mobile controls.
@@ -134,6 +135,44 @@ npm run test:lod
 ```
 
 The verification also checks that the dense single-blade fields are connected to `WorldGrassSystem`, that no duplicate field is owned by `ThirdPersonController`, that the ultra-near distance remains 4 m, that its total density multiplier remains 2×, and that the stronger interaction setting is retained.
+
+## Walking ways
+
+Bare dirt paths are worn through the grassland. A way is the zero contour of a
+domain-warped value-noise field: a contour of a continuous field never branches
+and never crosses itself, and it wanders for kilometres, which is the shape of a
+footpath worn across open country. Two fields at different scales — a main way
+and a finer branch — give a network whose ways cross each other. Ways fade out as
+the ground climbs out of the rolling grassland onto a mountain flank.
+
+`TerrainField.samplePathDistances` reports the signed distance in metres to each
+way's centreline, obtained by dividing the field value by the length of its
+gradient. Only the magnitude is an estimate; the sign is always the sign of the
+raw field, so a way can only ever be drawn where its contour genuinely runs.
+
+The distances are what both sides of the feature share:
+
+- The terrain writes them into a per-vertex `terrainPath` attribute. A signed
+  distance stays close to linear across a cell, so interpolating it between
+  vertices metres apart still resolves a three-metre way. The terrain fragment
+  shader crumbles the interpolated edge with the detail noise and shades the
+  tread from it: mottled soil, a compacted darker centre, and pale grit.
+- Grass placement multiplies its suitability by
+  `TerrainField.samplePathGrassMask`, so no blade is ever placed on a way. The
+  mid and far LODs place a four-metre clump of blades as one instance, so they
+  widen the cleared band by the clump's own reach instead of growing across the
+  tread.
+
+Grass stops slightly short of the widest the ragged edge can reach, and the soil
+fades out across that margin, so the gap does not read as a mown strip.
+
+```yaml
+pathWidth: 3
+pathBranchWidth: 1.7
+pathSpacing: 640
+pathEdgeRoughness: 0.5
+pathGrassClearance: 0.15
+```
 
 ## Interactive grass physics
 
@@ -344,6 +383,8 @@ src/grass/
   interaction/GrassInteractionField.ts
 
 src/world/
+  TerrainField.ts
+  TerrainStreamer.ts
   WorldGrassSystem.ts
   grass/WorldGrassImpostorAtlasFactory.ts
   grass/WorldGrassImpostorMaterial.ts

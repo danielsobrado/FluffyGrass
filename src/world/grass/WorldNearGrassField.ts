@@ -34,12 +34,16 @@ export class WorldNearGrassField {
   // split real.
   private readonly baseMaterial = new GrassNearMaterial({
     name: "world-grass-single-blade-material",
-    cacheKey: "grass-near-material-v17-base-vertex-palette",
+    cacheKey: "grass-near-material-v18-base-vertex-palette",
     detailMode: 1,
     ditherSeed: BASE_SEED_SALT,
     // One triangle per blade, and the layer that covers the most screen area.
     vertexPalette: true,
     interactive: true,
+    // This is the layer that owns the band where blades fall below a pixel
+    // wide. The two ultra-near layers never reach it, and the mid patches past
+    // it are a different representation entirely.
+    subPixelWidth: true,
   });
   private readonly baseDetailMaterial = new GrassNearMaterial({
     name: "world-grass-base-detail-material",
@@ -122,8 +126,11 @@ export class WorldNearGrassField {
       buildDeadline,
       performance.now() + nearBuildBudget,
     );
-    this.ultraNearField?.update(focus, nearBuildDeadline);
+    // The detail layer reuses the wider base layer's placement buffers. Let it
+    // claim any cache hits first, then spend the remaining slice on unique
+    // ultra-near density and new base placements.
     this.baseDetailedField?.update(focus, nearBuildDeadline);
+    this.ultraNearField?.update(focus, nearBuildDeadline);
     this.baseField?.update(focus, nearBuildDeadline);
   }
 
@@ -183,6 +190,14 @@ export class WorldNearGrassField {
       direction.nearDistance,
       direction.transitionDistance,
     );
+  }
+
+  /**
+   * World size of one device pixel per metre of camera distance. Only the base
+   * layer compiles the sub-pixel width clamp that reads it.
+   */
+  setViewportPixelScale(pixelWorldScale: number): void {
+    this.baseMaterial.setViewportPixelScale(pixelWorldScale);
   }
 
   private resolveBaseVisibilityRadius(direction: GrassArtDirection): number {
@@ -253,6 +268,12 @@ export class WorldNearGrassField {
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
+    // Matches the half-width `createSingleBladeGeometry` builds from the mean
+    // configured blade width, which is what the sub-pixel clamp widens from.
+    this.baseMaterial.setBladeHalfWidth(
+      (grassConfig.geometry.bladeWidthMin + grassConfig.geometry.bladeWidthMax) *
+        0.25,
+    );
 
     const trailBend = {
       maxAngleRadians: THREE.MathUtils.degToRad(
@@ -327,6 +348,7 @@ export class WorldNearGrassField {
           ? COMPACT_ULTRA_NEAR_TILES_PER_FRAME
           : DESKTOP_ULTRA_NEAR_TILES_PER_FRAME,
         reconcileEveryFrame: true,
+        cachedPlacementOnly: true,
         // detailMode 2 keeps `dither <= min(nearCoverage, detailCoverage)`,
         // still a prefix. The detail fade is the tighter of the two.
         lodNearDistance: ultraNearLodConfig.nearMaxDistance,

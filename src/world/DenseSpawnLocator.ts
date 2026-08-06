@@ -43,12 +43,23 @@ export class DenseSpawnLocator {
     let bestSuitability = Number.NEGATIVE_INFINITY;
     const coarseStep = step * COARSE_STEP_MULTIPLIER;
     const coarseCandidates: SpawnCandidate[] = [];
+    const sampledSuitability = new Map<string, number>();
+    const sampleCandidate = (x: number, z: number): number => {
+      const key = `${x}:${z}`;
+      const cached = sampledSuitability.get(key);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const suitability = this.sampleAreaSuitability(x, z);
+      sampledSuitability.set(key, suitability);
+      return suitability;
+    };
 
     // Biome suitability is spatially coherent, so find the best broad regions
     // first and spend the configured fine step only around those candidates.
     for (let z = -radius; z <= radius; z += coarseStep) {
       for (let x = -radius; x <= radius; x += coarseStep) {
-        const suitability = this.sampleAreaSuitability(x, z);
+        const suitability = sampleCandidate(x, z);
         coarseCandidates.push({ x, z, suitability });
         if (suitability > bestSuitability) {
           bestX = x;
@@ -83,7 +94,7 @@ export class DenseSpawnLocator {
           if (x < -radius || x > radius) {
             continue;
           }
-          const suitability = this.sampleAreaSuitability(x, z);
+          const suitability = sampleCandidate(x, z);
           if (suitability > bestSuitability) {
             bestX = x;
             bestZ = z;

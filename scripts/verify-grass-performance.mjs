@@ -242,7 +242,10 @@ const interactionField = read(
 );
 const worldApp = read("src/app/WorldApp.ts");
 const terrainStreamer = read("src/world/TerrainStreamer.ts");
+const terrainField = read("src/world/TerrainField.ts");
 const denseSpawnLocator = read("src/world/DenseSpawnLocator.ts");
+const terrainHeightLattice = read("src/world/TerrainHeightLattice.ts");
+const geometryFactory = read("src/grass/GrassGeometryFactory.ts");
 
 const bladeSegments = readYamlNumber(grassConfig, "bladeSegments");
 const tileSize = readYamlNumber(worldConfig, "grassNearTileSize");
@@ -393,7 +396,14 @@ assert(!worldGrassSystem.includes("world-grass-near-") && !worldGrassSystem.incl
 assert(!nearMaterial.includes("discard;"), "The near/mid keep test must stay in the vertex stage so the fragment shader remains early-Z friendly.");
 assert(impostorMaterial.includes("if (effectiveCoverage <= 0.001)") && impostorMaterial.includes("gl_Position = vec4(2.0, 2.0, 2.0, 1.0)"), "Zero-coverage far cards must be clipped in the vertex stage.");
 assert(worldGrassSystem.includes("mesh.matrixAutoUpdate = false") && tileFactory.includes("mesh.matrixAutoUpdate = false"), "Static grass meshes must not recompose their matrix every frame.");
-assert(worldGrassSystem.includes("mesh.instanceMatrix = new THREE.InstancedBufferAttribute") && tileFactory.includes("mesh.instanceMatrix = new THREE.InstancedBufferAttribute"), "Instance matrices must be adopted, not copied into a second allocation.");
+assert(
+  worldGrassSystem.includes(
+    "mesh.instanceMatrix = new THREE.InstancedBufferAttribute",
+  ) &&
+    tileFactory.includes("const instanceMatrix = new THREE.InstancedBufferAttribute") &&
+    tileFactory.includes("mesh.instanceMatrix = placement.instanceMatrix"),
+  "Instance matrices must be adopted or shared, not copied into a second allocation.",
+);
 assert(
   tileFactory.includes(
     "new THREE.InstancedMesh(geometry, options.material.material, 0)",
@@ -406,13 +416,63 @@ assert(
 assert(
   tileFactory.includes("beginBuild(") &&
     tileFactory.includes("advanceBuild(") &&
-    tileField.includes("buildDeadline"),
-  "Dense near-tile placement must remain incremental and deadline-bound.",
+    tileField.includes("buildDeadline") &&
+    terrainHeightLattice.includes("advanceBuild(deadline") &&
+    tileFactory.includes('job.stage === "lattice"'),
+  "Dense near-tile setup and placement must remain incremental and deadline-bound.",
+);
+assert(
+  tileFactory.includes('job.stage === "radix-count"') &&
+    tileFactory.includes('job.stage === "radix-scatter"') &&
+    tileFactory.includes("advanceInPlaceReorder") &&
+    tileFactory.includes("reorderCycleTarget") &&
+    tileFactory.includes("processed % DEADLINE_CHECK_INTERVAL === 0") &&
+    !tileFactory.includes("order.sort("),
+  "Near-tile finalization must use deadline-sliced radix sorting and reordering without full-buffer copies.",
+);
+assert(
+  tileFactory.includes("emptyPlacementCache") &&
+    tileFactory.includes("empty: true") &&
+    tileField.includes("emptyTiles") &&
+    tileField.includes("result.empty"),
+  "Completed-empty near tiles must be remembered instead of rebuilt while moving.",
+);
+assert(
+  nearField.includes("cachedPlacementOnly: true") &&
+    tileFactory.includes("placementCache") &&
+    tileFactory.includes("variation: placement.variationAttribute") &&
+    tileFactory.includes("mesh.instanceMatrix = placement.instanceMatrix") &&
+    geometryFactory.includes("preserveSharedInstanceData"),
+  "Complementary base/detail layers must reuse identical placement buffers.",
+);
+assert(
+  tileField.includes("DISABLED_TILE_EVICTION_MS") &&
+    tileField.includes("this.evictTiles()"),
+  "Suspended near fields must eventually release their resident tile resources.",
 );
 assert(
   nearField.includes("focusGroundHeight") &&
     nearField.includes("setEnabled(nearFieldsEnabled)"),
   "Dense near grass must suspend when a fly camera is above its 3D LOD range.",
+);
+assert(
+  worldGrassSystem.includes("sheen: false") &&
+    nearMaterial.includes("if (vGrassSheen.x > 0.001)") &&
+    nearMaterial.includes('sheen ? FRAGMENT_SHEEN_OUTPUT : ""'),
+  "Mid grass must compile sheen out and near grass must skip its lobe after fade-out.",
+);
+assert(
+  nearMaterial.includes("vNormal = normalize(grassRotateAroundAxis(") &&
+    nearMaterial.includes("grassWindAxisView") &&
+    nearMaterial.includes("grassTrailAxisView"),
+  "Wind and trail deformation must rotate the lighting normal with the blade.",
+);
+assert(
+  terrainField.includes("samplePathVisibility(height") &&
+    terrainChunk.includes("new THREE.BufferAttribute(this.paths, 3)") &&
+    terrainStreamer.includes("terrainPathVisibility") &&
+    terrainStreamer.includes("abs(vTerrainPath.xy)"),
+  "Terrain path altitude visibility must be interpolated separately from signed distances.",
 );
 assert(
   terrainStreamer.includes("buildDeadline - performance.now()") &&
@@ -426,10 +486,15 @@ assert(
 );
 assert(
   denseSpawnLocator.includes("COARSE_STEP_MULTIPLIER") &&
-    denseSpawnLocator.includes("REFINE_CANDIDATE_COUNT"),
-  "Spawn selection must retain the coarse-to-fine search instead of scanning the full fine grid.",
+    denseSpawnLocator.includes("REFINE_CANDIDATE_COUNT") &&
+    denseSpawnLocator.includes("sampledSuitability"),
+  "Spawn selection must retain cached coarse-to-fine sampling instead of repeating overlapping evaluations.",
 );
-assert(worldGrassSystem.includes("mesh.position.copy(origin)") && tileFactory.includes("mesh.position.copy(this.origin)"), "Grass meshes must carry a real world position so opaque depth sorting works.");
+assert(
+  worldGrassSystem.includes("mesh.position.copy(origin)") &&
+    tileFactory.includes("mesh.position.copy(placement.origin)"),
+  "Grass meshes must carry a real world position so opaque depth sorting works.",
+);
 assert(worldGrassSystem.includes("mesh.receiveShadow = false"), "Mid/far grass must not perform per-blade shadow reads.");
 const underfill = Number(lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1]);
 assert(underfill === 0, "Far-card underfill must remain disabled in the full mid band.");
@@ -486,7 +551,7 @@ assert(
 // must never drop a blade the shader would have kept, so the check below
 // reproduces both sides in float32 and compares them directly.
 assert(
-  tileFactory.includes("sortInstancesByDither") &&
+  tileFactory.includes('job.stage === "radix-count"') &&
     tileFactory.includes("SINGLE_BLADE_DITHER_BIAS = 0.662358981"),
   "Single-blade tiles must sort their instances by the shader's dither key.",
 );

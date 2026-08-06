@@ -51,6 +51,11 @@ export interface WorldConfig {
   mountainHeight: number;
   mountainScale: number;
   detailScale: number;
+  pathWidth: number;
+  pathBranchWidth: number;
+  pathSpacing: number;
+  pathEdgeRoughness: number;
+  pathGrassClearance: number;
   grassMinAltitude: number;
   grassMaxAltitude: number;
   grassMaxSlopeDegrees: number;

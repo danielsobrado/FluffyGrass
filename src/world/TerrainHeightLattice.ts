@@ -18,11 +18,14 @@ import type { TerrainField } from "./TerrainField";
  * from a direct `sampleHeight` call so roots stay welded to the terrain mesh.
  */
 export class TerrainHeightLattice {
-  private heights = new Float64Array(0);
+  private heights = new Float32Array(0);
+  private field?: TerrainField;
   private originX = 0;
   private originZ = 0;
+  private spacing = 1;
   private inverseSpacing = 1;
   private size = 0;
+  private nextSample = 0;
 
   /**
    * Samples the height field over `[minX, minX + span] x [minZ, minZ + span]`.
@@ -36,26 +39,61 @@ export class TerrainHeightLattice {
     span: number,
     spacing: number,
   ): void {
+    this.beginBuild(field, minX, minZ, span, spacing);
+    while (!this.advanceBuild(Number.POSITIVE_INFINITY)) {
+      // An infinite deadline completes in one call. Keep the synchronous wrapper
+      // for non-streaming callers while streamed tiles use the sliced API below.
+    }
+  }
+
+  beginBuild(
+    field: TerrainField,
+    minX: number,
+    minZ: number,
+    span: number,
+    spacing: number,
+  ): void {
     const size = Math.max(2, Math.ceil(span / spacing) + 1);
     if (this.heights.length !== size * size) {
-      this.heights = new Float64Array(size * size);
+      this.heights = new Float32Array(size * size);
     }
+    this.field = field;
     this.size = size;
     this.originX = minX;
     this.originZ = minZ;
+    this.spacing = spacing;
     this.inverseSpacing = 1 / spacing;
+    this.nextSample = 0;
+  }
 
-    const heights = this.heights;
-    for (let row = 0; row < size; row += 1) {
-      const z = minZ + row * spacing;
-      const rowOffset = row * size;
-      for (let column = 0; column < size; column += 1) {
-        heights[rowOffset + column] = field.sampleHeight(
-          minX + column * spacing,
-          z,
-        );
-      }
+  /** Samples a bounded portion of the lattice and reports when it is complete. */
+  advanceBuild(deadline: number): boolean {
+    const field = this.field;
+    if (!field) {
+      return true;
     }
+    const size = this.size;
+    const heights = this.heights;
+    let processed = 0;
+    while (
+      this.nextSample < heights.length &&
+      (processed === 0 || processed % 8 !== 0 || performance.now() < deadline)
+    ) {
+      const index = this.nextSample;
+      const column = index % size;
+      const row = Math.floor(index / size);
+      heights[index] = field.sampleHeight(
+        this.originX + column * this.spacing,
+        this.originZ + row * this.spacing,
+      );
+      this.nextSample += 1;
+      processed += 1;
+    }
+    if (this.nextSample >= heights.length) {
+      this.field = undefined;
+      return true;
+    }
+    return false;
   }
 
   /** Bilinear height. Points outside the built area clamp to the edge cell. */

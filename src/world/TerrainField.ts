@@ -15,6 +15,53 @@ const COLOR_SCRATCH = new THREE.Color();
  */
 export const TERRAIN_NORMAL_STEP = 1.5;
 
+/**
+ * Walking ways are the zero contours of two domain-warped value-noise fields.
+ * A contour of a continuous field never branches and never crosses itself, and
+ * it wanders for kilometres: the shape of a footpath worn across open country.
+ * Two fields at different scales give a small network whose ways cross.
+ *
+ * Distances are reported in metres by dividing the field value by the length of
+ * its gradient. That keeps a way roughly the same width everywhere instead of
+ * letting it balloon wherever the noise flattens out. Only the magnitude is an
+ * estimate — the sign is always the sign of the raw field, so an interpolated
+ * zero crossing between two terrain vertices can only fall where the contour
+ * genuinely runs.
+ */
+const PATH_WARP_SCALE = 0.0009;
+/** Metres of lateral meander the warp adds to an otherwise smooth contour. */
+const PATH_WANDER = 260;
+/** The branch field is finer than the main one, so its ways are more frequent. */
+const PATH_BRANCH_SPACING_RATIO = 0.72;
+/** Finite-difference step for the field gradient. */
+const PATH_GRADIENT_STEP = 3;
+const PATH_MIN_GRADIENT = 1e-9;
+/**
+ * Reported distances saturate here. Past this nothing but "not on a way" is
+ * ever asked of the value, and bounding it keeps the terrain's interpolated
+ * vertex attribute inside a useful range.
+ */
+const PATH_MAX_DISTANCE = 24;
+/**
+ * Widest footprint {@link TerrainField.samplePathGrassMask} can clear for. It
+ * sets how wide the band of points that need a gradient is, so it is kept just
+ * above the largest radius any caller asks for — half a grass patch.
+ */
+const PATH_MAX_CLEARANCE_RADIUS = 3;
+/** Metres over which grass thins out into the bare verge. */
+const PATH_GRASS_FEATHER = 0.8;
+/**
+ * Value noise interpolated with a smoothstep changes by at most 1.5 per lattice
+ * cell, and the two fbm octaves add their weighted slopes: 1.5 * (2/3 + 2.03/3).
+ */
+const PATH_MAX_FIELD_SLOPE = 2.02;
+/**
+ * Safety factor on that bound. The early rejection has to be conservative — a
+ * point it discards is never re-examined — and the bound above is an idealised
+ * worst case rather than a measured one.
+ */
+const PATH_CUTOFF_SAFETY = 2;
+
 // These helpers mirror THREE.MathUtils exactly, but keep the procedural field's
 // innermost loops free of repeated namespace lookups and function indirection.
 // A single grass placement evaluates hundreds of interpolations while sampling
@@ -43,12 +90,61 @@ export class TerrainField {
   private readonly grassSlopeFadeEnd: number;
   private noisePairLow = 0;
   private noisePairHigh = 0;
+  /** Frequency of the main and branch path fields. */
+  private readonly pathScaleMain: number;
+  private readonly pathScaleBranch: number;
+  /** Half the bare tread of each way, in metres. */
+  private readonly pathHalfWidthMain: number;
+  private readonly pathHalfWidthBranch: number;
+  /** Where grass starts again: the tread plus its ragged edge and clearance. */
+  private readonly pathGrassHalfWidthMain: number;
+  private readonly pathGrassHalfWidthBranch: number;
+  private readonly pathValueCutoff: number;
+  private readonly pathAltitudeFadeStart: number;
+  private readonly pathAltitudeFadeEnd: number;
+  private pathValueMain = 0;
+  private pathValueBranch = 0;
+  private readonly pathScratch = new THREE.Vector2();
 
   constructor(private readonly config: WorldConfig) {
     this.grassSlopeLimit = Math.cos(
       THREE.MathUtils.degToRad(config.grassMaxSlopeDegrees),
     );
     this.grassSlopeFadeEnd = Math.min(0.98, this.grassSlopeLimit + 0.2);
+
+    this.pathScaleMain = 1 / config.pathSpacing;
+    this.pathScaleBranch =
+      1 / (config.pathSpacing * PATH_BRANCH_SPACING_RATIO);
+    this.pathHalfWidthMain = config.pathWidth * 0.5;
+    this.pathHalfWidthBranch = config.pathBranchWidth * 0.5;
+    // The shader wobbles the visible edge outwards by up to the roughness, so
+    // grass has to stand back that far again before its own clearance starts.
+    const grassMargin = config.pathEdgeRoughness + config.pathGrassClearance;
+    this.pathGrassHalfWidthMain = this.pathHalfWidthMain + grassMargin;
+    this.pathGrassHalfWidthBranch = this.pathHalfWidthBranch + grassMargin;
+
+    // Beyond this much field value the point is further from every way than any
+    // caller can care about, and the gradient — two thirds of the cost of a
+    // sample — never has to be taken. The warp stretches the field's slope by
+    // its own, so both scales enter the bound.
+    const candidateDistance =
+      Math.max(this.pathGrassHalfWidthMain, this.pathGrassHalfWidthBranch) +
+      PATH_MAX_CLEARANCE_RADIUS +
+      PATH_GRASS_FEATHER;
+    const warpStretch = 1 + PATH_WANDER * 1.5 * PATH_WARP_SCALE;
+    this.pathValueCutoff =
+      PATH_CUTOFF_SAFETY *
+      PATH_MAX_FIELD_SLOPE *
+      Math.max(this.pathScaleMain, this.pathScaleBranch) *
+      warpStretch *
+      candidateDistance;
+
+    // Ways belong to the rolling grassland. `baseHeight + rollingHeight` sits
+    // above everything the rolling octaves can reach, so the fade only starts
+    // once the ground is climbing a mountain flank.
+    this.pathAltitudeFadeStart = config.baseHeight + config.rollingHeight;
+    this.pathAltitudeFadeEnd =
+      this.pathAltitudeFadeStart + config.rollingHeight;
   }
 
   sampleHeight(x: number, z: number): number {
@@ -187,6 +283,93 @@ export class TerrainField {
     );
   }
 
+  /**
+   * Signed distance in metres from (x, z) to the centreline of the main way
+   * (`target.x`) and of the branch way (`target.y`). The sign says which side
+   * of the way the point is on and is only meaningful to an interpolator; a
+   * caller wants the magnitude.
+   */
+  samplePathDistances(
+    x: number,
+    z: number,
+    target: THREE.Vector2,
+  ): THREE.Vector2 {
+    this.samplePathValues(x, z);
+    const valueMain = this.pathValueMain;
+    const valueBranch = this.pathValueBranch;
+    if (
+      Math.abs(valueMain) > this.pathValueCutoff &&
+      Math.abs(valueBranch) > this.pathValueCutoff
+    ) {
+      return target.set(
+        valueMain >= 0 ? PATH_MAX_DISTANCE : -PATH_MAX_DISTANCE,
+        valueBranch >= 0 ? PATH_MAX_DISTANCE : -PATH_MAX_DISTANCE,
+      );
+    }
+
+    // One-sided differences. The gradient only sets the width of a way, never
+    // where it runs, so the half-step of bias a central difference would remove
+    // is not worth two more field samples.
+    this.samplePathValues(x + PATH_GRADIENT_STEP, z);
+    const eastMain = this.pathValueMain;
+    const eastBranch = this.pathValueBranch;
+    this.samplePathValues(x, z + PATH_GRADIENT_STEP);
+    const northMain = this.pathValueMain;
+    const northBranch = this.pathValueBranch;
+
+    return target.set(
+      this.pathDistance(
+        valueMain,
+        eastMain - valueMain,
+        northMain - valueMain,
+      ),
+      this.pathDistance(
+        valueBranch,
+        eastBranch - valueBranch,
+        northBranch - valueBranch,
+      ),
+    );
+  }
+
+  /** Lowland visibility shared by the terrain shader and grass placement. */
+  samplePathVisibility(height: number): number {
+    return (
+      1 -
+      smoothstep(height, this.pathAltitudeFadeStart, this.pathAltitudeFadeEnd)
+    );
+  }
+
+  /**
+   * How much grass a walking way leaves standing at (x, z): 1 well clear of
+   * every way, 0 on the tread.
+   *
+   * `radius` widens the cleared band by the footprint of whatever is being
+   * placed, so a four-metre grass patch can be dropped when it would straddle a
+   * way instead of growing across it. It saturates at
+   * {@link PATH_MAX_CLEARANCE_RADIUS}, which the early rejection is sized for.
+   */
+  samplePathGrassMask(
+    x: number,
+    z: number,
+    height: number,
+    radius = 0,
+  ): number {
+    const clearance = Math.min(radius, PATH_MAX_CLEARANCE_RADIUS);
+    this.samplePathDistances(x, z, this.pathScratch);
+    const main = smoothstep(
+      Math.abs(this.pathScratch.x),
+      this.pathGrassHalfWidthMain + clearance,
+      this.pathGrassHalfWidthMain + clearance + PATH_GRASS_FEATHER,
+    );
+    const branch = smoothstep(
+      Math.abs(this.pathScratch.y),
+      this.pathGrassHalfWidthBranch + clearance,
+      this.pathGrassHalfWidthBranch + clearance + PATH_GRASS_FEATHER,
+    );
+    const pathMask = Math.min(main, branch);
+    return lerp(1, pathMask, this.samplePathVisibility(height));
+  }
+
   sampleColor(
     x: number,
     z: number,
@@ -210,6 +393,54 @@ export class TerrainField {
     );
     COLOR_SCRATCH.copy(COLOR_ROCK).lerp(COLOR_HIGH_ROCK, altitude);
     return target.lerp(COLOR_SCRATCH, rockAmount);
+  }
+
+  /**
+   * Both path fields at one point, into {@link pathValueMain} and
+   * {@link pathValueBranch}, each already centred on its own zero contour.
+   *
+   * The two share a single domain warp: it is the most expensive part of the
+   * sample, and reusing it leaves the contours uncorrelated because the fields
+   * that follow it differ in both scale and seed.
+   */
+  private samplePathValues(x: number, z: number): void {
+    const seed = this.config.seed;
+    this.valueNoisePair(
+      x * PATH_WARP_SCALE,
+      z * PATH_WARP_SCALE,
+      seed + 821,
+      seed + 823,
+    );
+    const warpedX = x + (this.noisePairLow - 0.5) * PATH_WANDER;
+    const warpedZ = z + (this.noisePairHigh - 0.5) * PATH_WANDER;
+    this.pathValueMain =
+      this.fbm(
+        warpedX * this.pathScaleMain,
+        warpedZ * this.pathScaleMain,
+        2,
+        seed + 827,
+      ) - 0.5;
+    this.pathValueBranch =
+      this.fbm(
+        warpedX * this.pathScaleBranch,
+        warpedZ * this.pathScaleBranch,
+        2,
+        seed + 929,
+      ) - 0.5;
+  }
+
+  private pathDistance(
+    value: number,
+    deltaEast: number,
+    deltaNorth: number,
+  ): number {
+    const gradient =
+      Math.hypot(deltaEast, deltaNorth) / PATH_GRADIENT_STEP;
+    const distance = Math.abs(value) / Math.max(gradient, PATH_MIN_GRADIENT);
+    return (
+      (value >= 0 ? 1 : -1) *
+      Math.min(PATH_MAX_DISTANCE, distance)
+    );
   }
 
   private fbm(

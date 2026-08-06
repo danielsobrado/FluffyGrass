@@ -52,6 +52,7 @@ export class WorldApp {
   private readonly controls: WorldController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
   private sun?: THREE.DirectionalLight;
+  private readonly drawingBufferSize = new THREE.Vector2();
   private readonly shadowAxisX = new THREE.Vector3();
   private readonly shadowAxisY = new THREE.Vector3();
   private readonly pixelRatio: number;
@@ -145,6 +146,9 @@ export class WorldApp {
       config,
       profile,
     );
+    // The renderer was sized before the grass existed, so seed the near band's
+    // pixel scale now; every later resize refreshes it.
+    this.applyGrassViewportScale();
     // The trail texture must exist before the controller spawns, because the
     // controller resets the interaction field and that seeds the trail centre.
     grassTrailField.configure({
@@ -417,6 +421,26 @@ export class WorldApp {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  /**
+   * How much world a device pixel covers per metre of camera distance. The near
+   * grass band widens blades that would otherwise project narrower than this,
+   * which is what stops a field of sub-pixel opaque blades from sparkling as
+   * the camera moves. Both inputs change on resize and on a field-of-view
+   * change, so it is recomputed with the renderer size rather than cached.
+   */
+  private applyGrassViewportScale(): void {
+    const bufferHeight = this.renderer.getDrawingBufferSize(
+      this.drawingBufferSize,
+    ).y;
+    if (bufferHeight <= 0) {
+      return;
+    }
+    const halfFovTangent = Math.tan(
+      THREE.MathUtils.degToRad(this.camera.fov) * 0.5,
+    );
+    this.grass.setViewportPixelScale((2 * halfFovTangent) / bufferHeight);
+  }
+
   private addLights(): void {
     this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
@@ -583,5 +607,6 @@ export class WorldApp {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.applyRendererSize();
+    this.applyGrassViewportScale();
   };
 }
