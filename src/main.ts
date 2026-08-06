@@ -1,7 +1,6 @@
 import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
 import { UiVisibilityController } from "./runtime/UiVisibilityController";
 import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
-import { WorldDiagnosticsController } from "./runtime/WorldDiagnosticsController";
 import { APP_VERSION, BUILD_LABEL } from "./version";
 
 interface RunnableApp {
@@ -67,6 +66,9 @@ async function bootstrap(): Promise<void> {
   } else {
     const { WorldApp } = await import("./app/WorldApp");
     const world = await WorldApp.create(canvas, profile);
+    const { WorldDiagnosticsController } = await import(
+      "./runtime/WorldDiagnosticsController"
+    );
     WorldDiagnosticsController.attach(world, {
       gpuTiming: params.get("gpuTiming") === "1",
       statsPanelEnabled: params.get("stats") === "1",
