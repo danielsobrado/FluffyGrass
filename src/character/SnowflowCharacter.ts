@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CapeMotion } from "./CapeMotion";
 import { CharacterSpring } from "./CharacterSpring";
 import { addDrowCharacterFeatures } from "./DrowCharacterFeatures";
 import {
@@ -12,7 +13,6 @@ export const STRIDE_LENGTH_METERS = 1.55;
 const MAX_SLOPE_TILT_RADIANS = THREE.MathUtils.degToRad(18);
 const TAKEOFF_DURATION_SECONDS = 0.11;
 const APEX_VELOCITY_THRESHOLD = 1.15;
-const SECONDARY_FREQUENCY = 2.8;
 const HAIR_FREQUENCY = 3.6;
 // A positive arm rotation swings the hand behind the hip, and the cloak side
 // panels only sweep clear of the body once the character is running — so an
@@ -57,13 +57,9 @@ function armSwing(stride: number, gaitBlend: number): number {
 
 export class SnowflowCharacter {
   private readonly rig: SnowflowCharacterRig;
+  private readonly capeMotion: CapeMotion;
   private readonly desiredSlope = new THREE.Quaternion();
   private readonly limitedNormal = new THREE.Vector3();
-  private readonly cloakBackX = new CharacterSpring();
-  private readonly cloakLeftX = new CharacterSpring();
-  private readonly cloakRightX = new CharacterSpring();
-  private readonly cloakLeftZ = new CharacterSpring();
-  private readonly cloakRightZ = new CharacterSpring();
   private readonly hairLeftX = new CharacterSpring();
   private readonly hairRightX = new CharacterSpring();
   private readonly hairLeftZ = new CharacterSpring();
@@ -80,10 +76,18 @@ export class SnowflowCharacter {
   ) {
     this.rig = buildSnowflowCharacter(scene, scale);
     addDrowCharacterFeatures(this.rig);
+    this.capeMotion = new CapeMotion(
+      this.rig.cloakBack,
+      this.rig.cloakLeft,
+      this.rig.cloakRight,
+    );
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
     const delta = THREE.MathUtils.clamp(deltaSeconds, 0, 0.1);
+    if (deltaSeconds <= 0) {
+      this.resetSecondaryMotion();
+    }
     this.animationTime += delta;
     this.rig.root.position.copy(pose.position);
     this.rig.heading.rotation.y = pose.facing;
@@ -292,59 +296,24 @@ export class SnowflowCharacter {
     const cosine = Math.cos(pose.facing);
     const forwardVelocity = pose.velocity.x * sine + pose.velocity.z * cosine;
     const sideVelocity = pose.velocity.x * cosine - pose.velocity.z * sine;
-    const forward01 = THREE.MathUtils.clamp(
-      forwardVelocity / pose.runSpeed,
-      -1,
-      1,
-    );
-    const side01 = THREE.MathUtils.clamp(sideVelocity / pose.runSpeed, -1, 1);
     const vertical01 = THREE.MathUtils.clamp(pose.verticalVelocity / 9, -1, 1);
+
+    const capePose = this.capeMotion.update(deltaSeconds, {
+      forwardVelocity,
+      sideVelocity,
+      verticalVelocity: pose.verticalVelocity,
+      runSpeed: pose.runSpeed,
+      landed: pose.landed,
+      landingImpact: pose.landingImpact,
+    });
 
     if (pose.landed) {
       const impulse = pose.landingImpact * 1.8;
-      this.cloakBackX.addImpulse(impulse);
-      this.cloakLeftX.addImpulse(impulse * 0.9);
-      this.cloakRightX.addImpulse(impulse * 0.9);
       this.hairLeftX.addImpulse(impulse * 0.45);
       this.hairRightX.addImpulse(impulse * 0.45);
     }
 
-    // Cloak, hair and skirt panels all hang below their pivots, so a positive
-    // X rotation is what sweeps them behind the character.
-    const cloakTargetX = 0.035 + forward01 * 0.2 - vertical01 * 0.1;
-    const sideTarget = -side01 * 0.14;
-    this.rig.cloakBack.rotation.x = this.cloakBackX.update(
-      cloakTargetX,
-      deltaSeconds,
-      SECONDARY_FREQUENCY,
-      0.88,
-    );
-    this.rig.cloakLeft.rotation.x = this.cloakLeftX.update(
-      cloakTargetX * 0.9,
-      deltaSeconds,
-      SECONDARY_FREQUENCY,
-      0.86,
-    );
-    this.rig.cloakRight.rotation.x = this.cloakRightX.update(
-      cloakTargetX * 0.9,
-      deltaSeconds,
-      SECONDARY_FREQUENCY,
-      0.86,
-    );
-    this.rig.cloakLeft.rotation.z = this.cloakLeftZ.update(
-      sideTarget - 0.035,
-      deltaSeconds,
-      SECONDARY_FREQUENCY,
-      0.9,
-    );
-    this.rig.cloakRight.rotation.z = this.cloakRightZ.update(
-      sideTarget + 0.035,
-      deltaSeconds,
-      SECONDARY_FREQUENCY,
-      0.9,
-    );
-
-    const hairTargetX = cloakTargetX * 0.72 - vertical01 * 0.05;
+    const hairTargetX = capePose.bendX * 0.48 - vertical01 * 0.05;
     this.rig.hairLeft.rotation.x = this.hairLeftX.update(
       hairTargetX,
       deltaSeconds,
@@ -358,20 +327,30 @@ export class SnowflowCharacter {
       0.82,
     );
     this.rig.hairLeft.rotation.z = this.hairLeftZ.update(
-      sideTarget * 0.7 - 0.04,
+      capePose.bendZ * 0.7 - 0.04,
       deltaSeconds,
       HAIR_FREQUENCY,
       0.84,
     );
     this.rig.hairRight.rotation.z = this.hairRightZ.update(
-      sideTarget * 0.7 + 0.04,
+      capePose.bendZ * 0.7 + 0.04,
       deltaSeconds,
       HAIR_FREQUENCY,
       0.84,
     );
 
-    this.rig.skirtFront.rotation.x = cloakTargetX * 0.22;
-    this.rig.skirtLeft.rotation.z = sideTarget * 0.35 - 0.025;
-    this.rig.skirtRight.rotation.z = sideTarget * 0.35 + 0.025;
+    this.rig.skirtFront.rotation.x = capePose.bendX * 0.22;
+    this.rig.skirtLeft.rotation.z = capePose.bendZ * 0.35 - 0.025;
+    this.rig.skirtRight.rotation.z = capePose.bendZ * 0.35 + 0.025;
+  }
+
+  private resetSecondaryMotion(): void {
+    this.capeMotion.reset();
+    this.hairLeftX.reset();
+    this.hairRightX.reset();
+    this.hairLeftZ.reset(-0.04);
+    this.hairRightZ.reset(0.04);
+    this.rig.hairLeft.rotation.set(0, 0, -0.04);
+    this.rig.hairRight.rotation.set(0, 0, 0.04);
   }
 }
