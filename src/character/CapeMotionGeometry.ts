@@ -9,6 +9,7 @@ import {
 const TWO_PI = Math.PI * 2;
 
 interface CapePanelState {
+  readonly geometry: THREE.BufferGeometry;
   readonly position: THREE.BufferAttribute;
   readonly basePositions: Float32Array;
   readonly weights: Float32Array;
@@ -70,6 +71,7 @@ export class CapeMotionGeometry {
         positions.setXYZ(index, rotatedX, finalY, rotatedZ);
       }
       positions.needsUpdate = true;
+      panel.geometry.computeVertexNormals();
     }
   }
 }
@@ -105,6 +107,7 @@ function collectPanels(
       geometry.boundingSphere.radius *= CAPE_BOUNDS_EXPANSION;
     }
     panels.push({
+      geometry,
       position,
       basePositions,
       weights: createWeights(basePositions, position.count),
