@@ -49,6 +49,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
 import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
+import type { WorldDetailFoliageAtlas } from "./grass/WorldDetailFoliageAtlasFactory";
 import { WorldNearGrassField } from "./grass/WorldNearGrassField";
 
 interface WorldGrassPatch extends GrassPatch {
@@ -176,6 +177,9 @@ export interface WorldGrassDiagnostics {
    */
   submittedMidVertices: number;
   submittedFarInstances: number;
+  /** Accent cards actually submitted this frame, after the per-tile trim. */
+  accentCards: number;
+  accentTiles: number;
   /** Quality tier the governor currently holds. */
   qualityTier: number;
   qualityTierSeconds: number;
@@ -333,6 +337,7 @@ export class WorldGrassSystem {
       this.governor.getUltraDensityScale(),
       this.governor.getSheenEnabled(),
       this.governor.getNearDistanceScale(),
+      this.governor.getAccentDensityScale(),
     );
     const lodConfig = this.resolvedLodConfig;
     if (lodConfig) {
@@ -404,6 +409,11 @@ export class WorldGrassSystem {
     this.lodController.updateFarGroups(this.farGroups.values());
   }
 
+  /** The baked accent atlas, for the `?accentAtlas=1` inspection route. */
+  getDetailFoliageAtlas(): WorldDetailFoliageAtlas | undefined {
+    return this.nearField.getDetailFoliageAtlas();
+  }
+
   getDiagnostics(): WorldGrassDiagnostics {
     let visibleNearPatches = 0;
     let visibleMidPatches = 0;
@@ -454,6 +464,7 @@ export class WorldGrassSystem {
       qualityTier: this.governor.getTier(),
       qualityTierSeconds: this.governor.getSecondsInTier(),
       qualityDensityScale: this.governor.getDensityScale(),
+      ...this.nearField.getDetailFoliageDiagnostics(),
       ...this.nearField.getBuildDiagnostics(),
     };
   }

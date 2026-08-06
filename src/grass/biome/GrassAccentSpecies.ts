@@ -1,0 +1,158 @@
+/**
+ * The detail-foliage species catalogue: ferns, flowers, seed heads, and the
+ * sprigs between them.
+ *
+ * This is pure data with no renderer dependency, because four layers need to
+ * agree on it: the biome profiles name species and tints, the atlas factory
+ * bakes one cell per species, the placement field reads the height bands and
+ * the macro gate each species belongs to, and the material uploads the wind
+ * weights as a bounded uniform array. One catalogue keeps those four in step —
+ * the same reason the biome profiles themselves are loaded once and validated.
+ *
+ * Both tables are capped at eight entries: the shader indexes them with a
+ * per-instance row, exactly like the biome palette arrays, so their length is a
+ * uniform-array size and never a draw-call or program count.
+ */
+
+export const GRASS_MAX_ACCENT_SPECIES = 8;
+export const GRASS_MAX_ACCENT_TINTS = 8;
+
+/**
+ * Which macro field decides where a species belongs. The categories are what
+ * make the field read as *mixed* rather than as a uniform sprinkle: flowers
+ * follow vigour, seed heads follow dryness, ferns follow the poorer ground the
+ * blade layer is already thinning on, and tufts fill everywhere. Those fields
+ * disagree with each other spatially, so their union is patchy at metre scale
+ * without any extra noise of its own.
+ */
+export type GrassAccentCategory = "tuft" | "fern" | "flower" | "seed";
+
+export interface GrassAccentSpeciesDefinition {
+  key: string;
+  index: number;
+  category: GrassAccentCategory;
+  /** Card width as a fraction of its height. The atlas cell is drawn to match. */
+  aspect: number;
+  /** Wind response, in [0.3, 1]; the per-texel mask the article uses cannot act
+   * in a vertex stage, so this scalar times a height ramp is its equivalent. */
+  windWeight: number;
+  /** Card height band in metres, sampled per instance. */
+  heightBand: readonly [number, number];
+}
+
+export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
+  Object.freeze(
+    (
+      [
+        {
+          key: "grass-tuft",
+          category: "tuft",
+          aspect: 0.9,
+          windWeight: 0.85,
+          heightBand: [0.34, 0.5],
+        },
+        {
+          key: "tall-tuft",
+          category: "tuft",
+          aspect: 0.6,
+          windWeight: 1,
+          heightBand: [0.5, 0.72],
+        },
+        {
+          key: "fern",
+          category: "fern",
+          aspect: 1,
+          windWeight: 0.35,
+          heightBand: [0.4, 0.6],
+        },
+        {
+          key: "small-fern",
+          category: "fern",
+          aspect: 0.95,
+          windWeight: 0.4,
+          heightBand: [0.26, 0.4],
+        },
+        {
+          key: "daisy",
+          category: "flower",
+          aspect: 0.75,
+          windWeight: 0.7,
+          heightBand: [0.3, 0.44],
+        },
+        {
+          key: "round-bloom",
+          category: "flower",
+          aspect: 0.8,
+          windWeight: 0.65,
+          heightBand: [0.32, 0.48],
+        },
+        {
+          key: "seed-head",
+          category: "seed",
+          aspect: 0.5,
+          windWeight: 1,
+          heightBand: [0.46, 0.66],
+        },
+        {
+          key: "sprig",
+          category: "tuft",
+          aspect: 0.7,
+          windWeight: 0.55,
+          heightBand: [0.28, 0.42],
+        },
+      ] as const
+    ).map((definition, index) =>
+      Object.freeze({ ...definition, index } as GrassAccentSpeciesDefinition),
+    ),
+  );
+
+/**
+ * Tint rows for the atlas's B channel, which marks petals and seed clusters.
+ *
+ * The colour is per instance rather than per material, so one atlas yields
+ * white, red, yellow, and pink flowers with no extra draw and no second
+ * texture. Accents are deliberately outside the LOD colour-parity budget for
+ * the same reason the backlight tint is: they are not grass colour.
+ */
+export const GRASS_ACCENT_TINTS: readonly { key: string; color: string }[] =
+  Object.freeze([
+    { key: "white", color: "#f4f1e6" },
+    { key: "cream", color: "#f0e3bd" },
+    { key: "buttercup", color: "#f2c53d" },
+    { key: "poppy-red", color: "#c8402f" },
+    { key: "pink", color: "#e39ab4" },
+    { key: "lavender", color: "#a894cf" },
+    { key: "straw", color: "#d8c48a" },
+    { key: "sky-blue", color: "#8fb6d9" },
+  ]);
+
+/** The tint every untinted species uses. Their B channel is zero, so the row
+ * is never read — naming it keeps `"none"` a valid profile value. */
+export const GRASS_ACCENT_TINT_NONE = "none";
+
+export function findGrassAccentSpecies(
+  key: string,
+): GrassAccentSpeciesDefinition | undefined {
+  return GRASS_ACCENT_SPECIES.find((species) => species.key === key);
+}
+
+export function resolveGrassAccentTintRow(key: string): number {
+  if (key === GRASS_ACCENT_TINT_NONE) {
+    return 0;
+  }
+  const row = GRASS_ACCENT_TINTS.findIndex((tint) => tint.key === key);
+  return row < 0 ? 0 : row;
+}
+
+/**
+ * The one float each instance carries. Species, atlas variant row, and tint fit
+ * a single attribute, which keeps the accent layer on the same four-attribute
+ * budget as every other grass layer.
+ */
+export function packGrassAccent(
+  speciesIndex: number,
+  variantRow: number,
+  tintRow: number,
+): number {
+  return speciesIndex * 16 + variantRow * 8 + tintRow;
+}

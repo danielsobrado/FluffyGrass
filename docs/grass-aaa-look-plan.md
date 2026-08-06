@@ -9,7 +9,7 @@
 | LOOK-3/4 | Implemented: gust sheen/tip lift and root-to-tip impostor shear use the same clock, direction, noise, scale, speed, and palette rows. |
 | LOOK-5 | Implemented: the wider, shorter silhouette and denser underlayer are in YAML. |
 | LOOK-6 | Implemented: Zelda-specific sun, hemisphere, fog, and exposure pairing is applied and resets for other presets. |
-| LOOK-7 | Deferred (optional): flower accents remain outside the default draw and memory budget until art direction explicitly enables them. |
+| LOOK-7 | Implemented: the channel-packed accent layer (ferns, flowers, seed heads) ships per [grass-detail-foliage-plan.md](grass-detail-foliage-plan.md), inside a gated ≤ 2.5 k card / ≤ 30 draw budget. |
 
 The automated build is green and a headless WebGL pass renders the preset with no shader or
 runtime errors. Screenshot sign-off across every camera distance remains a manual art-review

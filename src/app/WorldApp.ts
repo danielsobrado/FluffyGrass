@@ -17,6 +17,7 @@ import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
 import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
+import { appendDetailFoliageAtlasDebugCanvas } from "../world/grass/WorldDetailFoliageAtlasFactory";
 import { GrassArtMenu } from "./GrassArtMenu";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
@@ -287,6 +288,15 @@ export class WorldApp {
   private async initializeGrass(): Promise<void> {
     try {
       await this.grass.initialize();
+      // `?accentAtlas=1` pins the baked detail-foliage atlas to the page so its
+      // cells can be eyeballed, the same development route `?grassImpostorBake=1`
+      // provides for the impostor atlas.
+      if (new URLSearchParams(window.location.search).get("accentAtlas") === "1") {
+        const atlas = this.grass.getDetailFoliageAtlas();
+        if (atlas) {
+          appendDetailFoliageAtlasDebugCanvas(atlas);
+        }
+      }
     } catch (error) {
       console.error("[Drusniel World] Grass initialization failed.", error);
       this.grassInitializationError = this.formatError(error);

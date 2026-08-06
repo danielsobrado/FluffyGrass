@@ -157,3 +157,53 @@ Defaults (absent fields) = meadow's set, so existing profiles keep validating.
 
 Estimated total: ~700 lines of new code, no changes to existing grass materials, zero effect
 on the blade-layer budgets.
+
+## Implementation status — shipped
+
+All five phases are implemented and `npm run build` is green (TypeScript, all three gates,
+Vite). No existing grass material changed. New modules:
+
+- `src/grass/biome/GrassAccentSpecies.ts` — the species and tint catalogue, shared by the
+  atlas, the material, the placement field, and the biome loader. It is a fifth module the
+  plan did not name: the four consumers each needed the same species keys, aspects, wind
+  weights, height bands, and macro categories, and duplicating them across layers is exactly
+  the drift this codebase gates against elsewhere.
+- `src/world/grass/WorldDetailFoliageAtlasFactory.ts` — the Canvas-baked 1024 × 256 atlas.
+- `src/world/grass/WorldDetailFoliageMaterial.ts` — one `ShaderMaterial` for the layer.
+- `src/world/grass/WorldDetailFoliageField.ts` — placement, residency, and the draw trim.
+
+Measured at the spawn point: 21 resident tiles, 1 890 resident cards, 1 488 drawn, against a
+gated worst-case ceiling of 2 070 cards / 22 draws / 12 420 vertices.
+
+### Deviations from the spec above, and why
+
+1. **16 m tiles, not 8 m.** The plan budgeted ≤ 30 extra draws but also 8 m tiles; at 8 m the
+   32 m residency disc holds ~73 tiles, so those two numbers cannot both hold. This takes the
+   plan's own "merge per 2×2 tiles" escape hatch up front rather than after a trace: culling
+   granularity buys nothing for a tile that is ~90 six-vertex cards.
+2. **Six-vertex card, not eight.** Two stacked quads sharing their middle row. The shared row
+   is what allows the mid-frond bend the plan asked for; duplicating it would cost two more
+   vertices for an identical silhouette.
+3. **Yaw-only billboard, not a fixed-facing card.** A card anchored to its instance yaw
+   vanishes edge-on, which at this density reads as flowers blinking out as the camera turns.
+   The card stays upright — it never pitches towards the camera — and rotates about world up
+   only, which is the only orientation that avoids both failures.
+4. **The atlas's second row is a second silhouette per species**, selected by a per-instance
+   variant bit packed beside the species and tint. The plan specified an 8 × 2 layout without
+   saying what the second row was for; this is the use that costs nothing.
+5. **The governor's accent scale is ramped** like `densityScale`, rather than stepping at the
+   tier change. A step would dither half the layer out in one frame at 25 m, which is exactly
+   the pop the ramp exists to prevent.
+6. **The gate assertion is narrower than the plan's wording.** "The accent material is the
+   only grass material containing `discard`" is not achievable: the impostor material already
+   discards for its own alpha cutout. What is asserted instead is stronger where it matters —
+   the accent material contains *exactly one* `discard`, it is the alpha test, its coverage
+   rejection is still a vertex-stage clip, and the near material still contains none.
+
+### Not implemented (deliberate)
+
+- CC0 art fallback: the procedural atlas is the shipped source, and no third-party asset is
+  imported, so `THIRD_PARTY_NOTICES.md` is unchanged.
+- Accents do not respond to the trail/interaction field. They are outside the reserved
+  interaction bounds by construction (`maximumInteractionStrength: 0`), which is what keeps
+  their culling bound honest; adding trail bend later means widening that bound with it.

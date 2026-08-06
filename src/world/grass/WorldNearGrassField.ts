@@ -18,6 +18,17 @@ import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import { WorldSingleBladeTileFactory } from "./WorldSingleBladeTileFactory";
 import { WorldSingleBladeTileField } from "./WorldSingleBladeTileField";
+import {
+  WorldDetailFoliageAtlasFactory,
+  type WorldDetailFoliageAtlas,
+} from "./WorldDetailFoliageAtlasFactory";
+import { WorldDetailFoliageMaterial } from "./WorldDetailFoliageMaterial";
+import {
+  DETAIL_FOLIAGE_FADE_DISTANCE,
+  DETAIL_FOLIAGE_FADE_TRANSITION,
+  WorldDetailFoliageFactory,
+  WorldDetailFoliageField,
+} from "./WorldDetailFoliageField";
 
 const BASE_SEED_SALT = 0x6a09e667;
 const ULTRA_NEAR_SEED_SALT = 0x3c6ef372;
@@ -28,6 +39,14 @@ const SINGLE_BLADE_BOUNDS_MARGIN = 2;
 const NEAR_FIELD_ALTITUDE_MARGIN = 4;
 const DESKTOP_NEAR_BUILD_BUDGET_MS = 2.5;
 const COMPACT_NEAR_BUILD_BUDGET_MS = 1.5;
+/**
+ * Accent tiles are ~90 candidates each and finish well inside a tenth of a
+ * millisecond, so one per frame keeps them behind the blade layers in the
+ * frame's build slice without ever being the reason a tile is late.
+ */
+const DETAIL_FOLIAGE_TILES_PER_FRAME = 1;
+/** Compact devices carry the layer at a lower share of the same budget. */
+const COMPACT_DETAIL_FOLIAGE_SCALE = 0.6;
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
   // The base and detail layers are complementary halves of the same near band
@@ -43,6 +62,15 @@ export class WorldNearGrassField {
   private baseField?: WorldSingleBladeTileField;
   private baseDetailedField?: WorldSingleBladeTileField;
   private ultraNearField?: WorldSingleBladeTileField;
+  // The accent layer: one atlas, one material, every species and tint resolved
+  // from per-instance data. See WorldDetailFoliageField for why it lives here
+  // rather than beside the streamed mid patches — it is a near-band layer and
+  // suspends with the rest of them when the camera leaves their 3D range.
+  private detailFoliageAtlas?: WorldDetailFoliageAtlas;
+  private detailFoliageMaterial?: WorldDetailFoliageMaterial;
+  private detailFoliageFactory?: WorldDetailFoliageFactory;
+  private detailFoliageField?: WorldDetailFoliageField;
+  private detailFoliageEnabled = true;
   private initialization?: Promise<void>;
   private artDirection: GrassArtDirection =
     GRASS_ART_DIRECTIONS[DEFAULT_GRASS_ART_DIRECTION_KEY];
@@ -107,6 +135,7 @@ export class WorldNearGrassField {
     this.baseMaterial.update(elapsedSeconds);
     this.baseDetailMaterial.update(elapsedSeconds);
     this.ultraNearMaterial.update(elapsedSeconds);
+    this.detailFoliageMaterial?.update(elapsedSeconds);
 
     // Near-blade residency is horizontal, while the shader's LOD distance is
     // three-dimensional. Suspend these dense tiles when a fly camera is high
@@ -119,6 +148,9 @@ export class WorldNearGrassField {
     this.baseField?.setEnabled(nearFieldsEnabled);
     this.baseDetailedField?.setEnabled(nearFieldsEnabled);
     this.ultraNearField?.setEnabled(nearFieldsEnabled);
+    this.detailFoliageField?.setEnabled(
+      nearFieldsEnabled && this.detailFoliageEnabled,
+    );
     if (!nearFieldsEnabled) {
       return;
     }
@@ -138,6 +170,23 @@ export class WorldNearGrassField {
     this.baseDetailedField?.update(focus, nearBuildDeadline);
     this.ultraNearField?.update(focus, nearBuildDeadline);
     this.baseField?.update(focus, nearBuildDeadline);
+    // Accents last: they are the layer whose absence for one more frame is
+    // least visible, so they spend whatever the blade layers left.
+    this.detailFoliageField?.update(focus, nearBuildDeadline);
+  }
+
+  getDetailFoliageAtlas(): WorldDetailFoliageAtlas | undefined {
+    return this.detailFoliageAtlas;
+  }
+
+  getDetailFoliageDiagnostics(): {
+    accentCards: number;
+    accentTiles: number;
+  } {
+    return {
+      accentCards: this.detailFoliageField?.getDrawnInstanceCount() ?? 0,
+      accentTiles: this.detailFoliageField?.getTileCount() ?? 0,
+    };
   }
 
   getBladeCount(): number {
@@ -175,6 +224,7 @@ export class WorldNearGrassField {
   setArtDirection(direction: GrassArtDirection): void {
     this.artDirection = direction;
     this.ultraNearMaterial.applyArtDirection(direction);
+    this.detailFoliageMaterial?.applyArtDirection(direction);
     const lodConfig: GrassLodConfig = {
       nearMaxDistance: direction.nearDistance,
       midMaxDistance: direction.midDistance,
@@ -211,7 +261,16 @@ export class WorldNearGrassField {
     ultraDensityScale: number,
     sheenEnabled: boolean,
     nearDistanceScale = 1,
+    accentDensityScale = 1,
   ): void {
+    // The accent scale is ramped by the governor like every other tier scalar,
+    // so a tier change dissolves the layer through the same dither the distance
+    // fade uses instead of dropping half of it in one frame.
+    this.detailFoliageEnabled = accentDensityScale > 0;
+    this.detailFoliageField?.setDensityScale(
+      accentDensityScale *
+        (this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1),
+    );
     this.baseMaterial.setLodDensityScale(densityScale);
     this.baseDetailMaterial.setLodDensityScale(densityScale);
     this.ultraNearMaterial.setLodDensityScale(
@@ -240,6 +299,54 @@ export class WorldNearGrassField {
     );
   }
 
+  /**
+   * Bakes the accent atlas and stands up its material, factory, and field. The
+   * atlas is a single 1024 × 256 canvas drawn once at init — the same cost and
+   * the same lifetime as the impostor atlas beside it.
+   */
+  private createDetailFoliageLayer(grassConfig: GrassConfig): void {
+    const atlas = new WorldDetailFoliageAtlasFactory().create();
+    const material = new WorldDetailFoliageMaterial(
+      atlas,
+      grassConfig.material,
+      grassConfig.wind,
+      {
+        fadeDistance: DETAIL_FOLIAGE_FADE_DISTANCE,
+        fadeTransition: DETAIL_FOLIAGE_FADE_TRANSITION,
+        noiseWind: !this.profile.compact,
+      },
+    );
+    material.applyArtDirection(this.artDirection);
+    if (!this.profile.compact) {
+      material.setWindNoise(
+        getGrassWindNoiseTexture(),
+        GRASS_WIND_NOISE_SCALE,
+        GRASS_WIND_NOISE_SPEED,
+      );
+    }
+    const factory = new WorldDetailFoliageFactory(
+      this.field,
+      this.worldConfig,
+      grassConfig,
+      material,
+    );
+    this.detailFoliageAtlas = atlas;
+    this.detailFoliageMaterial = material;
+    this.detailFoliageFactory = factory;
+    this.detailFoliageField = new WorldDetailFoliageField(
+      this.scene,
+      factory,
+      material,
+      {
+        namePrefix: "world-grass-detail-foliage",
+        tilesPerFrame: DETAIL_FOLIAGE_TILES_PER_FRAME,
+      },
+    );
+    this.detailFoliageField.setDensityScale(
+      this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1,
+    );
+  }
+
   private resolveBaseVisibilityRadius(direction: GrassArtDirection): number {
     return (
       direction.nearDistance +
@@ -257,14 +364,21 @@ export class WorldNearGrassField {
     this.baseField?.dispose();
     this.baseDetailedField?.dispose();
     this.ultraNearField?.dispose();
+    this.detailFoliageField?.dispose();
     this.baseField = undefined;
     this.baseDetailedField = undefined;
     this.ultraNearField = undefined;
+    this.detailFoliageField = undefined;
     this.factory?.dispose();
     this.factory = undefined;
+    this.detailFoliageFactory?.dispose();
+    this.detailFoliageFactory = undefined;
     this.baseMaterial.material.dispose();
     this.baseDetailMaterial.material.dispose();
     this.ultraNearMaterial.material.dispose();
+    this.detailFoliageMaterial?.dispose();
+    this.detailFoliageMaterial = undefined;
+    this.detailFoliageAtlas = undefined;
   }
 
   private async initializeInternal(
@@ -446,6 +560,7 @@ export class WorldNearGrassField {
       );
     }
 
+    this.createDetailFoliageLayer(grassConfig);
     this.initialized = true;
   }
 }

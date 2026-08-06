@@ -14,7 +14,16 @@
     "widthBand": [0.86, 1.1],
     "drynessBias": 0,
     "windDamping": 1,
-    "shapeFamily": "blade"
+    "shapeFamily": "blade",
+    "accentDensity": 1,
+    "accentSpecies": [
+      { "species": "daisy", "tint": "white", "weight": 3 },
+      { "species": "round-bloom", "tint": "poppy-red", "weight": 1 },
+      { "species": "fern", "tint": "none", "weight": 2 },
+      { "species": "small-fern", "tint": "none", "weight": 1 },
+      { "species": "grass-tuft", "tint": "none", "weight": 4 },
+      { "species": "sprig", "tint": "none", "weight": 2 }
+    ]
   },
   "dry-steppe": {
     "index": 1,
@@ -31,7 +40,14 @@
     "widthBand": [0.8, 0.98],
     "drynessBias": 0.35,
     "windDamping": 0.9,
-    "shapeFamily": "blade"
+    "shapeFamily": "blade",
+    "accentDensity": 0.6,
+    "accentSpecies": [
+      { "species": "seed-head", "tint": "straw", "weight": 4 },
+      { "species": "tall-tuft", "tint": "none", "weight": 3 },
+      { "species": "grass-tuft", "tint": "none", "weight": 2 },
+      { "species": "round-bloom", "tint": "buttercup", "weight": 1 }
+    ]
   },
   "alpine": {
     "index": 2,
@@ -48,6 +64,13 @@
     "widthBand": [0.85, 1],
     "drynessBias": 0.12,
     "windDamping": 0.8,
-    "shapeFamily": "blade"
+    "shapeFamily": "blade",
+    "accentDensity": 0.5,
+    "accentSpecies": [
+      { "species": "grass-tuft", "tint": "none", "weight": 4 },
+      { "species": "daisy", "tint": "white", "weight": 2 },
+      { "species": "round-bloom", "tint": "lavender", "weight": 2 },
+      { "species": "small-fern", "tint": "none", "weight": 1 }
+    ]
   }
 }

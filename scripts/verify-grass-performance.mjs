@@ -253,6 +253,14 @@ const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const impostorAtlasFactory = read(
   "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
 );
+const accentSpeciesSource = read("src/grass/biome/GrassAccentSpecies.ts");
+const detailFoliageField = read("src/world/grass/WorldDetailFoliageField.ts");
+const detailFoliageMaterial = read(
+  "src/world/grass/WorldDetailFoliageMaterial.ts",
+);
+const detailFoliageAtlasFactory = read(
+  "src/world/grass/WorldDetailFoliageAtlasFactory.ts",
+);
 
 const bladeSegments = readYamlNumber(grassConfig, "bladeSegments");
 const tileSize = readYamlNumber(worldConfig, "grassNearTileSize");
@@ -556,6 +564,191 @@ assert(
   biomeField.includes("RANK_TABLE") && biomeField.includes("uniformField("),
   "The biome field must be remapped to a uniform variable before slicing.",
 );
+// ---------------------------------------------------------------------------
+// Detail foliage (accent cards): ferns, flowers, seed heads.
+//
+// The layer's whole justification is that it is noise next to the mid band, so
+// the checks below are about it staying that way: a bounded density, a bounded
+// resident set, and the one place in the grass pipeline where a fragment
+// `discard` is allowed to exist.
+// ---------------------------------------------------------------------------
+const accentTileSize = readSourceNumber(
+  detailFoliageField,
+  "DETAIL_FOLIAGE_TILE_SIZE",
+);
+const accentDensity = readSourceNumber(
+  detailFoliageField,
+  "DETAIL_FOLIAGE_DENSITY",
+);
+const accentDensityCeiling = readSourceNumber(
+  detailFoliageField,
+  "DETAIL_FOLIAGE_DENSITY_CEILING",
+);
+const accentFadeDistance = readSourceNumber(
+  detailFoliageField,
+  "DETAIL_FOLIAGE_FADE_DISTANCE",
+);
+const accentFadeTransition = readSourceNumber(
+  detailFoliageField,
+  "DETAIL_FOLIAGE_FADE_TRANSITION",
+);
+const accentResidencyMargin = readSourceNumber(
+  detailFoliageField,
+  "DETAIL_FOLIAGE_RESIDENCY_MARGIN",
+);
+const accentVisibilityRadius =
+  accentFadeDistance + accentFadeTransition + accentResidencyMargin;
+assert(
+  accentDensity <= accentDensityCeiling && accentDensityCeiling <= 0.5,
+  `Accent density ${accentDensity}/m² exceeds the ${accentDensityCeiling}/m² ceiling.`,
+);
+assert(
+  accentFadeDistance + accentFadeTransition <= 30,
+  "Accents must be gone by 30 m; past that they are sub-pixel sprinkles the mid band already provides.",
+);
+
+// Worst-case residency over every tile phase, the same enumeration the near
+// field is measured with. Cards are counted before terrain masks and biome
+// accentDensity reject any of them, so this is a strict ceiling.
+const accentCardsPerTile = Math.round(accentTileSize ** 2 * accentDensity);
+let accentResidentTiles = 0;
+let accentDrawnTiles = 0;
+for (let iz = 0; iz < 64; iz += 1) {
+  for (let ix = 0; ix < 64; ix += 1) {
+    const focusX = (ix * accentTileSize) / 64;
+    const focusZ = (iz * accentTileSize) / 64;
+    accentResidentTiles = Math.max(
+      accentResidentTiles,
+      countTiles(accentVisibilityRadius, accentTileSize, focusX, focusZ),
+    );
+    accentDrawnTiles = Math.max(
+      accentDrawnTiles,
+      countTiles(
+        accentFadeDistance + accentFadeTransition,
+        accentTileSize,
+        focusX,
+        focusZ,
+      ),
+    );
+  }
+}
+const accentResidentCards = accentResidentTiles * accentCardsPerTile;
+// Six vertices per card: two stacked quads sharing their middle row.
+const accentVertices = accentResidentCards * 6;
+assert(
+  accentResidentCards <= 2500,
+  `Accent resident card ceiling exceeded: ${accentResidentCards}.`,
+);
+assert(
+  accentDrawnTiles <= 30,
+  `Accent draw ceiling exceeded: ${accentDrawnTiles} tiles can draw at once.`,
+);
+assert(
+  accentVertices <= 100_000,
+  `Accent vertex ceiling exceeded: ${accentVertices}.`,
+);
+assert(
+  detailFoliageField.includes("tile.mesh.visible = count > 0"),
+  "Trimmed-to-empty accent tiles must stop submitting a draw entirely.",
+);
+assert(
+  detailFoliageField.includes(
+    "candidates.sort((left, right) => left.dither - right.dither)",
+  ) &&
+    detailFoliageField.includes("upperBound(") &&
+    detailFoliageField.includes("DITHER_SAFETY_MARGIN"),
+  "Accent tiles must stay dither-sorted so the draw can be trimmed to a prefix.",
+);
+// The near/mid materials owe their early-Z friendliness to rejecting in the
+// vertex stage. Cutout cards genuinely cannot, so the accent material is the
+// single exception — and its only discard must be the atlas alpha test, with
+// the coverage rejection still done by collapsing the card off-screen.
+const accentDiscards = detailFoliageMaterial.match(/discard;/g) ?? [];
+assert(
+  accentDiscards.length === 1 &&
+    detailFoliageMaterial.includes("if (atlasColor.a < cutoff)") &&
+    detailFoliageMaterial.includes("gl_Position = vec4(2.0, 2.0, 2.0, 1.0)"),
+  "The accent material may discard only for the alpha cutout; coverage must be rejected in the vertex stage.",
+);
+assert(
+  !nearMaterial.includes("discard;"),
+  "The near/mid keep test must stay in the vertex stage even with accents shipped.",
+);
+assert(
+  detailFoliageAtlasFactory.includes("THREE.LinearMipmapLinearFilter") &&
+    detailFoliageAtlasFactory.includes("texture.generateMipmaps = true") &&
+    detailFoliageMaterial.includes("smoothstep(uFadeDistance * 0.4, uFadeDistance"),
+  "The accent atlas must keep mipmaps and compensate its alpha cutoff with distance.",
+);
+// Same rule as the blade layers: biome and macro resolution is build-time only.
+assert(
+  detailFoliageField.includes("sampleGrassBiome(x, z)") &&
+    !detailFoliageMaterial.includes("sampleGrassBiome") &&
+    !detailFoliageMaterial.includes("sampleGrassMacro"),
+  "Accent biome and macro sampling must remain in the build path.",
+);
+// Species and tint rows are bounded uniform arrays indexed per instance, so
+// growing the catalogue can never grow the draw count.
+const maxAccentSpecies = Number(
+  accentSpeciesSource.match(/GRASS_MAX_ACCENT_SPECIES = (\d+)/)?.[1],
+);
+const maxAccentTints = Number(
+  accentSpeciesSource.match(/GRASS_MAX_ACCENT_TINTS = (\d+)/)?.[1],
+);
+const declaredSpecies = [
+  ...accentSpeciesSource.matchAll(/key: "([a-z-]+)",\s+category:/g),
+].map((match) => match[1]);
+const declaredTints = [
+  ...accentSpeciesSource.matchAll(/\{ key: "([a-z-]+)", color:/g),
+].map((match) => match[1]);
+assert(
+  maxAccentSpecies === 8 &&
+    maxAccentTints === 8 &&
+    declaredSpecies.length === maxAccentSpecies &&
+    declaredTints.length === maxAccentTints &&
+    detailFoliageMaterial.includes(
+      "uSpeciesWind[${GRASS_MAX_ACCENT_SPECIES}]",
+    ) &&
+    detailFoliageMaterial.includes("uAccentTint[${GRASS_MAX_ACCENT_TINTS}]"),
+  "The accent catalogue and its shader uniform arrays must share one bounded size.",
+);
+for (const profile of orderedBiomes) {
+  assert(
+    profile.accentDensity === undefined ||
+      (profile.accentDensity >= 0 && profile.accentDensity <= 1),
+    `Biome ${profile.label} accentDensity must stay within [0, 1].`,
+  );
+  for (const entry of profile.accentSpecies ?? []) {
+    assert(
+      declaredSpecies.includes(entry.species) &&
+        (entry.tint === "none" || declaredTints.includes(entry.tint)),
+      `Biome ${profile.label} names an unknown accent species or tint.`,
+    );
+  }
+}
+// One material for every species, tint, and biome: the accent layer must never
+// become a per-look material or a per-look draw.
+assert(
+  (detailFoliageField.match(/new THREE\.InstancedMesh\(/g) ?? []).length === 1 &&
+    detailFoliageField.includes("this.material.material") &&
+    (detailFoliageMaterial.match(/new THREE\.ShaderMaterial\(/g) ?? [])
+      .length === 1,
+  "Every accent tile must share the one accent material.",
+);
+const accentTierScales = [
+  ...qualityGovernor.matchAll(/accentDensityScale:\s*([0-9.]+)/g),
+].map((match) => Number(match[1]));
+assert(
+  accentTierScales.length === 4 &&
+    accentTierScales.every(
+      (scale, index) =>
+        scale <= 1 && (index === 0 || scale <= accentTierScales[index - 1]),
+    ) &&
+    accentTierScales[accentTierScales.length - 1] === 0 &&
+    qualityGovernor.includes("this.accentDensityScale,"),
+  "Accent tiers must only lower coverage, end at zero, and ramp like every other tier scalar.",
+);
+
 const tierScales = [
   ...qualityGovernor.matchAll(/densityScale:\s*([0-9.]+)/g),
 ].map((match) => Number(match[1]));
@@ -774,6 +967,9 @@ console.log(
     `compact ${Math.round(compactNear.average).toLocaleString("en-US")}/${compactNear.maximum.toLocaleString("en-US")}; ` +
     `near geometry ${(maximumNearBaselineRatio * 100).toFixed(1)}% of the fully segmented baseline; ` +
     `analytical mid/far submission envelope ${(Math.min(...submissionRatios) * 100).toFixed(1)}–${(Math.max(...submissionRatios) * 100).toFixed(1)}% of the prior baseline; ` +
+    `accents ≤ ${accentResidentCards.toLocaleString("en-US")} cards / ` +
+    `${accentDrawnTiles} draws / ${accentVertices.toLocaleString("en-US")} vertices, gone by ` +
+    `${accentFadeDistance + accentFadeTransition} m; ` +
     "every blade and two cards retained; far cards 1-fetch at every distance. " +
     "Near counts are the pre-truncation ceiling: tiles are sorted by dither and " +
     "the draw is cut to the surviving prefix at runtime.",

@@ -1,4 +1,9 @@
 import profileData from "./GrassBiomeProfiles.json";
+import {
+  findGrassAccentSpecies,
+  GRASS_ACCENT_TINTS,
+  GRASS_ACCENT_TINT_NONE,
+} from "./GrassAccentSpecies";
 
 /**
  * Biome support is per-instance data, never a per-mesh uniform and never a new
@@ -50,7 +55,33 @@ export interface GrassBiomeProfile {
   /** Scales the per-instance wind response; never above 1 (see bounds below). */
   windDamping: number;
   shapeFamily: string;
+  /**
+   * Relative accent-card coverage, multiplied into the detail-foliage field's
+   * own density. Never above 1: the field's base density is the budgeted
+   * ceiling, and a biome may only spend less of it.
+   */
+  accentDensity: number;
+  /** Weighted species/tint set the accent field picks from in this biome. */
+  accentSpecies: readonly GrassBiomeAccentSpecies[];
 }
+
+/** One entry of a biome's accent mix. Weights are relative within the list. */
+export interface GrassBiomeAccentSpecies {
+  species: string;
+  tint: string;
+  weight: number;
+}
+
+/**
+ * What a profile that names no accents gets. Meadow's mix is the reference set,
+ * so existing profiles keep validating and keep looking like a meadow.
+ */
+const DEFAULT_ACCENT_SPECIES: readonly GrassBiomeAccentSpecies[] = Object.freeze([
+  { species: "daisy", tint: "white", weight: 3 },
+  { species: "round-bloom", tint: "poppy-red", weight: 1 },
+  { species: "fern", tint: GRASS_ACCENT_TINT_NONE, weight: 2 },
+  { species: "grass-tuft", tint: GRASS_ACCENT_TINT_NONE, weight: 4 },
+]);
 
 /**
  * Ceilings the reserved culling bounds are computed from. A profile that left
@@ -109,6 +140,43 @@ function assertBand(
     fail(`${label} is reversed.`);
   }
   return [minimum, maximum] as const;
+}
+
+function assertAccentSpecies(
+  value: unknown,
+  label: string,
+): readonly GrassBiomeAccentSpecies[] {
+  if (value === undefined) {
+    return DEFAULT_ACCENT_SPECIES;
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    fail(`${label} must be a non-empty array when present.`);
+  }
+  return Object.freeze(
+    value.map((entry, position) => {
+      const item = entry as Record<string, unknown>;
+      const where = `${label}[${position}]`;
+      if (
+        typeof item.species !== "string" ||
+        !findGrassAccentSpecies(item.species)
+      ) {
+        fail(`${where} names an unknown accent species.`);
+      }
+      const tint = item.tint ?? GRASS_ACCENT_TINT_NONE;
+      if (
+        typeof tint !== "string" ||
+        (tint !== GRASS_ACCENT_TINT_NONE &&
+          !GRASS_ACCENT_TINTS.some((entryTint) => entryTint.key === tint))
+      ) {
+        fail(`${where} names an unknown accent tint.`);
+      }
+      return Object.freeze({
+        species: item.species as string,
+        tint,
+        weight: assertFiniteInRange(item.weight, 0.01, 16, `${where} weight`),
+      });
+    }),
+  );
 }
 
 function validate(key: string, raw: Record<string, unknown>): GrassBiomeProfile {
@@ -187,6 +255,19 @@ function validate(key: string, raw: Record<string, unknown>): GrassBiomeProfile 
       `Biome ${key} windDamping`,
     ),
     shapeFamily: raw.shapeFamily,
+    accentDensity:
+      raw.accentDensity === undefined
+        ? 1
+        : assertFiniteInRange(
+            raw.accentDensity,
+            0,
+            1,
+            `Biome ${key} accentDensity`,
+          ),
+    accentSpecies: assertAccentSpecies(
+      raw.accentSpecies,
+      `Biome ${key} accentSpecies`,
+    ),
   };
 }
 

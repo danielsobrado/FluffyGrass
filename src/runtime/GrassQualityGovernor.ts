@@ -27,6 +27,12 @@ export interface GrassQualityTier {
   blendViews: boolean;
   /** Near-band distance multiplier; the lowest tier streams less dense detail. */
   nearDistanceScale: number;
+  /**
+   * Detail-foliage coverage. Zero disables the accent layer outright: it is the
+   * most decorative layer in the frame and therefore the first whole feature
+   * worth spending, but only after the cheaper density knobs above.
+   */
+  accentDensityScale: number;
 }
 
 /**
@@ -42,6 +48,7 @@ export const GRASS_QUALITY_TIERS: readonly GrassQualityTier[] = Object.freeze([
     sheen: true,
     blendViews: true,
     nearDistanceScale: 1,
+    accentDensityScale: 1,
   },
   {
     densityScale: 0.85,
@@ -50,6 +57,7 @@ export const GRASS_QUALITY_TIERS: readonly GrassQualityTier[] = Object.freeze([
     sheen: true,
     blendViews: true,
     nearDistanceScale: 1,
+    accentDensityScale: 1,
   },
   {
     densityScale: 0.72,
@@ -58,6 +66,7 @@ export const GRASS_QUALITY_TIERS: readonly GrassQualityTier[] = Object.freeze([
     sheen: false,
     blendViews: true,
     nearDistanceScale: 1,
+    accentDensityScale: 0.5,
   },
   {
     densityScale: 0.6,
@@ -66,6 +75,7 @@ export const GRASS_QUALITY_TIERS: readonly GrassQualityTier[] = Object.freeze([
     sheen: false,
     blendViews: false,
     nearDistanceScale: 0.8,
+    accentDensityScale: 0,
   },
 ]);
 
@@ -95,6 +105,7 @@ export class GrassQualityGovernor {
   private densityScale = 1;
   private midFloorScale = 1;
   private ultraDensityScale = 1;
+  private accentDensityScale = 1;
   private windowElapsed = 0;
   private windowFrames = 0;
   private windowSeconds = 0;
@@ -122,6 +133,7 @@ export class GrassQualityGovernor {
       this.densityScale = pinned.densityScale;
       this.midFloorScale = pinned.midFloorScale;
       this.ultraDensityScale = pinned.ultraDensityScale;
+      this.accentDensityScale = pinned.accentDensityScale;
     }
   }
 
@@ -192,13 +204,20 @@ export class GrassQualityGovernor {
       target.ultraDensityScale,
       step,
     );
+    const accent = approach(
+      this.accentDensityScale,
+      target.accentDensityScale,
+      step,
+    );
     const changed =
       density !== this.densityScale ||
       midFloor !== this.midFloorScale ||
-      ultra !== this.ultraDensityScale;
+      ultra !== this.ultraDensityScale ||
+      accent !== this.accentDensityScale;
     this.densityScale = density;
     this.midFloorScale = midFloor;
     this.ultraDensityScale = ultra;
+    this.accentDensityScale = accent;
     return changed;
   }
 
@@ -220,6 +239,10 @@ export class GrassQualityGovernor {
 
   getUltraDensityScale(): number {
     return this.ultraDensityScale;
+  }
+
+  getAccentDensityScale(): number {
+    return this.accentDensityScale;
   }
 
   getSheenEnabled(): boolean {
