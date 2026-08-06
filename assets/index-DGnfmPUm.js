@@ -1,2 +1,362 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./IslandApp-Wxcqby58.js","./WindField-DWkt0_iQ.js","./WorldApp-CzuUuJgA.js"])))=>i.map(i=>d[i]);
-var y=Object.defineProperty;var P=(s,e,t)=>e in s?y(s,e,{enumerable:!0,configurable:!0,writable:!0,value:t}):s[e]=t;var E=(s,e,t)=>P(s,typeof e!="symbol"?e+"":e,t);(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const r of document.querySelectorAll('link[rel="modulepreload"]'))o(r);new MutationObserver(r=>{for(const n of r)if(n.type==="childList")for(const i of n.addedNodes)i.tagName==="LINK"&&i.rel==="modulepreload"&&o(i)}).observe(document,{childList:!0,subtree:!0});function t(r){const n={};return r.integrity&&(n.integrity=r.integrity),r.referrerPolicy&&(n.referrerPolicy=r.referrerPolicy),r.crossOrigin==="use-credentials"?n.credentials="include":r.crossOrigin==="anonymous"?n.credentials="omit":n.credentials="same-origin",n}function o(r){if(r.ep)return;r.ep=!0;const n=t(r);fetch(r.href,n)}})();const S="modulepreload",L=function(s,e){return new URL(s,e).href},b={},R=function(e,t,o){let r=Promise.resolve();if(t&&t.length>0){let i=function(a){return Promise.all(a.map(u=>Promise.resolve(u).then(d=>({status:"fulfilled",value:d}),d=>({status:"rejected",reason:d}))))};const c=document.getElementsByTagName("link"),l=document.querySelector("meta[property=csp-nonce]"),m=(l==null?void 0:l.nonce)||(l==null?void 0:l.getAttribute("nonce"));r=i(t.map(a=>{if(a=L(a,o),a in b)return;b[a]=!0;const u=a.endsWith(".css"),d=u?'[rel="stylesheet"]':"";if(!!o)for(let w=c.length-1;w>=0;w--){const p=c[w];if(p.href===a&&(!u||p.rel==="stylesheet"))return}else if(document.querySelector(`link[href="${a}"]${d}`))return;const f=document.createElement("link");if(f.rel=u?"stylesheet":S,u||(f.as="script"),f.crossOrigin="",f.href=a,m&&f.setAttribute("nonce",m),document.head.appendChild(f),u)return new Promise((w,p)=>{f.addEventListener("load",w),f.addEventListener("error",()=>p(new Error(`Unable to preload CSS for ${a}`)))})}))}function n(i){const c=new Event("vite:preloadError",{cancelable:!0});if(c.payload=i,window.dispatchEvent(c),!c.defaultPrevented)throw i}return r.then(i=>{for(const c of i||[])c.status==="rejected"&&n(c.reason);return e().catch(n)})};class v{constructor(e,t){E(this,"unreadKeys");this.name=e,this.values=t,this.unreadKeys=new Set(t.keys())}static parse(e,t){const o=new Map;for(const[r,n]of e.split(/\r?\n/).entries()){const i=n.trim();if(!i||i.startsWith("#"))continue;const c=i.indexOf(":");if(c<=0)throw new Error(`Invalid ${t} config at line ${r+1}.`);const l=i.slice(0,c).trim(),m=i.slice(c+1).trim();if(!m)throw new Error(`Missing value for ${l} at line ${r+1}.`);if(o.has(l))throw new Error(`Duplicate ${t} config value ${l} at line ${r+1}.`);const a=this.stripQuotes(m,t,r+1);if(!a)throw new Error(`Missing value for ${l} at line ${r+1}.`);o.set(l,a)}return new v(t,o)}read(e){const t=this.values.get(e);if(t===void 0)throw new Error(`Missing ${this.name} config value: ${e}.`);return this.unreadKeys.delete(e),t}assertFullyConsumed(){if(this.unreadKeys.size===0)return;const e=[...this.unreadKeys].sort();throw new Error(`Unknown ${this.name} config value${e.length===1?"":"s"}: ${e.join(", ")}.`)}static stripQuotes(e,t,o){const r=e[0],n=e[e.length-1],i=r==='"'||r==="'";if(i!==(n==='"'||n==="'")||i&&r!==n)throw new Error(`Invalid quoted ${t} config value at line ${o}.`);return i?e.slice(1,-1):e}}const O="./config/runtime.yaml";class _{async load(e=O){const t=await fetch(e);if(!t.ok)throw new Error(`Unable to load runtime config from ${e}: HTTP ${t.status}`);return this.parse(await t.text())}parse(e){const t=v.parse(e,"runtime"),o=Object.freeze({compactMaxWidth:this.readPositiveNumber(t,"compactMaxWidth"),desktop:Object.freeze(this.readTier(t,"desktop")),compact:Object.freeze(this.readTier(t,"compact"))});return t.assertFullyConsumed(),o}readTier(e,t){return{cameraFov:this.readRange(e,`${t}CameraFov`,30,90),cameraMargin:this.readRange(e,`${t}CameraMargin`,1,3),cameraElevation:this.readRange(e,`${t}CameraElevation`,.1,3),maxPixelRatio:this.readRange(e,`${t}MaxPixelRatio`,.5,3),autoRotate:this.readBoolean(e,`${t}AutoRotate`),shadows:this.readBoolean(e,`${t}Shadows`),shadowMapSize:this.readPowerOfTwo(e,`${t}ShadowMapSize`),showGui:this.readBoolean(e,`${t}ShowGui`),showDecorativeText:this.readBoolean(e,`${t}ShowDecorativeText`)}}readBoolean(e,t){const o=e.read(t).toLowerCase();if(o==="true")return!0;if(o==="false")return!1;throw new Error(`Runtime config value ${t} must be true or false.`)}readPowerOfTwo(e,t){const o=this.readPositiveInteger(e,t);if((o&o-1)!==0)throw new Error(`Runtime config value ${t} must be a power of two.`);return o}readPositiveInteger(e,t){const o=this.readPositiveNumber(e,t);if(!Number.isInteger(o))throw new Error(`Runtime config value ${t} must be an integer.`);return o}readPositiveNumber(e,t){const o=this.readNumber(e,t);if(o<=0)throw new Error(`Runtime config value ${t} must be positive.`);return o}readRange(e,t,o,r){const n=this.readNumber(e,t);if(n<o||n>r)throw new Error(`Runtime config value ${t} must be between ${o} and ${r}.`);return n}readNumber(e,t){const o=Number(e.read(t));if(!Number.isFinite(o))throw new Error(`Runtime config value ${t} must be a number.`);return o}}const A="(pointer: coarse)",C=/Android|iPhone|iPad|iPod|Mobile|Silk/i;function N(s){const e=window.innerWidth<=s.compactMaxWidth||window.matchMedia(A).matches||navigator.maxTouchPoints>0&&C.test(navigator.userAgent),t=e?s.compact:s.desktop;return Object.freeze({...t,compact:e})}const g="v0.9.5",I="2026-08-06",h="Drusniel World",M="Desktop: click, mouse orbit, WASD, Shift run, Space jump, wheel zoom, F reset · Mobile: left drag move, right drag look, JUMP/RUN/⌂ · Add ?control=fly for flight",T="Desktop: click, mouse look, WASD, Q/E, Shift, wheel, F reset · Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude";async function D(){const s=document.querySelector("#canvas");if(!s)throw new Error("Canvas element #canvas was not found.");const e=await new _().load(`./config/runtime.yaml?v=${encodeURIComponent(g)}`),t=N(e);document.documentElement.dataset.viewport=t.compact?"compact":"desktop";const o=new URLSearchParams(window.location.search),r=o.get("scene")==="island"?"island":"world",n=r==="world"&&(o.get("control")==="fly"||o.get("view")==="aerial");document.body.dataset.scene=r,document.body.dataset.control=n?"fly":"third-person";const i=document.querySelector("#build-version"),c=document.querySelector(".app-title strong"),l=document.querySelector("#scene-mode"),m=document.querySelector("#control-help");i&&(i.textContent=`${g} · ${I}`),c&&(c.textContent=`${h} · ${g}`),l&&(l.textContent=U(r,n)),m&&r==="world"&&(m.textContent=n?T:M),document.title=r==="world"?`${h} · ${g}`:`${h} · Island Regression`;let a;if(r==="island"){const{IslandApp:u}=await R(async()=>{const{IslandApp:$}=await import("./IslandApp-Wxcqby58.js");return{IslandApp:$}},__vite__mapDeps([0,1]),import.meta.url),d=new u(s,t);await d.initialize(),a=d}else{const{WorldApp:u}=await R(async()=>{const{WorldApp:d}=await import("./WorldApp-CzuUuJgA.js");return{WorldApp:d}},__vite__mapDeps([2,1]),import.meta.url);a=await u.create(s,t)}a.start()}function U(s,e){return s==="island"?`${h} · Island Regression`:e?`${h} · Continuous Grass LOD · Flight`:`${h} · 2× Ultra-Near Grass · Drow Jump Rig`}D().catch(s=>{console.error(`[${h}] Startup failed.`,s);const e=document.createElement("pre");e.className="startup-error",e.setAttribute("role","alert");const t=s instanceof Error?s.message:String(s);e.textContent=`Unable to start ${h}. ${t}`,document.body.appendChild(e)});export{g as A,v as F,R as _};
+import { attachWorldDiagnostics } from "./runtime-diagnostics-v1.js";
+
+const APP_VERSION = "v0.9.5";
+const BUILD_LABEL = "2026-08-06";
+const WORLD_NAME = "Drusniel World";
+const THIRD_PERSON_HELP =
+  "Desktop: click, mouse orbit, WASD, Shift run, Space jump, wheel zoom, F reset · Mobile: left drag move, right drag look, JUMP/RUN/⌂ · Add ?control=fly for flight";
+const FLY_HELP =
+  "Desktop: click, mouse look, WASD, Q/E, Shift, wheel, F reset · Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude";
+const STORAGE_KEY = "drusniel-world-hud-minimized";
+const PRELOAD_REL = "modulepreload";
+const preloaded = Object.create(null);
+
+class FlatConfig {
+  constructor(name, values) {
+    this.name = name;
+    this.values = values;
+    this.unreadKeys = new Set(values.keys());
+  }
+
+  static parse(source, name) {
+    const values = new Map();
+    for (const [index, rawLine] of source.split(/\r?\n/).entries()) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        continue;
+      }
+      const separator = line.indexOf(":");
+      if (separator <= 0) {
+        throw new Error(`Invalid ${name} config at line ${index + 1}.`);
+      }
+      const key = line.slice(0, separator).trim();
+      const rawValue = line.slice(separator + 1).trim();
+      if (!rawValue) {
+        throw new Error(`Missing value for ${key} at line ${index + 1}.`);
+      }
+      if (values.has(key)) {
+        throw new Error(
+          `Duplicate ${name} config value ${key} at line ${index + 1}.`,
+        );
+      }
+      const value = FlatConfig.stripQuotes(rawValue, name, index + 1);
+      if (!value) {
+        throw new Error(`Missing value for ${key} at line ${index + 1}.`);
+      }
+      values.set(key, value);
+    }
+    return new FlatConfig(name, values);
+  }
+
+  read(key) {
+    const value = this.values.get(key);
+    if (value === undefined) {
+      throw new Error(`Missing ${this.name} config value: ${key}.`);
+    }
+    this.unreadKeys.delete(key);
+    return value;
+  }
+
+  assertFullyConsumed() {
+    if (this.unreadKeys.size === 0) {
+      return;
+    }
+    const keys = [...this.unreadKeys].sort();
+    throw new Error(
+      `Unknown ${this.name} config value${keys.length === 1 ? "" : "s"}: ${keys.join(", ")}.`,
+    );
+  }
+
+  static stripQuotes(value, name, line) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    const firstQuoted = first === '"' || first === "'";
+    const lastQuoted = last === '"' || last === "'";
+    if (firstQuoted !== lastQuoted || (firstQuoted && first !== last)) {
+      throw new Error(`Invalid quoted ${name} config value at line ${line}.`);
+    }
+    return firstQuoted ? value.slice(1, -1) : value;
+  }
+}
+
+function preload(loader, dependencies = [], baseUrl = import.meta.url) {
+  const promises = dependencies.map((dependency) => {
+    const href = new URL(dependency, baseUrl).href;
+    if (preloaded[href]) {
+      return undefined;
+    }
+    preloaded[href] = true;
+
+    const isCss = href.endsWith(".css");
+    const selector = isCss ? '[rel="stylesheet"]' : "";
+    if (document.querySelector(`link[href="${href}"]${selector}`)) {
+      return undefined;
+    }
+
+    const link = document.createElement("link");
+    link.rel = isCss ? "stylesheet" : PRELOAD_REL;
+    if (!isCss) {
+      link.as = "script";
+    }
+    link.crossOrigin = "";
+    link.href = href;
+    document.head.appendChild(link);
+
+    if (!isCss) {
+      return undefined;
+    }
+    return new Promise((resolve, reject) => {
+      link.addEventListener("load", resolve, { once: true });
+      link.addEventListener(
+        "error",
+        () => reject(new Error(`Unable to preload CSS for ${href}`)),
+        { once: true },
+      );
+    });
+  });
+
+  return Promise.all(promises).then(() => loader()).catch((error) => {
+    const event = new Event("vite:preloadError", { cancelable: true });
+    event.payload = error;
+    window.dispatchEvent(event);
+    if (!event.defaultPrevented) {
+      throw error;
+    }
+  });
+}
+
+class RuntimeConfigLoader {
+  async load(url = "./config/runtime.yaml") {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(
+        `Unable to load runtime config from ${url}: HTTP ${response.status}`,
+      );
+    }
+    return this.parse(await response.text());
+  }
+
+  parse(source) {
+    const config = FlatConfig.parse(source, "runtime");
+    const result = Object.freeze({
+      compactMaxWidth: this.readPositiveNumber(config, "compactMaxWidth"),
+      desktop: Object.freeze(this.readTier(config, "desktop")),
+      compact: Object.freeze(this.readTier(config, "compact")),
+    });
+    config.assertFullyConsumed();
+    return result;
+  }
+
+  readTier(config, prefix) {
+    return {
+      cameraFov: this.readRange(config, `${prefix}CameraFov`, 30, 90),
+      cameraMargin: this.readRange(config, `${prefix}CameraMargin`, 1, 3),
+      cameraElevation: this.readRange(
+        config,
+        `${prefix}CameraElevation`,
+        0.1,
+        3,
+      ),
+      maxPixelRatio: this.readRange(
+        config,
+        `${prefix}MaxPixelRatio`,
+        0.5,
+        3,
+      ),
+      autoRotate: this.readBoolean(config, `${prefix}AutoRotate`),
+      shadows: this.readBoolean(config, `${prefix}Shadows`),
+      shadowMapSize: this.readPowerOfTwo(config, `${prefix}ShadowMapSize`),
+      showGui: this.readBoolean(config, `${prefix}ShowGui`),
+      showDecorativeText: this.readBoolean(
+        config,
+        `${prefix}ShowDecorativeText`,
+      ),
+    };
+  }
+
+  readBoolean(config, key) {
+    const value = config.read(key).toLowerCase();
+    if (value === "true") {
+      return true;
+    }
+    if (value === "false") {
+      return false;
+    }
+    throw new Error(`Runtime config value ${key} must be true or false.`);
+  }
+
+  readPowerOfTwo(config, key) {
+    const value = this.readPositiveInteger(config, key);
+    if ((value & (value - 1)) !== 0) {
+      throw new Error(`Runtime config value ${key} must be a power of two.`);
+    }
+    return value;
+  }
+
+  readPositiveInteger(config, key) {
+    const value = this.readPositiveNumber(config, key);
+    if (!Number.isInteger(value)) {
+      throw new Error(`Runtime config value ${key} must be an integer.`);
+    }
+    return value;
+  }
+
+  readPositiveNumber(config, key) {
+    const value = this.readNumber(config, key);
+    if (value <= 0) {
+      throw new Error(`Runtime config value ${key} must be positive.`);
+    }
+    return value;
+  }
+
+  readRange(config, key, minimum, maximum) {
+    const value = this.readNumber(config, key);
+    if (value < minimum || value > maximum) {
+      throw new Error(
+        `Runtime config value ${key} must be between ${minimum} and ${maximum}.`,
+      );
+    }
+    return value;
+  }
+
+  readNumber(config, key) {
+    const value = Number(config.read(key));
+    if (!Number.isFinite(value)) {
+      throw new Error(`Runtime config value ${key} must be a number.`);
+    }
+    return value;
+  }
+}
+
+function resolveRuntimeProfile(config) {
+  const compact =
+    window.innerWidth <= config.compactMaxWidth ||
+    window.matchMedia("(pointer: coarse)").matches ||
+    (navigator.maxTouchPoints > 0 &&
+      /Android|iPhone|iPad|iPod|Mobile|Silk/i.test(navigator.userAgent));
+  const tier = compact ? config.compact : config.desktop;
+  return Object.freeze({ ...tier, compact });
+}
+
+function initializeUiVisibility() {
+  const button = document.querySelector("#ui-toggle");
+  if (!button) {
+    return;
+  }
+
+  let minimized = false;
+  try {
+    minimized = localStorage.getItem(STORAGE_KEY) === "1";
+  } catch {
+    minimized = false;
+  }
+
+  const apply = () => {
+    document.documentElement.dataset.uiMinimized = minimized
+      ? "true"
+      : "false";
+    button.textContent = minimized ? "HUD" : "−";
+    button.setAttribute("aria-pressed", String(minimized));
+    button.setAttribute(
+      "aria-label",
+      minimized ? "Restore interface" : "Minimize interface",
+    );
+    button.title = minimized ? "Restore interface" : "Minimize interface";
+  };
+
+  apply();
+  button.addEventListener("click", () => {
+    minimized = !minimized;
+    apply();
+    try {
+      localStorage.setItem(STORAGE_KEY, minimized ? "1" : "0");
+    } catch {
+      // Persistence is optional.
+    }
+  });
+}
+
+async function bootstrap() {
+  const canvas = document.querySelector("#canvas");
+  if (!canvas) {
+    throw new Error("Canvas element #canvas was not found.");
+  }
+
+  const runtimeConfig = await new RuntimeConfigLoader().load(
+    `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+  );
+  const profile = resolveRuntimeProfile(runtimeConfig);
+  document.documentElement.dataset.viewport = profile.compact
+    ? "compact"
+    : "desktop";
+
+  const params = new URLSearchParams(window.location.search);
+  const sceneMode = params.get("scene") === "island" ? "island" : "world";
+  const flyMode =
+    sceneMode === "world" &&
+    (params.get("control") === "fly" || params.get("view") === "aerial");
+  document.body.dataset.scene = sceneMode;
+  document.body.dataset.control = flyMode ? "fly" : "third-person";
+  initializeUiVisibility();
+
+  const versionElement = document.querySelector("#build-version");
+  const titleElement = document.querySelector(".app-title strong");
+  const sceneElement = document.querySelector("#scene-mode");
+  const helpElement = document.querySelector("#control-help");
+  if (versionElement) {
+    versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
+  }
+  if (titleElement) {
+    titleElement.textContent = `${WORLD_NAME} · ${APP_VERSION}`;
+  }
+  if (sceneElement) {
+    sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
+  }
+  if (helpElement && sceneMode === "world") {
+    helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
+  }
+  document.title =
+    sceneMode === "world"
+      ? `${WORLD_NAME} · ${APP_VERSION}`
+      : `${WORLD_NAME} · Island Regression`;
+
+  let app;
+  if (sceneMode === "island") {
+    const { IslandApp } = await import("./IslandApp-Wxcqby58.js");
+    const island = new IslandApp(canvas, profile);
+    await island.initialize();
+    app = island;
+  } else {
+    const { WorldApp } = await import("./WorldApp-CzuUuJgA.js");
+    const world = await WorldApp.create(canvas, profile);
+    attachWorldDiagnostics(world, {
+      gpuTiming: params.get("gpuTiming") === "1",
+      statsPanelEnabled: params.get("stats") === "1",
+    });
+    app = world;
+  }
+
+  globalThis.__drusnielApp = app;
+  app.start();
+}
+
+function resolveSceneLabel(sceneMode, flyMode) {
+  if (sceneMode === "island") {
+    return `${WORLD_NAME} · Island Regression`;
+  }
+  return flyMode
+    ? `${WORLD_NAME} · Continuous Grass LOD · Flight`
+    : `${WORLD_NAME} · 2× Ultra-Near Grass · Drow Jump Rig`;
+}
+
+bootstrap().catch((error) => {
+  console.error(`[${WORLD_NAME}] Startup failed.`, error);
+  const output = document.createElement("pre");
+  output.className = "startup-error";
+  output.setAttribute("role", "alert");
+  const message = error instanceof Error ? error.message : String(error);
+  output.textContent = `Unable to start ${WORLD_NAME}. ${message}`;
+  document.body.appendChild(output);
+});
+
+export { APP_VERSION as A, FlatConfig as F, preload as _ };
