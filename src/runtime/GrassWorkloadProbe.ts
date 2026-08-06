@@ -1,6 +1,7 @@
 import type * as THREE from "three";
 
 const MID_INDICES_PER_BLADE = 3;
+const FAR_INDICES_PER_CARD = 6;
 
 type GrassMeshKind = "near-base" | "near-detail" | "near-ultra" | "mid" | "far";
 
@@ -217,7 +218,8 @@ export class GrassWorkloadProbe {
           Math.floor(submittedIndices / MID_INDICES_PER_BLADE) * instances;
         break;
       case "far":
-        this.currentFrame.farSubmittedCards += instances;
+        this.currentFrame.farSubmittedCards +=
+          Math.floor(submittedIndices / FAR_INDICES_PER_CARD) * instances;
         break;
     }
   }
