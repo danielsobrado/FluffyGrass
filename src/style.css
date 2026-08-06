@@ -65,9 +65,32 @@ canvas {
   opacity: 0.78;
 }
 
-#world-stats {
+.ui-toggle {
   position: fixed;
   top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 160;
+  min-width: 42px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 10px;
+  background: rgb(18 24 22 / 78%);
+  color: #f3f7f0;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 20%);
+  font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+  backdrop-filter: blur(9px);
+  touch-action: manipulation;
+}
+
+.ui-toggle:active {
+  background: rgb(83 126 63 / 88%);
+}
+
+#world-stats {
+  position: fixed;
+  top: calc(max(14px, env(safe-area-inset-top)) + 44px);
   right: max(14px, env(safe-area-inset-right));
   z-index: 100;
   min-width: 210px;
@@ -227,6 +250,13 @@ nav img {
   white-space: pre-wrap;
 }
 
+html[data-ui-minimized="true"] .app-title,
+html[data-ui-minimized="true"] #world-stats,
+html[data-ui-minimized="true"] .flight-help,
+html[data-ui-minimized="true"] .grass-art-menu {
+  display: none !important;
+}
+
 html[data-viewport="compact"] .app-title {
   max-width: calc(100vw - 28px);
 }
@@ -237,7 +267,9 @@ html[data-viewport="compact"] #world-stats {
   left: max(14px, env(safe-area-inset-left));
   bottom: calc(max(16px, env(safe-area-inset-bottom)) + 4px);
   min-width: 0;
-  max-width: 68vw;
+  max-width: 72vw;
+  max-height: 48dvh;
+  overflow: hidden;
   font-size: 9px;
 }
 
@@ -268,6 +300,7 @@ html[data-viewport="compact"] .grass-art-menu {
 }
 
 body[data-scene="island"] #world-stats,
-body[data-scene="island"] .flight-help {
+body[data-scene="island"] .flight-help,
+body[data-scene="island"] .ui-toggle {
   display: none;
 }
