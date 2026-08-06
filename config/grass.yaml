@@ -5,12 +5,12 @@ variantCount: 4
 bladesPerClump: 12
 bladeSegments: 3
 clumpRadius: 0.72
-bladeHeightMin: 0.55
-bladeHeightMax: 1.1
-bladeWidthMin: 0.021
-bladeWidthMax: 0.046
+bladeHeightMin: 0.50
+bladeHeightMax: 0.95
+bladeWidthMin: 0.026
+bladeWidthMax: 0.058
 bladeLeanMin: 0.025
-bladeLeanMax: 0.26
+bladeLeanMax: 0.30
 midBladesPerClump: 12
 midBladeSegments: 1
 midRadiusScale: 1
@@ -47,6 +47,6 @@ transitionDistance: 2.5
 qaWarmupSeconds: 1.5
 qaSampleSeconds: 4
 impostorViewsPerAxis: 6
-impostorFrameResolution: 44
-impostorPadding: 3
+impostorFrameResolution: 64
+impostorPadding: 8
 impostorCameraMargin: 1.08

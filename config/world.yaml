@@ -35,7 +35,7 @@ grassUltraNearDensityMultiplier: 2
 
 # Mid blades use cheaper single triangles but retain every source blade.
 grassMidBladeFraction: 1
-grassUnderlayerFraction: 0.3
+grassUnderlayerFraction: 0.35
 grassPatchJitter: 0.3
 
 # Character footfalls and landing pulse.
