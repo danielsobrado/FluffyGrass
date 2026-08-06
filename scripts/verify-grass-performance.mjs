@@ -194,9 +194,11 @@ function estimateSubmittedLodTriangles(
   direction,
   bladeDensity,
   patchSize,
-  farCards,
+  farInstances,
+  farSubpatches,
 ) {
-  const farTriangleDensity = (farCards * 2) / patchSize ** 2;
+  const farTriangleDensity =
+    (farInstances * farSubpatches * 2) / patchSize ** 2;
   const midInnerRadius = Math.max(
     0,
     direction.nearDistance - direction.transitionDistance,
@@ -235,6 +237,9 @@ const patchGeometryFactory = read(
 );
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
+);
+const impostorTuning = read(
+  "src/world/grass/WorldGrassImpostorTuning.ts",
 );
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const interactionField = read(
@@ -288,6 +293,11 @@ const ultraMultiplier = readYamlNumber(
 );
 const midBladeFraction = readYamlNumber(worldConfig, "grassMidBladeFraction");
 const farCards = readYamlNumber(worldConfig, "grassFarImpostorsPerPatch");
+const farSubpatchesPerAxis = readSourceNumber(
+  impostorTuning,
+  "IMPOSTOR_SUBPATCHES_PER_AXIS",
+);
+const farSubpatches = farSubpatchesPerAxis ** 2;
 const batchesPerAxis = readYamlNumber(
   worldConfig,
   "grassRenderBatchesPerAxis",
@@ -307,7 +317,8 @@ const maximumPresetNearFade = Math.max(
 assert(desktopDensity === 72 && patchDesktopDensity === 72, "Desktop LOD density must remain 72 blades/m².");
 assert(compactDensity === 48 && patchCompactDensity === 48, "Compact LOD density must remain 48 blades/m².");
 assert(midBladeFraction === 1, "The performance path must retain every mid blade.");
-assert(farCards === 2, "The performance path must retain exactly two far cards.");
+assert(farCards === 1, "The far path must retain exactly one instance per source patch.");
+assert(farSubpatchesPerAxis === 2 && farSubpatches === 4, "Each far instance must contain a 2x2 genuine subpatch layout.");
 assert(batchesPerAxis === 2, "Grass chunks must retain exactly four 32 m render batches.");
 assert(chunkSize % patchSize === 0, "Chunk size must be divisible by patch size.");
 const patchesPerAxis = chunkSize / patchSize;
@@ -322,11 +333,14 @@ for (const [profile, density, expectedBladesPerPatch] of [
   const bladesPerPatch = Math.round(patchSize ** 2 * density);
   const midBladesPerPatch = Math.round(bladesPerPatch * midBladeFraction);
   const farInstancesPerBatch = patchesPerBatch * farCards;
+  const farTrianglesPerBatch =
+    farInstancesPerBatch * farSubpatches * 2;
   const midTrianglesPerBatch = midBladesPerPatch * patchesPerBatch;
   assert(bladesPerPatch === expectedBladesPerPatch, `${profile} patch blade count changed.`);
   assert(midBladesPerPatch === bladesPerPatch, `${profile} mid blades no longer retain the full patch source.`);
-  assert(farInstancesPerBatch === 128, `${profile} far-card batch count changed.`);
-  assert(midTrianglesPerBatch + farInstancesPerBatch * 2 <= (profile === "desktop" ? 73984 : 49408), `${profile} mid/far batch triangle ceiling exceeded.`);
+  assert(farInstancesPerBatch === 64, `${profile} far-instance batch count changed.`);
+  assert(farTrianglesPerBatch === 512, `${profile} far-subpatch triangle count changed.`);
+  assert(midTrianglesPerBatch + farTrianglesPerBatch <= (profile === "desktop" ? 74240 : 49664), `${profile} mid/far batch triangle ceiling exceeded.`);
 }
 
 const nearParameters = {
@@ -374,12 +388,14 @@ for (const [key, direction] of Object.entries(presets)) {
       density,
       patchSize,
       farCards,
+      farSubpatches,
     );
     const baselineSubmission = estimateSubmittedLodTriangles(
       baselineDirection,
       baselineDensity,
       patchSize,
       farCards,
+      farSubpatches,
     );
     const ratio = currentSubmission / baselineSubmission;
     submissionRatios.push(ratio);
@@ -483,9 +499,13 @@ assert(
 assert(
   impostorAtlasFactory.includes("THREE.LinearMipmapLinearFilter") &&
     impostorAtlasFactory.includes("texture.generateMipmaps = true") &&
-    !impostorMaterial.includes("generateMipmaps = false") &&
-    impostorMaterial.includes("smoothstep(uMidDistance, uFarDistance"),
-  "Far atlases must keep mipmaps and compensate alpha cutoff with distance.",
+    impostorAtlasFactory.includes("grassSubpatchOffset") &&
+    impostorAtlasFactory.includes("partitionBlades") &&
+    impostorMaterial.includes("fwidth(atlasColor.a)") &&
+    impostorMaterial.includes("IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE") &&
+    impostorMaterial.includes("cylindricalRight") &&
+    impostorMaterial.includes("atlasElevation"),
+  "Far atlases must use genuine subpatch cards, upright horizon billboards, and derivative-aware alpha coverage.",
 );
 
 const maxBiomes = Number(
@@ -774,7 +794,8 @@ console.log(
     `compact ${Math.round(compactNear.average).toLocaleString("en-US")}/${compactNear.maximum.toLocaleString("en-US")}; ` +
     `near geometry ${(maximumNearBaselineRatio * 100).toFixed(1)}% of the fully segmented baseline; ` +
     `analytical mid/far submission envelope ${(Math.min(...submissionRatios) * 100).toFixed(1)}–${(Math.max(...submissionRatios) * 100).toFixed(1)}% of the prior baseline; ` +
-    "every blade and two cards retained; far cards 1-fetch at every distance. " +
+    "every blade and four baked subpatch cards retained in one far instance; " +
+    "far views remain one-fetch with derivative-aware alpha coverage. " +
     "Near counts are the pre-truncation ceiling: tiles are sorted by dither and " +
     "the draw is cut to the surviving prefix at runtime.",
 );
