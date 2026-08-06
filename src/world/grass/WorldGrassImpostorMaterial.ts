@@ -28,10 +28,17 @@ import {
 } from "../../grass/wind/WindNoiseTexture";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
 import {
+  IMPOSTOR_AERIAL_BLEND_END,
+  IMPOSTOR_AERIAL_BLEND_START,
   IMPOSTOR_ALPHA_CUTOFF,
+  IMPOSTOR_ALPHA_DITHER_SEED,
+  IMPOSTOR_ALPHA_MIN_WIDTH,
   IMPOSTOR_BASE_COLOR_BLEND,
   IMPOSTOR_COLOR_SCALE,
   IMPOSTOR_DITHER_SEED,
+  IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE,
+  IMPOSTOR_HORIZON_ATLAS_ELEVATION,
+  IMPOSTOR_TERRAIN_UP_BLEND,
 } from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
@@ -40,6 +47,8 @@ const VERTEX_SHADER = `
 attribute vec4 instanceVariation;
 attribute float instanceCoverage;
 attribute float instanceBiome;
+attribute vec2 grassSubpatchOffset;
+attribute float grassSubpatchIndex;
 uniform float uCenterHeight;
 uniform float uTime;
 uniform vec2 uWindDirection;
@@ -62,6 +71,7 @@ varying vec3 vLocalViewDirection;
 varying float vCameraDistance;
 varying float vGustNoise;
 flat varying float vBiome;
+flat varying float vSubpatchIndex;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
@@ -83,14 +93,45 @@ void main() {
   vec3 basisY = instanceAxisY / scaleY;
   vec3 basisZ = instanceAxisZ / scaleX;
   vec3 rootCenter = (instanceModel * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-  vec3 center = rootCenter + basisY * uCenterHeight * scaleY;
+  vec3 subpatchRoot = rootCenter +
+    basisX * grassSubpatchOffset.x * scaleX +
+    basisZ * grassSubpatchOffset.y * scaleX;
+  vec3 center = subpatchRoot + basisY * uCenterHeight * scaleY;
   vec3 toCamera = normalize(cameraPosition - center);
-  vec3 billboardRight = cross(basisY, toCamera);
-  float billboardRightLength = length(billboardRight);
-  billboardRight = billboardRightLength < 0.001
+
+  vec3 worldUp = vec3(0.0, 1.0, 0.0);
+  vec3 cardUp = normalize(mix(
+    worldUp,
+    basisY,
+    ${IMPOSTOR_TERRAIN_UP_BLEND.toFixed(2)}
+  ));
+  vec3 planarView = toCamera - cardUp * dot(toCamera, cardUp);
+  float planarViewLength = length(planarView);
+  if (planarViewLength < 0.001) {
+    planarView = basisZ - cardUp * dot(basisZ, cardUp);
+    planarViewLength = length(planarView);
+  }
+  planarView /= max(planarViewLength, 0.001);
+  vec3 cylindricalRight = normalize(cross(cardUp, planarView));
+  vec3 sphericalRight = cross(basisY, toCamera);
+  float sphericalRightLength = length(sphericalRight);
+  sphericalRight = sphericalRightLength < 0.001
     ? basisX
-    : billboardRight / billboardRightLength;
-  vec3 billboardUp = normalize(cross(toCamera, billboardRight));
+    : sphericalRight / sphericalRightLength;
+  vec3 sphericalUp = normalize(cross(toCamera, sphericalRight));
+  float worldElevation = abs(dot(toCamera, worldUp));
+  float aerialBlend = smoothstep(
+    ${IMPOSTOR_AERIAL_BLEND_START.toFixed(2)},
+    ${IMPOSTOR_AERIAL_BLEND_END.toFixed(2)},
+    worldElevation
+  );
+  vec3 billboardRight = normalize(mix(
+    cylindricalRight,
+    sphericalRight,
+    aerialBlend
+  ));
+  vec3 billboardUp = normalize(mix(cardUp, sphericalUp, aerialBlend));
+
   vec2 windDirection = uWindDirection;
   #ifdef GRASS_NOISE_WIND
     vec2 gustUv = center.xz * uWindNoiseScale -
@@ -130,15 +171,8 @@ void main() {
     uFarDistance + uTransitionDistance,
     cameraDistance
   );
-  // instanceCoverage carries the streaming fade-in, scaled on the CPU while a
-  // chunk arrives. It used to be a separate uStreamCoverage uniform written per
-  // mesh, which three collapses to one value across every card sharing this
-  // material, so no card but the first ever faded.
-  // The cards share the field during the mid crossfade. Once real blades are
-  // gone, card 0 takes full coverage and the secondary cards dissolve
-  // completely. The weights are exact for any configured card count: the
-  // primary rises from 1/n to 1 while each of the n-1 secondaries falls from
-  // 1/n to 0, so a patch's total coverage stays constant through the handoff.
+  // Legacy multi-instance cards retain complementary weights. The production
+  // path uses one instance whose geometry contains four genuine subpatch cards.
   float cardWeight = 1.0;
   if (uCardsPerPatch > 1.5) {
     float inverseCards = 1.0 / uCardsPerPatch;
@@ -202,15 +236,22 @@ void main() {
   #endif
   vGrassIrradiance = grassIrradiance;
 
+  float localElevation = abs(dot(toCamera, basisY));
+  float atlasElevation = mix(
+    min(localElevation, ${IMPOSTOR_HORIZON_ATLAS_ELEVATION.toFixed(2)}),
+    localElevation,
+    aerialBlend
+  );
   vec3 localViewDirection = vec3(
     dot(toCamera, basisX),
-    abs(dot(toCamera, basisY)),
+    atlasElevation,
     dot(toCamera, basisZ)
   );
   vLocalViewDirection = normalize(localViewDirection);
   vCameraDistance = cameraDistance;
   vGustNoise = gustNoise;
   vBiome = instanceBiome;
+  vSubpatchIndex = grassSubpatchIndex;
   vUv = uv;
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
@@ -222,6 +263,7 @@ void main() {
 const FRAGMENT_SHADER = `
 uniform sampler2D uAtlas;
 uniform float uViewsPerAxis;
+uniform float uSubpatchesPerAxis;
 uniform float uFrameResolution;
 uniform float uPadding;
 uniform float uAtlasSize;
@@ -244,6 +286,7 @@ varying vec3 vLocalViewDirection;
 varying float vCameraDistance;
 varying float vGustNoise;
 flat varying float vBiome;
+flat varying float vSubpatchIndex;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
@@ -272,12 +315,18 @@ vec2 encodeHemiOctahedral(vec3 direction) {
 
 vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
   float cellSize = uFrameResolution + uPadding * 2.0;
+  float pageSize = uViewsPerAxis * cellSize;
+  vec2 pageIndex = vec2(
+    mod(vSubpatchIndex, uSubpatchesPerAxis),
+    floor(vSubpatchIndex / uSubpatchesPerAxis)
+  );
   vec2 safeUv = clamp(
     localUv,
     vec2(0.5 / uFrameResolution),
     vec2(1.0 - 0.5 / uFrameResolution)
   );
   vec2 pixel =
+    pageIndex * pageSize +
     frameIndex * cellSize +
     vec2(uPadding) +
     safeUv * uFrameResolution;
@@ -294,9 +343,12 @@ void main() {
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
   // Cards with no coverage at all are already clipped in the vertex stage, so
-  // only the stochastic cut is left here. This discard has to stay: it depends
-  // on vUv, and the atlas alpha cutout below is a genuine per-fragment test.
-  float dither = coverageNoise(floor(vUv * 64.0), vInstanceSeed * 97.0);
+  // only the stochastic cut is left here. Subpatch-specific seeds prevent the
+  // four cards from exposing the same dissolving pixel pattern.
+  float dither = coverageNoise(
+    floor(vUv * 64.0),
+    vInstanceSeed * 97.0 + vSubpatchIndex * 0.217
+  );
   if (dither > effectiveCoverage) {
     discard;
   }
@@ -337,7 +389,7 @@ void main() {
     float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
     float viewDither = coverageNoise(
       floor(vUv * 48.0),
-      vInstanceSeed * 173.0 + 0.37
+      vInstanceSeed * 173.0 + vSubpatchIndex * 0.131 + 0.37
     );
     vec2 selectedFrame = viewDither < weight00
       ? frame00
@@ -347,21 +399,36 @@ void main() {
           ? vec2(frame00.x, frame11.y)
           : frame11;
     // Stable stochastic bilinear selection reproduces the four-view average
-    // with one atlas fetch. A true four-tap blend used to run whenever
-    // vFarEntry < 0.999 — across the entire mid-to-far crossfade, which is
-    // exactly where the cards are largest on screen and therefore where the
-    // extra three fetches cost the most. Real mid blades are still drawing over
-    // the cards throughout that band, so the slightly noisier silhouette the
-    // stochastic path produces is not visible.
+    // with one atlas fetch. Real mid blades still cover the noisier transition.
     atlasColor = sampleFrame(selectedFrame, vUv);
   }
 
+  float distanceProgress = smoothstep(
+    uMidDistance,
+    uFarDistance,
+    vCameraDistance
+  );
   float cutoff = uAlphaCutoff * mix(
     1.0,
-    0.55,
-    smoothstep(uMidDistance, uFarDistance, vCameraDistance)
+    ${IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE.toFixed(2)},
+    distanceProgress
   );
-  if (atlasColor.a < cutoff) {
+  float alphaWidth = max(
+    fwidth(atlasColor.a),
+    ${IMPOSTOR_ALPHA_MIN_WIDTH}
+  );
+  float alphaCoverage = smoothstep(
+    cutoff - alphaWidth,
+    cutoff + alphaWidth,
+    atlasColor.a
+  );
+  float alphaDither = coverageNoise(
+    floor(vUv * uFrameResolution),
+    vInstanceSeed * 211.0 +
+      vSubpatchIndex * 0.173 +
+      ${IMPOSTOR_ALPHA_DITHER_SEED.toFixed(2)}
+  );
+  if (alphaDither > alphaCoverage) {
     discard;
   }
 
@@ -435,7 +502,7 @@ export class WorldGrassImpostorMaterial {
     windConfig: GrassWindConfig,
     lodConfig: GrassLodConfig,
     blendViews: boolean,
-    cardsPerPatch = 2,
+    cardsPerPatch = 1,
     noiseWind = blendViews,
   ) {
     this.baseWindStrength = windConfig.strength;
@@ -448,6 +515,7 @@ export class WorldGrassImpostorMaterial {
       ...(THREE.UniformsUtils.clone(THREE.UniformsLib.lights) as ShaderUniforms),
       uAtlas: { value: atlas.texture },
       uViewsPerAxis: { value: atlas.viewsPerAxis },
+      uSubpatchesPerAxis: { value: atlas.subpatchesPerAxis },
       uFrameResolution: { value: atlas.frameResolution },
       uPadding: { value: atlas.padding },
       uAtlasSize: { value: atlas.atlasSize },
@@ -510,7 +578,7 @@ export class WorldGrassImpostorMaterial {
       // off at the lowest tier and must not silently swap the wind with it.
       defines: noiseWind ? { GRASS_NOISE_WIND: 1 } : {},
     });
-    this.material.name = "world-grass-hemi-octahedral-impostor";
+    this.material.name = "world-grass-subpatch-hemi-octahedral-impostor";
   }
 
   applyArtDirection(direction: GrassArtDirection): void {
@@ -529,7 +597,8 @@ export class WorldGrassImpostorMaterial {
     this.uniforms.uArtDensityScale.value = direction.densityScale;
     this.uniforms.uWindStrength.value =
       this.baseWindStrength * direction.windStrengthScale;
-    this.uniforms.uGustTipBoost.value = direction.gustTipBoost ?? GRASS_GUST_TIP_BOOST;
+    this.uniforms.uGustTipBoost.value =
+      direction.gustTipBoost ?? GRASS_GUST_TIP_BOOST;
   }
 
   private setPaletteColors(
@@ -541,7 +610,14 @@ export class WorldGrassImpostorMaterial {
     const tip = this.uniforms.uBiomeTip.value as THREE.Color[];
     const dry = this.uniforms.uBiomeDry.value as THREE.Color[];
     const shade = this.uniforms.uBiomeShade.value as THREE.Vector2[];
-    setBalancedGrassPaletteColors(base[0], tip[0], dry[0], baseColor, tipColor, dryColor);
+    setBalancedGrassPaletteColors(
+      base[0],
+      tip[0],
+      dry[0],
+      baseColor,
+      tipColor,
+      dryColor,
+    );
     shade[0].set(this.artRootDarkening, this.artTipColorStrength);
     for (let row = 1; row < GRASS_MAX_BIOMES; row += 1) {
       const profile = GRASS_BIOME_PROFILES[row];

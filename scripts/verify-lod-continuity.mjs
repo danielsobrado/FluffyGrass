@@ -473,8 +473,8 @@ assert(
   "Compact near and mid density must match at 48 blades/m².",
 );
 assert(
-  farCardsPerPatch === 2,
-  "Far grass must retain exactly two layered impostors.",
+  farCardsPerPatch === 1,
+  "Far grass must retain exactly one source instance per patch.",
 );
 const midImpostorUnderfill = Number(
   lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1],

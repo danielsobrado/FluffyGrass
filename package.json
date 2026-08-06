@@ -1,17 +1,19 @@
 {
   "name": "threejs-fluffy-grass",
   "private": true,
-  "version": "0.9.5",
+  "version": "0.9.6",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && vite build",
+    "build": "tsc && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && vite build",
     "test:lod": "node scripts/verify-lod-continuity.mjs",
     "test:lod-color": "node scripts/verify-lod-color-parity.mjs",
     "test:grass-performance": "node scripts/verify-grass-performance.mjs",
+    "test:impostor-subpatch": "node scripts/verify-impostor-subpatch.mjs",
+    "test:character-motion": "node scripts/verify-character-motion.mjs",
     "preview": "vite preview",
     "deploy:pages": "node scripts/deploy-github-pages.mjs"
   },

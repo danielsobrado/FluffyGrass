@@ -12,20 +12,18 @@ import {
 } from "../../grass/GrassLodTuning";
 import type { WorldGrassBladeSpec } from "./WorldGrassPatchGeometryFactory";
 import { calculateGrassImpostorRootBoundsRadius } from "./GrassRuntimeMath";
+import { IMPOSTOR_SUBPATCHES_PER_AXIS } from "./WorldGrassImpostorTuning";
 
 export interface WorldGrassImpostorAtlas {
   texture: THREE.CanvasTexture;
   geometry: THREE.BufferGeometry;
   centerHeight: number;
-  /**
-   * Conservative culling bound around the card's root, well larger than the
-   * card itself. Do not use it as a card dimension — {@link cardRadius} is the
-   * quad's own half-extent.
-   */
+  /** Conservative culling bound around the source patch root. */
   radius: number;
-  /** Half-extent of the billboard quad in local units. */
+  /** Half-extent of one subpatch billboard quad in local units. */
   cardRadius: number;
   viewsPerAxis: number;
+  subpatchesPerAxis: number;
   frameResolution: number;
   padding: number;
   atlasSize: number;
@@ -56,7 +54,8 @@ export class WorldGrassImpostorAtlasFactory {
     config: GrassImpostorConfig,
   ): WorldGrassImpostorAtlas {
     const cellSize = config.frameResolution + config.padding * 2;
-    const atlasSize = config.viewsPerAxis * cellSize;
+    const viewPageSize = config.viewsPerAxis * cellSize;
+    const atlasSize = viewPageSize * IMPOSTOR_SUBPATCHES_PER_AXIS;
     const canvas = document.createElement("canvas");
     canvas.width = atlasSize;
     canvas.height = atlasSize;
@@ -73,11 +72,16 @@ export class WorldGrassImpostorAtlasFactory {
       maximumHeight = Math.max(maximumHeight, blade.height);
     }
     const centerHeight = maximumHeight * 0.5;
-    const halfPatch = patchSize * 0.5;
+    const subpatchSize = patchSize / IMPOSTOR_SUBPATCHES_PER_AXIS;
+    const halfSubpatch = subpatchSize * 0.5;
+    const horizontalExtent =
+      Math.SQRT2 * halfSubpatch +
+      grass.bladeLeanMax +
+      grass.bladeWidthMax;
     const cardRadius =
-      Math.sqrt(halfPatch * halfPatch * 2 + centerHeight * centerHeight) *
-      config.cameraMargin;
-    const boundsRadius = calculateGrassImpostorRootBoundsRadius({
+      Math.hypot(horizontalExtent, centerHeight) * config.cameraMargin;
+    const subpatchOffsetRadius = Math.SQRT2 * halfSubpatch;
+    const cardBoundsRadius = calculateGrassImpostorRootBoundsRadius({
       cardRadius,
       centerHeight,
       footprintScale: GRASS_IMPOSTOR_FOOTPRINT_SCALE,
@@ -86,31 +90,52 @@ export class WorldGrassImpostorAtlasFactory {
       maximumWindDisplacement: GRASS_IMPOSTOR_MAX_WIND_DISPLACEMENT,
       safetyMargin: GRASS_IMPOSTOR_BOUNDS_SAFETY_MARGIN,
     });
+    const boundsRadius =
+      cardBoundsRadius +
+      subpatchOffsetRadius * GRASS_IMPOSTOR_MAX_HORIZONTAL_SCALE;
+    const subpatchCenters = this.createSubpatchCenters(patchSize);
+    const subpatchBlades = this.partitionBlades(blades);
 
     context.clearRect(0, 0, atlasSize, atlasSize);
-    for (let gridY = 0; gridY < config.viewsPerAxis; gridY += 1) {
-      for (let gridX = 0; gridX < config.viewsPerAxis; gridX += 1) {
-        const direction = this.decodeHemiOctahedral(
-          (gridX + 0.5) / config.viewsPerAxis,
-          (gridY + 0.5) / config.viewsPerAxis,
-        );
-        const canvasRow = config.viewsPerAxis - 1 - gridY;
-        this.drawFrame(
-          context,
-          blades,
-          direction,
-          gridX * cellSize,
-          canvasRow * cellSize,
-          config.frameResolution,
-          config.padding,
-          centerHeight,
-          cardRadius,
-        );
+    for (
+      let subpatchIndex = 0;
+      subpatchIndex < subpatchBlades.length;
+      subpatchIndex += 1
+    ) {
+      const pageX = subpatchIndex % IMPOSTOR_SUBPATCHES_PER_AXIS;
+      const pageY = Math.floor(
+        subpatchIndex / IMPOSTOR_SUBPATCHES_PER_AXIS,
+      );
+      const canvasPageY =
+        IMPOSTOR_SUBPATCHES_PER_AXIS - 1 - pageY;
+      const pageOffsetX = pageX * viewPageSize;
+      const pageOffsetY = canvasPageY * viewPageSize;
+      const center = subpatchCenters[subpatchIndex];
+
+      for (let gridY = 0; gridY < config.viewsPerAxis; gridY += 1) {
+        for (let gridX = 0; gridX < config.viewsPerAxis; gridX += 1) {
+          const direction = this.decodeHemiOctahedral(
+            (gridX + 0.5) / config.viewsPerAxis,
+            (gridY + 0.5) / config.viewsPerAxis,
+          );
+          const canvasRow = config.viewsPerAxis - 1 - gridY;
+          this.drawFrame(
+            context,
+            subpatchBlades[subpatchIndex],
+            direction,
+            pageOffsetX + gridX * cellSize,
+            pageOffsetY + canvasRow * cellSize,
+            config.frameResolution,
+            config.padding,
+            new THREE.Vector3(center.x, centerHeight, center.y),
+            cardRadius,
+          );
+        }
       }
     }
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.name = "world-grass-hemi-octahedral-atlas";
+    texture.name = "world-grass-subpatch-hemi-octahedral-atlas";
     // RGB stores normalized blade progress and shade, not display color.
     texture.colorSpace = THREE.NoColorSpace;
     // Keep semantic channels alpha-weighted through linear filtering. The
@@ -125,15 +150,50 @@ export class WorldGrassImpostorAtlasFactory {
 
     return {
       texture,
-      geometry: this.createGeometry(cardRadius),
+      geometry: this.createGeometry(cardRadius, subpatchCenters),
       centerHeight,
       radius: boundsRadius,
       cardRadius,
       viewsPerAxis: config.viewsPerAxis,
+      subpatchesPerAxis: IMPOSTOR_SUBPATCHES_PER_AXIS,
       frameResolution: config.frameResolution,
       padding: config.padding,
       atlasSize,
     };
+  }
+
+  private partitionBlades(
+    blades: readonly WorldGrassBladeSpec[],
+  ): WorldGrassBladeSpec[][] {
+    const subpatchCount =
+      IMPOSTOR_SUBPATCHES_PER_AXIS * IMPOSTOR_SUBPATCHES_PER_AXIS;
+    const partitions = Array.from(
+      { length: subpatchCount },
+      () => [] as WorldGrassBladeSpec[],
+    );
+    for (const blade of blades) {
+      const column = blade.rootX >= 0 ? 1 : 0;
+      const row = blade.rootZ >= 0 ? 1 : 0;
+      partitions[row * IMPOSTOR_SUBPATCHES_PER_AXIS + column].push(blade);
+    }
+    return partitions;
+  }
+
+  private createSubpatchCenters(patchSize: number): THREE.Vector2[] {
+    const halfSubpatch =
+      patchSize / (IMPOSTOR_SUBPATCHES_PER_AXIS * 2);
+    const centers: THREE.Vector2[] = [];
+    for (let row = 0; row < IMPOSTOR_SUBPATCHES_PER_AXIS; row += 1) {
+      for (let column = 0; column < IMPOSTOR_SUBPATCHES_PER_AXIS; column += 1) {
+        centers.push(
+          new THREE.Vector2(
+            column === 0 ? -halfSubpatch : halfSubpatch,
+            row === 0 ? -halfSubpatch : halfSubpatch,
+          ),
+        );
+      }
+    }
+    return centers;
   }
 
   private drawFrame(
@@ -144,7 +204,7 @@ export class WorldGrassImpostorAtlasFactory {
     offsetY: number,
     frameResolution: number,
     padding: number,
-    centerHeight: number,
+    center: THREE.Vector3,
     radius: number,
   ): void {
     const right = new THREE.Vector3().crossVectors(WORLD_UP, viewDirection);
@@ -156,7 +216,6 @@ export class WorldGrassImpostorAtlasFactory {
     const up = new THREE.Vector3()
       .crossVectors(viewDirection, right)
       .normalize();
-    const center = new THREE.Vector3(0, centerHeight, 0);
     const projected = blades.map((blade) =>
       this.projectBlade(
         blade,
@@ -374,33 +433,63 @@ export class WorldGrassImpostorAtlasFactory {
     return new THREE.Vector3(x, y, z).normalize();
   }
 
-  private createGeometry(radius: number): THREE.BufferGeometry {
+  private createGeometry(
+    radius: number,
+    centers: readonly THREE.Vector2[],
+  ): THREE.BufferGeometry {
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const subpatchOffsets: number[] = [];
+    const subpatchIndices: number[] = [];
+    const indices: number[] = [];
+
+    for (let subpatchIndex = 0; subpatchIndex < centers.length; subpatchIndex += 1) {
+      const vertexOffset = positions.length / 3;
+      positions.push(
+        -radius,
+        -radius,
+        0,
+        radius,
+        -radius,
+        0,
+        radius,
+        radius,
+        0,
+        -radius,
+        radius,
+        0,
+      );
+      uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+      const center = centers[subpatchIndex];
+      for (let vertex = 0; vertex < 4; vertex += 1) {
+        subpatchOffsets.push(center.x, center.y);
+        subpatchIndices.push(subpatchIndex);
+      }
+      indices.push(
+        vertexOffset,
+        vertexOffset + 1,
+        vertexOffset + 2,
+        vertexOffset,
+        vertexOffset + 2,
+        vertexOffset + 3,
+      );
+    }
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
       "position",
-      new THREE.Float32BufferAttribute(
-        [
-          -radius,
-          -radius,
-          0,
-          radius,
-          -radius,
-          0,
-          radius,
-          radius,
-          0,
-          -radius,
-          radius,
-          0,
-        ],
-        3,
-      ),
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setAttribute(
+      "grassSubpatchOffset",
+      new THREE.Float32BufferAttribute(subpatchOffsets, 2),
     );
     geometry.setAttribute(
-      "uv",
-      new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2),
+      "grassSubpatchIndex",
+      new THREE.Float32BufferAttribute(subpatchIndices, 1),
     );
-    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    geometry.setIndex(indices);
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;

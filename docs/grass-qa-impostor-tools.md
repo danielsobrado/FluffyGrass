@@ -31,3 +31,18 @@ The baker selects the most populated grass patch and renders a deterministic upp
 The metadata is exposed as `window.__FLUFFY_GRASS_IMPOSTOR_BAKE__`.
 
 Current scope is the baker foundation. Normal/roughness, depth/thickness, gutter dilation, and runtime impostor rendering remain future work.
+
+## Detail foliage atlas inspection
+
+Open the world scene with:
+
+```text
+?accentAtlas=1
+```
+
+The accent atlas is baked at grass initialization either way; this pins its canvas to the page
+so all sixteen cells — eight species across two variant rows — can be eyeballed against a
+checkerboard. The channels are semantic rather than display colour (R progress, G shade,
+B accent-tint mask, A coverage), so the cells read as orange/green data, not as finished
+plants; the finished look is what the material resolves through `grassResolvePalette` and the
+per-instance tint. See [grass-detail-foliage-plan.md](grass-detail-foliage-plan.md).
