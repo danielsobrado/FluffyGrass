@@ -34,6 +34,7 @@ const motion = read("src/character/CapeMotion.ts");
 const geometry = read("src/character/CapeMotionGeometry.ts");
 const tuning = read("src/character/CapeMotionTuning.ts");
 const character = read("src/character/SnowflowCharacter.ts");
+const spring = read("src/character/CharacterSpring.ts");
 
 const minimumBend = readConstant(tuning, "CAPE_MIN_FORWARD_BEND");
 const maximumBend = readConstant(tuning, "CAPE_MAX_FORWARD_BEND");
@@ -60,6 +61,15 @@ assert(
   "Cape motion must sanitize runtime inputs and use named motion limits.",
 );
 assert(
+  spring.includes("finiteOrDefault") &&
+    spring.includes("Number.isFinite(nextValue)") &&
+    spring.includes("Number.isFinite(nextVelocity)") &&
+    spring.includes("if (Number.isFinite(velocity))") &&
+    spring.includes("this.value = resolvedTarget") &&
+    !spring.includes("Math.max(deltaSeconds, 0)"),
+  "Character springs must reject invalid inputs and recover from invalid state.",
+);
+assert(
   geometry.includes("shouldUpdate(") &&
     geometry.includes("CAPE_GEOMETRY_UPDATE_EPSILON") &&
     geometry.includes("position.array as Float32Array"),
@@ -84,9 +94,10 @@ assert(
 );
 
 verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSideBend);
+verifySpringRecovery();
 
 console.log(
-  "[character-motion] Cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Spring recovery, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
 );
 
 function verifyBounds(
@@ -123,6 +134,39 @@ function verifyBounds(
       resolvedRadius <= conservativeRadius + 1e-12,
       `Cape deformation escaped its bound at sample ${sample}.`,
     );
+  }
+}
+
+function verifySpringRecovery() {
+  const scenarios = [
+    [Number.NaN, 0.016, 2, 0.8],
+    [1, Number.NaN, 2, 0.8],
+    [1, 0.016, Number.POSITIVE_INFINITY, 0.8],
+    [1, 0.016, 2, Number.NaN],
+  ];
+  for (const [target, delta, frequency, damping] of scenarios) {
+    const resolvedTarget = Number.isFinite(target) ? target : 0;
+    const resolvedDelta = Math.min(
+      Math.max(Number.isFinite(delta) ? delta : 0, 0),
+      0.1,
+    );
+    const resolvedFrequency = Math.max(
+      Number.isFinite(frequency) ? frequency : 0.01,
+      0.01,
+    );
+    const resolvedDamping = Math.max(
+      Number.isFinite(damping) ? damping : 1,
+      0,
+    );
+    const angularFrequency = resolvedFrequency * Math.PI * 2;
+    const dampingTerm =
+      1 + 2 * resolvedDelta * resolvedDamping * angularFrequency;
+    const frequencySquared = angularFrequency * angularFrequency;
+    const velocityTerm = resolvedDelta * frequencySquared;
+    const positionTerm = resolvedDelta * velocityTerm;
+    const nextValue =
+      (positionTerm * resolvedTarget) / (dampingTerm + positionTerm);
+    assert(Number.isFinite(nextValue), "Sanitized spring scenario was not finite.");
   }
 }
 
