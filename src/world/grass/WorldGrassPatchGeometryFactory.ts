@@ -18,9 +18,33 @@ export interface WorldGrassBladeSpec {
 
 export interface WorldGrassPatchGeometryVariants {
   mid: THREE.BufferGeometry[];
+  /**
+   * Every mid blade's LOD dither, descending, in the order the triangles were
+   * written. The mid shader keeps a blade when its dither is *above* a
+   * distance-derived threshold, so with the blades in this order the survivors
+   * are always a leading run and a batch's draw can be cut with `drawRange`
+   * instead of submitting a quarter of a million vertices that collapse to zero
+   * area. One array per variant, indexed alongside {@link mid}.
+   */
+  midSortedDithers: Float32Array[];
   bladeVariants: readonly (readonly WorldGrassBladeSpec[])[];
   nearBladesPerPatch: number;
   midBladesPerPatch: number;
+}
+
+/**
+ * The dither the mid vertex shader derives for a blade, minus the per-instance
+ * term the mid material is compiled without. Shade and phase are properties of
+ * the geometry, so this is fully known at build time — which is the whole point
+ * of dropping the instance term.
+ */
+export function resolveMidBladeDither(
+  spec: WorldGrassBladeSpec,
+  ditherSeed: number,
+): number {
+  const value =
+    spec.shade * 0.754877666 + spec.phase * 0.569840296 + ditherSeed;
+  return value - Math.floor(value);
 }
 
 const TWO_PI = Math.PI * 2;
@@ -36,6 +60,7 @@ export class WorldGrassPatchGeometryFactory {
     compact: boolean,
     seed: number,
     variantCount: number = grass.variantCount,
+    midDitherSeed = 0,
   ): WorldGrassPatchGeometryVariants {
     if (
       !Number.isInteger(variantCount) ||
@@ -58,6 +83,7 @@ export class WorldGrassPatchGeometryFactory {
       Math.round(nearBladesPerPatch * world.grassMidBladeFraction),
     );
     const mid: THREE.BufferGeometry[] = [];
+    const midSortedDithers: Float32Array[] = [];
     const bladeVariants: WorldGrassBladeSpec[][] = [];
 
     // Only the mid geometry is built. The near clump variant used to be
@@ -73,19 +99,29 @@ export class WorldGrassPatchGeometryFactory {
         grass,
       );
       bladeVariants.push(specs);
-      mid.push(
-        this.createGeometry(
-          [...specs]
-            .sort((left, right) => left.lodRank - right.lodRank)
-            .slice(0, midBladesPerPatch),
-          grass,
-          true,
+      // lodRank selects *which* blades the mid layer keeps when it is allowed
+      // fewer than the source set; the dither order decides in what order they
+      // are written, which is what makes the draw truncatable. The two are
+      // independent, so both are applied.
+      const midSpecs = [...specs]
+        .sort((left, right) => left.lodRank - right.lodRank)
+        .slice(0, midBladesPerPatch)
+        .sort(
+          (left, right) =>
+            resolveMidBladeDither(right, midDitherSeed) -
+            resolveMidBladeDither(left, midDitherSeed),
+        );
+      mid.push(this.createGeometry(midSpecs, grass, true));
+      midSortedDithers.push(
+        Float32Array.from(midSpecs, (spec) =>
+          resolveMidBladeDither(spec, midDitherSeed),
         ),
       );
     }
 
     return {
       mid,
+      midSortedDithers,
       bladeVariants,
       nearBladesPerPatch,
       midBladesPerPatch,

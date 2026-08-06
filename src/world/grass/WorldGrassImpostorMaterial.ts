@@ -1,18 +1,31 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../../grass/GrassArtDirection";
 import {
+  GRASS_LIGHT_MIX_GLSL,
   GRASS_PALETTE_GLSL,
   setBalancedGrassPaletteColors,
 } from "../../grass/materials/GrassPaletteShader";
+import {
+  GRASS_BIOME_PROFILES,
+  GRASS_MAX_BIOMES,
+} from "../../grass/biome/GrassBiomeProfile";
 import type {
   GrassLodConfig,
   GrassMaterialConfig,
   GrassWindConfig,
 } from "../../grass/GrassConfig";
 import {
+  GRASS_GUST_TIP_BOOST,
   GRASS_IMPOSTOR_FOOTPRINT_SCALE,
+  GRASS_IMPOSTOR_WIND_SHEAR_FACTOR,
   GRASS_MID_IMPOSTOR_UNDERFILL,
 } from "../../grass/GrassLodTuning";
+import {
+  GRASS_GUST_FRONT_SCALE,
+  GRASS_GUST_FRONT_SPEED,
+  GRASS_WIND_NOISE_SCALE,
+  GRASS_WIND_NOISE_SPEED,
+} from "../../grass/wind/WindNoiseTexture";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
 import {
   IMPOSTOR_ALPHA_CUTOFF,
@@ -26,10 +39,15 @@ const VERTEX_SHADER = `
 #include <lights_pars_begin>
 attribute vec4 instanceVariation;
 attribute float instanceCoverage;
+attribute float instanceBiome;
 uniform float uCenterHeight;
 uniform float uTime;
 uniform vec2 uWindDirection;
 uniform float uWindStrength;
+uniform sampler2D uWindNoise;
+uniform float uWindNoiseScale;
+uniform float uWindNoiseSpeed;
+uniform float uCardRadius;
 uniform float uDitherSeed;
 uniform float uNearDistance;
 uniform float uMidDistance;
@@ -38,8 +56,12 @@ uniform float uTransitionDistance;
 uniform float uMidImpostorUnderfill;
 uniform float uNormalUp;
 uniform float uArtDensityScale;
+uniform float uCardsPerPatch;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
+varying float vCameraDistance;
+varying float vGustNoise;
+flat varying float vBiome;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
@@ -70,13 +92,16 @@ void main() {
     : billboardRight / billboardRightLength;
   vec3 billboardUp = normalize(cross(toCamera, billboardRight));
   vec2 windDirection = uWindDirection;
-  float gust = sin(
-    dot(center.xz, windDirection) * 0.045 +
-    uTime * 0.7 +
-    instanceVariation.x * 6.28318530718
-  );
-  center += vec3(windDirection.x, 0.0, windDirection.y) *
-    gust * uWindStrength * 0.22;
+  #ifdef GRASS_NOISE_WIND
+    vec2 gustUv = center.xz * uWindNoiseScale -
+      windDirection * (uTime * uWindNoiseSpeed);
+    float gustNoise = texture2D(uWindNoise, gustUv).r;
+  #else
+    float gustNoise = 0.5 + 0.5 * sin(
+      dot(center.xz, windDirection) * ${GRASS_GUST_FRONT_SCALE} -
+      uTime * ${GRASS_GUST_FRONT_SPEED}
+    );
+  #endif
 
   // Coverage is per instance: every term below is a uniform or an instance
   // attribute, and only the comparison against the per-fragment dither is not.
@@ -109,7 +134,19 @@ void main() {
   // chunk arrives. It used to be a separate uStreamCoverage uniform written per
   // mesh, which three collapses to one value across every card sharing this
   // material, so no card but the first ever faded.
-  vFieldCoverage = instanceCoverage;
+  // The cards share the field during the mid crossfade. Once real blades are
+  // gone, card 0 takes full coverage and the secondary cards dissolve
+  // completely. The weights are exact for any configured card count: the
+  // primary rises from 1/n to 1 while each of the n-1 secondaries falls from
+  // 1/n to 0, so a patch's total coverage stays constant through the handoff.
+  float cardWeight = 1.0;
+  if (uCardsPerPatch > 1.5) {
+    float inverseCards = 1.0 / uCardsPerPatch;
+    cardWeight = instanceVariation.y < 0.5
+      ? mix(inverseCards, 1.0, fullFarEntry)
+      : inverseCards * (1.0 - fullFarEntry);
+  }
+  vFieldCoverage = instanceCoverage * cardWeight;
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
   if (effectiveCoverage <= 0.001) {
@@ -120,6 +157,15 @@ void main() {
   vec3 worldPosition = center +
     billboardRight * position.x * scaleX * ${GRASS_IMPOSTOR_FOOTPRINT_SCALE.toFixed(2)} +
     billboardUp * position.y * scaleY;
+  // Root-to-tip shear matches real blade bending and remains within the
+  // impostor wind displacement reserved by GrassLodTuning. uCardRadius is the
+  // quad's own half-extent, not the (much larger) culling bound radius, so
+  // position.y spans the full [0, 1] of the shear ramp.
+  float shearProgress = saturate(position.y / max(uCardRadius, 0.0001) * 0.5 + 0.5);
+  float sway = (gustNoise * 2.0 - 1.0) * uWindStrength *
+    ${GRASS_IMPOSTOR_WIND_SHEAR_FACTOR.toFixed(2)};
+  worldPosition += vec3(windDirection.x, 0.0, windDirection.y) *
+    sway * shearProgress * scaleY;
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
@@ -162,6 +208,9 @@ void main() {
     dot(toCamera, basisZ)
   );
   vLocalViewDirection = normalize(localViewDirection);
+  vCameraDistance = cameraDistance;
+  vGustNoise = gustNoise;
+  vBiome = instanceBiome;
   vUv = uv;
   vInstanceSeed = fract(instanceVariation.x + uDitherSeed);
   vDryness = instanceVariation.w;
@@ -181,15 +230,20 @@ uniform float uBlendViews;
 uniform float uBaseColorBlend;
 uniform float uColorScale;
 uniform float uArtDensityScale;
-uniform vec3 uBaseColor;
-uniform vec3 uTipColor;
-uniform vec3 uDryColor;
-uniform float uTipColorStrength;
-uniform float uRootDarkening;
+uniform float uMidDistance;
+uniform float uFarDistance;
+uniform vec3 uBiomeBase[${GRASS_MAX_BIOMES}];
+uniform vec3 uBiomeTip[${GRASS_MAX_BIOMES}];
+uniform vec3 uBiomeDry[${GRASS_MAX_BIOMES}];
+uniform vec2 uBiomeShade[${GRASS_MAX_BIOMES}];
+uniform float uGustTipBoost;
 uniform float uAmbientBoost;
 uniform float uBacklightStrength;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
+varying float vCameraDistance;
+varying float vGustNoise;
+flat varying float vBiome;
 varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
@@ -302,7 +356,12 @@ void main() {
     atlasColor = sampleFrame(selectedFrame, vUv);
   }
 
-  if (atlasColor.a < uAlphaCutoff) {
+  float cutoff = uAlphaCutoff * mix(
+    1.0,
+    0.55,
+    smoothstep(uMidDistance, uFarDistance, vCameraDistance)
+  );
+  if (atlasColor.a < cutoff) {
     discard;
   }
 
@@ -311,24 +370,30 @@ void main() {
     vec3(0.0),
     vec3(1.0)
   );
+  int biomeRow = int(clamp(vBiome, 0.0, float(${GRASS_MAX_BIOMES} - 1)) + 0.5);
   vec3 color = grassResolvePalette(
-    uBaseColor,
-    uTipColor,
-    uDryColor,
+    uBiomeBase[biomeRow],
+    uBiomeTip[biomeRow],
+    uBiomeDry[biomeRow],
     bladeData.r,
     bladeData.g,
     vDryness,
     vRootAo,
-    uTipColorStrength,
-    uRootDarkening
+    uBiomeShade[biomeRow].y,
+    uBiomeShade[biomeRow].x
   );
-  color = mix(color, uBaseColor, uBaseColorBlend);
+  color = mix(
+    color,
+    uBiomeTip[biomeRow],
+    vGustNoise * uGustTipBoost * bladeData.r
+  );
+  color = mix(color, uBiomeBase[biomeRow], uBaseColorBlend);
   color *= uColorScale;
   vec3 grassLambertLight =
     color * vGrassIrradiance * RECIPROCAL_PI +
     color * uAmbientBoost;
   vec3 outgoingLight =
-    mix(color, grassLambertLight, 0.38) +
+    mix(color, grassLambertLight, ${GRASS_LIGHT_MIX_GLSL}) +
     color * vGrassBackLight * uBacklightStrength * 0.2;
   gl_FragColor = vec4(outgoingLight, 1.0);
   #include <tonemapping_fragment>
@@ -339,11 +404,30 @@ void main() {
 
 type ShaderUniforms = Record<string, { value: unknown }>;
 
+function createBiomeColorRows(color: THREE.ColorRepresentation): THREE.Color[] {
+  return Array.from(
+    { length: GRASS_MAX_BIOMES },
+    () => new THREE.Color(color),
+  );
+}
+
+function createBiomeShadeRows(
+  rootDarkening: number,
+  tipColorStrength: number,
+): THREE.Vector2[] {
+  return Array.from(
+    { length: GRASS_MAX_BIOMES },
+    () => new THREE.Vector2(rootDarkening, tipColorStrength),
+  );
+}
+
 export class WorldGrassImpostorMaterial {
   readonly material: THREE.ShaderMaterial;
 
   private readonly uniforms: ShaderUniforms;
   private readonly baseWindStrength: number;
+  private artRootDarkening: number;
+  private artTipColorStrength = 0.5;
 
   constructor(
     readonly atlas: WorldGrassImpostorAtlas,
@@ -351,10 +435,12 @@ export class WorldGrassImpostorMaterial {
     windConfig: GrassWindConfig,
     lodConfig: GrassLodConfig,
     blendViews: boolean,
+    cardsPerPatch = 2,
+    noiseWind = blendViews,
   ) {
     this.baseWindStrength = windConfig.strength;
-    atlas.texture.generateMipmaps = false;
-    atlas.texture.minFilter = THREE.LinearFilter;
+    this.artRootDarkening = materialConfig.rootDarkening;
+    atlas.texture.anisotropy = 4;
     atlas.texture.needsUpdate = true;
 
     this.uniforms = {
@@ -371,6 +457,7 @@ export class WorldGrassImpostorMaterial {
       uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
       uColorScale: { value: IMPOSTOR_COLOR_SCALE },
       uArtDensityScale: { value: 1 },
+      uCardsPerPatch: { value: cardsPerPatch },
       // Material-level: three cannot upload a per-mesh value for meshes that
       // share a material, so a per-chunk seed was never reaching the GPU.
       uDitherSeed: { value: IMPOSTOR_DITHER_SEED },
@@ -387,19 +474,22 @@ export class WorldGrassImpostorMaterial {
         ).normalize(),
       },
       uWindStrength: { value: windConfig.strength },
-      uBaseColor: { value: new THREE.Color(materialConfig.baseColor) },
-      uTipColor: { value: new THREE.Color(materialConfig.tipColor) },
-      uDryColor: { value: new THREE.Color(materialConfig.dryColor) },
-      uTipColorStrength: { value: 0.5 },
-      uRootDarkening: { value: materialConfig.rootDarkening },
+      uWindNoise: { value: null as THREE.Texture | null },
+      uWindNoiseScale: { value: GRASS_WIND_NOISE_SCALE },
+      uWindNoiseSpeed: { value: GRASS_WIND_NOISE_SPEED },
+      uCardRadius: { value: atlas.cardRadius },
+      uGustTipBoost: { value: GRASS_GUST_TIP_BOOST },
+      uBiomeBase: { value: createBiomeColorRows(materialConfig.baseColor) },
+      uBiomeTip: { value: createBiomeColorRows(materialConfig.tipColor) },
+      uBiomeDry: { value: createBiomeColorRows(materialConfig.dryColor) },
+      uBiomeShade: {
+        value: createBiomeShadeRows(materialConfig.rootDarkening, 0.5),
+      },
       uNormalUp: { value: materialConfig.normalUp },
       uAmbientBoost: { value: materialConfig.ambientBoost },
       uBacklightStrength: { value: materialConfig.backlightStrength },
     };
-    setBalancedGrassPaletteColors(
-      this.uniforms.uBaseColor.value as THREE.Color,
-      this.uniforms.uTipColor.value as THREE.Color,
-      this.uniforms.uDryColor.value as THREE.Color,
+    this.setPaletteColors(
       materialConfig.baseColor,
       materialConfig.tipColor,
       materialConfig.dryColor,
@@ -415,21 +505,22 @@ export class WorldGrassImpostorMaterial {
       fog: true,
       lights: true,
       toneMapped: true,
+      // The gust model is compiled in, so it is its own decision rather than a
+      // side effect of the view-blend setting: the governor turns blendViews
+      // off at the lowest tier and must not silently swap the wind with it.
+      defines: noiseWind ? { GRASS_NOISE_WIND: 1 } : {},
     });
     this.material.name = "world-grass-hemi-octahedral-impostor";
   }
 
   applyArtDirection(direction: GrassArtDirection): void {
-    setBalancedGrassPaletteColors(
-      this.uniforms.uBaseColor.value as THREE.Color,
-      this.uniforms.uTipColor.value as THREE.Color,
-      this.uniforms.uDryColor.value as THREE.Color,
+    this.artRootDarkening = direction.rootDarkening;
+    this.artTipColorStrength = direction.tipColorStrength;
+    this.setPaletteColors(
       direction.baseColor,
       direction.tipColor,
       direction.dryColor,
     );
-    this.uniforms.uTipColorStrength.value = direction.tipColorStrength;
-    this.uniforms.uRootDarkening.value = direction.rootDarkening;
     this.uniforms.uNormalUp.value = direction.normalUp;
     this.uniforms.uAmbientBoost.value = direction.ambientBoost;
     this.uniforms.uBacklightStrength.value = direction.backlightStrength;
@@ -438,6 +529,49 @@ export class WorldGrassImpostorMaterial {
     this.uniforms.uArtDensityScale.value = direction.densityScale;
     this.uniforms.uWindStrength.value =
       this.baseWindStrength * direction.windStrengthScale;
+    this.uniforms.uGustTipBoost.value = direction.gustTipBoost ?? GRASS_GUST_TIP_BOOST;
+  }
+
+  private setPaletteColors(
+    baseColor: THREE.ColorRepresentation,
+    tipColor: THREE.ColorRepresentation,
+    dryColor: THREE.ColorRepresentation,
+  ): void {
+    const base = this.uniforms.uBiomeBase.value as THREE.Color[];
+    const tip = this.uniforms.uBiomeTip.value as THREE.Color[];
+    const dry = this.uniforms.uBiomeDry.value as THREE.Color[];
+    const shade = this.uniforms.uBiomeShade.value as THREE.Vector2[];
+    setBalancedGrassPaletteColors(base[0], tip[0], dry[0], baseColor, tipColor, dryColor);
+    shade[0].set(this.artRootDarkening, this.artTipColorStrength);
+    for (let row = 1; row < GRASS_MAX_BIOMES; row += 1) {
+      const profile = GRASS_BIOME_PROFILES[row];
+      if (!profile || profile.paletteSource === "art") {
+        base[row].copy(base[0]);
+        tip[row].copy(tip[0]);
+        dry[row].copy(dry[0]);
+        shade[row].copy(shade[0]);
+      } else {
+        setBalancedGrassPaletteColors(
+          base[row],
+          tip[row],
+          dry[row],
+          profile.baseColor,
+          profile.tipColor,
+          profile.dryColor,
+        );
+        shade[row].set(profile.rootDarkening, profile.tipColorStrength);
+      }
+    }
+  }
+
+  setWindNoise(texture: THREE.Texture, scale: number, speed: number): void {
+    this.uniforms.uWindNoise.value = texture;
+    this.uniforms.uWindNoiseScale.value = scale;
+    this.uniforms.uWindNoiseSpeed.value = speed;
+  }
+
+  setBlendViews(enabled: boolean): void {
+    this.uniforms.uBlendViews.value = enabled ? 1 : 0;
   }
 
   configureLod(config: GrassLodConfig): void {

@@ -6,11 +6,23 @@ import type {
   GrassWindConfig,
 } from "../GrassConfig";
 import type { GrassArtDirection } from "../GrassArtDirection";
+import { GRASS_GUST_TIP_BOOST } from "../GrassLodTuning";
 import { grassTrailField } from "../interaction/GrassTrailField";
 import {
+  GRASS_GUST_FRONT_SCALE,
+  GRASS_GUST_FRONT_SPEED,
+  GRASS_WIND_NOISE_SCALE,
+  GRASS_WIND_NOISE_SPEED,
+} from "../wind/WindNoiseTexture";
+import {
+  GRASS_LIGHT_MIX_GLSL,
   GRASS_PALETTE_GLSL,
   setBalancedGrassPaletteColors,
 } from "./GrassPaletteShader";
+import {
+  GRASS_BIOME_PROFILES,
+  GRASS_MAX_BIOMES,
+} from "../biome/GrassBiomeProfile";
 
 const DEFAULT_TRAIL_MAX_ANGLE = 1.29;
 const DEFAULT_TRAIL_WOBBLE_FREQUENCY = 12;
@@ -21,9 +33,7 @@ const DEFAULT_BLADE_CURVATURE = 0.55;
 const DEFAULT_SHEEN_STRENGTH = 0.09;
 const DEFAULT_SHEEN_POWER = 42;
 const DEFAULT_SHEEN_FADE_DISTANCE = 18;
-/** Radians per metre along the wind; roughly seventy metres between crests. */
-const DEFAULT_GUST_FRONT_SCALE = 0.085;
-const DEFAULT_GUST_FRONT_SPEED = 0.55;
+
 /** How far a lull drops the bend. The envelope only ever scales it down. */
 const DEFAULT_GUST_FRONT_DEPTH = 0.55;
 /**
@@ -38,7 +48,64 @@ const MINIMUM_BLADE_PIXEL_WIDTH = 1.15;
  * margin an order larger than a blade's own half-width, and this stays inside
  * it so a widened blade cannot leave the bound its tile is culled against.
  */
-const MAXIMUM_BLADE_WIDEN_METRES = 0.02;
+/**
+ * Ceiling on the widened half-width, as a multiple of the source blade's own
+ * half-width and as an absolute backstop.
+ *
+ * This used to be a bare 0.02 m. Nothing tied it to the configured blade width,
+ * so when the blades were widened to 0.026/0.058 the source half-width (0.021)
+ * rose *above* the ceiling and `max(source, min(target, ceiling))` collapsed to
+ * `source`: the sub-pixel clamp silently stopped doing anything at all, taking
+ * both the anti-sparkle widening and the mid layer's density-falloff coverage
+ * payback with it. Deriving it from the half-width keeps the two in step.
+ *
+ * The absolute backstop is what the reserved bounds depend on: the widening
+ * grows a blade's half-extent by at most `ABSOLUTE - halfWidth < ABSOLUTE`,
+ * which stays inside `BOUNDS_SAFETY_MARGIN` (0.08) for any blade configuration.
+ */
+const MAXIMUM_BLADE_WIDEN_RATIO = 3;
+const MAXIMUM_BLADE_WIDEN_METRES = 0.06;
+
+/** Distance band over which the mid layer thins its blades. */
+const DEFAULT_DENSITY_FALLOFF_START = 30;
+const DEFAULT_DENSITY_FALLOFF_END = 64;
+
+/**
+ * The mid layer's distance thinning. `floor` is the fraction of blades still
+ * submitted at `end` metres; the survivors are widened by `1/sqrt(floor)` and
+ * pay the invented coverage back in colour, so the field's average brightness —
+ * which is what `verify-lod-color-parity` bounds — does not move.
+ */
+export const GRASS_MID_DENSITY_FALLOFF = Object.freeze({
+  start: DEFAULT_DENSITY_FALLOFF_START,
+  end: DEFAULT_DENSITY_FALLOFF_END,
+  floor: 0.35,
+});
+
+
+/**
+ * Palette rows, one per biome. Bounded uniform arrays indexed by a per-instance
+ * row keep biome count out of the draw-call budget entirely: one material, one
+ * geometry family, one atlas, N looks. `grassResolvePalette` itself is
+ * untouched — callers index the arrays and pass the results as its existing
+ * parameters — so LOD colour parity is preserved by construction.
+ */
+const BIOME_PALETTE_DECLARATIONS = `
+#define GRASS_MAX_BIOMES ${GRASS_MAX_BIOMES}
+uniform vec3 uGrassBiomeBase[GRASS_MAX_BIOMES];
+uniform vec3 uGrassBiomeTip[GRASS_MAX_BIOMES];
+uniform vec3 uGrassBiomeDry[GRASS_MAX_BIOMES];
+// x: root darkening, y: tip colour strength.
+uniform vec2 uGrassBiomeShade[GRASS_MAX_BIOMES];
+
+// Indexing a uniform array out of range is undefined behaviour in GLSL ES 3.0,
+// so the row is clamped rather than trusted. The data is always in range today;
+// this is what keeps a future profile-count mismatch a wrong colour instead of
+// a driver-dependent crash.
+int grassResolveBiomeRow(float biome) {
+  return int(clamp(biome, 0.0, float(GRASS_MAX_BIOMES - 1)) + 0.5);
+}
+`;
 
 const VERTEX_DECLARATIONS = `
 attribute float grassProgress;
@@ -46,6 +113,7 @@ attribute float grassPhase;
 attribute float grassBladeShade;
 attribute vec4 instanceVariation;
 attribute float instanceCoverage;
+attribute float instanceBiome;
 uniform float uGrassTime;
 uniform vec2 uGrassWindDirection;
 uniform float uGrassWindStrength;
@@ -68,7 +136,12 @@ uniform float uGrassBladeCurvature;
 uniform float uGrassGustFrontScale;
 uniform float uGrassGustFrontSpeed;
 uniform float uGrassGustFrontDepth;
+uniform float uGrassGustTipBoost;
 uniform float uGrassSheenFadeDistance;
+uniform float uGrassDensityFalloffStart;
+uniform float uGrassDensityFalloffEnd;
+uniform float uGrassDensityFloor;
+uniform float uGrassLodDensityScale;
 varying vec2 vGrassSheen;
 
 vec3 grassRotateAroundAxis(
@@ -108,10 +181,35 @@ uniform float uGrassTrailWobbleAmplitude;
 `;
 
 // The streamed world resolves coverage per blade from its own camera distance.
+//
+// Both branches keep a contiguous run of the dither order — a prefix for the
+// near layers, a suffix for the inverted mid layer — which is what lets the CPU
+// truncate the draw instead of submitting blades the shader only collapses to
+// zero area. `grassDensityFalloff` scales the kept fraction without breaking
+// that property: it moves the single threshold, it does not punch holes in it.
+//
+// At 40-64 m a blade projects to one or two pixels, so drawing all 72/m² buys
+// nothing but vertex work. The survivors are widened by the sub-pixel clamp to
+// give back exactly the coverage the dropped blades surrendered, and the clamp
+// pays that back in colour, so average field brightness stays where the LOD
+// colour parity gate expects it.
 const VERTEX_KEEP_WORLD_LOD = `
-bool grassKeepLod = uGrassLodInvert < 0.5
-  ? grassDither <= grassNearCoverage
-  : grassDither > grassNearCoverage && grassDither > grassFarDistanceEntry;
+bool grassKeepLod;
+if (uGrassLodInvert < 0.5) {
+  grassKeepLod = grassDither <= grassNearCoverage * grassDensityFalloff;
+} else {
+  grassDensityFalloff *= mix(
+    1.0,
+    uGrassDensityFloor,
+    smoothstep(
+      uGrassDensityFalloffStart,
+      uGrassDensityFalloffEnd,
+      grassCameraDistance
+    )
+  );
+  float grassLodCut = max(grassNearCoverage, grassFarDistanceEntry);
+  grassKeepLod = grassDither > 1.0 - grassDensityFalloff * (1.0 - grassLodCut);
+}
 `;
 
 // The island regression scene is a single small object framed whole by an
@@ -158,16 +256,21 @@ varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
+flat varying float vGrassBiome;
+varying float vGrassGust;
 `;
 
 const VERTEX_WIND = `
-vec4 grassWorldRoot = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+// The instance's translation is its fourth column; multiplying the full matrix
+// by the origin is the same value for eight times the work, per vertex.
+vec4 grassWorldRoot = modelMatrix * vec4(instanceMatrix[3].xyz, 1.0);
 float grassDither = fract(
   grassBladeShade * 0.754877666 +
   grassPhase * 0.569840296 +
-  instanceVariation.x +
+  GRASS_DITHER_INSTANCE_TERM
   uGrassDitherSeed
 );
+GRASS_GUST_NOISE
 float grassFieldDither = fract(
   grassBladeShade * 0.438289 +
   grassPhase * 0.819173 +
@@ -190,6 +293,10 @@ float grassDetailCoverage = 1.0 - smoothstep(
   uGrassDetailNearDistance + uGrassDetailTransitionDistance,
   grassCameraDistance
 );
+// Starts at the quality governor's global scale and, for the mid layer, picks
+// up the distance falloff inside the keep test below. The sub-pixel width clamp
+// reads the final value to widen the survivors by the area the thinning gave up.
+float grassDensityFalloff = uGrassLodDensityScale;
 GRASS_KEEP_LOD
 bool grassKeepDetail = uGrassDetailMode < 0.5 ||
   (uGrassDetailMode < 1.5
@@ -230,13 +337,10 @@ if (grassKeepBlade && grassProgress > 0.001) {
   // its own it can only ever produce uncorrelated chatter — no amount of tuning
   // makes a wave out of it. The envelope only ever scales the bend down, which
   // is what lets the reserved bounds and the configured wind strength keep
-  // their existing meaning.
-  float grassGustFront = sin(
-    dot(grassWorldRoot.xz, grassWindDirection) * uGrassGustFrontScale -
-    uGrassTime * uGrassGustFrontSpeed
-  );
+  // their existing meaning: grassGustNoise is in [0, 1], so the envelope is in
+  // [1 - depth, 1] whichever gust source was compiled in.
   float grassGustEnvelope =
-    1.0 - uGrassGustFrontDepth * (0.5 - 0.5 * grassGustFront);
+    mix(1.0 - uGrassGustFrontDepth, 1.0, grassGustNoise);
   float grassGust = sin(
     dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
     uGrassTime * uGrassGustSpeed +
@@ -292,19 +396,51 @@ GRASS_TRAIL_BEND
 
 // x: how much of the specular lobe survives at this distance, y: how thin the
 // blade is here. The mid material compiles out the fade calculation entirely.
+//
+// The lobe is also gated on the gust, so a crest sweeping the field carries a
+// travelling band of highlight with it. That is what makes a wave visible as
+// *light* rather than only as motion, which is most of what reads as wind in
+// the reference: the field brightens where it bends, even at distances where
+// individual blades are no longer resolvable.
 const VERTEX_SHEEN_VARYING = `
 vGrassSheen = vec2(
-  1.0 - smoothstep(
+  (1.0 - smoothstep(
     uGrassSheenFadeDistance * 0.55,
     uGrassSheenFadeDistance,
     grassCameraDistance
-  ),
+  )) * (0.45 + 0.85 * grassGustNoise),
   mix(0.55, 1.0, grassProgress)
 );
 `;
 
 const VERTEX_NO_SHEEN_VARYING = `
 vGrassSheen = vec2(0.0, mix(0.55, 1.0, grassProgress));
+`;
+
+// Two octaves of scrolling value noise, shared by every grass layer and by the
+// impostor cards, sampled with one vertex fetch. A single sine front is
+// periodic at exactly one wavelength and reads as stripes from any elevated
+// view; noise crests are irregular in both spacing and width, which is what
+// makes a gust look like weather rather than like a shader.
+const VERTEX_GUST_NOISE = `
+vec2 grassGustUv = grassWorldRoot.xz * uGrassWindNoiseScale -
+  uGrassWindDirection * (uGrassTime * uGrassWindNoiseSpeed);
+float grassGustNoise = texture2D(uGrassWindNoise, grassGustUv).r;
+`;
+
+// Compact profiles keep the sine, at the same scale and speed the impostor
+// fallback uses, so the layers still agree with each other on mobile.
+const VERTEX_GUST_SINE = `
+float grassGustNoise = 0.5 + 0.5 * sin(
+  dot(grassWorldRoot.xz, uGrassWindDirection) * uGrassGustFrontScale -
+  uGrassTime * uGrassGustFrontSpeed
+);
+`;
+
+const VERTEX_WIND_NOISE_DECLARATIONS = `
+uniform sampler2D uGrassWindNoise;
+uniform float uGrassWindNoiseScale;
+uniform float uGrassWindNoiseSpeed;
 `;
 
 // A blade narrower than a pixel does not antialias away — it alternately covers
@@ -320,8 +456,13 @@ const VERTEX_SUBPIXEL_WIDTH = `
 if (grassKeepBlade) {
   float grassWidthScale = max(length(vec3(instanceMatrix[0])), 0.0001);
   float grassSourceHalfWidth = uGrassBladeHalfWidth * grassWidthScale;
+  // inversesqrt(falloff) is the width a survivor needs to cover the ground its
+  // dropped neighbours used to. Thinning without it would read as the field
+  // going bald with distance; thinning with it is invisible, and the colour
+  // payback below keeps average brightness flat across the LOD handoff.
   float grassTargetHalfWidth = min(
-    grassCameraDistance * uGrassPixelWorldScale * uGrassMinPixelWidth * 0.5,
+    grassCameraDistance * uGrassPixelWorldScale * uGrassMinPixelWidth * 0.5 *
+      inversesqrt(max(grassDensityFalloff, 0.04)),
     uGrassMaxWidenDistance
   );
   float grassWidenedHalfWidth = max(grassSourceHalfWidth, grassTargetHalfWidth);
@@ -424,6 +565,8 @@ vGrassProgress = grassProgress;
 vGrassShade = grassBladeShade;
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
+vGrassBiome = instanceBiome;
+vGrassGust = grassGustNoise;
 `;
 
 // Layers whose blades are a single triangle resolve the palette here instead.
@@ -432,41 +575,43 @@ vGrassRootAo = instanceVariation.z;
 // resolving an interpolated progress is well under a quantisation step. The
 // segmented ultra-near blades, which are the ones actually large on screen, keep
 // the per-fragment path.
+// The biome row is an integer-valued per-instance attribute, so indexing the
+// bounded palette arrays with it costs one uniform fetch and nothing else. The
+// gust tip lift is applied here and in the impostor shader from the same
+// uniform with the same formula: a crest that brightened mid blades but not the
+// cards behind them would pulse against itself across the 44-64 m crossfade.
 const VERTEX_PALETTE = `
-vGrassColor = mix(
-  grassResolvePalette(
-    uGrassBaseColor,
-    uGrassTipColor,
-    uGrassDryColor,
-    grassProgress,
-    grassBladeShade,
-    instanceVariation.w,
-    instanceVariation.z,
-    uGrassTipColorStrength,
-    uGrassRootDarkening
-  ),
-  uGrassCanopyColor,
-  1.0 - grassCoverage
+int grassBiomeRow = grassResolveBiomeRow(instanceBiome);
+vec3 grassPaletteColor = grassResolvePalette(
+  uGrassBiomeBase[grassBiomeRow],
+  uGrassBiomeTip[grassBiomeRow],
+  uGrassBiomeDry[grassBiomeRow],
+  grassProgress,
+  grassBladeShade,
+  instanceVariation.w,
+  instanceVariation.z,
+  uGrassBiomeShade[grassBiomeRow].y,
+  uGrassBiomeShade[grassBiomeRow].x
 );
+grassPaletteColor = mix(
+  grassPaletteColor,
+  uGrassBiomeTip[grassBiomeRow],
+  grassGustNoise * uGrassGustTipBoost * grassProgress
+);
+vGrassColor = mix(grassPaletteColor, uGrassCanopyColor, 1.0 - grassCoverage);
 `;
 
 const VERTEX_PALETTE_DECLARATIONS = `
-uniform vec3 uGrassBaseColor;
-uniform vec3 uGrassTipColor;
-uniform vec3 uGrassDryColor;
+${BIOME_PALETTE_DECLARATIONS}
 uniform vec3 uGrassCanopyColor;
-uniform float uGrassRootDarkening;
-uniform float uGrassTipColorStrength;
 varying vec3 vGrassColor;
 ${GRASS_PALETTE_GLSL}
 `;
 
 const FRAGMENT_DECLARATIONS = `
-uniform vec3 uGrassBaseColor;
+${BIOME_PALETTE_DECLARATIONS}
 uniform vec3 uGrassTipColor;
-uniform vec3 uGrassDryColor;
-uniform float uGrassRootDarkening;
-uniform float uGrassTipColorStrength;
+uniform float uGrassGustTipBoost;
 uniform float uGrassAmbientBoost;
 uniform float uGrassBacklightStrength;
 uniform float uGrassSheenStrength;
@@ -475,6 +620,8 @@ varying float vGrassProgress;
 varying float vGrassShade;
 varying float vGrassDryness;
 varying float vGrassRootAo;
+flat varying float vGrassBiome;
+varying float vGrassGust;
 varying vec2 vGrassSheen;
 ${GRASS_PALETTE_GLSL}
 `;
@@ -503,16 +650,22 @@ totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 // overdraw: near, mid, and single-blade grass all stack over the same pixels.
 const FRAGMENT_COLOR = `
 #include <color_fragment>
+int grassBiomeRow = grassResolveBiomeRow(vGrassBiome);
 diffuseColor.rgb = grassResolvePalette(
-  uGrassBaseColor,
-  uGrassTipColor,
-  uGrassDryColor,
+  uGrassBiomeBase[grassBiomeRow],
+  uGrassBiomeTip[grassBiomeRow],
+  uGrassBiomeDry[grassBiomeRow],
   vGrassProgress,
   vGrassShade,
   vGrassDryness,
   vGrassRootAo,
-  uGrassTipColorStrength,
-  uGrassRootDarkening
+  uGrassBiomeShade[grassBiomeRow].y,
+  uGrassBiomeShade[grassBiomeRow].x
+);
+diffuseColor.rgb = mix(
+  diffuseColor.rgb,
+  uGrassBiomeTip[grassBiomeRow],
+  vGrassGust * uGrassGustTipBoost * vGrassProgress
 );
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
@@ -538,7 +691,7 @@ vec3 grassLambertLight =
   reflectedLight.indirectDiffuse +
   totalEmissiveRadiance;
 vec3 outgoingLight =
-  mix(diffuseColor.rgb, grassLambertLight, 0.38) +
+  mix(diffuseColor.rgb, grassLambertLight, ${GRASS_LIGHT_MIX_GLSL}) +
   mix(diffuseColor.rgb, uGrassTipColor, 0.35) *
     grassBackLight * uGrassBacklightStrength * 0.3 +
   grassSheen;
@@ -606,6 +759,37 @@ export interface GrassNearMaterialOptions {
   subPixelWidth?: boolean;
   /** Compile the close-range waxy highlight; distant mid grass disables it. */
   sheen?: boolean;
+  /**
+   * Drop `instanceVariation.x` from the LOD dither so the whole key is known at
+   * geometry-build time. Only the mid layer needs it, and only because its
+   * per-batch draw truncation has to reproduce the shader's keep set exactly on
+   * the CPU. Per-blade shade and phase already decorrelate neighbours; the
+   * instance term only decorrelated whole patches, which the material's own
+   * dither seed does anyway.
+   */
+  instanceFreeDither?: boolean;
+  /**
+   * Sample the shared scrolling wind-noise field instead of the sine gust
+   * front. Costs one vertex texture fetch; compact profiles compile the sine.
+   */
+  noiseWind?: boolean;
+}
+
+function createBiomeColorRows(color: THREE.ColorRepresentation): THREE.Color[] {
+  return Array.from(
+    { length: GRASS_MAX_BIOMES },
+    () => new THREE.Color(color),
+  );
+}
+
+function createBiomeShadeRows(
+  rootDarkening: number,
+  tipColorStrength: number,
+): THREE.Vector2[] {
+  return Array.from(
+    { length: GRASS_MAX_BIOMES },
+    () => new THREE.Vector2(rootDarkening, tipColorStrength),
+  );
 }
 
 export class GrassNearMaterial {
@@ -625,11 +809,23 @@ export class GrassNearMaterial {
     uGrassGustSpeed: { value: 0.65 },
     uGrassFlutterStrength: { value: 0.035 },
     uGrassFlutterSpeed: { value: 3.4 },
-    uGrassBaseColor: { value: new THREE.Color(this.colorControls.baseColor) },
+    // Row 0 mirrors the active art direction; rows 1..n come from the biome
+    // profiles. Every shader indexes these with the per-instance biome row, so
+    // adding a biome costs one uniform row and zero draw calls.
+    uGrassBiomeBase: {
+      value: createBiomeColorRows(this.colorControls.baseColor),
+    },
+    uGrassBiomeTip: {
+      value: createBiomeColorRows(this.colorControls.tipColor),
+    },
+    uGrassBiomeDry: {
+      value: createBiomeColorRows(this.colorControls.dryColor),
+    },
+    uGrassBiomeShade: { value: createBiomeShadeRows(0.55, 0.5) },
+    // Backlight tint only. The transmission term is a fraction of a fraction,
+    // so it reads the art direction's tip colour rather than spending three
+    // more varyings to carry a per-biome one into the fragment stage.
     uGrassTipColor: { value: new THREE.Color(this.colorControls.tipColor) },
-    uGrassDryColor: { value: new THREE.Color(this.colorControls.dryColor) },
-    uGrassRootDarkening: { value: 0.55 },
-    uGrassTipColorStrength: { value: 0.5 },
     uGrassNormalUp: { value: 0.45 },
     uGrassAmbientBoost: { value: 0.12 },
     uGrassBacklightStrength: { value: 0.16 },
@@ -650,9 +846,18 @@ export class GrassNearMaterial {
     uGrassSheenStrength: { value: DEFAULT_SHEEN_STRENGTH },
     uGrassSheenPower: { value: DEFAULT_SHEEN_POWER },
     uGrassSheenFadeDistance: { value: DEFAULT_SHEEN_FADE_DISTANCE },
-    uGrassGustFrontScale: { value: DEFAULT_GUST_FRONT_SCALE },
-    uGrassGustFrontSpeed: { value: DEFAULT_GUST_FRONT_SPEED },
+    uGrassGustFrontScale: { value: GRASS_GUST_FRONT_SCALE },
+    uGrassGustFrontSpeed: { value: GRASS_GUST_FRONT_SPEED },
     uGrassGustFrontDepth: { value: DEFAULT_GUST_FRONT_DEPTH },
+    uGrassGustTipBoost: { value: GRASS_GUST_TIP_BOOST },
+    uGrassWindNoise: { value: null as THREE.Texture | null },
+    uGrassWindNoiseScale: { value: GRASS_WIND_NOISE_SCALE },
+    uGrassWindNoiseSpeed: { value: GRASS_WIND_NOISE_SPEED },
+    uGrassDensityFalloffStart: { value: DEFAULT_DENSITY_FALLOFF_START },
+    uGrassDensityFalloffEnd: { value: DEFAULT_DENSITY_FALLOFF_END },
+    // 1 disables the falloff entirely; only the mid material lowers it.
+    uGrassDensityFloor: { value: 1 },
+    uGrassLodDensityScale: { value: 1 },
     uGrassPixelWorldScale: { value: DEFAULT_PIXEL_WORLD_SCALE },
     uGrassMinPixelWidth: { value: MINIMUM_BLADE_PIXEL_WIDTH },
     uGrassBladeHalfWidth: { value: 0.017 },
@@ -668,6 +873,9 @@ export class GrassNearMaterial {
   private readonly interactive: boolean;
   private baseWindStrength = 0.14;
   private baseFlutterStrength = 0.035;
+  /** Biome row 0's shade controls; every art preset writes them. */
+  private artRootDarkening = 0.55;
+  private artTipColorStrength = 0.5;
 
   constructor(options: GrassNearMaterialOptions) {
     this.interactive = options.interactive === true;
@@ -676,14 +884,7 @@ export class GrassNearMaterial {
     this.uniforms.uGrassDetailMode.value = options.detailMode ?? 0;
     this.uniforms.uGrassDitherSeed.value =
       (options.ditherSeed ?? 0) / 4294967296;
-    setBalancedGrassPaletteColors(
-      this.uniforms.uGrassBaseColor.value,
-      this.uniforms.uGrassTipColor.value,
-      this.uniforms.uGrassDryColor.value,
-      this.colorControls.baseColor,
-      this.colorControls.tipColor,
-      this.colorControls.dryColor,
-    );
+    this.setPaletteColors();
     this.material = new THREE.MeshLambertMaterial({
       side: THREE.DoubleSide,
       color: 0xffffff,
@@ -695,6 +896,8 @@ export class GrassNearMaterial {
     const worldLod = options.worldLod !== false;
     const subPixelWidth = options.subPixelWidth === true;
     const sheen = options.sheen !== false;
+    const noiseWind = options.noiseWind === true;
+    const instanceFreeDither = options.instanceFreeDither === true;
     // Selected at compile time rather than branched on a uniform: this is the
     // hottest code in the scene and the choice never varies for a material.
     const keepLod = worldLod
@@ -712,6 +915,8 @@ export class GrassNearMaterial {
           }${
             subPixelWidth ? VERTEX_SUBPIXEL_DECLARATIONS : ""
           }${
+            noiseWind ? VERTEX_WIND_NOISE_DECLARATIONS : ""
+          }${
             vertexPalette
               ? VERTEX_PALETTE_DECLARATIONS
               : VERTEX_SHADING_DECLARATIONS
@@ -727,6 +932,14 @@ export class GrassNearMaterial {
             "GRASS_KEEP_LOD",
             keepLod,
           )
+            .replace(
+              "GRASS_DITHER_INSTANCE_TERM",
+              instanceFreeDither ? "" : "instanceVariation.x +",
+            )
+            .replace(
+              "GRASS_GUST_NOISE",
+              noiseWind ? VERTEX_GUST_NOISE : VERTEX_GUST_SINE,
+            )
             .replace(
               "GRASS_SHEEN_VARYING",
               sheen ? VERTEX_SHEEN_VARYING : VERTEX_NO_SHEEN_VARYING,
@@ -768,8 +981,8 @@ export class GrassNearMaterial {
     this.colorControls.baseColor = material.baseColor;
     this.colorControls.tipColor = material.tipColor;
     this.colorControls.dryColor = material.dryColor;
+    this.artRootDarkening = material.rootDarkening;
     this.setPaletteColors();
-    this.uniforms.uGrassRootDarkening.value = material.rootDarkening;
     this.uniforms.uGrassNormalUp.value = material.normalUp;
     this.uniforms.uGrassAmbientBoost.value = material.ambientBoost;
     this.uniforms.uGrassBacklightStrength.value = material.backlightStrength;
@@ -789,9 +1002,9 @@ export class GrassNearMaterial {
     this.colorControls.baseColor = direction.baseColor;
     this.colorControls.tipColor = direction.tipColor;
     this.colorControls.dryColor = direction.dryColor;
+    this.artRootDarkening = direction.rootDarkening;
+    this.artTipColorStrength = direction.tipColorStrength;
     this.setPaletteColors();
-    this.uniforms.uGrassRootDarkening.value = direction.rootDarkening;
-    this.uniforms.uGrassTipColorStrength.value = direction.tipColorStrength;
     this.uniforms.uGrassNormalUp.value = direction.normalUp;
     this.uniforms.uGrassAmbientBoost.value = direction.ambientBoost;
     this.uniforms.uGrassBacklightStrength.value = direction.backlightStrength;
@@ -800,6 +1013,10 @@ export class GrassNearMaterial {
       this.baseWindStrength * direction.windStrengthScale;
     this.uniforms.uGrassFlutterStrength.value =
       this.baseFlutterStrength * direction.flutterStrengthScale;
+    this.configureGust(
+      direction.gustDepth ?? DEFAULT_GUST_FRONT_DEPTH,
+      direction.gustTipBoost ?? GRASS_GUST_TIP_BOOST,
+    );
     // What a widened sub-pixel blade blends towards. The terrain already tints
     // itself with this colour under the canopy, so a blade that gives back the
     // coverage it did not earn converges on the ground it is standing in.
@@ -822,7 +1039,14 @@ export class GrassNearMaterial {
 
   /** Half-width of the source blade the sub-pixel clamp is widening. */
   setBladeHalfWidth(halfWidth: number): void {
-    this.uniforms.uGrassBladeHalfWidth.value = Math.max(halfWidth, 0.0001);
+    const resolved = Math.max(halfWidth, 0.0001);
+    this.uniforms.uGrassBladeHalfWidth.value = resolved;
+    // The ceiling has to move with the blade, or a wider blade configuration
+    // pushes the source half-width past it and disables the clamp entirely.
+    this.uniforms.uGrassMaxWidenDistance.value = Math.min(
+      resolved * MAXIMUM_BLADE_WIDEN_RATIO,
+      MAXIMUM_BLADE_WIDEN_METRES,
+    );
   }
 
   /**
@@ -879,15 +1103,110 @@ export class GrassNearMaterial {
     this.uniforms.uGrassTrailWobbleAmplitude.value = config.wobbleAmplitude;
   }
 
+  /**
+   * Fills every biome palette row.
+   *
+   * Row 0 is always the active art direction, so a world running one biome is
+   * byte-identical to one built before biomes existed and preset switching
+   * keeps working. Rows whose profile owns a palette get their own colours put
+   * through the same luminance balancer, which is what keeps brightness
+   * compatible across biomes the way it already is across presets.
+   */
   private setPaletteColors(): void {
+    const base = this.uniforms.uGrassBiomeBase.value;
+    const tip = this.uniforms.uGrassBiomeTip.value;
+    const dry = this.uniforms.uGrassBiomeDry.value;
+    const shade = this.uniforms.uGrassBiomeShade.value;
     setBalancedGrassPaletteColors(
-      this.uniforms.uGrassBaseColor.value,
-      this.uniforms.uGrassTipColor.value,
-      this.uniforms.uGrassDryColor.value,
+      base[0],
+      tip[0],
+      dry[0],
       this.colorControls.baseColor,
       this.colorControls.tipColor,
       this.colorControls.dryColor,
     );
+    shade[0].set(this.artRootDarkening, this.artTipColorStrength);
+    this.uniforms.uGrassTipColor.value.copy(tip[0]);
+
+    for (let row = 1; row < GRASS_MAX_BIOMES; row += 1) {
+      const profile = GRASS_BIOME_PROFILES[row];
+      if (!profile || profile.paletteSource === "art") {
+        base[row].copy(base[0]);
+        tip[row].copy(tip[0]);
+        dry[row].copy(dry[0]);
+        shade[row].copy(shade[0]);
+        continue;
+      }
+      setBalancedGrassPaletteColors(
+        base[row],
+        tip[row],
+        dry[row],
+        profile.baseColor,
+        profile.tipColor,
+        profile.dryColor,
+      );
+      shade[row].set(profile.rootDarkening, profile.tipColorStrength);
+    }
+  }
+
+  /**
+   * The scrolling gust field. Every grass material and every impostor material
+   * is given the same texture, scale, and speed; that shared field is what makes
+   * near blades, mid blades, and far cards bend as one wind instead of three.
+   */
+  setWindNoise(texture: THREE.Texture, scale: number, speed: number): void {
+    this.uniforms.uGrassWindNoise.value = texture;
+    this.uniforms.uGrassWindNoiseScale.value = scale;
+    this.uniforms.uGrassWindNoiseSpeed.value = speed;
+  }
+
+  /**
+   * Distance thinning for the mid layer: `floor` is the fraction of blades
+   * still drawn at `end` metres. The CPU draw truncation reproduces this exact
+   * curve, so both must be changed through here.
+   */
+  configureDensityFalloff(start: number, end: number, floor: number): void {
+    this.uniforms.uGrassDensityFalloffStart.value = start;
+    this.uniforms.uGrassDensityFalloffEnd.value = end;
+    this.uniforms.uGrassDensityFloor.value = floor;
+  }
+
+  getDensityFalloff(): { start: number; end: number; floor: number } {
+    return {
+      start: this.uniforms.uGrassDensityFalloffStart.value,
+      end: this.uniforms.uGrassDensityFalloffEnd.value,
+      floor: this.uniforms.uGrassDensityFloor.value,
+    };
+  }
+
+  /**
+   * Global density multiplier owned by the quality governor. It scales the LOD
+   * keep threshold — the same key the instance buffers are sorted by — so the
+   * CPU prefix trims can fold it in exactly and a lowered tier saves submitted
+   * vertices, not just shaded ones.
+   */
+  setLodDensityScale(scale: number): void {
+    this.uniforms.uGrassLodDensityScale.value = THREE.MathUtils.clamp(
+      scale,
+      0.05,
+      1,
+    );
+  }
+
+  getLodDensityScale(): number {
+    return this.uniforms.uGrassLodDensityScale.value;
+  }
+
+  /** Gust depth and the tip lift a crest carries, both preset-exposed. */
+  configureGust(depth: number, tipBoost: number): void {
+    this.uniforms.uGrassGustFrontDepth.value = depth;
+    this.uniforms.uGrassGustTipBoost.value = tipBoost;
+  }
+
+  setSheenEnabled(enabled: boolean): void {
+    this.uniforms.uGrassSheenStrength.value = enabled
+      ? DEFAULT_SHEEN_STRENGTH
+      : 0;
   }
 
   setupGUI(
@@ -914,12 +1233,14 @@ export class GrassNearMaterial {
         material.setPaletteColors();
       }
     });
+    const tipMixControl = { value: this.artTipColorStrength };
     folder
-      .add(this.uniforms.uGrassTipColorStrength, "value", 0.15, 0.75, 0.01)
+      .add(tipMixControl, "value", 0.15, 0.75, 0.01)
       .name("Tip Mix")
       .onChange((value: number) => {
-        for (const material of linkedMaterials) {
-          material.uniforms.uGrassTipColorStrength.value = value;
+        for (const material of materials) {
+          material.artTipColorStrength = value;
+          material.setPaletteColors();
         }
       });
     folder

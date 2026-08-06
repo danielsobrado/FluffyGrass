@@ -18,7 +18,20 @@ export interface GrassPatch {
   // island path still builds one.
   nearMesh?: THREE.InstancedMesh;
   midMesh: THREE.InstancedMesh;
+  /**
+   * Legacy island path only. The streamed world emits one far-card mesh per
+   * 64 m chunk instead of one per 32 m render batch: a chunk is angularly tiny
+   * past 44 m, so the finer culling granularity bought nothing while
+   * quadrupling the draw calls of the layer that owns most of them.
+   */
   farMesh?: THREE.InstancedMesh;
+  /** True when a chunk-level far group covers this patch's band. */
+  hasFarImpostor?: boolean;
+  /**
+   * Mid blade dithers, descending, matching the mid geometry's triangle order.
+   * Present only on patches whose mid draw can be prefix-trimmed.
+   */
+  midSortedDithers?: Float32Array;
   instanceCount: number;
   lod: GrassLodLevel;
   distance: number;
@@ -27,6 +40,19 @@ export interface GrassPatch {
   midCoverage?: number;
   farCoverage?: number;
   midDistanceFade?: number;
+}
+
+/**
+ * A chunk-sized batch of far impostor cards. Far cards are drawn one mesh per
+ * streamed chunk rather than per render batch, so this is what the LOD
+ * controller iterates for the far band.
+ */
+export interface GrassFarGroup {
+  bounds: THREE.Box3;
+  boundingSphere: THREE.Sphere;
+  mesh: THREE.InstancedMesh;
+  distance: number;
+  inFrustum: boolean;
 }
 
 export class GrassPatchGrid {

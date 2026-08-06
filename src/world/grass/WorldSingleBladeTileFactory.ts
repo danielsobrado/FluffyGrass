@@ -9,11 +9,20 @@ import {
 import { GrassGeometryFactory } from "../../grass/GrassGeometryFactory";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import type { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial";
+import {
+  GRASS_BIOME_PROFILES,
+  GRASS_BIOME_VERSION,
+} from "../../grass/biome/GrassBiomeProfile";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import { TERRAIN_NORMAL_STEP, type TerrainField } from "../TerrainField";
 import { TerrainHeightLattice } from "../TerrainHeightLattice";
 import type { WorldConfig } from "../WorldConfig";
 import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
+import {
+  pickGrassBiomeIndex,
+  resolveGrassBiomeDensity,
+  sampleGrassBiome,
+} from "./WorldBiomeField";
 
 export interface WorldSingleBladeTile {
   key: number;
@@ -63,6 +72,7 @@ export interface WorldSingleBladeTileBuildJob {
   matrixValues: Float32Array;
   variations: Float32Array;
   coverages: Float32Array;
+  biomes: Float32Array;
   bounds: THREE.Box3;
   nextIndex: number;
   bladeCount: number;
@@ -83,6 +93,7 @@ export interface WorldSingleBladeTileBuildJob {
   reorderCycleStart?: number;
   reorderCycleTarget?: number;
   reorderCoverageScratch?: number;
+  reorderBiomeScratch?: number;
   centerY: number;
 }
 
@@ -112,8 +123,6 @@ const CLUMP_RADIUS_SCALE = 0.42;
 const CLUMP_CENTER_JITTER = 0.15;
 /** Yaw spread of a blade about the direction it fans away from the centre. */
 const CLUMP_FAN_SPREAD = 0.55;
-const CLUMP_HEIGHT_MIN = 0.86;
-const CLUMP_HEIGHT_MAX = 1.14;
 /**
  * Per-blade height jitter within a tuft. Composed with the tuft's own scale
  * above, the product stays inside {@link INSTANCE_VERTICAL_SCALE_MAX}, which
@@ -173,6 +182,7 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 /** Bound negative-placement memory while retaining far more than one view. */
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
+const PLACEMENT_LRU_LIMIT = 12;
 
 type TileBuildStage =
   | "lattice"
@@ -189,15 +199,19 @@ interface TileBuildBuffers {
   matrixValues: Float32Array;
   variations: Float32Array;
   coverages: Float32Array;
+  biomes: Float32Array;
 }
 
 interface WorldSingleBladePlacement extends TileBuildBuffers {
   key: string;
   bladeCount: number;
   sortedDithers: Float32Array;
+  // Reassigned when a parked placement is revived from the LRU: the previous
+  // buffers were released with the last mesh that referenced them.
   instanceMatrix: THREE.InstancedBufferAttribute;
   variationAttribute: THREE.InstancedBufferAttribute;
   coverageAttribute: THREE.InstancedBufferAttribute;
+  biomeAttribute: THREE.InstancedBufferAttribute;
   origin: THREE.Vector3;
   localBounds: THREE.Box3;
   boundingSphere: THREE.Sphere;
@@ -216,6 +230,7 @@ export class WorldSingleBladeTileFactory {
   private readonly scale = new THREE.Vector3();
   private readonly matrix = new THREE.Matrix4();
   private readonly placementCache = new Map<string, WorldSingleBladePlacement>();
+  private readonly placementLru = new Map<string, WorldSingleBladePlacement>();
   private readonly emptyPlacementCache = new Map<string, true>();
   private readonly buildBufferPool = new Map<number, TileBuildBuffers[]>();
   private readonly latticePool: TerrainHeightLattice[] = [];
@@ -246,7 +261,15 @@ export class WorldSingleBladeTileFactory {
       ),
     );
     const placementKey = this.createPlacementKey(options);
-    const cachedPlacement = this.placementCache.get(placementKey);
+    let cachedPlacement = this.placementCache.get(placementKey);
+    if (!cachedPlacement) {
+      cachedPlacement = this.placementLru.get(placementKey);
+      if (cachedPlacement) {
+        this.placementLru.delete(placementKey);
+        this.rehydratePlacement(cachedPlacement);
+        this.placementCache.set(placementKey, cachedPlacement);
+      }
+    }
     if (cachedPlacement) {
       return {
         options,
@@ -266,6 +289,7 @@ export class WorldSingleBladeTileFactory {
         matrixValues: cachedPlacement.matrixValues,
         variations: cachedPlacement.variations,
         coverages: cachedPlacement.coverages,
+        biomes: cachedPlacement.biomes,
         bounds: cachedPlacement.localBounds,
         nextIndex: requestedCount,
         bladeCount: cachedPlacement.bladeCount,
@@ -331,6 +355,7 @@ export class WorldSingleBladeTileFactory {
       matrixValues: buffers.matrixValues,
       variations: buffers.variations,
       coverages: buffers.coverages,
+      biomes: buffers.biomes,
       bounds: new THREE.Box3(),
       nextIndex: 0,
       bladeCount: 0,
@@ -458,6 +483,14 @@ export class WorldSingleBladeTileFactory {
         continue;
       }
 
+      // Sampled only for blades that survive: the biome costs two noise
+      // octaves plus a binary search over the rank table, which is the same
+      // order as the terrain masks above, and most enumerated blades never get
+      // this far on broken ground or under a path.
+      const biomeSample = sampleGrassBiome(x, z);
+      const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
+      const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
+
       this.position.set(
         x,
         height - this.grassConfig.distribution.rootSink,
@@ -482,8 +515,8 @@ export class WorldSingleBladeTileFactory {
       // the tuft's own scale, rather than multiplying on top of it, keeps the
       // product inside the scale ceilings the reserved bounds are built from.
       const clumpHeightScale =
-        CLUMP_HEIGHT_MIN +
-        (CLUMP_HEIGHT_MAX - CLUMP_HEIGHT_MIN) *
+        biomeProfile.heightBand[0] +
+        (biomeProfile.heightBand[1] - biomeProfile.heightBand[0]) *
           (this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.45 + vigor * 0.55);
       const verticalScale = THREE.MathUtils.clamp(
         clumpHeightScale *
@@ -492,7 +525,7 @@ export class WorldSingleBladeTileFactory {
         INSTANCE_VERTICAL_SCALE_MAX,
       );
       const horizontalScale = THREE.MathUtils.clamp(
-        clumpHeightScale * job.random.range(0.86, 1.1),
+        clumpHeightScale * job.random.range(...biomeProfile.widthBand),
         0.76,
         INSTANCE_HORIZONTAL_SCALE_MAX,
       );
@@ -500,7 +533,7 @@ export class WorldSingleBladeTileFactory {
         horizontalScale,
         verticalScale,
         THREE.MathUtils.clamp(
-          clumpHeightScale * job.random.range(0.86, 1.1),
+          clumpHeightScale * job.random.range(...biomeProfile.widthBand),
           0.76,
           INSTANCE_HORIZONTAL_SCALE_MAX,
         ),
@@ -517,7 +550,8 @@ export class WorldSingleBladeTileFactory {
       this.matrix.toArray(job.matrixValues, job.bladeCount * 16);
       const variationOffset = job.bladeCount * 4;
       job.variations[variationOffset] = job.random.next();
-      job.variations[variationOffset + 1] = job.random.range(0.84, 1.16);
+      job.variations[variationOffset + 1] =
+        job.random.range(0.84, 1.16) * biomeProfile.windDamping;
       // Whole-blade occlusion from the canopy around it, which is what gives a
       // dense field depth rather than an even green sheet. Mid patches resolve
       // it from the same function so the two LODs agree at the handoff.
@@ -527,11 +561,13 @@ export class WorldSingleBladeTileFactory {
       job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
         (1 - suitability) * 0.25 +
           sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
+          biomeProfile.drynessBias +
           job.random.range(0, 0.06),
         0,
         1,
       );
-      job.coverages[job.bladeCount] = 1;
+      job.coverages[job.bladeCount] = resolveGrassBiomeDensity(biomeSample);
+      job.biomes[job.bladeCount] = biomeIndex;
       job.bladeCount += 1;
     }
 
@@ -760,6 +796,7 @@ export class WorldSingleBladeTileFactory {
           tempVariation[component] = job.variations[start * 4 + component];
         }
         job.reorderCoverageScratch = job.coverages[start];
+        job.reorderBiomeScratch = job.biomes[start];
         job.reorderCycleStart = start;
         job.reorderCycleTarget = start;
       }
@@ -776,13 +813,16 @@ export class WorldSingleBladeTileFactory {
         job.matrixValues.set(tempMatrix, target * 16);
         job.variations.set(tempVariation, target * 4);
         job.coverages[target] = job.reorderCoverageScratch ?? 1;
+        job.biomes[target] = job.reorderBiomeScratch ?? 0;
         job.reorderCycleStart = undefined;
         job.reorderCycleTarget = undefined;
         job.reorderCoverageScratch = undefined;
+        job.reorderBiomeScratch = undefined;
       } else {
         job.matrixValues.copyWithin(target * 16, source * 16, source * 16 + 16);
         job.variations.copyWithin(target * 4, source * 4, source * 4 + 4);
         job.coverages[target] = job.coverages[source];
+        job.biomes[target] = job.biomes[source];
         job.reorderCycleTarget = source;
       }
       processed += 1;
@@ -820,16 +860,22 @@ export class WorldSingleBladeTileFactory {
       job.coverages.subarray(0, job.bladeCount),
       1,
     );
+    const biomeAttribute = new THREE.InstancedBufferAttribute(
+      job.biomes.subarray(0, job.bladeCount),
+      1,
+    );
     const placement: WorldSingleBladePlacement = {
       key: job.placementKey,
       matrixValues: job.matrixValues,
       variations: job.variations,
       coverages: job.coverages,
+      biomes: job.biomes,
       bladeCount: job.bladeCount,
       sortedDithers,
       instanceMatrix,
       variationAttribute,
       coverageAttribute,
+      biomeAttribute,
       origin,
       localBounds,
       boundingSphere: localBounds.getBoundingSphere(new THREE.Sphere()),
@@ -848,6 +894,7 @@ export class WorldSingleBladeTileFactory {
     job.reorderCycleStart = undefined;
     job.reorderCycleTarget = undefined;
     job.reorderCoverageScratch = undefined;
+    job.reorderBiomeScratch = undefined;
     return placement;
   }
 
@@ -863,7 +910,9 @@ export class WorldSingleBladeTileFactory {
       {
         variation: placement.variationAttribute,
         coverage: placement.coverageAttribute,
+        biome: placement.biomeAttribute,
       },
+      placement.biomes.subarray(0, placement.bladeCount),
     );
     const mesh = new THREE.InstancedMesh(geometry, options.material.material, 0);
     mesh.name = `${options.namePrefix}-${options.key}`;
@@ -897,14 +946,64 @@ export class WorldSingleBladeTileFactory {
       return;
     }
     placement.references -= 1;
+    // The last reference still disposes normally, which is what releases the
+    // instance attributes' GPU buffers: three only frees an attribute from
+    // WebGLGeometries.onGeometryDispose, so a placement parked with its
+    // attributes still attached would leak them for the rest of the session.
+    // What the LRU retains is the expensive half — the sampled, sorted CPU
+    // arrays — and re-entry rebuilds four attribute objects around them
+    // instead of resampling 4 608 blades and radix-sorting them again.
     this.geometryFactory.disposeInstancedMesh(
       tile.mesh,
       placement.references > 0,
     );
     if (placement.references <= 0) {
       this.placementCache.delete(placement.key);
-      this.releaseBuildBuffers(placement.matrixValues.length / 16, placement);
+      this.parkPlacement(placement);
     }
+  }
+
+  private parkPlacement(placement: WorldSingleBladePlacement): void {
+    this.placementLru.delete(placement.key);
+    this.placementLru.set(placement.key, placement);
+    while (this.placementLru.size > PLACEMENT_LRU_LIMIT) {
+      const oldestKey = this.placementLru.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      const evicted = this.placementLru.get(oldestKey);
+      this.placementLru.delete(oldestKey);
+      if (evicted) {
+        this.releaseBuildBuffers(evicted.matrixValues.length / 16, evicted);
+      }
+    }
+  }
+
+  /**
+   * Rebuilds the instance attributes around a revived placement's retained CPU
+   * arrays. The buffers they used to own were freed when the last tile holding
+   * them was disposed, so a revived placement needs fresh attribute objects to
+   * upload from.
+   */
+  private rehydratePlacement(placement: WorldSingleBladePlacement): void {
+    const bladeCount = placement.bladeCount;
+    placement.instanceMatrix = new THREE.InstancedBufferAttribute(
+      placement.matrixValues.subarray(0, bladeCount * 16),
+      16,
+    );
+    placement.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    placement.variationAttribute = new THREE.InstancedBufferAttribute(
+      placement.variations.subarray(0, bladeCount * 4),
+      4,
+    );
+    placement.coverageAttribute = new THREE.InstancedBufferAttribute(
+      placement.coverages.subarray(0, bladeCount),
+      1,
+    );
+    placement.biomeAttribute = new THREE.InstancedBufferAttribute(
+      placement.biomes.subarray(0, bladeCount),
+      1,
+    );
   }
 
   cancelBuild(job: WorldSingleBladeTileBuildJob): void {
@@ -924,13 +1023,14 @@ export class WorldSingleBladeTileFactory {
     }
     this.sourceGeometries.clear();
     this.placementCache.clear();
+    this.placementLru.clear();
     this.emptyPlacementCache.clear();
     this.buildBufferPool.clear();
     this.latticePool.length = 0;
   }
 
   private createPlacementKey(options: WorldSingleBladeTileBuildOptions): string {
-    return `${options.tileX}:${options.tileZ}:${options.densityMultiplier}:${options.seedSalt}:${options.material.getDitherSeed()}`;
+    return `${options.tileX}:${options.tileZ}:${options.densityMultiplier}:${options.seedSalt}:${options.material.getDitherSeed()}:biome-${GRASS_BIOME_VERSION}`;
   }
 
   private rememberEmptyPlacement(key: string): void {
@@ -955,6 +1055,7 @@ export class WorldSingleBladeTileFactory {
       matrixValues: new Float32Array(requestedCount * 16),
       variations: new Float32Array(requestedCount * 4),
       coverages: new Float32Array(requestedCount),
+      biomes: new Float32Array(requestedCount),
     };
   }
 
@@ -974,6 +1075,7 @@ export class WorldSingleBladeTileFactory {
         matrixValues: buffers.matrixValues,
         variations: buffers.variations,
         coverages: buffers.coverages,
+        biomes: buffers.biomes,
       });
     }
   }

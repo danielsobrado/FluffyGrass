@@ -15,12 +15,33 @@ import { GrassGeometryFactory } from "../grass/GrassGeometryFactory";
 import { GrassLodController } from "../grass/GrassLodController";
 import {
   GrassLodLevel,
+  type GrassFarGroup,
   type GrassPatch,
 } from "../grass/GrassPatchGrid";
 import { GrassConfigLoader } from "../grass/internal/GrassConfigLoader";
 import { SeededRandom } from "../grass/internal/SeededRandom";
-import { GrassNearMaterial } from "../grass/materials/GrassNearMaterial";
+import {
+  GRASS_MID_DENSITY_FALLOFF,
+  GrassNearMaterial,
+} from "../grass/materials/GrassNearMaterial";
 import { WindField } from "../grass/wind/WindField";
+import {
+  GRASS_WIND_NOISE_SCALE,
+  GRASS_WIND_NOISE_SPEED,
+  disposeGrassWindNoiseTexture,
+  getGrassWindNoiseTexture,
+} from "../grass/wind/WindNoiseTexture";
+import {
+  pickGrassBiomeIndex,
+  resolveGrassBiomeDensity,
+  sampleGrassBiome,
+} from "./grass/WorldBiomeField";
+import {
+  GRASS_BIOME_PROFILES,
+  resolveGrassBiomeHeightRatio,
+  resolveGrassBiomeWidthRatio,
+} from "../grass/biome/GrassBiomeProfile";
+import { GrassQualityGovernor } from "../runtime/GrassQualityGovernor";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
 import type { TerrainField } from "./TerrainField";
@@ -31,21 +52,33 @@ import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryF
 import { WorldNearGrassField } from "./grass/WorldNearGrassField";
 
 interface WorldGrassPatch extends GrassPatch {
-  farMesh: THREE.InstancedMesh;
   midCoverage: number;
   farCoverage: number;
-  streamCoverage: number;
   // Streaming fade-in is applied by scaling the per-instance coverage
   // attributes, so the unfaded values have to survive somewhere. A per-mesh
   // uniform cannot do this job: three uploads a shared material's uniforms once
   // per contiguous run of draws, so only the first patch would ever fade.
   baseMidCoverage: Float32Array;
-  baseFarCoverage: Float32Array;
+}
+
+/**
+ * All of a chunk's far cards in one mesh.
+ *
+ * Far cards used to inherit the mid layer's 32 m render-batch granularity, so
+ * the resident set at stream radius 5 was 484 meshes — around three quarters of
+ * every grass draw call in the frame, for cards a few pixels tall, growing
+ * quadratically with radius. A 64 m chunk is angularly tiny past 44 m, so the
+ * finer culling granularity was buying nothing.
+ */
+interface WorldGrassFarGroup extends GrassFarGroup {
+  baseCoverage: Float32Array;
 }
 
 interface WorldGrassChunk {
   key: string;
   patches: WorldGrassPatch[];
+  farGroup?: WorldGrassFarGroup;
+  streamCoverage: number;
 }
 
 interface GrassChunkRequest {
@@ -65,6 +98,7 @@ interface GrassRenderBatchBuild {
   matrixValues: Float32Array;
   variations: Float32Array;
   coverages: Float32Array;
+  biomes: Float32Array;
   instanceCount: number;
   bounds: THREE.Box3;
   meshBounds?: THREE.Box3;
@@ -96,6 +130,13 @@ interface GrassChunkBuildJob {
   finalizeStage: number;
   variantIndex?: number;
   completedPatches: WorldGrassPatch[];
+  /** Far cards accumulated per batch, merged into one chunk mesh at the end. */
+  farBatches: FarImpostorBatch[];
+}
+
+interface FarImpostorBatch extends FarImpostorInstances {
+  origin: THREE.Vector3;
+  worldBounds: THREE.Box3;
 }
 
 interface GrassChunkFinalizeResult {
@@ -107,6 +148,7 @@ interface FarImpostorInstances {
   matrixValues: Float32Array;
   variationValues: Float32Array;
   coverageValues: Float32Array;
+  biomeValues: Float32Array;
   instanceCount: number;
 }
 
@@ -126,12 +168,24 @@ export interface WorldGrassDiagnostics {
   nearTiles: number;
   nearTileBuildMs: number;
   maxNearTileBuildMs: number;
+  /**
+   * Vertices the mid layer actually submits this frame, after the per-batch
+   * draw truncation. This is the number the mid-layer work was measured
+   * against; without it the trim's effect is invisible in any HUD, because
+   * three's triangle counter reports the untrimmed index count.
+   */
+  submittedMidVertices: number;
+  submittedFarInstances: number;
+  /** Quality tier the governor currently holds. */
+  qualityTier: number;
+  qualityTierSeconds: number;
+  qualityDensityScale: number;
 }
 
 /**
  * Scales a patch's per-instance coverage by its streaming fade so a chunk
  * arrives gradually instead of popping in. The fade only ever touches the small
- * `fadingPatches` set, and stops uploading once it reaches full coverage.
+ * `fadingChunks` set, and stops uploading once it reaches full coverage.
  */
 function applyStreamCoverage(
   mesh: THREE.InstancedMesh,
@@ -165,28 +219,24 @@ const CENTER_BUILD_BUDGET_MS = 6;
 const STREAM_LOOKAHEAD_CHUNKS = 2;
 const STREAM_FADE_SECONDS = 0.35;
 const RETIREMENTS_PER_FRAME = 2;
+/**
+ * What the quality governor aims for. Compact devices are held to a lower bar
+ * deliberately: driving a phone at 60 would spend the whole density budget
+ * before the frame ever got cheap enough.
+ */
+const DESKTOP_TARGET_FPS = 60;
+const COMPACT_TARGET_FPS = 50;
 
 export class WorldGrassSystem {
   private readonly configLoader = new GrassConfigLoader();
   private readonly geometryFactory = new GrassGeometryFactory();
   private readonly patchGeometryFactory = new WorldGrassPatchGeometryFactory();
   private readonly impostorAtlasFactory = new WorldGrassImpostorAtlasFactory();
-  private readonly material = new GrassNearMaterial({
-    name: "world-grass-mid-material",
-    cacheKey: "grass-near-material-v18-mid-vertex-palette-no-sheen",
-    // The mid layer draws exactly the blades the near layer drops.
-    invertLodCoverage: true,
-    windLodScale: MID_WIND_SCALE,
-    ditherSeed: MID_DITHER_SEED,
-    // Single-triangle blades starting 24 m out: a few pixels each.
-    vertexPalette: true,
-    sheen: false,
-  });
+  private readonly material: GrassNearMaterial;
   private readonly impostorMaterials: WorldGrassImpostorMaterial[] = [];
   private readonly wind = new WindField();
   private readonly chunks = new Map<string, WorldGrassChunk>();
   private readonly patches = new Set<WorldGrassPatch>();
-  private readonly fadingPatches = new Set<WorldGrassPatch>();
   private readonly queue: GrassChunkRequest[] = [];
   private readonly desired = new Map<string, GrassChunkRequest>();
   private readonly retirementQueue: string[] = [];
@@ -194,7 +244,11 @@ export class WorldGrassSystem {
   private readonly cameraPosition = new THREE.Vector3();
   private readonly previousReconcilePosition = new THREE.Vector2();
   private readonly nearField: WorldNearGrassField;
+  private readonly farGroups = new Set<WorldGrassFarGroup>();
+  private readonly fadingChunks = new Set<WorldGrassChunk>();
+  private readonly governor: GrassQualityGovernor;
   private midGeometries: THREE.BufferGeometry[] = [];
+  private midSortedDithers: Float32Array[] = [];
   private grassConfig?: GrassConfig;
   private resolvedLodConfig?: GrassLodConfig;
   private lodController?: GrassLodController;
@@ -220,12 +274,78 @@ export class WorldGrassSystem {
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
   ) {
+    this.material = new GrassNearMaterial({
+      name: "world-grass-mid-material",
+      cacheKey: `grass-near-material-v19-mid-vertex-palette-no-sheen-${
+        profile.compact ? "sine" : "noise"
+      }`,
+      // The mid layer draws exactly the blades the near layer drops.
+      invertLodCoverage: true,
+      windLodScale: MID_WIND_SCALE,
+      ditherSeed: MID_DITHER_SEED,
+      // Single-triangle blades starting 24 m out: a few pixels each.
+      vertexPalette: true,
+      sheen: false,
+      // Its per-batch draw truncation reproduces the shader's keep set on the
+      // CPU, which is only exact if the dither carries no per-instance term.
+      instanceFreeDither: true,
+      // Mid blades are the layer that goes sub-pixel: the width clamp is what
+      // pays back the coverage the distance density falloff gives up.
+      subPixelWidth: true,
+      noiseWind: !profile.compact,
+    });
+    this.governor = new GrassQualityGovernor(
+      profile.compact ? COMPACT_TARGET_FPS : DESKTOP_TARGET_FPS,
+    );
     this.nearField = new WorldNearGrassField(
       scene,
       field,
       worldConfig,
       profile,
     );
+  }
+
+  /**
+   * Pins the quality tier, or returns to closed-loop control when given
+   * `undefined`. Reproducible captures need a fixed tier.
+   */
+  setQualityTierOverride(tier: number | undefined): void {
+    this.governor.pinTier(tier);
+    this.applyQualitySettings();
+  }
+
+  private applyQualitySettings(): void {
+    const densityScale = this.governor.getDensityScale();
+    this.material.setLodDensityScale(densityScale);
+    this.material.configureDensityFalloff(
+      GRASS_MID_DENSITY_FALLOFF.start,
+      GRASS_MID_DENSITY_FALLOFF.end,
+      GRASS_MID_DENSITY_FALLOFF.floor * this.governor.getMidFloorScale(),
+    );
+    this.lodController?.setMidDensityFalloff({
+      start: GRASS_MID_DENSITY_FALLOFF.start,
+      end: GRASS_MID_DENSITY_FALLOFF.end,
+      floor: GRASS_MID_DENSITY_FALLOFF.floor * this.governor.getMidFloorScale(),
+      scale: densityScale,
+    });
+    this.nearField.setQuality(
+      densityScale,
+      this.governor.getUltraDensityScale(),
+      this.governor.getSheenEnabled(),
+      this.governor.getNearDistanceScale(),
+    );
+    const lodConfig = this.resolvedLodConfig;
+    if (lodConfig) {
+      lodConfig.nearMaxDistance =
+        this.artDirection.nearDistance * this.governor.getNearDistanceScale();
+      this.material.configureLod(lodConfig);
+      for (const impostorMaterial of this.impostorMaterials) {
+        impostorMaterial.configureLod(lodConfig);
+      }
+    }
+    for (const impostorMaterial of this.impostorMaterials) {
+      impostorMaterial.setBlendViews(this.governor.getBlendViews());
+    }
   }
 
   initialize(): Promise<void> {
@@ -248,6 +368,14 @@ export class WorldGrassSystem {
       return;
     }
 
+    // One clock for every layer. The near field used to own a second WindField
+    // that froze while the fields were suspended at altitude, so after landing
+    // near and mid blades gusted with different phases through the whole
+    // dither crossfade — the same blade bending two ways at the handoff.
+    if (this.governor.update(deltaSeconds)) {
+      this.applyQualitySettings();
+    }
+
     const elapsedSeconds = this.wind.update(deltaSeconds);
     this.material.update(elapsedSeconds);
     for (const impostorMaterial of this.impostorMaterials) {
@@ -256,7 +384,7 @@ export class WorldGrassSystem {
 
     camera.getWorldPosition(this.cameraPosition);
     this.nearField.update(
-      deltaSeconds,
+      elapsedSeconds,
       this.cameraPosition,
       focusGroundHeight,
       buildDeadline,
@@ -273,6 +401,7 @@ export class WorldGrassSystem {
     this.processBuildQueue(buildDeadline);
     this.updateStreamCoverage(deltaSeconds);
     this.lodController.update(camera, this.patches.values());
+    this.lodController.updateFarGroups(this.farGroups.values());
   }
 
   getDiagnostics(): WorldGrassDiagnostics {
@@ -292,14 +421,16 @@ export class WorldGrassSystem {
       visibleNearPatches +=
         patch.inFrustum && patch.nearCoverage > 0 ? 1 : 0;
       visibleMidPatches += patch.midMesh.visible ? 1 : 0;
-      visibleFarPatches += patch.farMesh.visible ? 1 : 0;
       blades += Math.round(
         patch.instanceCount *
           (patch.midCoverage * this.midBladesPerPatch +
             patch.farCoverage * this.nearBladesPerPatch),
       );
-      if (patch.farMesh.visible) {
-        impostors += patch.farMesh.count;
+    }
+    for (const group of this.farGroups) {
+      if (group.mesh.visible) {
+        visibleFarPatches += 1;
+        impostors += group.mesh.count;
       }
     }
 
@@ -316,6 +447,13 @@ export class WorldGrassSystem {
       impostors,
       lastBuildMs: this.lastBuildMs,
       maxBuildMs: this.maxBuildMs,
+      submittedMidVertices:
+        this.lodController?.getSubmittedMidVertices() ?? 0,
+      submittedFarInstances:
+        this.lodController?.getSubmittedFarInstances() ?? 0,
+      qualityTier: this.governor.getTier(),
+      qualityTierSeconds: this.governor.getSecondsInTier(),
+      qualityDensityScale: this.governor.getDensityScale(),
       ...this.nearField.getBuildDiagnostics(),
     };
   }
@@ -334,7 +472,8 @@ export class WorldGrassSystem {
     }
     this.chunks.clear();
     this.patches.clear();
-    this.fadingPatches.clear();
+    this.fadingChunks.clear();
+    this.farGroups.clear();
     this.queue.length = 0;
     this.retirementQueue.length = 0;
     this.retiring.clear();
@@ -352,6 +491,10 @@ export class WorldGrassSystem {
       impostorMaterial.dispose();
     }
     this.impostorMaterials.length = 0;
+    // Shared with the near field, which this method already disposed, so the
+    // last owner releases it. `getGrassWindNoiseTexture` rebuilds it on demand
+    // if the app is recreated after a context loss.
+    disposeGrassWindNoiseTexture();
     this.resolvedLodConfig = undefined;
     this.lodController = undefined;
   }
@@ -372,13 +515,29 @@ export class WorldGrassSystem {
       this.profile.compact,
       this.worldConfig.seed,
       WORLD_VARIANT_COUNT,
+      MID_DITHER_SEED / 4294967296,
     );
     this.grassConfig = grassConfig;
     this.midGeometries = variants.mid;
+    this.midSortedDithers = variants.midSortedDithers;
     this.nearBladesPerPatch = variants.nearBladesPerPatch;
     this.midBladesPerPatch = variants.midBladesPerPatch;
     this.material.configure(grassConfig.material, grassConfig.wind);
     this.material.applyArtDirection(this.artDirection);
+    if (!this.profile.compact) {
+      this.material.setWindNoise(
+        getGrassWindNoiseTexture(),
+        GRASS_WIND_NOISE_SCALE,
+        GRASS_WIND_NOISE_SPEED,
+      );
+    }
+    // Matches the mean half-width the patch geometry is built from, which is
+    // what the sub-pixel clamp widens away from.
+    this.material.setBladeHalfWidth(
+      (grassConfig.geometry.bladeWidthMin + grassConfig.geometry.bladeWidthMax) *
+        grassConfig.geometry.midWidthScale *
+        0.25,
+    );
     const lodConfig = this.resolveLodConfig();
     lodConfig.nearMaxDistance = this.artDirection.nearDistance;
     lodConfig.midMaxDistance = this.artDirection.midDistance;
@@ -409,12 +568,22 @@ export class WorldGrassSystem {
         grassConfig.wind,
         lodConfig,
         !this.profile.compact,
+        this.worldConfig.grassFarImpostorsPerPatch,
+        !this.profile.compact,
       );
       impostorMaterial.applyArtDirection(this.artDirection);
+      if (!this.profile.compact) {
+        impostorMaterial.setWindNoise(
+          getGrassWindNoiseTexture(),
+          GRASS_WIND_NOISE_SCALE,
+          GRASS_WIND_NOISE_SPEED,
+        );
+      }
       this.impostorMaterials.push(impostorMaterial);
     }
 
     this.lodController = new GrassLodController(lodConfig);
+    this.applyQualitySettings();
     this.status = "Grass ready";
     this.initialized = true;
   }
@@ -485,11 +654,18 @@ export class WorldGrassSystem {
       const result = this.advancePatchFinalize(job);
       if (result.complete) {
         if (result.chunk) {
-          this.chunks.set(job.request.key, result.chunk);
-          for (const patch of result.chunk.patches) {
+          const chunk = result.chunk;
+          this.chunks.set(job.request.key, chunk);
+          for (const patch of chunk.patches) {
             this.patches.add(patch);
-            this.fadingPatches.add(patch);
-            this.scene.add(patch.midMesh, patch.farMesh);
+            this.scene.add(patch.midMesh);
+          }
+          if (chunk.farGroup) {
+            this.farGroups.add(chunk.farGroup);
+            this.scene.add(chunk.farGroup.mesh);
+          }
+          if (chunk.patches.length > 0 || chunk.farGroup) {
+            this.fadingChunks.add(chunk);
           }
         }
         this.activeBuild = undefined;
@@ -551,27 +727,33 @@ export class WorldGrassSystem {
   }
 
   private updateStreamCoverage(deltaSeconds: number): void {
-    if (this.fadingPatches.size === 0) {
+    if (this.fadingChunks.size === 0) {
       return;
     }
 
-    // Only patches still fading in are walked. Sweeping every resident patch
-    // every frame cost hundreds of iterations to discover nothing to do.
+    // Only chunks still fading in are walked. Sweeping every resident patch
+    // every frame cost hundreds of iterations to discover nothing to do. The
+    // fade is per chunk because a chunk arrives as one unit, and because the
+    // far cards are now one mesh per chunk anyway.
     const coverageStep = deltaSeconds / STREAM_FADE_SECONDS;
-    for (const patch of this.fadingPatches) {
-      patch.streamCoverage = Math.min(1, patch.streamCoverage + coverageStep);
-      applyStreamCoverage(
-        patch.midMesh,
-        patch.baseMidCoverage,
-        patch.streamCoverage,
-      );
-      applyStreamCoverage(
-        patch.farMesh,
-        patch.baseFarCoverage,
-        patch.streamCoverage,
-      );
-      if (patch.streamCoverage >= 1) {
-        this.fadingPatches.delete(patch);
+    for (const chunk of this.fadingChunks) {
+      chunk.streamCoverage = Math.min(1, chunk.streamCoverage + coverageStep);
+      for (const patch of chunk.patches) {
+        applyStreamCoverage(
+          patch.midMesh,
+          patch.baseMidCoverage,
+          chunk.streamCoverage,
+        );
+      }
+      if (chunk.farGroup) {
+        applyStreamCoverage(
+          chunk.farGroup.mesh,
+          chunk.farGroup.baseCoverage,
+          chunk.streamCoverage,
+        );
+      }
+      if (chunk.streamCoverage >= 1) {
+        this.fadingChunks.delete(chunk);
       }
     }
   }
@@ -747,6 +929,7 @@ export class WorldGrassSystem {
       matrix: new THREE.Matrix4(),
       finalizeStage: 0,
       completedPatches: [],
+      farBatches: [],
     };
   }
 
@@ -777,6 +960,7 @@ export class WorldGrassSystem {
           matrixValues: new Float32Array(capacity * 16),
           variations: new Float32Array(capacity * 4),
           coverages: new Float32Array(capacity),
+          biomes: new Float32Array(capacity),
           instanceCount: 0,
           bounds: new THREE.Box3(),
         });
@@ -826,6 +1010,13 @@ export class WorldGrassSystem {
       // is cleared by a walking way as one piece. Widening the way by the
       // clump's own reach drops the patches that would otherwise grow across
       // the tread rather than beside it.
+      // The biome is decided once per patch at build time and rides the
+      // instance buffers from there. Density is lerped across a border while
+      // the species itself is a per-blade dithered pick, so bare ground ramps
+      // smoothly even where the two interleave.
+      const biomeSample = sampleGrassBiome(x, z);
+      const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
+      const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
       const coverage =
         THREE.MathUtils.smoothstep(
           suitability,
@@ -837,7 +1028,8 @@ export class WorldGrassSystem {
           z,
           height,
           this.worldConfig.grassPatchSize * 0.5,
-        );
+        ) *
+        resolveGrassBiomeDensity(biomeSample);
       if (coverage <= 0.02) {
         continue;
       }
@@ -850,13 +1042,20 @@ export class WorldGrassSystem {
       job.align.setFromUnitVectors(job.up, job.normal);
       job.yaw.setFromAxisAngle(job.up, job.random.range(0, TWO_PI));
       job.align.multiply(job.yaw);
-      const horizontalScale = job.random.range(0.96, 1.04);
+      // Biome height and width bands are folded into the patch's own scale
+      // rather than multiplied on top of it, so the product stays inside the
+      // ceilings the reserved culling bounds are computed from. The band
+      // limits are enforced by the profile loader.
+      const biomeHeight = resolveGrassBiomeHeightRatio(biomeProfile);
+      const biomeWidth = resolveGrassBiomeWidthRatio(biomeProfile);
+      const horizontalScale = job.random.range(0.96, 1.04) * biomeWidth;
       const heightScale =
-        1 +
-        job.random.range(
-          -job.grassConfig.distribution.heightVariation,
-          job.grassConfig.distribution.heightVariation,
-        );
+        (1 +
+          job.random.range(
+            -job.grassConfig.distribution.heightVariation,
+            job.grassConfig.distribution.heightVariation,
+          )) *
+        biomeHeight;
       job.scale.set(horizontalScale, heightScale, horizontalScale);
       const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
       const batchX = Math.min(
@@ -883,7 +1082,11 @@ export class WorldGrassSystem {
       job.matrix.toArray(batch.matrixValues, instanceIndex * 16);
       const variationOffset = instanceIndex * 4;
       batch.variations[variationOffset] = job.random.next();
-      batch.variations[variationOffset + 1] = job.random.range(0.82, 1.14);
+      // Wind damping is never above 1, so this stays inside the instance wind
+      // ceiling the reserved bounds charge for. Windier-than-reference biomes
+      // belong in the art direction's global wind scale.
+      batch.variations[variationOffset + 1] =
+        job.random.range(0.82, 1.14) * biomeProfile.windDamping;
       // Patch-scale tone survives impostor minification and avoids a uniform
       // far field. The canopy occlusion it now carries is resolved from the
       // same function the near tiles use, at the same world position: a macro
@@ -896,11 +1099,13 @@ export class WorldGrassSystem {
       batch.variations[variationOffset + 3] = THREE.MathUtils.clamp(
         (1 - suitability) * 0.34 +
           sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
+          biomeProfile.drynessBias +
           job.random.range(0, 0.09),
         0,
         1,
       );
       batch.coverages[instanceIndex] = coverage;
+      batch.biomes[instanceIndex] = biomeIndex;
       batch.instanceCount += 1;
     }
   }
@@ -917,7 +1122,7 @@ export class WorldGrassSystem {
       if (job.activeBatches.length === 0) {
         return {
           complete: true,
-          chunk: { key: request.key, patches: [] },
+          chunk: { key: request.key, patches: [], streamCoverage: 0 },
         };
       }
       // A single variant per 64 m chunk creates obvious square tiles from an
@@ -965,17 +1170,118 @@ export class WorldGrassSystem {
 
     const activeBatches = job.activeBatches;
     const variantIndex = job.variantIndex;
+    // One extra stage past the batches merges their far cards into a single
+    // chunk mesh. Building it here rather than per batch is what takes the far
+    // band from ~484 resident draws at stream radius 5 down to ~121.
+    if (job.finalizeStage >= activeBatches.length) {
+      return {
+        complete: true,
+        chunk: {
+          key: request.key,
+          patches: job.completedPatches,
+          farGroup: this.createFarGroup(job, variantIndex),
+          streamCoverage: 0,
+        },
+      };
+    }
+
     const batch = activeBatches[job.finalizeStage];
     const patch = this.createRenderPatch(job, batch, variantIndex);
     job.completedPatches.push(patch);
     job.finalizeStage += 1;
+    return { complete: false };
+  }
 
-    return job.finalizeStage >= activeBatches.length
-      ? {
-          complete: true,
-          chunk: { key: request.key, patches: job.completedPatches },
-        }
-      : { complete: false };
+  /**
+   * Merges the chunk's per-batch far cards into one mesh.
+   *
+   * Instance translations arrive relative to their batch origin, so each is
+   * rebased onto the chunk origin as it is copied. The bounds are the union of
+   * the batch bounds, which is looser than four separate boxes — a few more
+   * cards get shaded at the edge of the frustum in exchange for a quarter of
+   * the draw calls, and at 44 m and beyond that trade is not close.
+   */
+  private createFarGroup(
+    job: GrassChunkBuildJob,
+    variantIndex: number,
+  ): WorldGrassFarGroup | undefined {
+    const batches = job.farBatches;
+    let instanceCount = 0;
+    for (const batch of batches) {
+      instanceCount += batch.instanceCount;
+    }
+    if (instanceCount === 0) {
+      return undefined;
+    }
+
+    const worldBounds = new THREE.Box3();
+    for (const batch of batches) {
+      worldBounds.union(batch.worldBounds);
+    }
+    const origin = new THREE.Vector3();
+    worldBounds.getCenter(origin);
+    const localBounds = worldBounds.clone().translate(origin.clone().negate());
+
+    const matrixValues = new Float32Array(instanceCount * 16);
+    const variationValues = new Float32Array(instanceCount * 4);
+    const coverageValues = new Float32Array(instanceCount);
+    const biomeValues = new Float32Array(instanceCount);
+    let cursor = 0;
+    for (const batch of batches) {
+      const offsetX = batch.origin.x - origin.x;
+      const offsetY = batch.origin.y - origin.y;
+      const offsetZ = batch.origin.z - origin.z;
+      for (let index = 0; index < batch.instanceCount; index += 1) {
+        const source = index * 16;
+        const target = (cursor + index) * 16;
+        matrixValues.set(
+          batch.matrixValues.subarray(source, source + 16),
+          target,
+        );
+        matrixValues[target + 12] += offsetX;
+        matrixValues[target + 13] += offsetY;
+        matrixValues[target + 14] += offsetZ;
+      }
+      variationValues.set(
+        batch.variationValues.subarray(0, batch.instanceCount * 4),
+        cursor * 4,
+      );
+      coverageValues.set(
+        batch.coverageValues.subarray(0, batch.instanceCount),
+        cursor,
+      );
+      biomeValues.set(
+        batch.biomeValues.subarray(0, batch.instanceCount),
+        cursor,
+      );
+      cursor += batch.instanceCount;
+    }
+
+    const impostorMaterial = this.impostorMaterials[variantIndex];
+    const mesh = this.createMesh(
+      `world-grass-far-${job.request.key}`,
+      impostorMaterial.atlas.geometry,
+      impostorMaterial.material,
+      matrixValues,
+      instanceCount,
+      variationValues,
+      coverageValues,
+      biomeValues,
+      origin,
+      localBounds,
+    );
+    mesh.visible = false;
+    const baseCoverage = Float32Array.from(coverageValues);
+    applyStreamCoverage(mesh, baseCoverage, 0);
+
+    return {
+      mesh,
+      baseCoverage,
+      bounds: worldBounds,
+      boundingSphere: worldBounds.getBoundingSphere(new THREE.Sphere()),
+      distance: 0,
+      inFrustum: true,
+    };
   }
 
   private createRenderPatch(
@@ -992,6 +1298,7 @@ export class WorldGrassSystem {
       throw new Error(`Grass batch ${request.key} finalized before bounds.`);
     }
     const coverageValues = batch.coverages.subarray(0, batch.instanceCount);
+    const biomeValues = batch.biomes.subarray(0, batch.instanceCount);
     const batchKey = `${request.key}:${batch.batchX}:${batch.batchZ}`;
     // No near clump mesh is built here. Single-blade tiles own every blade
     // inside the near band, so a streamed near clump layer would allocate and
@@ -1004,34 +1311,29 @@ export class WorldGrassSystem {
       batch.instanceCount,
       variationValues,
       coverageValues,
-      origin,
-      localBounds,
-    );
-    const impostorMaterial = this.impostorMaterials[variantIndex];
-    const farInstances = this.createFarImpostorInstances(
-      batch.matrixValues,
-      variationValues,
-      coverageValues,
-      batch.instanceCount,
-    );
-    const farMesh = this.createMesh(
-      `world-grass-far-${batchKey}`,
-      impostorMaterial.atlas.geometry,
-      impostorMaterial.material,
-      farInstances.matrixValues,
-      farInstances.instanceCount,
-      farInstances.variationValues,
-      farInstances.coverageValues,
+      biomeValues,
       origin,
       localBounds,
     );
     midMesh.visible = false;
-    farMesh.visible = false;
+
+    // Far cards are accumulated rather than meshed: the chunk emits one far
+    // mesh for all of its batches once the last one finalizes.
+    const farInstances = this.createFarImpostorInstances(
+      batch.matrixValues,
+      variationValues,
+      coverageValues,
+      biomeValues,
+      batch.instanceCount,
+    );
+    job.farBatches.push({
+      ...farInstances,
+      origin: origin.clone(),
+      worldBounds: bounds.clone(),
+    });
 
     const baseMidCoverage = Float32Array.from(coverageValues);
-    const baseFarCoverage = Float32Array.from(farInstances.coverageValues);
     applyStreamCoverage(midMesh, baseMidCoverage, 0);
-    applyStreamCoverage(farMesh, baseFarCoverage, 0);
 
     const patchBounds = bounds.clone();
     const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
@@ -1042,7 +1344,8 @@ export class WorldGrassSystem {
       bounds: patchBounds,
       boundingSphere: patchBounds.getBoundingSphere(new THREE.Sphere()),
       midMesh,
-      farMesh,
+      hasFarImpostor: true,
+      midSortedDithers: this.midSortedDithers[variantIndex],
       instanceCount: batch.instanceCount,
       lod: GrassLodLevel.Near,
       distance: 0,
@@ -1050,9 +1353,7 @@ export class WorldGrassSystem {
       nearCoverage: 1,
       midCoverage: 0,
       farCoverage: 0,
-      streamCoverage: 0,
       baseMidCoverage,
-      baseFarCoverage,
     };
   }
 
@@ -1064,6 +1365,7 @@ export class WorldGrassSystem {
    */
   setViewportPixelScale(pixelWorldScale: number): void {
     this.nearField.setViewportPixelScale(pixelWorldScale);
+    this.material.setViewportPixelScale(pixelWorldScale);
   }
 
   setArtDirection(direction: GrassArtDirection): void {
@@ -1084,6 +1386,7 @@ export class WorldGrassSystem {
         impostorMaterial.configureLod(lodConfig);
       }
     }
+    this.applyQualitySettings();
   }
 
   private getFarImpostorOffsetRadius(): number {
@@ -1096,6 +1399,7 @@ export class WorldGrassSystem {
     sourceMatrices: Float32Array,
     sourceVariations: Float32Array,
     sourceCoverages: Float32Array,
+    sourceBiomes: Float32Array,
     sourceCount: number,
   ): FarImpostorInstances {
     const cardsPerPatch = this.worldConfig.grassFarImpostorsPerPatch;
@@ -1103,6 +1407,7 @@ export class WorldGrassSystem {
     const matrixValues = new Float32Array(instanceCount * 16);
     const variationValues = new Float32Array(instanceCount * 4);
     const coverageValues = new Float32Array(instanceCount);
+    const biomeValues = new Float32Array(instanceCount);
     const offsetRadius = this.getFarImpostorOffsetRadius();
 
     for (let sourceIndex = 0; sourceIndex < sourceCount; sourceIndex += 1) {
@@ -1145,8 +1450,11 @@ export class WorldGrassSystem {
           (sourceVariations[sourceVariationOffset] +
             cardIndex * 0.38196601125) %
           1;
-        coverageValues[targetIndex] =
-          sourceCoverages[sourceIndex] / cardsPerPatch;
+        // Far cards do not otherwise consume variation.y, so it marks the
+        // secondary card for the crossfade-only impostor path.
+        variationValues[targetVariationOffset + 1] = cardIndex;
+        coverageValues[targetIndex] = sourceCoverages[sourceIndex];
+        biomeValues[targetIndex] = sourceBiomes[sourceIndex];
       }
     }
 
@@ -1154,6 +1462,7 @@ export class WorldGrassSystem {
       matrixValues,
       variationValues,
       coverageValues,
+      biomeValues,
       instanceCount,
     };
   }
@@ -1166,6 +1475,7 @@ export class WorldGrassSystem {
     instanceCount: number,
     variationValues: Float32Array,
     coverageValues: Float32Array,
+    biomeValues: Float32Array,
     origin: THREE.Vector3,
     localBounds: THREE.Box3,
   ): THREE.InstancedMesh {
@@ -1173,6 +1483,8 @@ export class WorldGrassSystem {
       sourceGeometry,
       variationValues,
       coverageValues,
+      undefined,
+      biomeValues,
     );
     const mesh = new THREE.InstancedMesh(geometry, material, 0);
     mesh.name = name;
@@ -1200,10 +1512,8 @@ export class WorldGrassSystem {
   }
 
   private removePatch(patch: WorldGrassPatch): void {
-    this.fadingPatches.delete(patch);
-    this.scene.remove(patch.midMesh, patch.farMesh);
+    this.scene.remove(patch.midMesh);
     this.geometryFactory.disposeInstancedMesh(patch.midMesh);
-    this.geometryFactory.disposeInstancedMesh(patch.farMesh);
   }
 
   private removeChunk(chunk: WorldGrassChunk): void {
@@ -1211,6 +1521,12 @@ export class WorldGrassSystem {
       this.patches.delete(patch);
       this.removePatch(patch);
     }
+    if (chunk.farGroup) {
+      this.farGroups.delete(chunk.farGroup);
+      this.scene.remove(chunk.farGroup.mesh);
+      this.geometryFactory.disposeInstancedMesh(chunk.farGroup.mesh);
+    }
+    this.fadingChunks.delete(chunk);
   }
 
   private hash(x: number, z: number, seed: number): number {

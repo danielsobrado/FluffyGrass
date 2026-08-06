@@ -246,6 +246,13 @@ const terrainField = read("src/world/TerrainField.ts");
 const denseSpawnLocator = read("src/world/DenseSpawnLocator.ts");
 const terrainHeightLattice = read("src/world/TerrainHeightLattice.ts");
 const geometryFactory = read("src/grass/GrassGeometryFactory.ts");
+const biomeProfileSource = read("src/grass/biome/GrassBiomeProfile.ts");
+const biomeProfiles = JSON.parse(read("src/grass/biome/GrassBiomeProfiles.json"));
+const biomeField = read("src/world/grass/WorldBiomeField.ts");
+const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
+const impostorAtlasFactory = read(
+  "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
+);
 
 const bladeSegments = readYamlNumber(grassConfig, "bladeSegments");
 const tileSize = readYamlNumber(worldConfig, "grassNearTileSize");
@@ -349,6 +356,7 @@ const baselineMidDistances = {
   "golden-hour": 68,
   "cool-highland": 86,
   "dense-emerald": 92,
+  "zelda-field": 82,
   windswept: 78,
 };
 const submissionRatios = [];
@@ -429,6 +437,134 @@ assert(
     tileFactory.includes("processed % DEADLINE_CHECK_INTERVAL === 0") &&
     !tileFactory.includes("order.sort("),
   "Near-tile finalization must use deadline-sliced radix sorting and reordering without full-buffer copies.",
+);
+assert(
+  patchGeometryFactory.includes("midSortedDithers") &&
+    lodController.includes("setDrawRange(0, keptBlades * INDICES_PER_BLADE)"),
+  "Mid geometry must stay descending-dither sorted and prefix-trimmed with drawRange.",
+);
+
+// The sub-pixel width clamp widens a blade towards a ceiling. That ceiling used
+// to be a bare 0.02 m with nothing tying it to the blade: when the blades were
+// widened past it, `max(source, min(target, ceiling))` collapsed to `source` and
+// the clamp silently stopped doing anything — taking both the anti-sparkle
+// widening and the mid layer's density-falloff coverage payback with it, in a
+// way no gate could see. It must now be derived from the configured half-width.
+const bladeWidthMin = readYamlNumber(grassConfig, "bladeWidthMin");
+const bladeWidthMax = readYamlNumber(grassConfig, "bladeWidthMax");
+const sourceHalfWidth = (bladeWidthMin + bladeWidthMax) * 0.25;
+const widenRatio = readSourceNumber(nearMaterial, "MAXIMUM_BLADE_WIDEN_RATIO");
+const widenCeiling = readSourceNumber(nearMaterial, "MAXIMUM_BLADE_WIDEN_METRES");
+const boundsSafetyMargin = readSourceNumber(tileFactory, "BOUNDS_SAFETY_MARGIN");
+assert(
+  nearMaterial.includes("uGrassMaxWidenDistance.value = Math.min(") &&
+    nearMaterial.includes("resolved * MAXIMUM_BLADE_WIDEN_RATIO"),
+  "The sub-pixel widen ceiling must be derived from the configured blade half-width.",
+);
+const resolvedWidenCeiling = Math.min(
+  sourceHalfWidth * widenRatio,
+  widenCeiling,
+);
+assert(
+  resolvedWidenCeiling > sourceHalfWidth,
+  `The widen ceiling ${resolvedWidenCeiling.toFixed(4)} m is at or below the source ` +
+    `half-width ${sourceHalfWidth.toFixed(4)} m, which disables the sub-pixel clamp entirely.`,
+);
+assert(
+  widenCeiling - 0 < boundsSafetyMargin,
+  "The absolute widen ceiling must stay inside the near-bounds safety margin.",
+);
+assert(
+  tileField.includes("EVICTION_HYSTERESIS_TILES = 0.75") &&
+    tileFactory.includes("PLACEMENT_LRU_LIMIT = 12") &&
+    tileFactory.includes("placementLru"),
+  "Near tiles must retain eviction hysteresis and the bounded placement LRU.",
+);
+assert(
+  impostorAtlasFactory.includes("THREE.LinearMipmapLinearFilter") &&
+    impostorAtlasFactory.includes("texture.generateMipmaps = true") &&
+    !impostorMaterial.includes("generateMipmaps = false") &&
+    impostorMaterial.includes("smoothstep(uMidDistance, uFarDistance"),
+  "Far atlases must keep mipmaps and compensate alpha cutoff with distance.",
+);
+
+const maxBiomes = Number(
+  biomeProfileSource.match(/GRASS_MAX_BIOMES = (\d+)/)?.[1],
+);
+assert(
+  maxBiomes === 8 &&
+    nearMaterial.includes("#define GRASS_MAX_BIOMES ${GRASS_MAX_BIOMES}") &&
+    impostorMaterial.includes("uBiomeBase[${GRASS_MAX_BIOMES}]"),
+  "The biome loader and both shaders must share the eight-row palette ceiling.",
+);
+const orderedBiomes = Object.values(biomeProfiles).sort(
+  (left, right) => left.index - right.index,
+);
+assert(
+  orderedBiomes.length <= maxBiomes &&
+    orderedBiomes.every((profile, index) => profile.index === index),
+  "Biome indices must be dense and fit the shader palette arrays.",
+);
+for (const profile of orderedBiomes) {
+  assert(
+    profile.density > 0 &&
+      profile.density <= 1 &&
+      profile.heightBand[0] >= 0.7 &&
+      profile.heightBand[1] <= 1.14 &&
+      profile.widthBand[0] >= 0.76 &&
+      profile.widthBand[1] <= 1.1 &&
+      profile.windDamping >= 0.7 &&
+      profile.windDamping <= 1,
+    `Biome ${profile.label} exceeds density or analytical bounds ceilings.`,
+  );
+}
+// Biome resolution costs two noise octaves plus a rank-table search, so it must
+// stay in the build path. The per-frame paths are the LOD controller and the
+// materials; naming them directly is a stronger and far less brittle check than
+// trying to pattern-match proximity to an `update(` in the builder itself.
+assert(
+  biomeField.includes("sampleGrassBiome") &&
+    tileFactory.includes("sampleGrassBiome(x, z)") &&
+    worldGrassSystem.includes("sampleGrassBiome(x, z)") &&
+    !lodController.includes("BiomeField") &&
+    !lodController.includes("sampleGrassBiome") &&
+    !nearMaterial.includes("sampleGrassBiome") &&
+    !impostorMaterial.includes("sampleGrassBiome"),
+  "Biome resolution must remain build-time-only, never on a per-frame path.",
+);
+// Blades rejected by terrain masks must not pay for a biome sample first.
+assert(
+  tileFactory.indexOf("if (suitability < MIN_SUITABILITY") <
+    tileFactory.indexOf("const biomeSample = sampleGrassBiome(x, z)"),
+  "Near tiles must sample the biome only for blades that survive placement.",
+);
+// Biome 0 carries the art direction's palette. A profile set that leaves it a
+// minority makes the active preset stop describing what the world looks like.
+const totalWorldShare = orderedBiomes.reduce(
+  (sum, profile) => sum + profile.worldShare,
+  0,
+);
+assert(
+  orderedBiomes.every((profile) => profile.worldShare > 0) &&
+    orderedBiomes[0].worldShare / totalWorldShare >= 0.4,
+  "Biome 0 must hold at least 40% of the world.",
+);
+// The biome field must be rank-transformed before it is sliced: a raw sum of
+// noise octaves is bell-shaped, and slicing that into shares gave the middle
+// biome two thirds of the world regardless of what the profiles asked for.
+assert(
+  biomeField.includes("RANK_TABLE") && biomeField.includes("uniformField("),
+  "The biome field must be remapped to a uniform variable before slicing.",
+);
+const tierScales = [
+  ...qualityGovernor.matchAll(/densityScale:\s*([0-9.]+)/g),
+].map((match) => Number(match[1]));
+assert(
+  tierScales.length === 4 &&
+    tierScales.every((scale, index) =>
+      scale <= 1 && (index === 0 || scale <= tierScales[index - 1])
+    ),
+  "Quality tiers must only lower density from the preset budget.",
 );
 assert(
   tileFactory.includes("emptyPlacementCache") &&

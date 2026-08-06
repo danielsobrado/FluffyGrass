@@ -161,10 +161,36 @@ const maximumWindScale = Math.max(
     (direction) => direction.windStrengthScale,
   ),
 );
+// Cards shear from root to tip and the shear is scaled by the instance's own
+// vertical scale, so the worst case is the product of all four terms. The shear
+// factor is read from the shader source rather than repeated here: it used to
+// be a literal in both places, and the shader's moved while the gate's did not.
+const impostorShearFactor = Number(
+  impostorMaterial.match(
+    /gustNoise \* 2\.0 - 1\.0\) \* uWindStrength \*\s*\$\{GRASS_IMPOSTOR_WIND_SHEAR_FACTOR/,
+  )
+    ? lodTuningModule.GRASS_IMPOSTOR_WIND_SHEAR_FACTOR
+    : Number.NaN,
+);
 assert(
-  windStrength * maximumWindScale * 0.22 <=
+  Number.isFinite(impostorShearFactor),
+  "The far-impostor shear must be templated from GRASS_IMPOSTOR_WIND_SHEAR_FACTOR.",
+);
+assert(
+  windStrength *
+    maximumWindScale *
+    impostorShearFactor *
+    lodTuningModule.GRASS_IMPOSTOR_MAX_VERTICAL_SCALE <=
     lodTuningModule.GRASS_IMPOSTOR_MAX_WIND_DISPLACEMENT,
   "Configured far-impostor wind exceeds the reserved bounds displacement.",
+);
+// The shear ramp must span the card, not the (much larger) culling bound.
+assert(
+  impostorMaterial.includes("uCardRadius: { value: atlas.cardRadius }") &&
+    impostorMaterial.includes(
+      "position.y / max(uCardRadius, 0.0001) * 0.5 + 0.5",
+    ),
+  "Impostor shear must ramp across the card's own half-extent.",
 );
 const horizontalScaleMaximum = Number(
   worldGrassSystem.match(
@@ -230,7 +256,12 @@ assert(
 );
 assert(
   !controller.includes("grassDistanceFade") &&
-    nearMaterial.includes("grassDither > grassFarDistanceEntry"),
+    nearMaterial.includes(
+      "grassDither > 1.0 - grassDensityFalloff * (1.0 - grassLodCut)",
+    ) &&
+    nearMaterial.includes(
+      "float grassLodCut = max(grassNearCoverage, grassFarDistanceEntry)",
+    ),
   "World mid coverage must be resolved once from world distance in the shader.",
 );
 assert(
@@ -268,12 +299,14 @@ assert(
   "Every generated palette scalar must be emitted as a GLSL float literal.",
 );
 assert(
-  /grassResolvePalette\(\s*uGrassBaseColor,\s*uGrassTipColor,\s*uGrassDryColor,\s*vGrassProgress,\s*vGrassShade,\s*vGrassDryness,\s*vGrassRootAo,\s*uGrassTipColorStrength,\s*uGrassRootDarkening\s*\)/s.test(
+  /grassResolvePalette\(\s*uGrassBiomeBase\[grassBiomeRow\],\s*uGrassBiomeTip\[grassBiomeRow\],\s*uGrassBiomeDry\[grassBiomeRow\],/s.test(
     nearMaterial,
   ) &&
-    /grassResolvePalette\(\s*uBaseColor,\s*uTipColor,\s*uDryColor,\s*bladeData\.r,\s*bladeData\.g,\s*vDryness,\s*vRootAo,\s*uTipColorStrength,\s*uRootDarkening\s*\)/s.test(
+    /grassResolvePalette\(\s*uBiomeBase\[biomeRow\],\s*uBiomeTip\[biomeRow\],\s*uBiomeDry\[biomeRow\],\s*bladeData\.r,\s*bladeData\.g,/s.test(
       impostorMaterial,
-    ),
+    ) &&
+    nearMaterial.includes("uGrassBiomeShade[grassBiomeRow].y") &&
+    impostorMaterial.includes("uBiomeShade[biomeRow].y"),
   "LOD shaders must map shared palette arguments and atlas channels identically.",
 );
 // Far cards now take the stochastic single-fetch path across the whole range,
@@ -294,13 +327,33 @@ assert(
 assert(
   impostorMaterial.includes("lights: true") &&
     impostorMaterial.includes("vGrassIrradiance") &&
-    impostorMaterial.includes("mix(color, grassLambertLight, 0.38)"),
+    impostorMaterial.includes("GRASS_LIGHT_MIX_GLSL") &&
+    nearMaterial.includes("GRASS_LIGHT_MIX_GLSL"),
   "Far cards must use the same stylized lighting mix as real blades.",
 );
 assert(
-  impostorMaterial.includes("uTipColorStrength") &&
-    impostorMaterial.includes("uRootDarkening"),
+  impostorMaterial.includes("uBiomeShade") &&
+    impostorMaterial.includes("artTipColorStrength") &&
+    impostorMaterial.includes("artRootDarkening"),
   "Impostors must receive runtime tip and root palette controls.",
+);
+// A gust crest lifts blade colour towards the tip. Both representations must do
+// it with the same constant and the same formula, or the 44-64 m crossfade
+// pulses as one brightens and the other does not. The constant is shared, and
+// neither shader may reintroduce a literal for it.
+assert(
+  nearMaterial.includes("GRASS_GUST_TIP_BOOST") &&
+    impostorMaterial.includes("GRASS_GUST_TIP_BOOST") &&
+    /uGrassGustTipBoost \* (grassProgress|vGrassProgress)/.test(nearMaterial) &&
+    impostorMaterial.includes("uGustTipBoost * bladeData.r"),
+  "Gust tip lift must use the shared constant and the same formula at every LOD.",
+);
+// The biome row indexes bounded uniform arrays; out-of-range indexing is
+// undefined behaviour in GLSL ES 3.0, so both shaders must clamp it.
+assert(
+  nearMaterial.includes("clamp(biome, 0.0, float(GRASS_MAX_BIOMES - 1))") &&
+    impostorMaterial.includes("clamp(vBiome, 0.0,"),
+  "Biome palette rows must be clamped before indexing the uniform arrays.",
 );
 assert(
   worldGrassSystem.includes("await this.nearField.initialize(grassConfig)") &&
@@ -437,6 +490,7 @@ const expectedMidDistances = {
   "golden-hour": 46,
   "cool-highland": 58,
   "dense-emerald": 62,
+  "zelda-field": 56,
   windswept: 52,
 };
 function smoothstep(value, start, end) {
@@ -533,7 +587,7 @@ assert(
 // instead would push past the wind displacement the bounds reserve.
 assert(
   nearMaterial.includes(
-    "1.0 - uGrassGustFrontDepth * (0.5 - 0.5 * grassGustFront)",
+    "mix(1.0 - uGrassGustFrontDepth, 1.0, grassGustNoise)",
   ) && nearMaterial.includes("uGrassWindLodScale * grassGustEnvelope"),
   "Gust fronts must scale the configured bend down, never add to it.",
 );

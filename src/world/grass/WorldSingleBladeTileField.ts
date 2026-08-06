@@ -53,6 +53,7 @@ const COUNT_MOVEMENT_EPSILON = 0.25;
 const DITHER_SAFETY_MARGIN = 1 / 1024;
 /** Avoid retaining a fully populated near field throughout a long aerial view. */
 const DISABLED_TILE_EVICTION_MS = 12_000;
+const EVICTION_HYSTERESIS_TILES = 0.75;
 
 /** Matches the GLSL `smoothstep(edge0, edge1, x)` the vertex shader uses. */
 function smoothstep(value: number, edge0: number, edge1: number): number {
@@ -115,6 +116,7 @@ export class WorldSingleBladeTileField {
   private lodTransitionDistance: number;
   private lastBuildMs = 0;
   private maxBuildMs = 0;
+  private densityScale = 1;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -143,6 +145,14 @@ export class WorldSingleBladeTileField {
     this.lodNearDistance = nearDistance;
     this.lodTransitionDistance = transitionDistance;
     this.countsDirty = true;
+  }
+
+  setDensityScale(scale: number): void {
+    const resolved = THREE.MathUtils.clamp(scale, 0.05, 1);
+    if (resolved !== this.densityScale) {
+      this.densityScale = resolved;
+      this.countsDirty = true;
+    }
   }
 
   setEnabled(enabled: boolean): void {
@@ -245,8 +255,15 @@ export class WorldSingleBladeTileField {
           tile.tileX * this.tileSize,
           tile.tileZ * this.tileSize,
         ) - COUNT_MOVEMENT_EPSILON;
-      if (distance < guardDistance || distance <= fadeStart) {
+      if (distance < guardDistance) {
         tile.mesh.count = tile.bladeCount;
+        continue;
+      }
+      if (distance <= fadeStart) {
+        tile.mesh.count = upperBound(
+          tile.sortedDithers,
+          this.densityScale + DITHER_SAFETY_MARGIN,
+        );
         continue;
       }
       if (distance >= fadeEnd) {
@@ -256,7 +273,7 @@ export class WorldSingleBladeTileField {
       const coverage = 1 - smoothstep(distance, fadeStart, fadeEnd);
       tile.mesh.count = upperBound(
         tile.sortedDithers,
-        coverage + DITHER_SAFETY_MARGIN,
+        coverage * this.densityScale + DITHER_SAFETY_MARGIN,
       );
     }
   }
@@ -331,6 +348,18 @@ export class WorldSingleBladeTileField {
 
     for (const [key, tile] of this.tiles) {
       if (this.desired.has(key)) {
+        continue;
+      }
+      const distance = this.distanceToTile(
+        focus.x,
+        focus.z,
+        tile.tileX * this.tileSize,
+        tile.tileZ * this.tileSize,
+      );
+      if (
+        distance <=
+        this.visibilityRadius + this.tileSize * EVICTION_HYSTERESIS_TILES
+      ) {
         continue;
       }
       this.scene.remove(tile.mesh);

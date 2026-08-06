@@ -52,6 +52,8 @@ export class WorldApp {
   private readonly controls: WorldController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
   private sun?: THREE.DirectionalLight;
+  private hemisphere?: THREE.HemisphereLight;
+  private currentArtDirection?: GrassArtDirection;
   private readonly drawingBufferSize = new THREE.Vector2();
   private readonly shadowAxisX = new THREE.Vector3();
   private readonly shadowAxisY = new THREE.Vector3();
@@ -146,6 +148,10 @@ export class WorldApp {
       config,
       profile,
     );
+    const tierOverride = params.get("tier");
+    if (tierOverride !== null && /^\d+$/.test(tierOverride)) {
+      this.grass.setQualityTierOverride(Number(tierOverride));
+    }
     // The renderer was sized before the grass existed, so seed the near band's
     // pixel scale now; every later resize refreshes it.
     this.applyGrassViewportScale();
@@ -187,6 +193,7 @@ export class WorldApp {
       `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
     );
     this.addLights();
+    this.applyEnvironmentPairing();
     this.bindRuntimeEvents();
   }
 
@@ -252,9 +259,30 @@ export class WorldApp {
   private readonly applyGrassArtDirection = (
     direction: GrassArtDirection,
   ): void => {
+    this.currentArtDirection = direction;
     this.terrain.setGrassArtDirection(direction);
     this.grass.setArtDirection(direction);
+    this.applyEnvironmentPairing();
   };
+
+  private applyEnvironmentPairing(): void {
+    const zelda = this.currentArtDirection?.key === "zelda-field";
+    this.scene.background = new THREE.Color(zelda ? "#bfd9f2" : "#bfd4df");
+    this.scene.fog = new THREE.FogExp2(
+      zelda ? "#c2d6b8" : "#bfd4df",
+      zelda ? 0.0035 : this.profile.compact ? 0.0016 : 0.00105,
+    );
+    this.renderer.toneMappingExposure = zelda ? 1.15 : 1;
+    if (this.sun) {
+      this.sun.color.set(zelda ? "#fff2d8" : "#fff3d7");
+      this.sun.intensity = 2.4;
+    }
+    if (this.hemisphere) {
+      this.hemisphere.color.set(zelda ? "#bfd9f2" : "#dceeff");
+      this.hemisphere.groundColor.set(zelda ? "#7d8f5a" : "#3f3a2d");
+      this.hemisphere.intensity = zelda ? 0.55 : 1.45;
+    }
+  }
 
   private async initializeGrass(): Promise<void> {
     try {
@@ -442,7 +470,8 @@ export class WorldApp {
   }
 
   private addLights(): void {
-    this.scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
+    this.hemisphere = new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45);
+    this.scene.add(this.hemisphere);
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
     sun.position.copy(SUN_DIRECTION).multiplyScalar(SUN_SHADOW_DISTANCE);
     sun.castShadow = this.profile.shadows && !this.flyMode;
@@ -560,6 +589,7 @@ export class WorldApp {
         ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
         : grassStatus,
       `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.pixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} / peak ${grass.maxBuildMs.toFixed(1)} ms`,
+      `Grass submit mid ${grass.submittedMidVertices.toLocaleString()} verts · far ${grass.submittedFarInstances.toLocaleString()} inst · quality T${grass.qualityTier} ${grass.qualityTierSeconds.toFixed(1)}s (${grass.qualityDensityScale.toFixed(2)})`,
       `Frame ctrl ${this.subsystemMs.controls.toFixed(2)} · terr ${this.subsystemMs.terrain.toFixed(2)} · grass ${this.subsystemMs.grass.toFixed(2)} · draw ${this.subsystemMs.renderer.toFixed(2)} ms`,
       `Near tiles ${grass.nearTiles.toLocaleString()} · Tile build ${grass.nearTileBuildMs.toFixed(1)} / peak ${grass.maxNearTileBuildMs.toFixed(1)} ms`,
       this.runtimeError ? `Error ${this.runtimeError}` : "",

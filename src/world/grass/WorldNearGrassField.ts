@@ -7,7 +7,11 @@ import {
 import type { GrassConfig, GrassLodConfig } from "../../grass/GrassConfig";
 import { GrassConfigLoader } from "../../grass/internal/GrassConfigLoader";
 import { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial";
-import { WindField } from "../../grass/wind/WindField";
+import {
+  GRASS_WIND_NOISE_SCALE,
+  GRASS_WIND_NOISE_SPEED,
+  getGrassWindNoiseTexture,
+} from "../../grass/wind/WindNoiseTexture";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import { APP_VERSION } from "../../version";
 import type { TerrainField } from "../TerrainField";
@@ -32,34 +36,9 @@ export class WorldNearGrassField {
   // uniforms once per contiguous run of draws, so whichever layer happened to
   // draw first silently decided the mode for both. Separate materials make the
   // split real.
-  private readonly baseMaterial = new GrassNearMaterial({
-    name: "world-grass-single-blade-material",
-    cacheKey: "grass-near-material-v18-base-vertex-palette",
-    detailMode: 1,
-    ditherSeed: BASE_SEED_SALT,
-    // One triangle per blade, and the layer that covers the most screen area.
-    vertexPalette: true,
-    interactive: true,
-    // This is the layer that owns the band where blades fall below a pixel
-    // wide. The two ultra-near layers never reach it, and the mid patches past
-    // it are a different representation entirely.
-    subPixelWidth: true,
-  });
-  private readonly baseDetailMaterial = new GrassNearMaterial({
-    name: "world-grass-base-detail-material",
-    cacheKey: "grass-near-material-v17-detail",
-    detailMode: 2,
-    ditherSeed: BASE_SEED_SALT,
-    interactive: true,
-  });
-  private readonly ultraNearMaterial = new GrassNearMaterial({
-    name: "world-grass-ultra-near-single-blade-material",
-    cacheKey: "grass-near-material-v17-ultra",
-    detailMode: 0,
-    ditherSeed: ULTRA_NEAR_SEED_SALT,
-    interactive: true,
-  });
-  private readonly wind = new WindField();
+  private readonly baseMaterial: GrassNearMaterial;
+  private readonly baseDetailMaterial: GrassNearMaterial;
+  private readonly ultraNearMaterial: GrassNearMaterial;
   private factory?: WorldSingleBladeTileFactory;
   private baseField?: WorldSingleBladeTileField;
   private baseDetailedField?: WorldSingleBladeTileField;
@@ -75,7 +54,35 @@ export class WorldNearGrassField {
     private readonly field: TerrainField,
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
-  ) {}
+  ) {
+    const windMode = profile.compact ? "sine" : "noise";
+    this.baseMaterial = new GrassNearMaterial({
+      name: "world-grass-single-blade-material",
+      cacheKey: `grass-near-material-v19-base-vertex-palette-${windMode}`,
+      detailMode: 1,
+      ditherSeed: BASE_SEED_SALT,
+      vertexPalette: true,
+      interactive: true,
+      subPixelWidth: true,
+      noiseWind: !profile.compact,
+    });
+    this.baseDetailMaterial = new GrassNearMaterial({
+      name: "world-grass-base-detail-material",
+      cacheKey: `grass-near-material-v19-detail-${windMode}`,
+      detailMode: 2,
+      ditherSeed: BASE_SEED_SALT,
+      interactive: true,
+      noiseWind: !profile.compact,
+    });
+    this.ultraNearMaterial = new GrassNearMaterial({
+      name: "world-grass-ultra-near-single-blade-material",
+      cacheKey: `grass-near-material-v19-ultra-${windMode}`,
+      detailMode: 0,
+      ditherSeed: ULTRA_NEAR_SEED_SALT,
+      interactive: true,
+      noiseWind: !profile.compact,
+    });
+  }
 
   initialize(grassConfig?: GrassConfig): Promise<void> {
     if (this.disposed) {
@@ -88,7 +95,7 @@ export class WorldNearGrassField {
   }
 
   update(
-    deltaSeconds: number,
+    elapsedSeconds: number,
     focus: THREE.Vector3,
     focusGroundHeight?: number,
     buildDeadline = Number.POSITIVE_INFINITY,
@@ -96,6 +103,10 @@ export class WorldNearGrassField {
     if (!this.initialized || this.disposed) {
       return;
     }
+
+    this.baseMaterial.update(elapsedSeconds);
+    this.baseDetailMaterial.update(elapsedSeconds);
+    this.ultraNearMaterial.update(elapsedSeconds);
 
     // Near-blade residency is horizontal, while the shader's LOD distance is
     // three-dimensional. Suspend these dense tiles when a fly camera is high
@@ -111,11 +122,6 @@ export class WorldNearGrassField {
     if (!nearFieldsEnabled) {
       return;
     }
-
-    const elapsedSeconds = this.wind.update(deltaSeconds);
-    this.baseMaterial.update(elapsedSeconds);
-    this.baseDetailMaterial.update(elapsedSeconds);
-    this.ultraNearMaterial.update(elapsedSeconds);
 
     // Build the very close layer first so the player sees the requested
     // density immediately after spawn or a tile crossing.
@@ -200,6 +206,40 @@ export class WorldNearGrassField {
     this.baseMaterial.setViewportPixelScale(pixelWorldScale);
   }
 
+  setQuality(
+    densityScale: number,
+    ultraDensityScale: number,
+    sheenEnabled: boolean,
+    nearDistanceScale = 1,
+  ): void {
+    this.baseMaterial.setLodDensityScale(densityScale);
+    this.baseDetailMaterial.setLodDensityScale(densityScale);
+    this.ultraNearMaterial.setLodDensityScale(
+      densityScale * ultraDensityScale,
+    );
+    this.baseMaterial.setSheenEnabled(sheenEnabled);
+    this.baseField?.setDensityScale(densityScale);
+    this.baseDetailedField?.setDensityScale(densityScale);
+    this.ultraNearField?.setDensityScale(densityScale * ultraDensityScale);
+    const nearDistance = this.artDirection.nearDistance * nearDistanceScale;
+    const lodConfig: GrassLodConfig = {
+      nearMaxDistance: nearDistance,
+      midMaxDistance: this.artDirection.midDistance,
+      farMaxDistance: this.artDirection.farDistance,
+      transitionDistance: this.artDirection.transitionDistance,
+      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+    };
+    this.baseMaterial.configureLod(lodConfig);
+    this.baseDetailMaterial.configureLod(lodConfig);
+    this.baseField?.setVisibilityRadius(
+      nearDistance + this.artDirection.transitionDistance + SINGLE_BLADE_BOUNDS_MARGIN,
+    );
+    this.baseField?.setLodFade(
+      nearDistance,
+      this.artDirection.transitionDistance,
+    );
+  }
+
   private resolveBaseVisibilityRadius(direction: GrassArtDirection): number {
     return (
       direction.nearDistance +
@@ -268,6 +308,20 @@ export class WorldNearGrassField {
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
+    if (!this.profile.compact) {
+      const texture = getGrassWindNoiseTexture();
+      for (const material of [
+        this.baseMaterial,
+        this.baseDetailMaterial,
+        this.ultraNearMaterial,
+      ]) {
+        material.setWindNoise(
+          texture,
+          GRASS_WIND_NOISE_SCALE,
+          GRASS_WIND_NOISE_SPEED,
+        );
+      }
+    }
     // Matches the half-width `createSingleBladeGeometry` builds from the mean
     // configured blade width, which is what the sub-pixel clamp widens from.
     this.baseMaterial.setBladeHalfWidth(

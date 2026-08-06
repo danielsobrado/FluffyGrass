@@ -56,7 +56,9 @@ export class GrassGeometryFactory {
     sharedAttributes?: {
       variation: THREE.InstancedBufferAttribute;
       coverage: THREE.InstancedBufferAttribute;
+      biome?: THREE.InstancedBufferAttribute;
     },
+    biomeValues?: Float32Array,
   ): THREE.InstancedBufferGeometry {
     const geometry = new THREE.InstancedBufferGeometry();
     if (source.index) {
@@ -80,6 +82,19 @@ export class GrassGeometryFactory {
       sharedAttributes?.coverage ??
         new THREE.InstancedBufferAttribute(resolvedCoverage, 1),
     );
+    // One float per instance selects the palette row. Layers that predate
+    // biomes, and the island regression scene, get a zero-filled buffer rather
+    // than an unbound attribute: an unbound attribute reads whatever generic
+    // value was last set, which is exactly the class of bug per-instance data
+    // exists to avoid.
+    geometry.setAttribute(
+      "instanceBiome",
+      sharedAttributes?.biome ??
+        new THREE.InstancedBufferAttribute(
+          biomeValues ?? new Float32Array(instanceCount),
+          1,
+        ),
+    );
     geometry.boundingBox = source.boundingBox?.clone() ?? null;
     geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
     return geometry;
@@ -97,7 +112,9 @@ export class GrassGeometryFactory {
     for (const name of Object.keys(geometry.attributes)) {
       if (
         preserveSharedInstanceData ||
-        (name !== "instanceVariation" && name !== "instanceCoverage")
+        (name !== "instanceVariation" &&
+          name !== "instanceCoverage" &&
+          name !== "instanceBiome")
       ) {
         geometry.deleteAttribute(name);
       }

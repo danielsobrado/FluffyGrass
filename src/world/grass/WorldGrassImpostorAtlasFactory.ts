@@ -17,7 +17,14 @@ export interface WorldGrassImpostorAtlas {
   texture: THREE.CanvasTexture;
   geometry: THREE.BufferGeometry;
   centerHeight: number;
+  /**
+   * Conservative culling bound around the card's root, well larger than the
+   * card itself. Do not use it as a card dimension — {@link cardRadius} is the
+   * quad's own half-extent.
+   */
   radius: number;
+  /** Half-extent of the billboard quad in local units. */
+  cardRadius: number;
   viewsPerAxis: number;
   frameResolution: number;
   padding: number;
@@ -121,6 +128,7 @@ export class WorldGrassImpostorAtlasFactory {
       geometry: this.createGeometry(cardRadius),
       centerHeight,
       radius: boundsRadius,
+      cardRadius,
       viewsPerAxis: config.viewsPerAxis,
       frameResolution: config.frameResolution,
       padding: config.padding,

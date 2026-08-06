@@ -20,6 +20,8 @@ export interface GrassArtDirection {
   densityScale: number;
   windStrengthScale: number;
   flutterStrengthScale: number;
+  gustDepth?: number;
+  gustTipBoost?: number;
   nearDistance: number;
   midDistance: number;
   farDistance: number;

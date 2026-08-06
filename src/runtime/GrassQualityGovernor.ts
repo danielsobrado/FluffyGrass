@@ -1,0 +1,246 @@
+/**
+ * Closed-loop quality control for the grass field.
+ *
+ * Fixed budgets cannot hold a frame rate across the device spread a streamed
+ * world targets, so the governor trades the least visible quality first. Every
+ * knob it owns already exists and already rides the dither/coverage machinery
+ * the LOD fades use, which is why a tier change cannot pop: lowering the
+ * density scale raises the same threshold the distance fades raise, and the
+ * survivors are widened and colour-compensated by the same sub-pixel clamp.
+ *
+ * This is the safety net, not the product. The static wins (the mid draw
+ * truncation, the distance density falloff, the far draw consolidation) are
+ * what the budget is actually built on; the governor only absorbs the
+ * worst-case frames those leave behind.
+ */
+
+export interface GrassQualityTier {
+  /** Multiplies the LOD keep threshold's density on every grass layer. */
+  densityScale: number;
+  /** Multiplies the mid layer's distance density floor. */
+  midFloorScale: number;
+  /** Extra thinning for the doubled ultra-near layer. */
+  ultraDensityScale: number;
+  /** Close-range waxy highlight. */
+  sheen: boolean;
+  /** Impostor four-view stochastic blend. */
+  blendViews: boolean;
+  /** Near-band distance multiplier; the lowest tier streams less dense detail. */
+  nearDistanceScale: number;
+}
+
+/**
+ * Tiers must be monotonically non-increasing in every scalar and may never
+ * exceed the preset budget (scale 1). `verify-grass-performance` re-checks
+ * both, so a tier can never be edited into a quality *increase*.
+ */
+export const GRASS_QUALITY_TIERS: readonly GrassQualityTier[] = Object.freeze([
+  {
+    densityScale: 1,
+    midFloorScale: 1,
+    ultraDensityScale: 1,
+    sheen: true,
+    blendViews: true,
+    nearDistanceScale: 1,
+  },
+  {
+    densityScale: 0.85,
+    midFloorScale: 0.8,
+    ultraDensityScale: 1,
+    sheen: true,
+    blendViews: true,
+    nearDistanceScale: 1,
+  },
+  {
+    densityScale: 0.72,
+    midFloorScale: 0.7,
+    ultraDensityScale: 0.75,
+    sheen: false,
+    blendViews: true,
+    nearDistanceScale: 1,
+  },
+  {
+    densityScale: 0.6,
+    midFloorScale: 0.6,
+    ultraDensityScale: 0.6,
+    sheen: false,
+    blendViews: false,
+    nearDistanceScale: 0.8,
+  },
+]);
+
+const EVALUATION_WINDOW_SECONDS = 2;
+const DROP_AFTER_SECONDS = 2;
+const RAISE_AFTER_SECONDS = 6;
+const DROP_FRACTION = 0.9;
+const RAISE_FRACTION = 1.05;
+/**
+ * Seconds the density scale takes to travel between tiers. A step change would
+ * dither a visible fraction of the field out in one frame; ramping turns the
+ * same change into the dissolve the LOD fades already use.
+ */
+const RAMP_SECONDS = 0.75;
+/**
+ * Seconds the closed loop stays silent after construction. Spawn floods the
+ * frame with terrain and grass builds whose cost density cannot fix, so
+ * reacting to it started every session with a quality dip that then took the
+ * full raise hysteresis — six seconds per tier — to climb back out of.
+ */
+const STARTUP_GRACE_SECONDS = 4;
+
+export class GrassQualityGovernor {
+  private tier = 0;
+  private pinnedTier?: number;
+  private graceRemaining = STARTUP_GRACE_SECONDS;
+  private densityScale = 1;
+  private midFloorScale = 1;
+  private ultraDensityScale = 1;
+  private windowElapsed = 0;
+  private windowFrames = 0;
+  private windowSeconds = 0;
+  private belowSeconds = 0;
+  private aboveSeconds = 0;
+  private tierElapsedSeconds = 0;
+
+  constructor(private readonly targetFps: number) {}
+
+  /**
+   * Pins a tier for reproducible captures. QA fixtures need the same tier every
+   * run or before/after numbers mean nothing.
+   */
+  pinTier(tier: number | undefined): void {
+    this.pinnedTier =
+      tier === undefined
+        ? undefined
+        : Math.min(GRASS_QUALITY_TIERS.length - 1, Math.max(0, Math.round(tier)));
+    if (this.pinnedTier !== undefined) {
+      if (this.tier !== this.pinnedTier) {
+        this.tierElapsedSeconds = 0;
+      }
+      this.tier = this.pinnedTier;
+      const pinned = GRASS_QUALITY_TIERS[this.tier];
+      this.densityScale = pinned.densityScale;
+      this.midFloorScale = pinned.midFloorScale;
+      this.ultraDensityScale = pinned.ultraDensityScale;
+    }
+  }
+
+  /** Returns true when any applied value changed and needs pushing out. */
+  update(deltaSeconds: number): boolean {
+    if (deltaSeconds <= 0) {
+      return false;
+    }
+    this.tierElapsedSeconds += deltaSeconds;
+    if (this.graceRemaining > 0) {
+      // Startup grace: let spawn-time build spikes pass without reacting, and
+      // keep the sampling window empty so they cannot poison the first real
+      // evaluation either.
+      this.graceRemaining -= deltaSeconds;
+      return this.advanceRamp(deltaSeconds);
+    }
+    if (this.pinnedTier === undefined) {
+      this.advanceTierDecision(deltaSeconds);
+    }
+    return this.advanceRamp(deltaSeconds);
+  }
+
+  private advanceTierDecision(deltaSeconds: number): void {
+    this.windowFrames += 1;
+    this.windowSeconds += deltaSeconds;
+    this.windowElapsed += deltaSeconds;
+    if (this.windowElapsed < EVALUATION_WINDOW_SECONDS) {
+      return;
+    }
+    const fps =
+      this.windowSeconds > 0 ? this.windowFrames / this.windowSeconds : 0;
+    this.windowElapsed = 0;
+    this.windowFrames = 0;
+    this.windowSeconds = 0;
+
+    if (fps < this.targetFps * DROP_FRACTION) {
+      this.belowSeconds += EVALUATION_WINDOW_SECONDS;
+      this.aboveSeconds = 0;
+    } else if (fps > this.targetFps * RAISE_FRACTION) {
+      this.aboveSeconds += EVALUATION_WINDOW_SECONDS;
+      this.belowSeconds = 0;
+    } else {
+      this.belowSeconds = 0;
+      this.aboveSeconds = 0;
+    }
+
+    if (
+      this.belowSeconds >= DROP_AFTER_SECONDS &&
+      this.tier < GRASS_QUALITY_TIERS.length - 1
+    ) {
+      this.tier += 1;
+      this.tierElapsedSeconds = 0;
+      this.belowSeconds = 0;
+    } else if (this.aboveSeconds >= RAISE_AFTER_SECONDS && this.tier > 0) {
+      this.tier -= 1;
+      this.tierElapsedSeconds = 0;
+      this.aboveSeconds = 0;
+    }
+  }
+
+  private advanceRamp(deltaSeconds: number): boolean {
+    const target = GRASS_QUALITY_TIERS[this.tier];
+    const step = deltaSeconds / RAMP_SECONDS;
+    const density = approach(this.densityScale, target.densityScale, step);
+    const midFloor = approach(this.midFloorScale, target.midFloorScale, step);
+    const ultra = approach(
+      this.ultraDensityScale,
+      target.ultraDensityScale,
+      step,
+    );
+    const changed =
+      density !== this.densityScale ||
+      midFloor !== this.midFloorScale ||
+      ultra !== this.ultraDensityScale;
+    this.densityScale = density;
+    this.midFloorScale = midFloor;
+    this.ultraDensityScale = ultra;
+    return changed;
+  }
+
+  getTier(): number {
+    return this.tier;
+  }
+
+  getDensityScale(): number {
+    return this.densityScale;
+  }
+
+  getSecondsInTier(): number {
+    return this.tierElapsedSeconds;
+  }
+
+  getMidFloorScale(): number {
+    return this.midFloorScale;
+  }
+
+  getUltraDensityScale(): number {
+    return this.ultraDensityScale;
+  }
+
+  getSheenEnabled(): boolean {
+    return GRASS_QUALITY_TIERS[this.tier].sheen;
+  }
+
+  getBlendViews(): boolean {
+    return GRASS_QUALITY_TIERS[this.tier].blendViews;
+  }
+
+  getNearDistanceScale(): number {
+    return GRASS_QUALITY_TIERS[this.tier].nearDistanceScale;
+  }
+}
+
+function approach(current: number, target: number, step: number): number {
+  if (current === target) {
+    return target;
+  }
+  const delta = target - current;
+  const move = Math.sign(delta) * Math.min(Math.abs(delta), step);
+  const next = current + move;
+  return Math.abs(target - next) < 1e-4 ? target : next;
+}

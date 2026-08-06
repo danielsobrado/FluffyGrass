@@ -40,6 +40,16 @@ export function setBalancedGrassPaletteColors(
   );
 }
 
+/**
+ * How much of the lambert lighting response survives the stylization mix. Both
+ * the real-blade and the impostor fragment shaders apply it to the same palette
+ * result, so colour parity across LODs depends on the two staying identical.
+ * It used to be typed as a literal in each shader; it now lives here once and
+ * `verify-lod-continuity` reads it from this file.
+ */
+export const GRASS_LIGHT_MIX = 0.38;
+export const GRASS_LIGHT_MIX_GLSL = toGlslFloat(GRASS_LIGHT_MIX);
+
 // One palette function is injected into both the real-blade and impostor
 // fragment shaders. The impostor atlas stores blade progress and shade rather
 // than baked RGB, so presets use this exact curve at every LOD.

@@ -1,0 +1,53 @@
+{
+  "meadow": {
+    "index": 0,
+    "label": "Meadow",
+    "paletteSource": "art",
+    "worldShare": 0.62,
+    "baseColor": "#3f8330",
+    "tipColor": "#a9db57",
+    "dryColor": "#b3ac5e",
+    "rootDarkening": 0.68,
+    "tipColorStrength": 0.32,
+    "density": 1,
+    "heightBand": [0.86, 1.14],
+    "widthBand": [0.86, 1.1],
+    "drynessBias": 0,
+    "windDamping": 1,
+    "shapeFamily": "blade"
+  },
+  "dry-steppe": {
+    "index": 1,
+    "label": "Dry Steppe",
+    "paletteSource": "profile",
+    "worldShare": 0.2,
+    "baseColor": "#7a7a3c",
+    "tipColor": "#cbbf6a",
+    "dryColor": "#c2a35a",
+    "rootDarkening": 0.74,
+    "tipColorStrength": 0.3,
+    "density": 0.55,
+    "heightBand": [0.78, 1.02],
+    "widthBand": [0.8, 0.98],
+    "drynessBias": 0.35,
+    "windDamping": 0.9,
+    "shapeFamily": "blade"
+  },
+  "alpine": {
+    "index": 2,
+    "label": "Alpine",
+    "paletteSource": "profile",
+    "worldShare": 0.18,
+    "baseColor": "#2f6b45",
+    "tipColor": "#7fae7a",
+    "dryColor": "#8d9573",
+    "rootDarkening": 0.72,
+    "tipColorStrength": 0.28,
+    "density": 0.7,
+    "heightBand": [0.7, 0.9],
+    "widthBand": [0.85, 1],
+    "drynessBias": 0.12,
+    "windDamping": 0.8,
+    "shapeFamily": "blade"
+  }
+}

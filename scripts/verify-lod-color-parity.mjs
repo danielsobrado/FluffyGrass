@@ -10,6 +10,12 @@ const presets = JSON.parse(
     "utf8",
   ),
 );
+const biomeProfiles = JSON.parse(
+  readFileSync(
+    resolve(REPOSITORY_ROOT, "src/grass/biome/GrassBiomeProfiles.json"),
+    "utf8",
+  ),
+);
 const tuning = JSON.parse(
   readFileSync(
     resolve(REPOSITORY_ROOT, "src/grass/materials/GrassPaletteTuning.json"),
@@ -553,7 +559,28 @@ function analyzePreset(preset) {
 
 validateInputs();
 const failures = [];
-for (const preset of Object.values(presets)) {
+// Biome rows are composed against a real art direction, because that is how
+// they resolve at runtime: row 0 takes the preset's palette verbatim and the
+// rest carry their own. Falling back to the first preset keeps this working if
+// the default is ever renamed, instead of silently spreading `undefined`.
+const defaultPreset = presets["lush-hero"] ?? Object.values(presets)[0];
+if (!defaultPreset) {
+  fail("No art preset available to compose biome profiles against.");
+}
+const biomeDirections = Object.values(biomeProfiles).map((profile) =>
+  profile.paletteSource === "art"
+    ? { ...defaultPreset, label: `Biome: ${profile.label}` }
+    : {
+        ...defaultPreset,
+        label: `Biome: ${profile.label}`,
+        baseColor: profile.baseColor,
+        tipColor: profile.tipColor,
+        dryColor: profile.dryColor,
+        rootDarkening: profile.rootDarkening,
+        tipColorStrength: profile.tipColorStrength,
+      },
+);
+for (const preset of [...Object.values(presets), ...biomeDirections]) {
   const result = analyzePreset(preset);
   console.log(
     `[lod-color] ${preset.label.padEnd(17)} near ${formatColor(result.nearAverage)} ` +
