@@ -12,7 +12,8 @@ import * as THREE from "three";
  * modulo the period — so `RepeatWrapping` shows no seam, and one 128x128 RG
  * texture serves the whole world at every LOD. Sampling it costs one vertex
  * fetch per vertex, which is universally supported in WebGL2; the compact
- * profile compiles the old sine instead and pays nothing new.
+ * profile compiles two crossing sine waves instead (see
+ * {@link grassCompactGustGlsl}) and pays no texture fetch.
  */
 
 /**
@@ -30,6 +31,71 @@ export const GRASS_WIND_NOISE_SPEED = 0.06;
  */
 export const GRASS_GUST_FRONT_SCALE = 0.085;
 export const GRASS_GUST_FRONT_SPEED = 0.55;
+
+/**
+ * The second, non-parallel component of the compact gust.
+ *
+ * One sine travelling along the wind is periodic at exactly one wavelength and
+ * constant along every line perpendicular to it, which is what produces the
+ * broad synchronized stripes visible on the compact build. A second wave
+ * crossing it at ninety degrees, with a different wavelength and speed, makes
+ * the crests interfere: the field still rolls downwind, but no two rows bend
+ * together for long. It costs one more `sin` in the vertex stage and no texture
+ * fetch, which is the reason compact does not simply take the noise field.
+ *
+ * The weights sum to one, so the envelope stays inside [0, 1] exactly as the
+ * single-sine version did — the reserved wind bounds are unchanged.
+ */
+export const GRASS_GUST_CROSS_SCALE = 0.037;
+export const GRASS_GUST_CROSS_SPEED = 0.31;
+export const GRASS_GUST_CROSS_PHASE = 1.7;
+export const GRASS_GUST_PRIMARY_WEIGHT = 0.72;
+export const GRASS_GUST_CROSS_WEIGHT = 0.28;
+
+export interface GrassCompactGustGlslOptions {
+  /** Name of the float the expression declares. */
+  target: string;
+  /** GLSL expression for the world-space XZ position of the instance root. */
+  position: string;
+  /** GLSL expression for the normalized wind direction (vec2). */
+  windDirection: string;
+  /** GLSL expression for the shared elapsed time. */
+  time: string;
+  /** GLSL expressions for the primary wave's scale and speed. */
+  scale: string;
+  speed: string;
+}
+
+/**
+ * The compact gust, built once and used by every layer.
+ *
+ * Near, mid, and impostor materials must produce the *same* value at the same
+ * world position, or a blade bends one way while the card that replaces it at
+ * distance bends another — the cross-LOD wind mismatch the shared noise field
+ * exists to prevent. Templating the expression from here is what keeps that
+ * true when the formula changes; the three used to repeat it.
+ */
+export function grassCompactGustGlsl(
+  options: GrassCompactGustGlslOptions,
+): string {
+  const { target, position, windDirection, time, scale, speed } = options;
+  return `
+float ${target} = 0.5 + 0.5 * (
+  sin(
+    dot(${position}, ${windDirection}) * ${scale} -
+    ${time} * ${speed}
+  ) * ${GRASS_GUST_PRIMARY_WEIGHT.toFixed(2)} +
+  sin(
+    dot(
+      ${position},
+      vec2(-${windDirection}.y, ${windDirection}.x)
+    ) * ${GRASS_GUST_CROSS_SCALE.toFixed(3)} +
+    ${time} * ${GRASS_GUST_CROSS_SPEED.toFixed(2)} +
+    ${GRASS_GUST_CROSS_PHASE.toFixed(2)}
+  ) * ${GRASS_GUST_CROSS_WEIGHT.toFixed(2)}
+);
+`;
+}
 
 const RESOLUTION = 128;
 /** Lattice cells across the texture for the coarse octave. */

@@ -39,6 +39,14 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassUltraNearDistance: POSITIVE,
   grassUltraNearTransitionDistance: POSITIVE,
   grassUltraNearDensityMultiplier: { minimum: 1, maximum: 3 },
+  grassUltraNearDensityMultiplierCompact: { minimum: 1, maximum: 3 },
+  grassClumpRadiusScaleMin: { minimum: 0.2, maximum: 0.5 },
+  grassClumpRadiusScaleMax: { minimum: 0.2, maximum: 0.5 },
+  grassClumpAspectMin: { minimum: 0.6, maximum: 1 },
+  grassClumpAspectMax: { minimum: 1, maximum: 1.5 },
+  grassClumpRadialExponent: { minimum: 0.5, maximum: 0.75 },
+  grassClumpDominantDirectionWeight: { minimum: 0, maximum: 1 },
+  grassClumpRadialDirectionWeight: { minimum: 0, maximum: 1 },
   grassMidBladeFraction: { minimum: 0.05, maximum: 1 },
   grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
   grassPatchJitter: { minimum: 0, maximum: 0.9 },
@@ -153,6 +161,25 @@ export class WorldConfigLoader {
     }
     if (!Number.isInteger(config.chunkSize / config.grassNearTileSize)) {
       throw new Error("chunkSize must be divisible by grassNearTileSize.");
+    }
+    if (config.grassClumpRadiusScaleMin > config.grassClumpRadiusScaleMax) {
+      throw new Error("grassClumpRadiusScale range is reversed.");
+    }
+    if (config.grassClumpAspectMin > config.grassClumpAspectMax) {
+      throw new Error("grassClumpAspect range is reversed.");
+    }
+    // The remainder of the heading is independent per-blade randomness. Letting
+    // the two structured weights reach 1 would put every blade of a tuft back
+    // on one axis, which is the alignment this configuration exists to remove.
+    if (
+      config.grassClumpDominantDirectionWeight +
+        config.grassClumpRadialDirectionWeight >
+      0.9
+    ) {
+      throw new Error(
+        "Clump dominant and radial direction weights must leave at least 10% " +
+          "of a blade's heading to independent randomness.",
+      );
     }
     if (config.grassRenderBatchesPerAxis > patchesPerChunk) {
       throw new Error(

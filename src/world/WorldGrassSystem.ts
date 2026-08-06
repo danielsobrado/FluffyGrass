@@ -280,7 +280,7 @@ export class WorldGrassSystem {
   ) {
     this.material = new GrassNearMaterial({
       name: "world-grass-mid-material",
-      cacheKey: `grass-near-material-v19-mid-vertex-palette-no-sheen-${
+      cacheKey: `grass-near-material-v20-mid-vertex-palette-no-sheen-${
         profile.compact ? "sine" : "noise"
       }`,
       // The mid layer draws exactly the blades the near layer drops.

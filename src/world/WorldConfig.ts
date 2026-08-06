@@ -22,6 +22,37 @@ export interface WorldConfig {
   grassUltraNearDistance: number;
   grassUltraNearTransitionDistance: number;
   grassUltraNearDensityMultiplier: number;
+  /**
+   * Compact devices carry their own ultra-near multiplier. The broad, opaque
+   * blade silhouette does not need the desktop stack on a phone, and the two
+   * profiles were previously forced to share one value, so lowering it for
+   * compact would have silently thinned the desktop near band as well.
+   */
+  grassUltraNearDensityMultiplierCompact: number;
+  /**
+   * Natural near-grass tuft distribution.
+   *
+   * Grass does grow in tufts, but every tuft used to be the same tuft: one
+   * radius, one circle, one radial heading rule. Randomising the values inside
+   * a fixed grammar cannot fix that — the grammar itself has to vary, which is
+   * what these do. All of them are resolved from a hash of the tuft's global
+   * coordinates, so neighbouring tiles agree on a shared tuft and placement
+   * stays byte-stable for a seed.
+   */
+  grassClumpRadiusScaleMin: number;
+  grassClumpRadiusScaleMax: number;
+  grassClumpAspectMin: number;
+  grassClumpAspectMax: number;
+  /**
+   * Exponent on the unit radial sample. 0.5 is uniform over disc area; the
+   * previous implementation used an effective 1.0, whose area density goes as
+   * 1/r and piles most of a tuft's blades onto its centre.
+   */
+  grassClumpRadialExponent: number;
+  /** Share of a blade's heading taken from its tuft's dominant direction. */
+  grassClumpDominantDirectionWeight: number;
+  /** Share taken from the outward radial direction; the rest is independent. */
+  grassClumpRadialDirectionWeight: number;
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
   grassPatchJitter: number;

@@ -13,6 +13,7 @@ import {
   GRASS_GUST_FRONT_SPEED,
   GRASS_WIND_NOISE_SCALE,
   GRASS_WIND_NOISE_SPEED,
+  grassCompactGustGlsl,
 } from "../wind/WindNoiseTexture";
 import {
   GRASS_LIGHT_MIX_GLSL,
@@ -277,6 +278,18 @@ float grassFieldDither = fract(
   instanceVariation.x * 0.347193 +
   uGrassDitherSeed * 1.618034
 );
+// Motion phase is deliberately a *separate* quantity from the dithers above.
+//
+// The single-blade layers instance one source blade, so its grassPhase is the
+// same 0.5 for every near instance: flutter timing and stiffness were therefore
+// synchronised across the whole near field, which on compact — where the gust
+// source is a single coherent sine — reads as rows of grass bending together.
+// Folding in the per-instance variation decorrelates both.
+//
+// It must not be substituted into either dither: the mid layer's CPU draw
+// truncation reproduces grassDither exactly and depends on it carrying no
+// per-instance term, so LOD selection and motion have to stay independent.
+float grassMotionPhase = fract(grassPhase + instanceVariation.x);
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
 float grassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
@@ -350,9 +363,13 @@ if (grassKeepBlade && grassProgress > 0.001) {
     dot(grassWorldRoot.xz, vec2(-grassWindDirection.y, grassWindDirection.x)) /
       (uGrassGustScale * 0.37) +
     uGrassTime * uGrassFlutterSpeed +
-    grassPhase * 6.28318530718
+    grassMotionPhase * 6.28318530718
   );
-  float grassStiffness = mix(0.76, 1.12, fract(grassPhase * 1.61803398875));
+  float grassStiffness = mix(
+    0.76,
+    1.12,
+    fract(grassMotionPhase * 1.61803398875)
+  );
   float grassBend = (
     grassGust * uGrassWindStrength +
     grassFlutter * uGrassFlutterStrength
@@ -428,14 +445,17 @@ vec2 grassGustUv = grassWorldRoot.xz * uGrassWindNoiseScale -
 float grassGustNoise = texture2D(uGrassWindNoise, grassGustUv).r;
 `;
 
-// Compact profiles keep the sine, at the same scale and speed the impostor
-// fallback uses, so the layers still agree with each other on mobile.
-const VERTEX_GUST_SINE = `
-float grassGustNoise = 0.5 + 0.5 * sin(
-  dot(grassWorldRoot.xz, uGrassWindDirection) * uGrassGustFrontScale -
-  uGrassTime * uGrassGustFrontSpeed
-);
-`;
+// Compact profiles keep the arithmetic gust — two crossing waves at the same
+// scale, speed, and weights every other layer's fallback uses, built from the
+// one shared expression so mobile cannot drift between LODs.
+const VERTEX_GUST_SINE = grassCompactGustGlsl({
+  target: "grassGustNoise",
+  position: "grassWorldRoot.xz",
+  windDirection: "uGrassWindDirection",
+  time: "uGrassTime",
+  scale: "uGrassGustFrontScale",
+  speed: "uGrassGustFrontSpeed",
+});
 
 const VERTEX_WIND_NOISE_DECLARATIONS = `
 uniform sampler2D uGrassWindNoise;

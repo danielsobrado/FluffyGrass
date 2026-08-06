@@ -117,12 +117,18 @@ const MIN_SUITABILITY = 0.08;
  * puts a tuft at roughly 35 cm across — the scale real grass clumps at.
  */
 const CLUMP_CELLS = 3;
-/** Tuft radius as a fraction of its cell block, leaving gaps between tufts. */
-const CLUMP_RADIUS_SCALE = 0.42;
 /** How far a tuft's centre wanders from its block centre. */
 const CLUMP_CENTER_JITTER = 0.15;
-/** Yaw spread of a blade about the direction it fans away from the centre. */
-const CLUMP_FAN_SPREAD = 0.55;
+/**
+ * Hash salts for the per-tuft parameters. Each tuft resolves its own radius,
+ * ellipse shape, ellipse orientation, and dominant growth direction from its
+ * global coordinates, so two tiles that share a tuft agree on all four and the
+ * field stops repeating one circular starburst.
+ */
+const CLUMP_RADIUS_SALT = 0x5b;
+const CLUMP_ASPECT_SALT = 0x6d;
+const CLUMP_ELLIPSE_ANGLE_SALT = 0x7f;
+const CLUMP_DIRECTION_SALT = 0x91;
 /**
  * Per-blade height jitter within a tuft. Composed with the tuft's own scale
  * above, the product stays inside {@link INSTANCE_VERTICAL_SCALE_MAX}, which
@@ -132,14 +138,27 @@ const BLADE_HEIGHT_JITTER_MIN = 0.94;
 const BLADE_HEIGHT_JITTER_MAX = 1.06;
 /**
  * Furthest a blade can end up from the cell that enumerated it, in cells: half
- * the block it belongs to, plus the tuft centre's own wander, plus the tuft
- * radius. The cached height lattice is grown by this so a tufted blade still
+ * the block it belongs to, plus the tuft centre's own wander, plus the tuft's
+ * own reach. The cached height lattice is grown by this so a tufted blade still
  * samples its normal from inside the cached area.
+ *
+ * The reach is now configuration-derived rather than a literal: a tuft's radius
+ * scale and its ellipse are both hashed per tuft, and an ellipse rotated to an
+ * arbitrary angle reaches `max(aspect, 1 / aspect)` times the circular radius
+ * along its long axis. Leaving this tied to the old fixed 0.42 would silently
+ * let a long tuft sample its normal from outside the cached lattice.
  */
-const CLUMP_MAX_CELL_OFFSET =
-  (CLUMP_CELLS - 1) * 0.5 +
-  CLUMP_CENTER_JITTER * CLUMP_CELLS +
-  CLUMP_RADIUS_SCALE * CLUMP_CELLS;
+function resolveClumpMaxCellOffset(config: WorldConfig): number {
+  const longestAxis = Math.max(
+    config.grassClumpAspectMax,
+    1 / config.grassClumpAspectMin,
+  );
+  return (
+    (CLUMP_CELLS - 1) * 0.5 +
+    CLUMP_CENTER_JITTER * CLUMP_CELLS +
+    config.grassClumpRadiusScaleMax * CLUMP_CELLS * longestAxis
+  );
+}
 /**
  * Half the normal's own central-difference step, so the cached field still
  * resolves everything the normal is able to express. Measured worst-case
@@ -180,6 +199,14 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // 0.5 * 0.754877666 + 0.5 * 0.569840296 — the constant part of the vertex
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
+/**
+ * Bumped whenever the placement *geometry* changes shape — tuft distribution,
+ * heading rule, or transform composition. `GRASS_BIOME_VERSION` cannot carry
+ * this: placement changes independently of biome data, and a cached tile built
+ * against the previous rule would otherwise survive in the LRU and draw beside
+ * freshly built neighbours.
+ */
+const GRASS_PLACEMENT_VERSION = 2;
 /** Bound negative-placement memory while retaining far more than one view. */
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
@@ -225,6 +252,8 @@ export class WorldSingleBladeTileFactory {
   private readonly normal = new THREE.Vector3();
   private readonly align = new THREE.Quaternion();
   private readonly yaw = new THREE.Quaternion();
+  private readonly lean = new THREE.Quaternion();
+  private readonly leanAxis = new THREE.Vector3();
   private readonly position = new THREE.Vector3();
   private readonly localPosition = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
@@ -234,13 +263,24 @@ export class WorldSingleBladeTileFactory {
   private readonly emptyPlacementCache = new Map<string, true>();
   private readonly buildBufferPool = new Map<number, TileBuildBuffers[]>();
   private readonly latticePool: TerrainHeightLattice[] = [];
+  /**
+   * Height of the straight source blade, which the per-instance lean rotation
+   * is derived from. It has to match `createSingleBladeGeometry` exactly, or
+   * the tip would not land where the reserved bounds expect it.
+   */
+  private readonly sourceBladeHeight: number;
 
   constructor(
     private readonly field: TerrainField,
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
     private readonly grassConfig: GrassConfig,
-  ) {}
+  ) {
+    this.sourceBladeHeight =
+      (grassConfig.geometry.bladeHeightMin +
+        grassConfig.geometry.bladeHeightMax) *
+      0.5;
+  }
 
   beginBuild(
     options: WorldSingleBladeTileBuildOptions,
@@ -322,7 +362,8 @@ export class WorldSingleBladeTileFactory {
     // eighteen thousand across the tile's blades.
     const latticeMargin =
       TERRAIN_NORMAL_STEP +
-      CLUMP_MAX_CELL_OFFSET * Math.max(cellWidth, cellDepth);
+      resolveClumpMaxCellOffset(this.worldConfig) *
+        Math.max(cellWidth, cellDepth);
     const heightLattice = this.latticePool.pop() ?? new TerrainHeightLattice();
     heightLattice.beginBuild(
       this.field,
@@ -447,15 +488,44 @@ export class WorldSingleBladeTileFactory {
           2 *
           CLUMP_CENTER_JITTER *
           clumpSpanZ;
-      // Density falls off linearly from the tuft's core, which is what leaves
-      // bare ground visible between tufts instead of spreading every blade
-      // evenly over the block.
-      const bladeAngle = job.random.range(0, TWO_PI);
-      const bladeRadius = job.random.next();
-      const offsetX =
-        Math.cos(bladeAngle) * bladeRadius * CLUMP_RADIUS_SCALE * clumpSpanX;
-      const offsetZ =
-        Math.sin(bladeAngle) * bladeRadius * CLUMP_RADIUS_SCALE * clumpSpanZ;
+      // Every tuft draws its own radius, ellipse, and orientation from its
+      // global coordinates. A tuft that is always a circle of one radius is
+      // recognisable at field scale no matter how random the blades inside it
+      // are — the repeated shape is the tell, not the values.
+      const radiusScale =
+        this.worldConfig.grassClumpRadiusScaleMin +
+        (this.worldConfig.grassClumpRadiusScaleMax -
+          this.worldConfig.grassClumpRadiusScaleMin) *
+          this.clumpValue(clumpColumn, clumpRow, CLUMP_RADIUS_SALT);
+      const aspect =
+        this.worldConfig.grassClumpAspectMin +
+        (this.worldConfig.grassClumpAspectMax -
+          this.worldConfig.grassClumpAspectMin) *
+          this.clumpValue(clumpColumn, clumpRow, CLUMP_ASPECT_SALT);
+      const ellipseAngle =
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_ELLIPSE_ANGLE_SALT) *
+        TWO_PI;
+      const dominantAngle =
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_DIRECTION_SALT) * TWO_PI;
+      // A radius sampled uniformly in [0, 1] is *not* uniform over disc area:
+      // its area density goes as 1/r, which piles most of a tuft onto its
+      // centre and is what made every clump read as a starburst. 0.5 is exactly
+      // area-uniform; the configured exponent sits just above it for a tuft
+      // that is still slightly denser at its core.
+      const sampleAngle = job.random.range(0, TWO_PI);
+      const sampleRadius = Math.pow(
+        job.random.next(),
+        this.worldConfig.grassClumpRadialExponent,
+      );
+      const ellipseX =
+        Math.cos(sampleAngle) * sampleRadius * radiusScale * clumpSpanX * aspect;
+      const ellipseZ =
+        (Math.sin(sampleAngle) * sampleRadius * radiusScale * clumpSpanZ) /
+        aspect;
+      const ellipseCos = Math.cos(ellipseAngle);
+      const ellipseSin = Math.sin(ellipseAngle);
+      const offsetX = ellipseX * ellipseCos - ellipseZ * ellipseSin;
+      const offsetZ = ellipseX * ellipseSin + ellipseZ * ellipseCos;
       const x = clumpCenterX + offsetX;
       const z = clumpCenterZ + offsetZ;
       const height = this.field.sampleHeight(x, z);
@@ -498,17 +568,66 @@ export class WorldSingleBladeTileFactory {
       );
       job.bounds.expandByPoint(this.position);
       this.align.setFromUnitVectors(this.up, this.normal);
-      // Blades fan away from the tuft's core. A blade sitting on the core has
-      // no outward direction, so it falls back to the tuft's own heading.
-      const fanAngle =
-        bladeRadius > 1e-4
-          ? Math.atan2(offsetX, offsetZ)
-          : this.clumpValue(clumpColumn, clumpRow, 0x3d) * TWO_PI;
-      this.yaw.setFromAxisAngle(
-        this.up,
-        fanAngle + job.random.range(-CLUMP_FAN_SPREAD, CLUMP_FAN_SPREAD),
+      // A blade's heading is a blend of three directions rather than the
+      // outward radial one with a spread around it. Pure radial fanning is what
+      // made every tuft a starburst; pure randomness would dissolve the tuft
+      // into noise. The tuft-wide dominant direction carries most of the
+      // weight, so a tuft still reads as having grown together.
+      const radialLength = Math.hypot(offsetX, offsetZ);
+      const dominantX = Math.sin(dominantAngle);
+      const dominantZ = Math.cos(dominantAngle);
+      const radialX = radialLength > 1e-4 ? offsetX / radialLength : dominantX;
+      const radialZ = radialLength > 1e-4 ? offsetZ / radialLength : dominantZ;
+      const independentAngle = job.random.range(0, TWO_PI);
+      const dominantWeight =
+        this.worldConfig.grassClumpDominantDirectionWeight;
+      const radialWeight = this.worldConfig.grassClumpRadialDirectionWeight;
+      const independentWeight = 1 - dominantWeight - radialWeight;
+      const headingX =
+        dominantX * dominantWeight +
+        radialX * radialWeight +
+        Math.sin(independentAngle) * independentWeight;
+      const headingZ =
+        dominantZ * dominantWeight +
+        radialZ * radialWeight +
+        Math.cos(independentAngle) * independentWeight;
+      // The three can cancel; the tuft's own direction is the only meaningful
+      // answer when they do.
+      const leanAngle =
+        Math.hypot(headingX, headingZ) > 1e-4
+          ? Math.atan2(headingX, headingZ)
+          : dominantAngle;
+      // The blend decides which way the blade *leans*; which way its plane
+      // faces is drawn independently. Real grass can lean downhill while its
+      // face is turned anywhere, and coupling the two through one yaw is what
+      // made whole tufts present the same profile from any given camera.
+      const planeYaw = job.random.range(0, TWO_PI);
+      // Lean is a rotation about the horizontal axis perpendicular to the lean
+      // direction. Rotating (0,1,0) about (cos a, 0, -sin a) tilts the tip
+      // towards (sin a, cos a) — the same direction convention the heading
+      // blend above uses.
+      //
+      // The angle is scaled by the horizontal/vertical instance ceilings so the
+      // worst-case tip displacement is exactly the `bladeLeanMax * horizontal
+      // scale` the reserved bounds already charge: displacement is
+      // `height * verticalScale * sin(angle)`, which this keeps at or below
+      // `leanDistance * INSTANCE_HORIZONTAL_SCALE_MAX` for every instance.
+      const leanDistance = job.random.range(
+        this.grassConfig.geometry.bladeLeanMin,
+        this.grassConfig.geometry.bladeLeanMax,
       );
-      this.align.multiply(this.yaw);
+      const leanRotation = Math.atan2(
+        (leanDistance * INSTANCE_HORIZONTAL_SCALE_MAX) /
+          INSTANCE_VERTICAL_SCALE_MAX,
+        this.sourceBladeHeight,
+      );
+      this.yaw.setFromAxisAngle(this.up, planeYaw);
+      this.leanAxis.set(Math.cos(leanAngle), 0, -Math.sin(leanAngle));
+      this.lean.setFromAxisAngle(this.leanAxis, leanRotation);
+      // Terrain alignment, then lean, then the blade's own plane yaw: the root
+      // stays put, the blade stays planted on the slope, and the plane azimuth
+      // is free of the lean direction.
+      this.align.multiply(this.lean).multiply(this.yaw);
       const vigor = sampleGrassMacroVigor(x, z);
       // Blades in a tuft grew together and match each other in height far more
       // closely than two blades a metre apart do. Folding the vigour band into
@@ -1030,7 +1149,7 @@ export class WorldSingleBladeTileFactory {
   }
 
   private createPlacementKey(options: WorldSingleBladeTileBuildOptions): string {
-    return `${options.tileX}:${options.tileZ}:${options.densityMultiplier}:${options.seedSalt}:${options.material.getDitherSeed()}:biome-${GRASS_BIOME_VERSION}`;
+    return `${options.tileX}:${options.tileZ}:${options.densityMultiplier}:${options.seedSalt}:${options.material.getDitherSeed()}:biome-${GRASS_BIOME_VERSION}:placement-${GRASS_PLACEMENT_VERSION}`;
   }
 
   private rememberEmptyPlacement(key: string): void {
@@ -1111,6 +1230,16 @@ export class WorldSingleBladeTileFactory {
     });
   }
 
+  /**
+   * The near source blade is straight.
+   *
+   * Lean used to be baked into these vertices, which tied a blade's lean
+   * direction to its plane azimuth: one instance yaw rotated both, so a blade
+   * facing the camera always leaned the same way relative to its own face. Lean
+   * is now a rotation in the instance transform (see the sampling loop), which
+   * lets the two be chosen independently without a new attribute, a second
+   * geometry, or a second material.
+   */
   private createSingleBladeGeometry(
     config: GrassConfig,
     segments: number,
@@ -1119,8 +1248,6 @@ export class WorldSingleBladeTileFactory {
       (config.geometry.bladeHeightMin + config.geometry.bladeHeightMax) * 0.5;
     const width =
       (config.geometry.bladeWidthMin + config.geometry.bladeWidthMax) * 0.5;
-    const lean =
-      (config.geometry.bladeLeanMin + config.geometry.bladeLeanMax) * 0.5;
     const positions: number[] = [];
     const uvs: number[] = [];
     const progress: number[] = [];
@@ -1129,7 +1256,7 @@ export class WorldSingleBladeTileFactory {
     const indices: number[] = [];
 
     if (segments === 1) {
-      positions.push(-width * 0.5, 0, 0, width * 0.5, 0, 0, 0, height, lean);
+      positions.push(-width * 0.5, 0, 0, width * 0.5, 0, 0, 0, height, 0);
       uvs.push(0, 0, 1, 0, 0.5, 1);
       progress.push(0, 0, 1);
       phases.push(0.5, 0.5, 0.5);
@@ -1139,17 +1266,18 @@ export class WorldSingleBladeTileFactory {
 
     for (let segment = 0; segments > 1 && segment <= segments; segment += 1) {
       const amount = segment / segments;
-      const curve = amount * amount * (3 - 2 * amount);
       const taper = Math.pow(1 - amount, 0.72);
       const halfWidth = width * taper;
-      const centerZ = lean * curve;
+      // Straight in Z: the blade's lean is a rotation in the instance
+      // transform, which is what frees its plane azimuth from its lean
+      // direction. The curve term that used to shape this axis went with it.
       positions.push(
         -halfWidth,
         height * amount,
-        centerZ,
+        0,
         halfWidth,
         height * amount,
-        centerZ,
+        0,
       );
       uvs.push(0, amount, 1, amount);
       progress.push(amount, amount);

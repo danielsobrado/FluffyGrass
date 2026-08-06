@@ -2,7 +2,60 @@
 
 ## Status
 
-Planning document. No rendering behavior is changed by this file.
+**Implemented.** G0-G6 are in `main`; `npm run build` is green, including the new
+`verify-grass-placement` gate. What shipped, and where it differs from the plan above:
+
+| Phase | State |
+| --- | --- |
+| G0 diagnostics + GPU timer | Implemented (`GrassWorkloadProbe`, `WorldDiagnosticsHud`, `GpuFrameTimer`). The accent layer was added to the probe afterwards, so the HUD's Mid/Far line now also carries `Accents N cards`. |
+| G1 root distribution | Implemented. Seven `grassClump*` values in `world.yaml`, schema-checked and cross-validated; per-tuft radius/aspect/ellipse/dominant heading hashed from global clump coordinates; `Math.pow(u, 0.58)` radial sample; lattice margin recomputed from the configured maximum reach; `GRASS_PLACEMENT_VERSION = 2` in the placement cache key. |
+| G2 direction blending | Implemented, allocation-free and scalar inside the sampling loop. |
+| G3 motion decorrelation | Implemented as `grassMotionPhase = fract(grassPhase + instanceVariation.x)`, used by flutter and stiffness only. Both dither expressions still read `grassPhase`, and the gate now asserts that they do. Material program cache keys bumped to v20. |
+| G4 independent plane and lean | Implemented. The near source blade is straight and lean is a transform rotation about the axis perpendicular to the blended heading; the plane azimuth is drawn independently. The rotation angle is scaled by `INSTANCE_HORIZONTAL_SCALE_MAX / INSTANCE_VERTICAL_SCALE_MAX` so worst-case tip displacement is exactly the `bladeLeanMax x horizontal scale` the reserved bounds already charge, rather than 2% over it. |
+| G5 compact density | **40 blades/m², not 32.** See below. |
+| G6 compact wind | Implemented. `grassCompactGustGlsl()` in `WindNoiseTexture.ts` is the single source of the two-wave compact gust, used by the near/mid, impostor, and accent materials. Weights sum to one, so the envelope stays in [0, 1] and the reserved wind displacement is unchanged. |
+
+### G5 result: 40 blades/m², ultra x1.5
+
+The A/B was captured at the plan's third-person framing (6 m back, 28 degrees
+down) on the compact profile, against the G1-G4 placement:
+
+| Compact density | Logical blades | Verdict |
+| --- | ---: | --- |
+| 48 (previous) | 5.63 M | Continuous, but denser than the silhouette needs. |
+| 40 | 4.69 M | Continuous at every distance in frame. **Selected.** |
+| 32 (plan candidate) | 3.75 M | Bare ground reads through the near foreground — the acceptance criterion's ground holes. |
+
+32 is too thin *because of* G1: spreading roots over the tuft area instead of
+piling them on its centre lowers apparent coverage at equal blade count, so the
+density floor moved up while the field got more natural. The ultra-near
+multiplier went to 1.5 as the plan proposed, but through a new
+`grassUltraNearDensityMultiplierCompact` — the existing key is shared with
+desktop, and lowering it would have silently thinned the desktop near band that
+the plan explicitly excludes from this change.
+
+Frame-rate confirmation on the reference phone is still outstanding: these
+captures are SwiftShader at desktop resolution, which can judge coverage but not
+FPS or GPU time.
+
+### Verification
+
+`scripts/verify-grass-placement.mjs` (wired into `npm run build`) reproduces the
+tuft maths against the shipped configuration and asserts determinism, cross-tile
+agreement on shared tufts, roots inside the configured ellipse, the radius
+histogram (30.4% inside half-radius against the old rule's ~50%), and heading
+statistics at both ends — per-tuft spread 0.083 against 0.980 across the field,
+so tufts stay locally coherent without a global bias.
+
+`verify-grass-performance.mjs` gained the plan's source-level invariants: compact
+density band, clump config validation, placement version in the cache key, motion
+phase not touching either dither, no allocation in the placement loop, one shared
+compact gust expression across all four materials, and the honest-diagnostics
+HUD wording.
+
+---
+
+Original plan follows.
 
 The review is based on the compact/mobile build shown on 2026-08-06 and the current `main` implementation in:
 

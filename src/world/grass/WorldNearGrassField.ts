@@ -86,7 +86,7 @@ export class WorldNearGrassField {
     const windMode = profile.compact ? "sine" : "noise";
     this.baseMaterial = new GrassNearMaterial({
       name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v19-base-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v20-base-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
@@ -96,7 +96,7 @@ export class WorldNearGrassField {
     });
     this.baseDetailMaterial = new GrassNearMaterial({
       name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v19-detail-${windMode}`,
+      cacheKey: `grass-near-material-v20-detail-${windMode}`,
       detailMode: 2,
       ditherSeed: BASE_SEED_SALT,
       interactive: true,
@@ -104,7 +104,7 @@ export class WorldNearGrassField {
     });
     this.ultraNearMaterial = new GrassNearMaterial({
       name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v19-ultra-${windMode}`,
+      cacheKey: `grass-near-material-v20-ultra-${windMode}`,
       detailMode: 0,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       interactive: true,
@@ -526,7 +526,9 @@ export class WorldNearGrassField {
     );
 
     const ultraAdditionalDensity =
-      this.worldConfig.grassUltraNearDensityMultiplier - 1;
+      (this.profile.compact
+        ? this.worldConfig.grassUltraNearDensityMultiplierCompact
+        : this.worldConfig.grassUltraNearDensityMultiplier) - 1;
     if (ultraAdditionalDensity > 0) {
       this.ultraNearField = new WorldSingleBladeTileField(
         this.scene,

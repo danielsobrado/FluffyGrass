@@ -365,13 +365,20 @@ assert(
   !thirdPersonController.includes("WorldNearGrassField"),
   "ThirdPersonController must not create a duplicate near-grass field.",
 );
+// The extra ultra-near layer carries only the density *above* the base field,
+// so the configured multiplier always has one subtracted from it. Matched
+// against a whitespace-stripped copy and accepting the compact multiplier: the
+// literal this used to require broke the moment the profile-specific value was
+// introduced, which is a formatting change rather than a behavioural one.
+const nearFieldCompact = nearField.replace(/\s+/g, "");
 assert(
-  nearField.includes("grassUltraNearDensityMultiplier - 1") &&
+  /grassUltraNearDensityMultiplier(Compact)?\)?-1/.test(nearFieldCompact) &&
+    nearFieldCompact.includes("grassUltraNearDensityMultiplierCompact") &&
     nearField.includes("world-grass-ultra-near-blades") &&
     nearField.includes("world-grass-ultra-near-base-detail") &&
     nearField.includes("detailMode: 1") &&
     nearField.includes("detailMode: 2"),
-  "Ultra-near must retain segmented base blades plus the independent density layer.",
+  "Ultra-near must retain segmented base blades plus the independent density layer, at a profile-specific multiplier.",
 );
 assert(
   singleBladeFactory.includes("segments === 1") &&
@@ -468,9 +475,14 @@ assert(
   patchDensityDesktop === 72 && nearDensityDesktop === 72,
   "Desktop near and mid density must match at 72 blades/m².",
 );
+// What continuity requires is that the two layers agree, not a particular
+// value: a near band denser than the mid band it hands off to would thin
+// visibly at the fade. The compact value itself is a reviewed art/performance
+// decision (40 blades/m² after the mobile-naturalness A/B) and is bounded by
+// verify-grass-performance.
 assert(
-  patchDensityCompact === 48 && nearDensityCompact === 48,
-  "Compact near and mid density must match at 48 blades/m².",
+  patchDensityCompact === nearDensityCompact,
+  `Compact near and mid density must match: ${nearDensityCompact} against ${patchDensityCompact}.`,
 );
 assert(
   farCardsPerPatch === 1,
@@ -609,10 +621,25 @@ for (const [label, source] of [
     `Grass ${label} must resolve canopy occlusion and macro dryness from the shared field.`,
   );
 }
+// The lattice margin must follow the configured tuft reach rather than a
+// literal: radius scale and ellipse aspect are both per-tuft now, and a long
+// tuft whose margin was still sized for the old fixed 0.42 circle would sample
+// its terrain normal from outside the cached area.
 assert(
-  singleBladeFactory.includes("CLUMP_MAX_CELL_OFFSET * Math.max(cellWidth") &&
-    singleBladeFactory.includes("Math.atan2(offsetX, offsetZ)"),
-  "Tufted blades must fan from their clump and stay inside the cached height lattice.",
+  singleBladeFactory.includes("resolveClumpMaxCellOffset(this.worldConfig)") &&
+    singleBladeFactory.includes("config.grassClumpAspectMax") &&
+    singleBladeFactory.includes("config.grassClumpRadiusScaleMax * CLUMP_CELLS"),
+  "The cached height lattice must be grown by the configured maximum tuft reach.",
+);
+// Headings blend a tuft-wide direction, the radial direction, and independent
+// randomness. Radial alone is the starburst this replaced; independent alone
+// dissolves the tuft.
+assert(
+  singleBladeFactory.includes("dominantX * dominantWeight") &&
+    singleBladeFactory.includes("radialX * radialWeight") &&
+    singleBladeFactory.includes("Math.sin(independentAngle) * independentWeight") &&
+    singleBladeFactory.includes("Math.atan2(headingX, headingZ)"),
+  "Blade headings must blend clump-dominant, radial, and independent directions.",
 );
 
 const baseBlend = Number(

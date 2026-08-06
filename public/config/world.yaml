@@ -21,17 +21,29 @@ grassRenderBatchesPerAxis: 2
 # One instance now contains four genuine 2x2 m subpatch impostors.
 grassFarImpostorsPerPatch: 1
 grassBladesPerSquareMeterDesktop: 72
-grassBladesPerSquareMeterCompact: 48
+grassBladesPerSquareMeterCompact: 40
 
 # Closest LOD uses individually instanced blades in streamed eight-metre tiles.
 grassNearTileSize: 8
 grassNearBladesPerSquareMeterDesktop: 72
-grassNearBladesPerSquareMeterCompact: 48
+grassNearBladesPerSquareMeterCompact: 40
 
 # An additional single-blade layer doubles density at camera distance <= 4 m.
 grassUltraNearDistance: 4
 grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
+grassUltraNearDensityMultiplierCompact: 1.5
+
+# Natural near-grass tuft distribution. Every tuft hashes its own radius,
+# ellipse, and dominant growth direction from its global coordinates, so the
+# field stops repeating one circular starburst grammar across every clump.
+grassClumpRadiusScaleMin: 0.32
+grassClumpRadiusScaleMax: 0.48
+grassClumpAspectMin: 0.76
+grassClumpAspectMax: 1.28
+grassClumpRadialExponent: 0.58
+grassClumpDominantDirectionWeight: 0.55
+grassClumpRadialDirectionWeight: 0.2
 
 # Mid blades use cheaper single triangles but retain every source blade.
 grassMidBladeFraction: 1

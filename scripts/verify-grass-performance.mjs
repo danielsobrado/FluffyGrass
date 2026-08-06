@@ -299,6 +299,10 @@ const ultraMultiplier = readYamlNumber(
   worldConfig,
   "grassUltraNearDensityMultiplier",
 );
+const compactUltraMultiplier = readYamlNumber(
+  worldConfig,
+  "grassUltraNearDensityMultiplierCompact",
+);
 const midBladeFraction = readYamlNumber(worldConfig, "grassMidBladeFraction");
 const farCards = readYamlNumber(worldConfig, "grassFarImpostorsPerPatch");
 const farSubpatchesPerAxis = readSourceNumber(
@@ -323,7 +327,15 @@ const maximumPresetNearFade = Math.max(
 );
 
 assert(desktopDensity === 72 && patchDesktopDensity === 72, "Desktop LOD density must remain 72 blades/m².");
-assert(compactDensity === 48 && patchCompactDensity === 48, "Compact LOD density must remain 48 blades/m².");
+// Compact density is now a reviewed ceiling rather than a fixed value: the
+// mobile plan's A/B lowered it from 48 to 40 blades/m² (32 opened visible
+// ground holes at third-person distance). Desktop is unchanged and stays exact.
+assert(
+  compactDensity === patchCompactDensity &&
+    compactDensity <= 48 &&
+    compactDensity >= 32,
+  `Compact LOD density must stay within the reviewed 32-48 blades/m² band and match across layers: ${compactDensity}/${patchCompactDensity}.`,
+);
 assert(midBladeFraction === 1, "The performance path must retain every mid blade.");
 assert(farCards === 1, "The far path must retain exactly one instance per source patch.");
 assert(farSubpatchesPerAxis === 2 && farSubpatches === 4, "Each far instance must contain a 2x2 genuine subpatch layout.");
@@ -336,7 +348,7 @@ assert(patchesPerBatch === 64, "Each render batch must contain at most 64 source
 
 for (const [profile, density, expectedBladesPerPatch] of [
   ["desktop", patchDesktopDensity, 1152],
-  ["compact", patchCompactDensity, 768],
+  ["compact", patchCompactDensity, Math.round(patchSize ** 2 * patchCompactDensity)],
 ]) {
   const bladesPerPatch = Math.round(patchSize ** 2 * density);
   const midBladesPerPatch = Math.round(bladesPerPatch * midBladeFraction);
@@ -362,7 +374,13 @@ const nearParameters = {
     nearDistance + transitionDistance + tileSize * Math.SQRT2,
 };
 const desktopNear = sampleNearField(desktopDensity, nearParameters);
-const compactNear = sampleNearField(compactDensity, nearParameters);
+// Compact carries its own ultra-near multiplier, so charging it the desktop
+// stack would overstate the phone's near band by the difference — conservative,
+// but it would also hide a real reduction from the summary below.
+const compactNear = sampleNearField(compactDensity, {
+  ...nearParameters,
+  ultraMultiplier: compactUltraMultiplier,
+});
 const maximumNearBaselineRatio = Math.max(
   desktopNear.average / desktopNear.legacyAverage,
   compactNear.average / compactNear.legacyAverage,
@@ -767,6 +785,113 @@ assert(
     accentTierScales[accentTierScales.length - 1] === 0 &&
     qualityGovernor.includes("this.accentDensityScale,"),
   "Accent tiers must only lower coverage, end at zero, and ramp like every other tier scalar.",
+);
+
+// ---------------------------------------------------------------------------
+// Mobile naturalness plan (G1-G6): the invariants none of the numeric checks
+// above can see. Every one of these is a property that would regress silently.
+// ---------------------------------------------------------------------------
+// The compact profile owns its own ultra-near multiplier so that lowering phone
+// density can never quietly thin the desktop near band with it.
+assert(
+  compactUltraMultiplier <= ultraMultiplier &&
+    nearField.includes("grassUltraNearDensityMultiplierCompact"),
+  "Compact must carry its own ultra-near multiplier, never above the desktop one.",
+);
+assert(
+  compactDensity <= 48 && patchCompactDensity <= 48,
+  `Compact density may only be lowered from the reviewed 48 blades/m²: ${compactDensity}.`,
+);
+// Placement shape is configuration, validated at load, and versioned into the
+// cache key — a cached tile built against the previous tuft rule must not
+// survive in the LRU and draw beside freshly built neighbours.
+const configLoader = read("src/world/WorldConfigLoader.ts");
+assert(
+  configLoader.includes("grassClumpRadiusScaleMin") &&
+    configLoader.includes("grassClumpAspectMin") &&
+    configLoader.includes("grassClumpRadialExponent") &&
+    configLoader.includes("grassClumpRadiusScale range is reversed") &&
+    configLoader.includes("of a blade's heading to independent randomness"),
+  "Clump tuning must be schema-checked and cross-validated by the config loader.",
+);
+assert(
+  tileFactory.includes("const GRASS_PLACEMENT_VERSION") &&
+    tileFactory.includes("placement-${GRASS_PLACEMENT_VERSION}"),
+  "The near placement cache key must carry the placement version.",
+);
+// Motion phase must decorrelate flutter and stiffness without touching either
+// dither: the mid layer's CPU draw truncation reproduces grassDither exactly
+// and depends on it carrying no per-instance term.
+assert(
+  nearMaterial.includes(
+    "float grassMotionPhase = fract(grassPhase + instanceVariation.x);",
+  ) &&
+    nearMaterial.includes("grassMotionPhase * 6.28318530718") &&
+    nearMaterial.includes("fract(grassMotionPhase * 1.61803398875)") &&
+    nearMaterial.includes("grassPhase * 0.569840296") &&
+    nearMaterial.includes("grassPhase * 0.819173") &&
+    !nearMaterial.includes("grassMotionPhase * 0.569840296") &&
+    !nearMaterial.includes("grassMotionPhase * 0.819173"),
+  "Motion phase must drive flutter and stiffness only; both dithers must keep the source phase.",
+);
+// The near source blade is straight and leans through the instance transform,
+// so plane azimuth and lean direction are independent without a new attribute.
+assert(
+  // The source blade carries no Z displacement at all: single-triangle tip and
+  // every segmented row sit on the plane.
+  tileFactory.includes(
+    "positions.push(-width * 0.5, 0, 0, width * 0.5, 0, 0, 0, height, 0)",
+  ) &&
+    !tileFactory.includes("const centerZ = lean * curve") &&
+    tileFactory.includes(
+      "this.leanAxis.set(Math.cos(leanAngle), 0, -Math.sin(leanAngle))",
+    ) &&
+    tileFactory.includes("this.align.multiply(this.lean).multiply(this.yaw)") &&
+    tileFactory.includes("INSTANCE_HORIZONTAL_SCALE_MAX) /"),
+  "Near blades must lean by transform, scaled to the horizontal displacement the bounds charge.",
+);
+// The placement loop runs per blade over thousands of candidates per tile; the
+// heading blend has to stay scalar rather than allocating vectors in it.
+const samplingLoop = tileFactory.slice(
+  tileFactory.indexOf("private advanceSampling("),
+  tileFactory.indexOf("private advanceFinalize("),
+);
+assert(
+  !/new THREE\.(Vector2|Vector3|Quaternion|Matrix4)\(/.test(samplingLoop) &&
+    !/\bnew Array\(/.test(samplingLoop),
+  "The near placement loop must not allocate per blade.",
+);
+// Compact wind: one shared expression for every layer, so a blade and the card
+// that replaces it at distance cannot bend different ways.
+const windNoise = read("src/grass/wind/WindNoiseTexture.ts");
+assert(
+  windNoise.includes("export function grassCompactGustGlsl") &&
+    windNoise.includes("GRASS_GUST_CROSS_SCALE") &&
+    nearMaterial.includes("grassCompactGustGlsl({") &&
+    impostorMaterial.includes("grassCompactGustGlsl({") &&
+    detailFoliageMaterial.includes("grassCompactGustGlsl({"),
+  "Every layer's compact gust must come from the one shared expression.",
+);
+// The two waves' weights sum to one, so the envelope stays inside [0, 1] and
+// the reserved wind displacement is unchanged.
+const primaryWeight = readSourceNumber(windNoise, "GRASS_GUST_PRIMARY_WEIGHT");
+const crossWeight = readSourceNumber(windNoise, "GRASS_GUST_CROSS_WEIGHT");
+assert(
+  Math.abs(primaryWeight + crossWeight - 1) < 1e-9,
+  `Compact gust weights must sum to one: ${primaryWeight} + ${crossWeight}.`,
+);
+// Diagnostics stay honest: the HUD must name what each number measures rather
+// than presenting a logical density estimate as render work.
+const diagnosticsHud = read("src/runtime/WorldDiagnosticsHud.ts");
+const workloadProbe = read("src/runtime/GrassWorkloadProbe.ts");
+assert(
+  diagnosticsHud.includes("Grass logical") &&
+    diagnosticsHud.includes("Near resident") &&
+    diagnosticsHud.includes("Mid submit") &&
+    workloadProbe.includes("logicalBladeEquivalents") &&
+    workloadProbe.includes("nearSubmittedTriangles") &&
+    workloadProbe.includes("midSubmittedBlades"),
+  "The workload HUD must report resident and submitted work as separate, named counters.",
 );
 
 const tierScales = [

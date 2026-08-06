@@ -24,6 +24,7 @@ import {
   GRASS_GUST_FRONT_SPEED,
   GRASS_WIND_NOISE_SCALE,
   GRASS_WIND_NOISE_SPEED,
+  grassCompactGustGlsl,
 } from "../../grass/wind/WindNoiseTexture";
 import type { WorldDetailFoliageAtlas } from "./WorldDetailFoliageAtlasFactory";
 
@@ -134,10 +135,14 @@ void main() {
       windDirection * (uTime * uWindNoiseSpeed);
     float gustNoise = texture2D(uWindNoise, gustUv).r;
   #else
-    float gustNoise = 0.5 + 0.5 * sin(
-      dot(root.xz, windDirection) * ${GRASS_GUST_FRONT_SCALE} -
-      uTime * ${GRASS_GUST_FRONT_SPEED}
-    );
+    ${grassCompactGustGlsl({
+      target: "gustNoise",
+      position: "root.xz",
+      windDirection: "windDirection",
+      time: "uTime",
+      scale: GRASS_GUST_FRONT_SCALE.toFixed(3),
+      speed: GRASS_GUST_FRONT_SPEED.toFixed(2),
+    })}
   #endif
 
   vec3 worldPosition = root +
