@@ -1,0 +1,1 @@
+Trigger a same-repository pull request workflow run that builds and publishes main.
