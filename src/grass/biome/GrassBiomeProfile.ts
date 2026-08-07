@@ -5,27 +5,8 @@ import {
   GRASS_ACCENT_TINT_NONE,
 } from "./GrassAccentSpecies";
 
-/**
- * Biome support is per-instance data, never a per-mesh uniform and never a new
- * material: every blade carries an `instanceBiome` row index, and the shaders
- * index bounded uniform arrays with it. Biome count therefore has no effect on
- * draw calls, program switches, or per-frame uniform uploads — the property to
- * defend in review for every future biome feature.
- *
- * The ceiling is a compile-time constant shared by the loader and the GLSL
- * `#define`, so a profile file that grows past the array size fails validation
- * instead of silently indexing out of bounds.
- */
 export const GRASS_MAX_BIOMES = 8;
 
-/**
- * Where a biome's colours come from.
- *
- * `art` means the row mirrors the active art-direction preset. Biome 0 must use
- * it: a single-biome world then renders byte-identically to a world with no
- * biome support at all, and switching art presets keeps working. `profile`
- * rows carry their own palette and ignore the preset's colours.
- */
 export type GrassBiomePaletteSource = "art" | "profile";
 
 export interface GrassBiomeProfile {
@@ -38,44 +19,23 @@ export interface GrassBiomeProfile {
   dryColor: string;
   rootDarkening: number;
   tipColorStrength: number;
-  /**
-   * Share of the world this biome occupies, relative to the other profiles.
-   * Biome 0 should dominate: it carries the art direction's palette, so a world
-   * where it is a minority reads as if the active preset were not applied.
-   */
   worldShare: number;
-  /** Relative blade coverage, multiplied into the art direction's own scale. */
   density: number;
-  /** Clump height scale band; replaces the global constant band per blade. */
   heightBand: readonly [number, number];
-  /** Horizontal scale band applied on top of the clump height scale. */
   widthBand: readonly [number, number];
-  /** Added to the per-blade dryness before the existing clamp. */
   drynessBias: number;
-  /** Scales the per-instance wind response; never above 1 (see bounds below). */
   windDamping: number;
   shapeFamily: string;
-  /**
-   * Relative accent-card coverage, multiplied into the detail-foliage field's
-   * own density. Never above 1: the field's base density is the budgeted
-   * ceiling, and a biome may only spend less of it.
-   */
   accentDensity: number;
-  /** Weighted species/tint set the accent field picks from in this biome. */
   accentSpecies: readonly GrassBiomeAccentSpecies[];
 }
 
-/** One entry of a biome's accent mix. Weights are relative within the list. */
 export interface GrassBiomeAccentSpecies {
   species: string;
   tint: string;
   weight: number;
 }
 
-/**
- * What a profile that names no accents gets. Meadow's mix is the reference set,
- * so existing profiles keep validating and keep looking like a meadow.
- */
 const DEFAULT_ACCENT_SPECIES: readonly GrassBiomeAccentSpecies[] = Object.freeze([
   { species: "daisy", tint: "white", weight: 3 },
   { species: "round-bloom", tint: "poppy-red", weight: 1 },
@@ -83,32 +43,23 @@ const DEFAULT_ACCENT_SPECIES: readonly GrassBiomeAccentSpecies[] = Object.freeze
   { species: "grass-tuft", tint: GRASS_ACCENT_TINT_NONE, weight: 4 },
 ]);
 
-/**
- * Ceilings the reserved culling bounds are computed from. A profile that left
- * these ranges would make `calculateGrassSingleBladeRootBoundsRadius` wrong
- * without any code change, so the loader enforces them and
- * `verify-grass-performance` re-checks them from the JSON.
- *
- * - height 1.14 x the 1.06 per-blade jitter = 1.208, inside the 1.22 vertical
- *   instance ceiling.
- * - windDamping <= 1 keeps `instanceVariation.y` inside the 1.16 wind ceiling.
- *   Windier-than-meadow biomes belong in the art direction's global wind scale.
- */
 export const GRASS_BIOME_HEIGHT_BAND_LIMIT = Object.freeze([0.7, 1.14] as const);
 export const GRASS_BIOME_WIDTH_BAND_LIMIT = Object.freeze([0.76, 1.1] as const);
 export const GRASS_BIOME_WIND_DAMPING_LIMIT = Object.freeze([0.7, 1] as const);
 
-/**
- * Bumped whenever the profile set or the biome field changes shape. It is part
- * of the near-tile placement key, so editing a biome cannot resurrect a stale
- * cached tile built against the previous definition.
- */
 export const GRASS_BIOME_VERSION = 1;
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
 function fail(message: string): never {
   throw new Error(`[grass-biome] ${message}`);
+}
+
+function assertRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    fail(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function assertFiniteInRange(
@@ -154,8 +105,8 @@ function assertAccentSpecies(
   }
   return Object.freeze(
     value.map((entry, position) => {
-      const item = entry as Record<string, unknown>;
       const where = `${label}[${position}]`;
+      const item = assertRecord(entry, where);
       if (
         typeof item.species !== "string" ||
         !findGrassAccentSpecies(item.species)
@@ -171,7 +122,7 @@ function assertAccentSpecies(
         fail(`${where} names an unknown accent tint.`);
       }
       return Object.freeze({
-        species: item.species as string,
+        species: item.species,
         tint,
         weight: assertFiniteInRange(item.weight, 0.01, 16, `${where} weight`),
       });
@@ -272,9 +223,8 @@ function validate(key: string, raw: Record<string, unknown>): GrassBiomeProfile 
 }
 
 function loadProfiles(): readonly GrassBiomeProfile[] {
-  const entries = Object.entries(
-    profileData as unknown as Record<string, Record<string, unknown>>,
-  );
+  const root = assertRecord(profileData, "Grass biome profile data");
+  const entries = Object.entries(root);
   if (entries.length === 0) {
     fail("At least one biome profile is required.");
   }
@@ -284,7 +234,9 @@ function loadProfiles(): readonly GrassBiomeProfile[] {
         `uniform arrays, found ${entries.length}.`,
     );
   }
-  const profiles = entries.map(([key, raw]) => validate(key, raw));
+  const profiles = entries.map(([key, raw]) =>
+    validate(key, assertRecord(raw, `Biome ${key}`)),
+  );
   profiles.sort((left, right) => left.index - right.index);
   profiles.forEach((profile, position) => {
     if (profile.index !== position) {
@@ -314,19 +266,6 @@ function bandMean(band: readonly [number, number]): number {
   return (band[0] + band[1]) * 0.5;
 }
 
-/**
- * A biome's height (or width) relative to biome 0.
- *
- * Near tiles apply the bands directly, because those bands *are* the clump
- * scale bands. Mid patches carry one scale for a whole 4 m patch, so they apply
- * a ratio instead — which makes biome 0 exactly 1 and keeps a single-biome
- * world byte-identical to one built before biomes existed.
- *
- * Clamped at 1: a biome may be shorter than the reference, never taller. A
- * taller field is an art-direction decision, and letting a profile exceed the
- * reference here would push the instance scale past the ceiling the impostor
- * and single-blade culling bounds are computed from.
- */
 export function resolveGrassBiomeHeightRatio(profile: GrassBiomeProfile): number {
   return Math.min(
     1,
