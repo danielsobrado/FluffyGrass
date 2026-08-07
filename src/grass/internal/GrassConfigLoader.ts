@@ -1,5 +1,9 @@
 import { FlatConfig } from "../../config/FlatConfig";
 import type { GrassConfig } from "../GrassConfig";
+import {
+  GRASS_IMPOSTOR_MAX_ATLAS_SIZE,
+  GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS,
+} from "../GrassImpostorLimits";
 
 const CONFIG_URL = "./config/grass.yaml";
 
@@ -188,9 +192,12 @@ export class GrassConfigLoader {
     }
     const atlasSize =
       (config.impostor.frameResolution + config.impostor.padding * 2) *
-      config.impostor.viewsPerAxis;
-    if (atlasSize > 4096) {
-      throw new Error("Impostor atlas size must not exceed 4096 pixels.");
+      config.impostor.viewsPerAxis *
+      GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS;
+    if (atlasSize > GRASS_IMPOSTOR_MAX_ATLAS_SIZE) {
+      throw new Error(
+        `Impostor atlas size must not exceed ${GRASS_IMPOSTOR_MAX_ATLAS_SIZE} pixels.`,
+      );
     }
     if (config.impostor.cameraMargin < 1) {
       throw new Error("impostorCameraMargin must be at least 1.");
