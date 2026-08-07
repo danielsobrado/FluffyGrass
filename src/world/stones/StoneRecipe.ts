@@ -90,9 +90,13 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     id: "boulder",
     sideCount: [7, 9],
     radiusJitter: { min: 0.07, max: 0.18 },
-    taper: { min: 0.06, max: 0.14 },
-    topScale: { min: 0.55, max: 0.88 },
-    topBevelHeight: { min: 0.14, max: 0.38 },
+    // The profile only has two bands — the tapered side ring and the crown
+    // bevel — so "rounded" has to come from both: near-zero taper plus a
+    // shallow bevel gives vertical sides under a flat lid, which reads as a
+    // drum rather than a boulder.
+    taper: { min: 0.13, max: 0.24 },
+    topScale: { min: 0.36, max: 0.56 },
+    topBevelHeight: { min: 0.36, max: 0.56 },
     topTiltMax: 0.16,
     contactInset: { min: 0.05, max: 0.1 },
     contactBevelHeight: { min: 0.1, max: 0.16 },

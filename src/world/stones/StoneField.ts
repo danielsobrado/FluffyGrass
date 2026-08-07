@@ -336,7 +336,7 @@ export class StoneField {
     const expected =
       this.config.stoneDensity *
       areaScale *
-      (0.22 + 2.5 * rockiness) *
+      (0.06 + 3.6 * rockiness) *
       lowlandFade *
       highBoost *
       BIOME_DENSITY[biomeIndex];
@@ -408,7 +408,7 @@ export class StoneField {
     const band = SCALE_BANDS[archetype];
     let scale = random.range(band[0], band[1]);
     if (isSatellite) {
-      scale = Math.max(0.2, scale * 0.45);
+      scale = Math.max(0.22, scale * random.range(0.3, 0.62));
     } else if (
       archetype === "boulder" &&
       rockiness > 0.45 &&
@@ -541,11 +541,12 @@ export class StoneField {
         archetype === "block") &&
       random.chance(this.config.stoneClusterChance)
     ) {
-      const satellites = random.integer(1, 3);
+      const satellites = random.integer(2, 4);
       for (let index = 0; index < satellites; index += 1) {
         const orbit = random.fork(`satellite:${index}`);
         const angle = orbit.range(0, Math.PI * 2);
-        const distance = footprint + orbit.range(0.5, 1.6) * Math.max(0.8, scale);
+        const distance =
+          footprint * orbit.range(0.75, 1.15) + orbit.range(0.1, 0.5) * scale;
         const satelliteX = x + Math.cos(angle) * distance;
         const satelliteZ = z + Math.sin(angle) * distance;
         const satelliteHeight = this.field.sampleHeight(

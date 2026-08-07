@@ -101,9 +101,9 @@ grassMaxSlopeDegrees: 44
 # stonesEnabled: 0 rolls the whole system back.
 stonesEnabled: 1
 stoneCellSize: 16
-stoneDensity: 0.26
+stoneDensity: 0.2
 stoneVariantsPerArchetype: 6
-stoneClusterChance: 0.55
+stoneClusterChance: 0.7
 stoneGrassClearanceFeather: 0.55
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3

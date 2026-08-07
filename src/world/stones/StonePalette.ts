@@ -69,38 +69,38 @@ export const STONE_PALETTES = {
   /** Meadow lowland: sage grey-green, mossy shadows. */
   meadowSage: palette(
     "meadow-sage",
-    "#5d6353",
-    "#8b9179",
-    "#b4b99e",
-    "#e3e8cc",
-    0.9,
+    "#464c3d",
+    "#7d8468",
+    "#b0b795",
+    "#e6ebcb",
+    1,
   ),
   /** Dry steppe: warm tan and umber. */
   steppeTan: palette(
     "steppe-tan",
-    "#6b5f48",
-    "#98896b",
-    "#c1b191",
-    "#ecdfc0",
-    0.85,
+    "#54492f",
+    "#8d7d5c",
+    "#bfae8b",
+    "#efe2c2",
+    0.95,
   ),
   /** Alpine and high altitude: cool granite grey. */
   graniteGrey: palette(
     "granite-grey",
-    "#54564f",
-    "#7d7f77",
-    "#a6a79e",
-    "#d8d9cf",
-    0.95,
+    "#3f423c",
+    "#71746b",
+    "#a3a59a",
+    "#dcddd2",
+    1.05,
   ),
   /** Deep-shade mossy variant used for occasional lowland accents. */
   mossy: palette(
     "mossy",
-    "#525e48",
-    "#788768",
-    "#a3b287",
-    "#d2e0ae",
-    0.8,
+    "#3d4a35",
+    "#6b7a58",
+    "#9dad80",
+    "#d5e3b0",
+    0.9,
   ),
 } as const;
 

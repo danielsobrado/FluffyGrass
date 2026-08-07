@@ -62,12 +62,12 @@ const WEAR_ANGLE_START = 0.32;
 const WEAR_ANGLE_FULL = 0.85;
 
 const ROLE_TONE: Record<StonePlaneRole, number> = {
-  top: 0.92,
-  "top-bevel": 0.76,
-  side: 0.5,
+  top: 0.95,
+  "top-bevel": 0.78,
+  side: 0.46,
   cut: 0.6,
-  "contact-bevel": 0.34,
-  bottom: 0.08,
+  "contact-bevel": 0.26,
+  bottom: 0.06,
 };
 
 interface WorkingFace {
