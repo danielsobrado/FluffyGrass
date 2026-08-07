@@ -21,6 +21,9 @@ const islandGrass = read("src/grass/GrassSystem.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
+const thirdPersonController = read("src/controls/ThirdPersonController.ts");
+const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
+const flyController = read("src/controls/FlyController.ts");
 const uiController = read("src/runtime/UiVisibilityController.ts");
 
 assert(
@@ -70,6 +73,24 @@ assert(
     tileField.includes("tile.mesh.visible = count > 0") &&
     tileField.includes("enabled && tile.mesh.count > 0"),
   "Zero-count near-grass tiles must not remain visible draw submissions.",
+);
+assert(
+  thirdPersonController.includes("Number.isFinite(deltaSeconds)") &&
+    thirdPersonController.includes("private disposed = false") &&
+    thirdPersonController.includes("if (this.disposed)"),
+  "Third-person movement must reject invalid frame deltas and be disposal-safe.",
+);
+assert(
+  flyController.includes("Number.isFinite(deltaSeconds)") &&
+    flyController.includes("private disposed = false") &&
+    flyController.includes("this.canvas.style.touchAction = this.previousTouchAction"),
+  "Flight input must reject invalid frame deltas and restore canvas state on disposal.",
+);
+assert(
+  thirdPersonInput.includes("private disposed = false") &&
+    thirdPersonInput.includes("this.clearTransientInput()") &&
+    thirdPersonInput.includes("this.canvas.style.touchAction = this.previousTouchAction"),
+  "Third-person input must clear transient state and restore canvas state on disposal.",
 );
 assert(
   uiController.includes("removeEventListener") &&
