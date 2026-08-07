@@ -60,9 +60,6 @@ export class GrassSystem {
   private readonly configLoader = new GrassConfigLoader();
   private readonly distribution = new GrassDistribution();
   private readonly geometryFactory = new GrassGeometryFactory();
-  // This scene frames one small island whole, from a distance past the
-  // configured near and mid fades, so a per-blade world-space fade would cull
-  // every blade. It uses a single scene-wide near/mid threshold instead.
   private readonly nearMaterial = new GrassNearMaterial({
     name: "grass-near-material",
     cacheKey: "grass-near-material-v17-legacy-near",
@@ -88,22 +85,27 @@ export class GrassSystem {
   private config?: GrassConfig;
   private initialization?: Promise<void>;
   private lodOverridden = false;
+  private disposed = false;
 
   constructor(private readonly dependencies: GrassSystemDependencies) {}
 
   attachGui(gui: GUI): void {
+    this.assertNotDisposed();
     this.nearMaterial.setupGUI(gui, [this.midMaterial]);
   }
 
   initialize(surface: THREE.Mesh): Promise<void> {
+    this.assertNotDisposed();
     if (!this.initialization) {
       this.initialization = this.createGrass(surface);
     }
-
     return this.initialization;
   }
 
   update(deltaSeconds: number, camera: THREE.Camera): void {
+    if (this.disposed) {
+      return;
+    }
     const elapsedSeconds = this.wind.update(deltaSeconds);
     this.nearMaterial.update(elapsedSeconds);
     this.midMaterial.update(elapsedSeconds);
@@ -113,11 +115,6 @@ export class GrassSystem {
     this.updateLodThreshold(camera);
   }
 
-  /**
-   * Drives the scene-wide near/mid split from the camera's distance to the
-   * grass. The two materials take complementary sides of the same threshold, so
-   * every blade is drawn exactly once.
-   */
   private updateLodThreshold(camera: THREE.Camera): void {
     const config = this.config;
     if (!config || this.lodOverridden || this.worldBounds.isEmpty()) {
@@ -150,11 +147,6 @@ export class GrassSystem {
     return this.worldBounds.clone();
   }
 
-  /**
-   * Pins the near layer to full coverage while an impostor is baked, and stops
-   * the per-frame threshold update from moving it back. (This replaces a pair of
-   * per-mesh userData overrides that three never actually uploaded.)
-   */
   setLodBakeOverride(enabled: boolean): void {
     this.assertReady();
     this.lodOverridden = enabled;
@@ -235,6 +227,10 @@ export class GrassSystem {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     for (const mesh of this.meshes) {
       this.dependencies.scene.remove(mesh);
       this.geometryFactory.disposeInstancedMesh(mesh);
@@ -249,17 +245,21 @@ export class GrassSystem {
     this.nearMaterial.material.dispose();
     this.midMaterial.material.dispose();
     this.patchGrid?.clear();
+    this.patchGrid = undefined;
+    this.lodController = undefined;
     this.worldBounds.makeEmpty();
     this.config = undefined;
   }
 
   private async createGrass(surface: THREE.Mesh): Promise<void> {
     const config = await this.configLoader.load();
+    this.assertNotDisposed();
     this.config = config;
     const variants = this.geometryFactory.createLodVariants(
       config.geometry,
       config.distribution.seed,
     );
+    this.assertNotDisposed();
     this.sourceGeometries.push(...variants.near, ...variants.mid);
 
     for (const material of [this.nearMaterial, this.midMaterial]) {
@@ -275,6 +275,7 @@ export class GrassSystem {
       config.instanceCount,
       config.distribution,
     );
+    this.assertNotDisposed();
     const buckets = this.createPatchBuckets(placements, this.patchGrid);
 
     for (const bucket of buckets.values()) {
@@ -310,8 +311,6 @@ export class GrassSystem {
     return buckets;
   }
 
-  // The legacy island path is two-stage and always builds a near clump mesh,
-  // unlike the streamed world path where GrassPatch.nearMesh is absent.
   private createPatch(
     bucket: PatchBucket,
     variants: GrassGeometryVariants,
@@ -414,9 +413,16 @@ export class GrassSystem {
   }
 
   private assertReady(): GrassConfig {
+    this.assertNotDisposed();
     if (!this.config || this.worldBounds.isEmpty()) {
       throw new Error("GrassSystem is not initialized.");
     }
     return this.config;
+  }
+
+  private assertNotDisposed(): void {
+    if (this.disposed) {
+      throw new Error("GrassSystem has been disposed.");
+    }
   }
 }
