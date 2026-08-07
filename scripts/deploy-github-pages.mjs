@@ -16,9 +16,9 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 const CONFIG = Object.freeze({
   branch: process.env.GITHUB_PAGES_BRANCH ?? "gh-pages",
+  sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main",
   remote: process.env.GITHUB_PAGES_REMOTE ?? "origin",
   distDirectory: resolve(REPOSITORY_ROOT, "dist"),
-  allowDirty: process.env.ALLOW_DIRTY_DEPLOY === "1",
 });
 
 function log(message) {
@@ -49,20 +49,39 @@ function run(command, args, options = {}) {
 function hasRemoteBranch() {
   const result = run(
     "git",
-    ["ls-remote", "--exit-code", "--heads", CONFIG.remote, CONFIG.branch],
-    { capture: true, allowFailure: true },
+    ["ls-remote", "--heads", CONFIG.remote, CONFIG.branch],
+    { capture: true },
   );
-
-  return result.status === 0;
+  return result.stdout.trim().length > 0;
 }
 
 function assertRepositoryState() {
   run("git", ["rev-parse", "--is-inside-work-tree"], { capture: true });
 
   const status = run("git", ["status", "--porcelain"], { capture: true });
-  if (!CONFIG.allowDirty && status.stdout.trim()) {
+  if (status.stdout.trim()) {
+    throw new Error("The working tree has uncommitted changes. Commit them first.");
+  }
+
+  const branch = run("git", ["branch", "--show-current"], {
+    capture: true,
+  }).stdout.trim();
+  if (branch !== CONFIG.sourceBranch) {
     throw new Error(
-      "The working tree has uncommitted changes. Commit them first or set ALLOW_DIRTY_DEPLOY=1.",
+      `Deployment must run from ${CONFIG.sourceBranch}; current branch is ${branch || "detached HEAD"}.`,
+    );
+  }
+
+  run("git", ["fetch", CONFIG.remote, CONFIG.sourceBranch]);
+  const localHead = run("git", ["rev-parse", "HEAD"], {
+    capture: true,
+  }).stdout.trim();
+  const remoteHead = run("git", ["rev-parse", "FETCH_HEAD"], {
+    capture: true,
+  }).stdout.trim();
+  if (localHead !== remoteHead) {
+    throw new Error(
+      `Local ${CONFIG.sourceBranch} must exactly match ${CONFIG.remote}/${CONFIG.sourceBranch} before deployment.`,
     );
   }
 }
@@ -120,6 +139,9 @@ function deploy() {
     if (diff.status === 0) {
       log("No deployment changes were detected.");
       return;
+    }
+    if (diff.status !== 1) {
+      throw new Error(`Unable to inspect deployment changes (git diff exited ${diff.status}).`);
     }
 
     run(
