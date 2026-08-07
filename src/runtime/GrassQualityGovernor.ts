@@ -84,6 +84,7 @@ const DROP_AFTER_SECONDS = 2;
 const RAISE_AFTER_SECONDS = 6;
 const DROP_FRACTION = 0.9;
 const RAISE_FRACTION = 1.05;
+const MAX_SAMPLE_DELTA_SECONDS = 0.25;
 /**
  * Seconds the density scale takes to travel between tiers. A step change would
  * dither a visible fraction of the field out in one frame; ramping turns the
@@ -113,7 +114,11 @@ export class GrassQualityGovernor {
   private aboveSeconds = 0;
   private tierElapsedSeconds = 0;
 
-  constructor(private readonly targetFps: number) {}
+  constructor(private readonly targetFps: number) {
+    if (!Number.isFinite(targetFps) || targetFps <= 0) {
+      throw new Error("Grass quality target FPS must be a positive number.");
+    }
+  }
 
   /**
    * Pins a tier for reproducible captures. QA fixtures need the same tier every
@@ -123,7 +128,10 @@ export class GrassQualityGovernor {
     this.pinnedTier =
       tier === undefined
         ? undefined
-        : Math.min(GRASS_QUALITY_TIERS.length - 1, Math.max(0, Math.round(tier)));
+        : Math.min(
+            GRASS_QUALITY_TIERS.length - 1,
+            Math.max(0, Math.round(Number.isFinite(tier) ? tier : 0)),
+          );
     if (this.pinnedTier !== undefined) {
       if (this.tier !== this.pinnedTier) {
         this.tierElapsedSeconds = 0;
@@ -134,20 +142,26 @@ export class GrassQualityGovernor {
       this.midFloorScale = pinned.midFloorScale;
       this.ultraDensityScale = pinned.ultraDensityScale;
       this.accentDensityScale = pinned.accentDensityScale;
+      this.resetSamplingWindow();
     }
   }
 
   /** Returns true when any applied value changed and needs pushing out. */
   update(deltaSeconds: number): boolean {
-    if (deltaSeconds <= 0) {
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
       return false;
     }
+    if (deltaSeconds > MAX_SAMPLE_DELTA_SECONDS) {
+      this.resetSamplingWindow();
+      return false;
+    }
+
     this.tierElapsedSeconds += deltaSeconds;
     if (this.graceRemaining > 0) {
       // Startup grace: let spawn-time build spikes pass without reacting, and
       // keep the sampling window empty so they cannot poison the first real
       // evaluation either.
-      this.graceRemaining -= deltaSeconds;
+      this.graceRemaining = Math.max(0, this.graceRemaining - deltaSeconds);
       return this.advanceRamp(deltaSeconds);
     }
     if (this.pinnedTier === undefined) {
@@ -165,9 +179,7 @@ export class GrassQualityGovernor {
     }
     const fps =
       this.windowSeconds > 0 ? this.windowFrames / this.windowSeconds : 0;
-    this.windowElapsed = 0;
-    this.windowFrames = 0;
-    this.windowSeconds = 0;
+    this.resetSamplingWindow(false);
 
     if (fps < this.targetFps * DROP_FRACTION) {
       this.belowSeconds += EVALUATION_WINDOW_SECONDS;
@@ -219,6 +231,16 @@ export class GrassQualityGovernor {
     this.ultraDensityScale = ultra;
     this.accentDensityScale = accent;
     return changed;
+  }
+
+  private resetSamplingWindow(resetDecisionTimers = true): void {
+    this.windowElapsed = 0;
+    this.windowFrames = 0;
+    this.windowSeconds = 0;
+    if (resetDecisionTimers) {
+      this.belowSeconds = 0;
+      this.aboveSeconds = 0;
+    }
   }
 
   getTier(): number {
