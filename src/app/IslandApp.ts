@@ -69,10 +69,10 @@ export class IslandApp {
       return;
     }
 
+    this.islandRoot = gltf.scene;
     gltf.scene.scale.setScalar(MODEL_SCALE);
     gltf.scene.updateWorldMatrix(true, true);
     const terrain = this.configureIsland(gltf.scene);
-    this.islandRoot = gltf.scene;
     this.scene.add(gltf.scene);
     const bounds = new THREE.Box3().setFromObject(gltf.scene);
     frameCameraToBounds(this.camera, this.controls, bounds, this.profile);
