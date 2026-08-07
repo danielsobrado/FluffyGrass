@@ -16,6 +16,7 @@ function assert(condition, message) {
 }
 
 const main = read("src/main.ts");
+const world = read("src/app/WorldApp.ts");
 const island = read("src/app/IslandApp.ts");
 const islandGrass = read("src/grass/GrassSystem.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
@@ -38,6 +39,14 @@ assert(
     main.includes("if (event.persisted || disposed)") &&
     main.includes("catch (error)"),
   "Bootstrap must release partially-created runtime resources and preserve bfcache restores.",
+);
+assert(
+  world.includes("private disposed = false") &&
+    world.includes("Number.isFinite(rawDeltaSeconds)") &&
+    world.includes("Optional stats panel unavailable") &&
+    world.includes('await import(\n            "../world/grass/WorldDetailFoliageAtlasFactory"') &&
+    !world.includes('import { appendDetailFoliageAtlasDebugCanvas }'),
+  "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
 );
 assert(
   island.includes('await import(\n      "../dev/GrassDevelopmentController"') &&
