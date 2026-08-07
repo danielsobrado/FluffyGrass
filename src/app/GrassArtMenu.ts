@@ -19,6 +19,8 @@ type NumericSetting =
 
 type ColorSetting = "baseColor" | "tipColor" | "dryColor";
 
+const EXPORT_STATUS_MS = 1800;
+
 export class GrassArtMenu {
   private readonly root: HTMLDetailsElement;
   private readonly presetSelect: HTMLSelectElement;
@@ -26,6 +28,8 @@ export class GrassArtMenu {
   private readonly numericOutputs = new Map<NumericSetting, HTMLOutputElement>();
   private readonly colorInputs = new Map<ColorSetting, HTMLInputElement>();
   private current: GrassArtDirection;
+  private exportResetHandle = 0;
+  private disposed = false;
 
   constructor(
     initialKey: GrassArtDirectionKey,
@@ -79,10 +83,18 @@ export class GrassArtMenu {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    window.clearTimeout(this.exportResetHandle);
     this.root.remove();
   }
 
   private readonly handlePresetChange = (): void => {
+    if (this.disposed) {
+      return;
+    }
     const key = this.presetSelect.value as GrassArtDirectionKey;
     this.current = { ...GRASS_ART_DIRECTIONS[key] };
     this.syncControls();
@@ -140,6 +152,9 @@ export class GrassArtMenu {
     const input = document.createElement("input");
     input.type = "color";
     input.addEventListener("input", () => {
+      if (this.disposed) {
+        return;
+      }
       this.current = { ...this.current, [setting]: input.value };
       this.onChange({ ...this.current });
     });
@@ -148,7 +163,7 @@ export class GrassArtMenu {
   }
 
   private setNumericSetting(setting: NumericSetting, value: number): void {
-    if (!Number.isFinite(value)) {
+    if (this.disposed || !Number.isFinite(value)) {
       return;
     }
     this.current = { ...this.current, [setting]: value };
@@ -201,14 +216,20 @@ export class GrassArtMenu {
   }
 
   private readonly exportYaml = (event: MouseEvent): void => {
+    if (this.disposed) {
+      return;
+    }
     const yaml = this.serializeYaml(this.current);
     const button = event.currentTarget as HTMLButtonElement;
     button.dataset.yaml = yaml;
     void navigator.clipboard?.writeText(yaml).catch(() => undefined);
     button.textContent = "YAML copied + downloaded";
-    window.setTimeout(() => {
-      button.textContent = "Export YAML";
-    }, 1800);
+    window.clearTimeout(this.exportResetHandle);
+    this.exportResetHandle = window.setTimeout(() => {
+      if (!this.disposed) {
+        button.textContent = "Export YAML";
+      }
+    }, EXPORT_STATUS_MS);
     const url = URL.createObjectURL(
       new Blob([yaml], { type: "application/yaml;charset=utf-8" }),
     );
