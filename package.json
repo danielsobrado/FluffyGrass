@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-grass-placement.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && vite build",
+    "build": "tsc && node scripts/verify-production-policy.mjs && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-grass-placement.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && vite build",
+    "test:policy": "node scripts/verify-production-policy.mjs",
     "test:lod": "node scripts/verify-lod-continuity.mjs",
     "test:lod-color": "node scripts/verify-lod-color-parity.mjs",
     "test:grass-performance": "node scripts/verify-grass-performance.mjs",
