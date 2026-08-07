@@ -13,6 +13,7 @@ import type { WorldController, WorldControlMode } from "./WorldController";
 
 const CAMERA_COLLISION_SAMPLES = [0.35, 0.6, 0.85] as const;
 const CAMERA_POSITION_RATE = 12;
+const MAX_FRAME_DELTA_SECONDS = 0.1;
 const MIN_MOVEMENT_SPEED = 0.05;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -34,8 +35,6 @@ export class ThirdPersonController implements WorldController {
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraPosition = new THREE.Vector3();
   private readonly cameraSample = new THREE.Vector3();
-  // The grass field needs the stride phase as well as the position, so it can
-  // stamp under each foot instead of dragging one capsule through the field.
   private readonly grassPose: GrassInteractionPose = {
     position: this.position,
     velocity: this.velocity,
@@ -60,6 +59,7 @@ export class ThirdPersonController implements WorldController {
   private jumpStarted = false;
   private landed = false;
   private landingImpact = 0;
+  private disposed = false;
 
   constructor(
     scene: THREE.Scene,
@@ -101,7 +101,14 @@ export class ThirdPersonController implements WorldController {
   }
 
   update(deltaSeconds: number): void {
-    const delta = THREE.MathUtils.clamp(deltaSeconds, 0, 0.1);
+    if (this.disposed) {
+      return;
+    }
+    const delta = THREE.MathUtils.clamp(
+      Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
+      0,
+      MAX_FRAME_DELTA_SECONDS,
+    );
     if (this.input.consumeReset()) {
       this.reset();
       return;
@@ -144,6 +151,10 @@ export class ThirdPersonController implements WorldController {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     grassInteractionField.deactivate();
     this.input.dispose();
     this.character.dispose();
@@ -166,6 +177,9 @@ export class ThirdPersonController implements WorldController {
   }
 
   private reset(): void {
+    if (this.disposed) {
+      return;
+    }
     this.position.copy(this.spawnPosition);
     this.velocity.set(0, 0, 0);
     this.animationVelocity.set(0, 0, 0);
