@@ -12,7 +12,10 @@ import {
 } from "../../grass/GrassLodTuning";
 import type { WorldGrassBladeSpec } from "./WorldGrassPatchGeometryFactory";
 import { calculateGrassImpostorRootBoundsRadius } from "./GrassRuntimeMath";
-import { IMPOSTOR_SUBPATCHES_PER_AXIS } from "./WorldGrassImpostorTuning";
+import {
+  IMPOSTOR_MAX_ATLAS_SIZE,
+  IMPOSTOR_SUBPATCHES_PER_AXIS,
+} from "./WorldGrassImpostorTuning";
 
 export interface WorldGrassImpostorAtlas {
   texture: THREE.CanvasTexture;
@@ -56,6 +59,15 @@ export class WorldGrassImpostorAtlasFactory {
     const cellSize = config.frameResolution + config.padding * 2;
     const viewPageSize = config.viewsPerAxis * cellSize;
     const atlasSize = viewPageSize * IMPOSTOR_SUBPATCHES_PER_AXIS;
+    if (
+      !Number.isSafeInteger(atlasSize) ||
+      atlasSize <= 0 ||
+      atlasSize > IMPOSTOR_MAX_ATLAS_SIZE
+    ) {
+      throw new Error(
+        `World grass impostor atlas must be between 1 and ${IMPOSTOR_MAX_ATLAS_SIZE} pixels per axis; resolved ${atlasSize}.`,
+      );
+    }
     const canvas = document.createElement("canvas");
     canvas.width = atlasSize;
     canvas.height = atlasSize;
@@ -136,10 +148,7 @@ export class WorldGrassImpostorAtlasFactory {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.name = "world-grass-subpatch-hemi-octahedral-atlas";
-    // RGB stores normalized blade progress and shade, not display color.
     texture.colorSpace = THREE.NoColorSpace;
-    // Keep semantic channels alpha-weighted through linear filtering. The
-    // shader divides once after atlas-view selection.
     texture.premultiplyAlpha = true;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -272,16 +281,12 @@ export class WorldGrassImpostorAtlasFactory {
         normalY = (blade.tipY - baseY) / tipDistance;
         projectedHeight = tipDistance;
       }
-      // A gradient perpendicular to the projected root edge reproduces the
-      // triangle's barycentric root-to-tip coordinate, including leaned views.
       const gradient = context.createLinearGradient(
         baseX,
         baseY,
         baseX + normalX * projectedHeight,
         baseY + normalY * projectedHeight,
       );
-      // RGB remains palette-neutral: progress, shade, and optional dry mask.
-      // The shared runtime palette reconstructs the display color.
       gradient.addColorStop(0, this.encodeDataColor(0, shade, dryness));
       gradient.addColorStop(
         1,
