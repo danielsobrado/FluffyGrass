@@ -30,12 +30,15 @@ export class ThirdPersonInput {
   private zoomDelta = 0;
   private inputEventCount = 0;
   private lastInputType = "idle";
+  private previousTouchAction = "";
+  private disposed = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
     private readonly config: WorldConfig,
   ) {
+    this.previousTouchAction = canvas.style.touchAction;
     this.bindEvents();
     if (profile.compact) {
       this.createMobileControls();
@@ -110,6 +113,10 @@ export class ThirdPersonInput {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("blur", this.handleWindowBlur);
@@ -125,7 +132,12 @@ export class ThirdPersonInput {
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
     }
+    this.clearTransientInput();
+    this.resetRequested = false;
+    this.zoomDelta = 0;
     this.mobileControls?.remove();
+    this.mobileControls = undefined;
+    this.canvas.style.touchAction = this.previousTouchAction;
   }
 
   private bindEvents(): void {
