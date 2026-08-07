@@ -4,14 +4,24 @@ export class UiVisibilityController {
   private readonly button =
     document.querySelector<HTMLButtonElement>("#ui-toggle");
   private minimized = false;
+  private initialized = false;
 
   initialize(): void {
-    if (!this.button) {
+    if (!this.button || this.initialized) {
       return;
     }
+    this.initialized = true;
     this.minimized = readStoredState();
     this.apply();
     this.button.addEventListener("click", this.toggle);
+  }
+
+  dispose(): void {
+    if (!this.button || !this.initialized) {
+      return;
+    }
+    this.initialized = false;
+    this.button.removeEventListener("click", this.toggle);
   }
 
   private readonly toggle = (): void => {
