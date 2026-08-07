@@ -39,7 +39,8 @@ async function bootstrap(): Promise<void> {
     (params.get("control") === "fly" || params.get("view") === "aerial");
   document.body.dataset.scene = sceneMode;
   document.body.dataset.control = flyMode ? "fly" : "third-person";
-  new UiVisibilityController().initialize();
+  const uiController = new UiVisibilityController();
+  uiController.initialize();
 
   const versionElement = document.querySelector<HTMLElement>("#build-version");
   const titleElement = document.querySelector<HTMLElement>(".app-title strong");
@@ -91,8 +92,12 @@ async function bootstrap(): Promise<void> {
   app.start();
   window.addEventListener(
     "pagehide",
-    () => {
+    (event) => {
+      if (event.persisted) {
+        return;
+      }
       diagnostics?.dispose();
+      uiController.dispose();
       app.dispose();
     },
     { once: true },
