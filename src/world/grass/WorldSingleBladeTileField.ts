@@ -174,7 +174,7 @@ export class WorldSingleBladeTileField {
     }
     this.countsDirty = true;
     for (const tile of this.tiles.values()) {
-      tile.mesh.visible = enabled;
+      tile.mesh.visible = enabled && tile.mesh.count > 0;
     }
     if (enabled) {
       this.disabledAt = 0;
@@ -255,26 +255,25 @@ export class WorldSingleBladeTileField {
           tile.tileX * this.tileSize,
           tile.tileZ * this.tileSize,
         ) - COUNT_MOVEMENT_EPSILON;
+      let count: number;
       if (distance < guardDistance) {
-        tile.mesh.count = tile.bladeCount;
-        continue;
-      }
-      if (distance <= fadeStart) {
-        tile.mesh.count = upperBound(
+        count = tile.bladeCount;
+      } else if (distance <= fadeStart) {
+        count = upperBound(
           tile.sortedDithers,
           this.densityScale + DITHER_SAFETY_MARGIN,
         );
-        continue;
+      } else if (distance >= fadeEnd) {
+        count = 0;
+      } else {
+        const coverage = 1 - smoothstep(distance, fadeStart, fadeEnd);
+        count = upperBound(
+          tile.sortedDithers,
+          coverage * this.densityScale + DITHER_SAFETY_MARGIN,
+        );
       }
-      if (distance >= fadeEnd) {
-        tile.mesh.count = 0;
-        continue;
-      }
-      const coverage = 1 - smoothstep(distance, fadeStart, fadeEnd);
-      tile.mesh.count = upperBound(
-        tile.sortedDithers,
-        coverage * this.densityScale + DITHER_SAFETY_MARGIN,
-      );
+      tile.mesh.count = count;
+      tile.mesh.visible = count > 0;
     }
   }
 
