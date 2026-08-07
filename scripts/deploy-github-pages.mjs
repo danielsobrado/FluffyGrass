@@ -46,13 +46,17 @@ function run(command, args, options = {}) {
   return result;
 }
 
-function hasRemoteBranch() {
+function remoteBranchHead(branch) {
   const result = run(
     "git",
-    ["ls-remote", "--heads", CONFIG.remote, CONFIG.branch],
+    ["ls-remote", "--heads", CONFIG.remote, `refs/heads/${branch}`],
     { capture: true },
   );
-  return result.stdout.trim().length > 0;
+  const line = result.stdout.trim();
+  if (!line) {
+    return undefined;
+  }
+  return line.split(/\s+/)[0];
 }
 
 function assertRepositoryState() {
@@ -72,16 +76,23 @@ function assertRepositoryState() {
     );
   }
 
-  run("git", ["fetch", CONFIG.remote, CONFIG.sourceBranch]);
   const localHead = run("git", ["rev-parse", "HEAD"], {
     capture: true,
   }).stdout.trim();
-  const remoteHead = run("git", ["rev-parse", "FETCH_HEAD"], {
-    capture: true,
-  }).stdout.trim();
-  if (localHead !== remoteHead) {
+  const remoteHead = remoteBranchHead(CONFIG.sourceBranch);
+  if (!remoteHead || localHead !== remoteHead) {
     throw new Error(
       `Local ${CONFIG.sourceBranch} must exactly match ${CONFIG.remote}/${CONFIG.sourceBranch} before deployment.`,
+    );
+  }
+  return localHead;
+}
+
+function assertSourceStillCurrent(expectedHead) {
+  const remoteHead = remoteBranchHead(CONFIG.sourceBranch);
+  if (remoteHead !== expectedHead) {
+    throw new Error(
+      `${CONFIG.remote}/${CONFIG.sourceBranch} changed during deployment; rebuild from the new source head.`,
     );
   }
 }
@@ -107,18 +118,18 @@ function build() {
 }
 
 function deploy() {
-  assertRepositoryState();
+  const sourceHead = assertRepositoryState();
   build();
+  assertSourceStillCurrent(sourceHead);
 
   const deploymentDirectory = mkdtempSync(join(tmpdir(), "fluffygrass-pages-"));
   let worktreeAdded = false;
 
   try {
-    let sourceRef = "HEAD";
-
-    if (hasRemoteBranch()) {
+    const deploymentHead = remoteBranchHead(CONFIG.branch);
+    const sourceRef = deploymentHead ?? sourceHead;
+    if (deploymentHead) {
       run("git", ["fetch", CONFIG.remote, CONFIG.branch]);
-      sourceRef = "FETCH_HEAD";
     }
 
     run("git", ["worktree", "add", "--detach", deploymentDirectory, sourceRef]);
@@ -149,6 +160,7 @@ function deploy() {
       ["commit", "-m", "deploy: update GitHub Pages"],
       { cwd: deploymentDirectory },
     );
+    assertSourceStillCurrent(sourceHead);
     run(
       "git",
       ["push", CONFIG.remote, `HEAD:${CONFIG.branch}`],
