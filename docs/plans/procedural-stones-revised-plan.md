@@ -4,8 +4,17 @@
 
 - Supersedes `procedural-stones-plan.md` and `procedural-stones-phase-1.md` … `-10.md`
 - Rationale for every departure: `procedural-stones-review.md`
-- A prototype of stages 0–3 exists in `src/world/stones/`, builds green, and is
-  gated by `npm run test:stones`. Stage 4 (art tuning) is the open work.
+- Stages 0–4 are implemented in `src/world/stones/`, build green, and are gated
+  by `npm run test:stones` (1,500 meshes per run).
+- Three real bugs were found during stage 4 and are worth not reintroducing:
+  welded corners being transformed once per adjacent face, side-plane angles
+  colliding after an independent-jitter-then-sort, and near-concurrent planes
+  leaving triangular holes. See the commit history and review Finding 2.
+- Open: the full `WorldApp` (stones + grass together) has not been captured
+  headlessly. Headless Edge screenshots at the `load` event, before the app's
+  async boot completes, and the in-app browser pane never composites, so the
+  canvas stays 0×0. Grass clearance is covered numerically by the build gate
+  instead. Playwright is the right tool if a real-app capture is wanted.
 
 ## Goal
 
