@@ -42,8 +42,9 @@ function readConstant(source, name) {
 
 const worldConfig = read("public/config/world.yaml");
 const grassConfig = read("public/config/grass.yaml");
-const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
+const impostorLimits = read("src/grass/GrassImpostorLimits.ts");
 const lodTuning = read("src/grass/GrassLodTuning.ts");
+const configLoader = read("src/grass/internal/GrassConfigLoader.ts");
 const atlasFactory = read(
   "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
 );
@@ -67,10 +68,13 @@ const bladeHeight = readYamlNumber(grassConfig, "bladeHeightMax");
 const bladeWidth = readYamlNumber(grassConfig, "bladeWidthMax");
 const bladeLean = readYamlNumber(grassConfig, "bladeLeanMax");
 const subpatchesPerAxis = readConstant(
-  tuning,
-  "IMPOSTOR_SUBPATCHES_PER_AXIS",
+  impostorLimits,
+  "GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS",
 );
-const maximumAtlasSize = readConstant(tuning, "IMPOSTOR_MAX_ATLAS_SIZE");
+const maximumAtlasSize = readConstant(
+  impostorLimits,
+  "GRASS_IMPOSTOR_MAX_ATLAS_SIZE",
+);
 const footprintScale = readConstant(
   lodTuning,
   "GRASS_IMPOSTOR_FOOTPRINT_SCALE",
@@ -134,6 +138,13 @@ const patchBoundsRadius =
 assert(
   Number.isFinite(patchBoundsRadius) && patchBoundsRadius > patchSize * 0.5,
   "Derived far-impostor bounds are invalid.",
+);
+assert(
+  configLoader.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS") &&
+    configLoader.includes("GRASS_IMPOSTOR_MAX_ATLAS_SIZE") &&
+    configLoader.includes("config.impostor.viewsPerAxis *") &&
+    configLoader.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS"),
+  "Grass config validation must account for the complete subpatch atlas allocation.",
 );
 assert(
   atlasFactory.includes("partitionBlades") &&
