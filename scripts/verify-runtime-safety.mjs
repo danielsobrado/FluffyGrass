@@ -19,6 +19,7 @@ const main = read("src/main.ts");
 const world = read("src/app/WorldApp.ts");
 const island = read("src/app/IslandApp.ts");
 const islandGrass = read("src/grass/GrassSystem.ts");
+const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
@@ -26,6 +27,7 @@ const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
 const flyController = read("src/controls/FlyController.ts");
 const uiController = read("src/runtime/UiVisibilityController.ts");
+const worldConfigLoader = read("src/world/WorldConfigLoader.ts");
 
 assert(
   main.includes('params.get("diagnostics") === "1"') &&
@@ -62,6 +64,13 @@ assert(
     islandGrass.includes("if (this.disposed)") &&
     islandGrass.includes('throw new Error("GrassSystem has been disposed.")'),
   "Island grass initialization must not resurrect resources after disposal.",
+);
+assert(
+  interactionField.includes("validateConfig(config)") &&
+    interactionField.includes("Number.isFinite(deltaSeconds)") &&
+    interactionField.includes("Number.isFinite(normalizedImpact)") &&
+    interactionField.includes("Number.isFinite(pose.distanceTravelled)"),
+  "Grass interaction state must reject invalid configuration and runtime input.",
 );
 assert(
   trailField.includes("validateConfig(next)") &&
@@ -105,6 +114,12 @@ assert(
   uiController.includes("removeEventListener") &&
     uiController.includes("private initialized = false"),
   "UI visibility controls must be disposable and initialization-idempotent.",
+);
+assert(
+  worldConfigLoader.includes(
+    "grassFarImpostorsPerPatch: { minimum: 1, maximum: 1, integer: true }",
+  ),
+  "World config must enforce the one-instance/four-card far-impostor contract.",
 );
 
 console.log("[runtime-safety] Production runtime lifecycle and hot-path guards verified.");
