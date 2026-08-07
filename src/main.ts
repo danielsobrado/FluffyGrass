@@ -90,18 +90,16 @@ async function bootstrap(): Promise<void> {
   }
 
   app.start();
-  window.addEventListener(
-    "pagehide",
-    (event) => {
-      if (event.persisted) {
-        return;
-      }
-      diagnostics?.dispose();
-      uiController.dispose();
-      app.dispose();
-    },
-    { once: true },
-  );
+  let disposed = false;
+  window.addEventListener("pagehide", (event) => {
+    if (event.persisted || disposed) {
+      return;
+    }
+    disposed = true;
+    diagnostics?.dispose();
+    uiController.dispose();
+    app.dispose();
+  });
 }
 
 function resolveSceneLabel(
