@@ -18,6 +18,7 @@ function assert(condition, message) {
 const main = read("src/main.ts");
 const island = read("src/app/IslandApp.ts");
 const islandGrass = read("src/grass/GrassSystem.ts");
+const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
 const uiController = read("src/runtime/UiVisibilityController.ts");
@@ -49,6 +50,14 @@ assert(
     islandGrass.includes("if (this.disposed)") &&
     islandGrass.includes('throw new Error("GrassSystem has been disposed.")'),
   "Island grass initialization must not resurrect resources after disposal.",
+);
+assert(
+  trailField.includes("validateConfig(next)") &&
+    trailField.includes("areFinite(") &&
+    trailField.includes("Number.isFinite(deltaSeconds)") &&
+    trailField.includes("renderer.setRenderTarget(previousRenderTarget)") &&
+    trailField.includes("this.resetPendingFrame()"),
+  "Grass trail feedback must reject invalid inputs and restore renderer state after failures.",
 );
 assert(
   qualityGovernor.includes("Number.isFinite(deltaSeconds)") &&
