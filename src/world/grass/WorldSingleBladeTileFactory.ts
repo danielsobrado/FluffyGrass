@@ -14,6 +14,7 @@ import {
   GRASS_BIOME_VERSION,
 } from "../../grass/biome/GrassBiomeProfile";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
+import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import { TERRAIN_NORMAL_STEP, type TerrainField } from "../TerrainField";
 import { TerrainHeightLattice } from "../TerrainHeightLattice";
 import type { WorldConfig } from "../WorldConfig";
@@ -544,11 +545,18 @@ export class WorldSingleBladeTileFactory {
       if (pathMask <= 0) {
         continue;
       }
+      // Stones clear their footprint per blade; the stone field caches its
+      // cells, so this is a lattice lookup, not a placement recompute.
+      const stoneMask = sampleStoneGrassClearance(x, z);
+      if (stoneMask <= 0.02) {
+        continue;
+      }
       heightLattice.sampleNormal(x, z, TERRAIN_NORMAL_STEP, this.normal);
       const suitability =
         this.field.sampleGrassSlopeMask(this.normal) *
         suitabilityWithoutSlope *
-        pathMask;
+        pathMask *
+        stoneMask;
       if (suitability < MIN_SUITABILITY - LATTICE_SUITABILITY_TOLERANCE) {
         continue;
       }

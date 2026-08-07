@@ -44,6 +44,7 @@ import {
 import { GrassQualityGovernor } from "../runtime/GrassQualityGovernor";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
+import { sampleStoneGrassClearance } from "./stones/StoneClearance";
 import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
@@ -1040,6 +1041,11 @@ export class WorldGrassSystem {
           height,
           this.worldConfig.grassPatchSize * 0.5,
         ) *
+        // Stones drop a patch only when its centre falls inside a footprint:
+        // clearing by the patch's whole reach would ring every boulder with a
+        // bare halo at mid distance. Per-blade precision lives in the near
+        // tiles, which sample the same field.
+        sampleStoneGrassClearance(x, z) *
         resolveGrassBiomeDensity(biomeSample);
       if (coverage <= 0.02) {
         continue;

@@ -1,0 +1,297 @@
+import { WorldConfigLoader } from "../WorldConfigLoader";
+import { TerrainField } from "../TerrainField";
+import { buildStonePolyhedron } from "./StoneClipper";
+import { generateStoneMesh } from "./StoneGeometry";
+import { resolveStoneRecipe, STONE_ARCHETYPE_IDS } from "./StoneRecipe";
+import { StoneField } from "./StoneField";
+
+/**
+ * Build-gate checks for the procedural stones, executed against the real
+ * modules through vite SSR (see scripts/verify-stones.mjs). Geometry checks
+ * run the actual clipper rather than a re-derivation: a convex-clipping bug is
+ * exactly the kind of regression a hand-copied formula would hide.
+ */
+
+interface StoneVerificationSummary {
+  meshesChecked: number;
+  uniqueFingerprints: number;
+  maxVertices: number;
+  maxTriangles: number;
+  chunksChecked: number;
+  instancesChecked: number;
+}
+
+const GEOMETRY_SEEDS_PER_ARCHETYPE = 20;
+const VERTEX_BUDGET = 1500;
+const TRIANGLE_BUDGET = 1000;
+/** Positions are quantized to half a millimetre for edge identity. */
+const EDGE_QUANTIZE = 5e-4;
+
+function fail(message: string): never {
+  throw new Error(`[stones] ${message}`);
+}
+
+function assert(condition: boolean, message: string): asserts condition {
+  if (!condition) {
+    fail(message);
+  }
+}
+
+function verifyGeometry(summary: StoneVerificationSummary): void {
+  const fingerprints = new Set<number>();
+  for (const archetype of STONE_ARCHETYPE_IDS) {
+    for (let seed = 0; seed < GEOMETRY_SEEDS_PER_ARCHETYPE; seed += 1) {
+      const recipe = resolveStoneRecipe(archetype, seed);
+
+      // Watertightness on the source polyhedron: every undirected edge must
+      // belong to exactly two faces.
+      const polygons = buildStonePolyhedron(recipe);
+      assert(
+        polygons.length >= 5,
+        `${archetype}:${seed} produced only ${polygons.length} faces.`,
+      );
+      const edgeCounts = new Map<string, number>();
+      for (const polygon of polygons) {
+        const count = polygon.points.length;
+        assert(count >= 3, `${archetype}:${seed} has a degenerate polygon.`);
+        for (let index = 0; index < count; index += 1) {
+          const a = polygon.points[index];
+          const b = polygon.points[(index + 1) % count];
+          const keyA = `${Math.round(a.x / EDGE_QUANTIZE)}:${Math.round(a.y / EDGE_QUANTIZE)}:${Math.round(a.z / EDGE_QUANTIZE)}`;
+          const keyB = `${Math.round(b.x / EDGE_QUANTIZE)}:${Math.round(b.y / EDGE_QUANTIZE)}:${Math.round(b.z / EDGE_QUANTIZE)}`;
+          const edgeKey = keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+          edgeCounts.set(edgeKey, (edgeCounts.get(edgeKey) ?? 0) + 1);
+        }
+      }
+      for (const [edge, count] of edgeCounts) {
+        assert(
+          count === 2,
+          `${archetype}:${seed} edge ${edge} borders ${count} faces; the body leaks.`,
+        );
+      }
+
+      const mesh = generateStoneMesh(recipe);
+      const meshAgain = generateStoneMesh(recipe);
+      assert(
+        mesh.metrics.fingerprint === meshAgain.metrics.fingerprint,
+        `${archetype}:${seed} is not deterministic.`,
+      );
+      fingerprints.add(mesh.metrics.fingerprint);
+
+      let minY = Number.POSITIVE_INFINITY;
+      for (let index = 0; index < mesh.positions.length; index += 1) {
+        const value = mesh.positions[index];
+        assert(
+          Number.isFinite(value),
+          `${archetype}:${seed} has a non-finite position.`,
+        );
+        if (index % 3 === 1) {
+          minY = Math.min(minY, value);
+        }
+      }
+      assert(
+        Math.abs(minY) <= 2e-3,
+        `${archetype}:${seed} does not sit on the ground (minY ${minY}).`,
+      );
+      for (let index = 0; index < mesh.tones.length; index += 1) {
+        assert(
+          mesh.tones[index] >= 0 && mesh.tones[index] <= 1,
+          `${archetype}:${seed} tone out of range.`,
+        );
+        assert(
+          mesh.wears[index] >= 0 && mesh.wears[index] <= 1,
+          `${archetype}:${seed} wear out of range.`,
+        );
+      }
+      assert(
+        mesh.metrics.vertexCount <= VERTEX_BUDGET &&
+          mesh.metrics.triangleCount <= TRIANGLE_BUDGET,
+        `${archetype}:${seed} exceeds budgets (${mesh.metrics.vertexCount} verts, ${mesh.metrics.triangleCount} tris).`,
+      );
+      assert(
+        mesh.metrics.triangleCount >= 12,
+        `${archetype}:${seed} is degenerate (${mesh.metrics.triangleCount} tris).`,
+      );
+      assert(
+        mesh.metrics.contactRadius > 0.08,
+        `${archetype}:${seed} has no usable ground contact.`,
+      );
+
+      summary.meshesChecked += 1;
+      summary.maxVertices = Math.max(
+        summary.maxVertices,
+        mesh.metrics.vertexCount,
+      );
+      summary.maxTriangles = Math.max(
+        summary.maxTriangles,
+        mesh.metrics.triangleCount,
+      );
+    }
+  }
+  const total = STONE_ARCHETYPE_IDS.length * GEOMETRY_SEEDS_PER_ARCHETYPE;
+  assert(
+    fingerprints.size >= total * 0.95,
+    `Only ${fingerprints.size} of ${total} stones are unique.`,
+  );
+  summary.uniqueFingerprints = fingerprints.size;
+}
+
+function verifyPlacement(
+  configSource: string,
+  summary: StoneVerificationSummary,
+): void {
+  const config = new WorldConfigLoader().parse(configSource);
+  const terrain = new TerrainField(config);
+  const stones = new StoneField(terrain, config);
+  const stonesAgain = new StoneField(terrain, config);
+  const scratch: never[] = [];
+  const scratchAgain: never[] = [];
+
+  const halfWorldChunks = Math.floor(
+    config.worldSize / config.chunkSize / 2,
+  );
+  const step = Math.max(2, Math.floor(halfWorldChunks / 4));
+  let totalInstances = 0;
+
+  for (
+    let chunkZ = -halfWorldChunks;
+    chunkZ < halfWorldChunks;
+    chunkZ += step
+  ) {
+    for (
+      let chunkX = -halfWorldChunks;
+      chunkX < halfWorldChunks;
+      chunkX += step
+    ) {
+      const instances = stones.collectChunkInstances(
+        chunkX,
+        chunkZ,
+        true,
+        scratch,
+      );
+      const instancesAgain = stonesAgain.collectChunkInstances(
+        chunkX,
+        chunkZ,
+        true,
+        scratchAgain,
+      );
+      assert(
+        JSON.stringify(instances) === JSON.stringify(instancesAgain),
+        `Chunk ${chunkX}:${chunkZ} is not deterministic across field instances.`,
+      );
+      assert(
+        instances.length <= 220,
+        `Chunk ${chunkX}:${chunkZ} holds ${instances.length} stones; density is runaway.`,
+      );
+
+      for (const instance of instances) {
+        assert(
+          Number.isFinite(instance.x) &&
+            Number.isFinite(instance.z) &&
+            Number.isFinite(instance.height) &&
+            Number.isFinite(instance.sink),
+          "Instance carries non-finite values.",
+        );
+        assert(
+          instance.scale >= 0.15 && instance.scale <= 6,
+          `Instance scale ${instance.scale} out of range.`,
+        );
+        assert(
+          instance.normalY >= 0.55,
+          `Instance sits on a rejected slope (normalY ${instance.normalY}).`,
+        );
+
+        // Stones that clear grass must never stand on a walking way. Verge
+        // pebbles are exempt by construction (clearRadius 0).
+        if (instance.clearRadius > 0) {
+          const treadMask = terrain.samplePathGrassMask(
+            instance.x,
+            instance.z,
+            instance.height,
+            0,
+          );
+          assert(
+            treadMask > 0.35,
+            `Stone at ${instance.x.toFixed(1)},${instance.z.toFixed(1)} blocks a walking way (mask ${treadMask.toFixed(2)}).`,
+          );
+          const clearance = stones.sampleGrassClearance(
+            instance.x,
+            instance.z,
+          );
+          assert(
+            clearance <= 0.05,
+            `Grass clearance under a stone is ${clearance.toFixed(2)}; blades would pierce it.`,
+          );
+        }
+      }
+      totalInstances += instances.length;
+      summary.chunksChecked += 1;
+    }
+  }
+  assert(totalInstances > 0, "The scanned world contains no stones at all.");
+  summary.instancesChecked = totalInstances;
+
+  // Far from any stone the clearance mask must be exactly 1. Hunt for an
+  // empty cell rather than assuming one.
+  let foundClearPoint = false;
+  for (let attempt = 0; attempt < 400 && !foundClearPoint; attempt += 1) {
+    const x = -config.worldSize * 0.5 + 7 + attempt * 11.3;
+    const z = -config.worldSize * 0.5 + 9 + ((attempt * 29.7) % config.worldSize);
+    if (Math.abs(x) > config.worldSize * 0.5 - 4) {
+      continue;
+    }
+    const chunkX = Math.floor(x / config.chunkSize);
+    const chunkZ = Math.floor(z / config.chunkSize);
+    const nearby = stones.collectChunkInstances(chunkX, chunkZ, true, scratch);
+    const clear = nearby.every(
+      (instance) =>
+        (instance.x - x) * (instance.x - x) +
+          (instance.z - z) * (instance.z - z) >
+        36,
+    );
+    if (clear) {
+      const mask = stones.sampleGrassClearance(x, z);
+      assert(
+        mask === 1,
+        `Clearance far from stones is ${mask}; grass would thin for no reason.`,
+      );
+      foundClearPoint = true;
+    }
+  }
+  assert(foundClearPoint, "Could not find any stone-free point to test.");
+
+  // The rollback flag must remove everything.
+  const disabledConfig = new WorldConfigLoader().parse(
+    configSource.replace(/^stonesEnabled:\s*1$/m, "stonesEnabled: 0"),
+  );
+  const disabledField = new StoneField(terrain, disabledConfig);
+  const disabledInstances = disabledField.collectChunkInstances(
+    0,
+    0,
+    true,
+    scratch,
+  );
+  assert(
+    disabledInstances.length === 0 &&
+      disabledField.sampleGrassClearance(3, 3) === 1,
+    "stonesEnabled: 0 must disable placement and clearance entirely.",
+  );
+}
+
+export async function verifyStones(configSource: string): Promise<string> {
+  const summary: StoneVerificationSummary = {
+    meshesChecked: 0,
+    uniqueFingerprints: 0,
+    maxVertices: 0,
+    maxTriangles: 0,
+    chunksChecked: 0,
+    instancesChecked: 0,
+  };
+  verifyGeometry(summary);
+  verifyPlacement(configSource, summary);
+  return (
+    `${summary.meshesChecked} meshes (${summary.uniqueFingerprints} unique, ` +
+    `≤${summary.maxVertices} verts, ≤${summary.maxTriangles} tris) · ` +
+    `${summary.instancesChecked} instances across ${summary.chunksChecked} chunks`
+  );
+}

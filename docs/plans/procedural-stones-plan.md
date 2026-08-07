@@ -1,5 +1,9 @@
 # Procedural Stylized Stones — Implementation Plan
 
+> **Superseded.** This document is retained for reference only. See
+> `procedural-stones-review.md` for the findings against it and
+> `procedural-stones-revised-plan.md` for the plan that replaces it.
+
 ## Status
 
 - Target branch: `main`

@@ -84,6 +84,16 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassMinAltitude: {},
   grassMaxAltitude: {},
   grassMaxSlopeDegrees: { minimum: 1, maximum: 89 },
+  stonesEnabled: { minimum: 0, maximum: 1, integer: true },
+  stoneCellSize: { minimum: 8, maximum: 64 },
+  stoneDensity: { minimum: 0, maximum: 3 },
+  stoneVariantsPerArchetype: { minimum: 2, maximum: 16, integer: true },
+  stoneClusterChance: { minimum: 0, maximum: 1 },
+  stoneGrassClearanceFeather: { minimum: 0.1, maximum: 2 },
+  stoneRadiusDesktop: POSITIVE_INTEGER,
+  stoneRadiusCompact: POSITIVE_INTEGER,
+  stoneDetailRadius: POSITIVE_INTEGER,
+  stoneChunksPerFrame: POSITIVE_INTEGER,
   grassNearDistance: POSITIVE,
   grassMidDistance: POSITIVE,
   grassFarDistance: POSITIVE,
@@ -133,8 +143,12 @@ export class WorldConfigLoader {
         `Unable to load world config from ${url}: HTTP ${response.status}.`,
       );
     }
+    return this.parse(await response.text());
+  }
 
-    const values = FlatConfig.parse(await response.text(), "world");
+  /** Parse and validate config source directly; the node verifiers use this. */
+  parse(source: string): WorldConfig {
+    const values = FlatConfig.parse(source, "world");
     const config = {} as WorldConfig;
     for (const key of Object.keys(CONFIG_SCHEMA) as (keyof WorldConfig)[]) {
       config[key] = this.readNumber(values, key, CONFIG_SCHEMA[key]);
@@ -218,6 +232,18 @@ export class WorldConfigLoader {
     }
     if (config.pathBranchWidth > config.pathWidth) {
       throw new Error("pathBranchWidth must not exceed pathWidth.");
+    }
+    if (config.stoneRadiusCompact > config.stoneRadiusDesktop) {
+      throw new Error(
+        "Compact stone radius must not exceed the desktop radius.",
+      );
+    }
+    if (
+      config.stoneRadiusDesktop > config.terrainRadiusDesktop ||
+      config.stoneRadiusCompact > config.terrainRadiusCompact
+    ) {
+      // A stone chunk without terrain under it would visibly float.
+      throw new Error("Stone streaming radius must not exceed terrain radius.");
     }
     // A way whose cleared band approaches the spacing between neighbouring ways
     // stops reading as a path through the grass and starts erasing the field.

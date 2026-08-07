@@ -95,6 +95,21 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
+# Procedural stones. Placement is a pure world-space field: rocky regions
+# gather clusters, biomes and altitude shift family and palette, walking ways
+# stay clear but get lined verges, and grass clears itself around footprints.
+# stonesEnabled: 0 rolls the whole system back.
+stonesEnabled: 1
+stoneCellSize: 16
+stoneDensity: 0.26
+stoneVariantsPerArchetype: 6
+stoneClusterChance: 0.55
+stoneGrassClearanceFeather: 0.55
+stoneRadiusDesktop: 6
+stoneRadiusCompact: 3
+stoneDetailRadius: 3
+stoneChunksPerFrame: 1
+
 grassNearDistance: 24
 grassMidDistance: 80
 # Cheap subpatch impostors carry the matched blade palette almost to the

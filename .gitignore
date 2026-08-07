@@ -32,5 +32,9 @@ preview-tmp/
 # are served by the dev server only and are not inputs to `npm run build`.
 lod-blink.html
 trail-probe.html
+stone-gallery.html
+stone-world.html
 tools/lod-blink/
 tools/trail-probe/
+tools/stone-gallery/
+tools/stone-world/

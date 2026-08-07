@@ -18,6 +18,7 @@ import {
 } from "../../grass/GrassFieldVariation";
 import type { GrassConfig } from "../../grass/GrassConfig";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
+import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
@@ -296,11 +297,18 @@ export class WorldDetailFoliageFactory {
       if (pathMask <= 0) {
         continue;
       }
+      // Accent cards are wider than blades, so they stand a little further
+      // back from stone footprints than the grass does.
+      const stoneMask = sampleStoneGrassClearance(x, z, 0.3);
+      if (stoneMask <= 0.05) {
+        continue;
+      }
       this.field.sampleNormal(x, z, this.normal);
       const suitability =
         this.field.sampleGrassSlopeMask(this.normal) *
         suitabilityWithoutSlope *
-        pathMask;
+        pathMask *
+        stoneMask;
       if (suitability < MIN_SUITABILITY) {
         continue;
       }
