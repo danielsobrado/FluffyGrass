@@ -70,6 +70,7 @@ const subpatchesPerAxis = readConstant(
   tuning,
   "IMPOSTOR_SUBPATCHES_PER_AXIS",
 );
+const maximumAtlasSize = readConstant(tuning, "IMPOSTOR_MAX_ATLAS_SIZE");
 const footprintScale = readConstant(
   lodTuning,
   "GRASS_IMPOSTOR_FOOTPRINT_SCALE",
@@ -97,11 +98,18 @@ assert(
 );
 assert(farInstances === 1, "Far grass must use one source instance per patch.");
 assert(patchSize > 0, "Grass patch size must be positive.");
+assert(
+  Number.isInteger(maximumAtlasSize) && maximumAtlasSize > 0,
+  "Far atlas ceiling must be a positive integer.",
+);
 
 const subpatchCount = subpatchesPerAxis ** 2;
 const cellSize = frameResolution + padding * 2;
 const atlasSize = viewsPerAxis * cellSize * subpatchesPerAxis;
-assert(atlasSize <= 2048, `Far atlas ${atlasSize}px exceeds the mobile-safe 2048px ceiling.`);
+assert(
+  atlasSize <= maximumAtlasSize,
+  `Far atlas ${atlasSize}px exceeds the ${maximumAtlasSize}px ceiling.`,
+);
 
 const subpatchSize = patchSize / subpatchesPerAxis;
 const halfSubpatch = subpatchSize * 0.5;
@@ -133,6 +141,11 @@ assert(
     atlasFactory.includes("grassSubpatchIndex") &&
     atlasFactory.includes("subpatchOffsetRadius * GRASS_IMPOSTOR_MAX_HORIZONTAL_SCALE"),
   "Far atlas geometry must partition blades and include subpatch offsets in bounds.",
+);
+assert(
+  atlasFactory.includes("IMPOSTOR_MAX_ATLAS_SIZE") &&
+    atlasFactory.includes("atlasSize > IMPOSTOR_MAX_ATLAS_SIZE"),
+  "Far atlas allocation must enforce the runtime atlas ceiling.",
 );
 assert(
   atlasFactory.includes("blade.rootX >= 0 ? 1 : 0") &&
