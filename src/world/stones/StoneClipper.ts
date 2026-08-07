@@ -48,6 +48,15 @@ const PLANE_EPSILON = 1e-7;
 /** Adjacent points closer than this collapse; normalized units (~stone ≈ 1). */
 const POINT_MERGE_EPSILON = 2.5e-4;
 const MINIMUM_FACE_AREA = 5e-6;
+/** Local gap-healing passes; each merges at least one pair of corners. */
+const MAX_HEAL_PASSES = 4;
+/**
+ * Radius for merging corners that provably border a hole. Wider than the
+ * global weld because these corners are already known to be spurious.
+ */
+const HEAL_RADIUS = 1.2e-2;
+/** A closed solid needs at least a bottom, a top and three sides. */
+const MINIMUM_BOUNDING_PLANES = 5;
 /** Half-extent of the seed quad laid on each plane before clipping. */
 const FACE_QUAD_EXTENT = 6;
 /** Cuts must clear the contact footprint by this much normalized height. */
@@ -283,6 +292,129 @@ function seedQuadOnPlane(plane: StonePlane): StoneVec3[] {
  * not appear.
  */
 export function facesFromPlanes(planes: StonePlane[]): StonePolygon[] {
+  // Leaks here come from *near-concurrent planes*, not from bad bookkeeping.
+  // Where three planes almost meet at a point, their pairwise intersections
+  // land a fraction of a millimetre apart and leave a tiny triangular gap
+  // between three otherwise correct faces. Welding those corners onto one
+  // representative closes the gap exactly.
+  //
+  // Removing the "offending" plane instead is actively wrong, and was tried:
+  // deleting a face leaves its neighbours holding edges that now border
+  // nothing, which converts one small gap into a larger one. Diagnosed on
+  // shard:142, where the three gap corners sat 1.8e-3 apart — just outside an
+  // earlier 1.5e-3 weld radius.
+  // A single global weld radius cannot close every case: raising it far enough
+  // for the worst near-concurrency starts collapsing legitimate short edges
+  // elsewhere and creates new gaps. So the global pass stays tight and any
+  // residue is healed locally, where a wider radius is known to be safe
+  // because those corners are already provably part of a hole.
+  const faces = healBoundaryGaps(weldFaces(buildFacesOnce(planes)));
+  if (faces.length < MINIMUM_BOUNDING_PLANES) {
+    return faces;
+  }
+  return faces.filter(
+    (face) => polygonArea(face.points) >= MINIMUM_FACE_AREA,
+  );
+}
+
+/**
+ * Close residual holes by merging only the corners that border them.
+ *
+ * Any edge belonging to one face instead of two bounds a hole. Its endpoints
+ * are therefore corners the global weld should have merged and did not, so
+ * they can be merged against each other at a wider radius without risking
+ * geometry that is already correct.
+ */
+function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
+  let current = faces;
+  for (let pass = 0; pass < MAX_HEAL_PASSES; pass += 1) {
+    const counts = new Map<string, number>();
+    for (const face of current) {
+      const count = face.points.length;
+      for (let index = 0; index < count; index += 1) {
+        const key = edgeKey(
+          face.points[index],
+          face.points[(index + 1) % count],
+        );
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+
+    const suspects = new Set<StoneVec3>();
+    for (const face of current) {
+      const count = face.points.length;
+      for (let index = 0; index < count; index += 1) {
+        const a = face.points[index];
+        const b = face.points[(index + 1) % count];
+        if (counts.get(edgeKey(a, b)) !== 2) {
+          suspects.add(a);
+          suspects.add(b);
+        }
+      }
+    }
+    if (suspects.size === 0) {
+      return current;
+    }
+
+    const representatives = new Map<StoneVec3, StoneVec3>();
+    const chosen: StoneVec3[] = [];
+    for (const suspect of suspects) {
+      let match: StoneVec3 | undefined;
+      for (const candidate of chosen) {
+        const dx = candidate.x - suspect.x;
+        const dy = candidate.y - suspect.y;
+        const dz = candidate.z - suspect.z;
+        if (dx * dx + dy * dy + dz * dz <= HEAL_RADIUS * HEAL_RADIUS) {
+          match = candidate;
+          break;
+        }
+      }
+      if (match) {
+        representatives.set(suspect, match);
+      } else {
+        chosen.push(suspect);
+      }
+    }
+    if (representatives.size === 0) {
+      return current;
+    }
+
+    const healed: StonePolygon[] = [];
+    for (const face of current) {
+      const points: StoneVec3[] = [];
+      for (const point of face.points) {
+        const replacement = representatives.get(point) ?? point;
+        if (points.length === 0 || points[points.length - 1] !== replacement) {
+          points.push(replacement);
+        }
+      }
+      while (points.length > 1 && points[0] === points[points.length - 1]) {
+        points.pop();
+      }
+      if (points.length >= 3) {
+        healed.push({ planeId: face.planeId, role: face.role, points });
+      }
+    }
+    current = healed;
+  }
+  return current;
+}
+
+/** Quantization for edge identity; matches the build gate's own check. */
+const EDGE_QUANTIZE = 5e-4;
+/**
+ * Global corner-weld radius. Kept tight: wide enough for ordinary float drift
+ * between independently computed faces, narrow enough not to collapse real
+ * short edges. Residual near-concurrency is handled by {@link healBoundaryGaps}.
+ */
+const WELD_EPSILON = 2e-3;
+
+/**
+ * Build one face per plane by clipping a large quad on that plane against
+ * every other half-space. A plane made redundant by tighter neighbours simply
+ * yields nothing.
+ */
+function buildFacesOnce(planes: StonePlane[]): StonePolygon[] {
   const faces: StonePolygon[] = [];
   for (const plane of planes) {
     let points = seedQuadOnPlane(plane);
@@ -296,25 +428,19 @@ export function facesFromPlanes(planes: StonePlane[]): StonePolygon[] {
       }
     }
     const cleaned = cleanPolygonPoints(points);
-    if (cleaned.length >= 3 && polygonArea(cleaned) >= MINIMUM_FACE_AREA) {
+    if (cleaned.length >= 3) {
       faces.push({ planeId: plane.id, role: plane.role, points: cleaned });
     }
   }
-  return weldFaces(faces);
+  return faces;
 }
 
-/** Weld radius across faces; must stay far below every real feature size. */
-const WELD_EPSILON = 1.5e-3;
+function edgeKey(a: StoneVec3, b: StoneVec3): string {
+  const ka = `${Math.round(a.x / EDGE_QUANTIZE)}:${Math.round(a.y / EDGE_QUANTIZE)}:${Math.round(a.z / EDGE_QUANTIZE)}`;
+  const kb = `${Math.round(b.x / EDGE_QUANTIZE)}:${Math.round(b.y / EDGE_QUANTIZE)}:${Math.round(b.z / EDGE_QUANTIZE)}`;
+  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+}
 
-/**
- * Snap coincident corners of *different* faces onto one shared point.
- *
- * Every face computes its boundary independently, so one geometric corner —
- * the meeting point of three or more planes — arrives once per face with
- * float drift that grows on near-parallel plane pairs. Welding to a shared
- * representative makes the polyhedron exactly closed: without it, sliver
- * chains clean up differently on each side of an edge and the seam leaks.
- */
 function weldFaces(faces: StonePolygon[]): StonePolygon[] {
   const buckets = new Map<string, StoneVec3[]>();
   const representative = (point: StoneVec3): StoneVec3 => {

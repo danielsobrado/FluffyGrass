@@ -112,15 +112,17 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     taper: { min: 0.05, max: 0.1 },
     topScale: { min: 0.68, max: 0.85 },
     topBevelHeight: { min: 0.2, max: 0.3 },
-    topTiltMax: 0.2,
+    topTiltMax: 0.22,
     contactInset: { min: 0.05, max: 0.09 },
     contactBevelHeight: { min: 0.1, max: 0.15 },
     lean: { min: 0, max: 0.08 },
     cutCount: [1, 2],
     cutDepth: { min: 0.06, max: 0.12 },
     cutNormalY: { min: 0.2, max: 0.6 },
-    heightRatio: { min: 0.28, max: 0.45 },
-    depthRatio: { min: 0.85, max: 1.35 },
+    // Below ~0.34 a slab reads as a paper plate once placement scales it up;
+    // uniform scale preserves the ratio, so thickness has to come from here.
+    heightRatio: { min: 0.36, max: 0.54 },
+    depthRatio: { min: 0.85, max: 1.3 },
     edgeWear: 0.8,
     embed: { min: 0.18, max: 0.32 },
   },
@@ -145,20 +147,27 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   shard: {
     id: "shard",
-    sideCount: [6, 7],
-    radiusJitter: { min: 0.05, max: 0.11 },
-    taper: { min: 0.08, max: 0.16 },
-    topScale: { min: 0.45, max: 0.62 },
-    topBevelHeight: { min: 0.18, max: 0.28 },
-    topTiltMax: 0.2,
-    contactInset: { min: 0.04, max: 0.08 },
-    contactBevelHeight: { min: 0.08, max: 0.13 },
-    lean: { min: 0.04, max: 0.14 },
-    cutCount: [1, 2],
-    cutDepth: { min: 0.07, max: 0.13 },
-    cutNormalY: { min: 0.2, max: 0.6 },
-    heightRatio: { min: 0.95, max: 1.45 },
-    depthRatio: { min: 0.78, max: 1.15 },
+    // A shard is an angular leaning wedge, not a pillar. Its character comes
+    // from a small crown plus a strongly tilted top, so the silhouette rises to
+    // a ridge rather than a flat cap: at topScale 0.45+ over a level top it
+    // read as a menhir regardless of how the height was tuned.
+    sideCount: [5, 6],
+    radiusJitter: { min: 0.09, max: 0.18 },
+    taper: { min: 0.13, max: 0.22 },
+    // Crown scale and bevel height trade off against each other: a small crown
+    // under a tall bevel is one continuous taper to an apex, which reads as a
+    // tent. Keeping the bevel a distinct facet band leaves a truncated top.
+    topScale: { min: 0.32, max: 0.48 },
+    topBevelHeight: { min: 0.16, max: 0.28 },
+    topTiltMax: 0.4,
+    contactInset: { min: 0.03, max: 0.06 },
+    contactBevelHeight: { min: 0.06, max: 0.1 },
+    lean: { min: 0.1, max: 0.2 },
+    cutCount: [2, 3],
+    cutDepth: { min: 0.1, max: 0.2 },
+    cutNormalY: { min: 0.1, max: 0.5 },
+    heightRatio: { min: 0.8, max: 1.2 },
+    depthRatio: { min: 0.72, max: 1.05 },
     edgeWear: 0.7,
     embed: { min: 0.08, max: 0.16 },
   },
@@ -221,6 +230,12 @@ export interface StoneRecipe {
 
 const TWO_PI = Math.PI * 2;
 const BASE_RADIUS = 0.5;
+/**
+ * Fractional jitter on the angular gap between neighbouring side planes. At
+ * 0.45 the tightest gap stays near 38% of nominal spacing, matching the floor
+ * the original specification enforced through retries.
+ */
+const SIDE_GAP_JITTER = 0.45;
 /** Cuts closer in direction than this are rotated apart or dropped. */
 const CUT_SIMILARITY_LIMIT = 0.96;
 const GOLDEN_ANGLE = 2.399963229728653;
@@ -246,15 +261,27 @@ export function resolveStoneRecipe(
   const angleOffset = profile.range(0, TWO_PI / sideCount);
   const jitterAmplitude = rangeOf(profile, spec.radiusJitter);
 
+  // Angles are built from jittered *gaps* normalized to a full turn, not from
+  // jittered positions that are then sorted. Independently jittered positions
+  // can land arbitrarily close together, and two nearly coincident side planes
+  // produce a sliver face and a knife-edge silhouette — which is exactly what
+  // a population generated that way looks like. Normalizing gaps bounds the
+  // smallest gap at roughly (1 - jitter) / (1 + jitter) of nominal spacing, so
+  // the ring stays irregular without ever degenerating.
   const angles = root.fork("side-angles");
-  const sideAngles: number[] = [];
-  const maxAngleJitter = (TWO_PI / sideCount) * 0.45;
+  const gaps: number[] = [];
+  let gapTotal = 0;
   for (let side = 0; side < sideCount; side += 1) {
-    sideAngles.push(
-      angleOffset + (side * TWO_PI) / sideCount + angles.signed(maxAngleJitter),
-    );
+    const gap = 1 + angles.signed(SIDE_GAP_JITTER);
+    gaps.push(gap);
+    gapTotal += gap;
   }
-  sideAngles.sort((left, right) => left - right);
+  const sideAngles: number[] = [];
+  let cumulative = angleOffset;
+  for (let side = 0; side < sideCount; side += 1) {
+    sideAngles.push(cumulative);
+    cumulative += (gaps[side] / gapTotal) * TWO_PI;
+  }
 
   const radii = root.fork("side-radii");
   const rawRadii: number[] = [];

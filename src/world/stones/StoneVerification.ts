@@ -21,7 +21,13 @@ interface StoneVerificationSummary {
   instancesChecked: number;
 }
 
-const GEOMETRY_SEEDS_PER_ARCHETYPE = 20;
+/**
+ * Watertightness failures are rare and seed-specific — the near-concurrent
+ * plane cases that caused them showed up at roughly one seed in a thousand, so
+ * a twenty-seed sample would have missed every one. This is cheap enough to
+ * run wide.
+ */
+const GEOMETRY_SEEDS_PER_ARCHETYPE = 250;
 const VERTEX_BUDGET = 1500;
 const TRIANGLE_BUDGET = 1000;
 /** Positions are quantized to half a millimetre for edge identity. */
@@ -79,16 +85,49 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
       fingerprints.add(mesh.metrics.fingerprint);
 
       let minY = Number.POSITIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minZ = Number.POSITIVE_INFINITY;
+      let maxZ = Number.NEGATIVE_INFINITY;
       for (let index = 0; index < mesh.positions.length; index += 1) {
         const value = mesh.positions[index];
         assert(
           Number.isFinite(value),
           `${archetype}:${seed} has a non-finite position.`,
         );
-        if (index % 3 === 1) {
+        const axis = index % 3;
+        if (axis === 0) {
+          minX = Math.min(minX, value);
+          maxX = Math.max(maxX, value);
+        } else if (axis === 1) {
           minY = Math.min(minY, value);
+          maxY = Math.max(maxY, value);
+        } else {
+          minZ = Math.min(minZ, value);
+          maxZ = Math.max(maxZ, value);
         }
       }
+
+      // The recipe's metre dimensions must actually survive into the mesh.
+      // The clipper welds shared corners, so a corner is one object referenced
+      // by every adjacent face; an in-place transform that walks polygon
+      // corners instead of unique points applies the scale once per face and
+      // silently raises each dimension to the power of its face count. Width
+      // is the tell — it is normalized to 1, and 1^n is 1, so only height and
+      // depth visibly collapse. Bounds are compared against the normalized
+      // body's own extent, which the profile keeps near 1.1.
+      const boundsScale = 1.35;
+      assert(
+        maxY - minY <= recipe.height * boundsScale &&
+          maxY - minY >= recipe.height * 0.55,
+        `${archetype}:${seed} height ${(maxY - minY).toFixed(3)} does not match recipe height ${recipe.height.toFixed(3)}; check for repeated transforms on welded corners.`,
+      );
+      assert(
+        maxX - minX <= recipe.width * 1.9 &&
+          maxZ - minZ <= recipe.depth * 1.9,
+        `${archetype}:${seed} footprint ${(maxX - minX).toFixed(2)}x${(maxZ - minZ).toFixed(2)} exceeds recipe ${recipe.width.toFixed(2)}x${recipe.depth.toFixed(2)}.`,
+      );
       assert(
         Math.abs(minY) <= 2e-3,
         `${archetype}:${seed} does not sit on the ground (minY ${minY}).`,

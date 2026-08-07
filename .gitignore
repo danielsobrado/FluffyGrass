@@ -38,3 +38,6 @@ tools/lod-blink/
 tools/trail-probe/
 tools/stone-gallery/
 tools/stone-world/
+
+# Local capture helper for the stone probe pages.
+.shoot.sh

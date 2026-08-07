@@ -1,6 +1,10 @@
 import { hashStoneCell } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
-import type { StonePolygon, StonePlaneRole } from "./StoneClipper";
+import type {
+  StonePolygon,
+  StonePlaneRole,
+  StoneVec3,
+} from "./StoneClipper";
 import { buildStonePolyhedron } from "./StoneClipper";
 
 /**
@@ -95,18 +99,28 @@ function clamp01(value: number): number {
 export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
   const polygons = buildStonePolyhedron(recipe);
 
-  // Final metre-space transform: scale plus lean shear. Lean multiplies by y,
-  // so the contact plane is preserved exactly.
+  // The clipper welds shared corners, so one geometric corner is the *same*
+  // object in every face that touches it. Any in-place edit therefore has to
+  // visit unique objects, not polygon corners — transforming per corner
+  // applies the scale once per adjacent face, which silently cubes it on a
+  // three-face corner and flattens the whole population.
+  const uniquePoints = new Set<StoneVec3>();
   for (const polygon of polygons) {
     for (const point of polygon.points) {
-      const shearedX = point.x + recipe.leanX * point.y;
-      const shearedZ = point.z + recipe.leanZ * point.y;
-      point.x = recipe.width * shearedX;
-      point.y = recipe.height * point.y;
-      point.z = recipe.depth * shearedZ;
-      if (Math.abs(point.y) <= SNAP_EPSILON) {
-        point.y = 0;
-      }
+      uniquePoints.add(point);
+    }
+  }
+
+  // Final metre-space transform: scale plus lean shear. Lean multiplies by y,
+  // so the contact plane is preserved exactly.
+  for (const point of uniquePoints) {
+    const shearedX = point.x + recipe.leanX * point.y;
+    const shearedZ = point.z + recipe.leanZ * point.y;
+    point.x = recipe.width * shearedX;
+    point.y = recipe.height * point.y;
+    point.z = recipe.depth * shearedZ;
+    if (Math.abs(point.y) <= SNAP_EPSILON) {
+      point.y = 0;
     }
   }
 
@@ -128,11 +142,9 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
   if (contactCount > 0) {
     contactX /= contactCount;
     contactZ /= contactCount;
-    for (const polygon of polygons) {
-      for (const point of polygon.points) {
-        point.x -= contactX;
-        point.z -= contactZ;
-      }
+    for (const point of uniquePoints) {
+      point.x -= contactX;
+      point.z -= contactZ;
     }
   }
 
