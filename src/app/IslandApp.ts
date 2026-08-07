@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { GrassDevelopmentController } from "../dev/GrassDevelopmentController";
 import { GrassSystem } from "../grass/GrassSystem";
 import { frameCameraToBounds } from "../runtime/CameraFraming";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
@@ -21,9 +20,12 @@ export class IslandApp {
   private readonly terrainMaterial = new THREE.MeshPhongMaterial({
     color: "#5e875e",
   });
-  private readonly developmentController: GrassDevelopmentController;
+  private islandRoot?: THREE.Object3D;
+  private decorativeRoot?: THREE.Object3D;
+  private decorativeMaterial?: THREE.Material;
   private frameHandle = 0;
   private running = false;
+  private disposed = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -55,40 +57,46 @@ export class IslandApp {
     this.controls.autoRotate = profile.autoRotate;
     this.controls.autoRotateSpeed = -0.5;
     this.grass = new GrassSystem({ scene: this.scene });
-    this.developmentController = new GrassDevelopmentController({
-      renderer: this.renderer,
-      scene: this.scene,
-      camera: this.camera,
-      controls: this.controls,
-      grassSystem: this.grass,
-    });
     this.addLights();
     window.addEventListener("resize", this.handleResize);
   }
 
   async initialize(): Promise<void> {
     const gltf = await this.loader.loadAsync(ISLAND_MODEL_PATH);
+    if (this.disposed) {
+      disposeObjectGeometry(gltf.scene);
+      disposeObjectMaterials(gltf.scene);
+      return;
+    }
+
     gltf.scene.scale.setScalar(MODEL_SCALE);
     gltf.scene.updateWorldMatrix(true, true);
-
     const terrain = this.configureIsland(gltf.scene);
+    this.islandRoot = gltf.scene;
     this.scene.add(gltf.scene);
     const bounds = new THREE.Box3().setFromObject(gltf.scene);
     frameCameraToBounds(this.camera, this.controls, bounds, this.profile);
     await this.grass.initialize(terrain);
+    if (this.disposed) {
+      return;
+    }
 
     if (this.profile.showDecorativeText) {
       void this.loadDecorativeText().catch((error) => {
-        console.error("[FluffyGrass] Decorative text failed to load.", error);
+        if (!this.disposed) {
+          console.error("[FluffyGrass] Decorative text failed to load.", error);
+        }
       });
     }
-    void this.developmentController.run().catch((error) => {
-      console.error("[FluffyGrass] Development tools failed.", error);
+    void this.runDevelopmentTools().catch((error) => {
+      if (!this.disposed) {
+        console.error("[FluffyGrass] Development tools failed.", error);
+      }
     });
   }
 
   start(): void {
-    if (this.running) {
+    if (this.running || this.disposed) {
       return;
     }
     this.running = true;
@@ -97,18 +105,34 @@ export class IslandApp {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.running = false;
     this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
     window.removeEventListener("resize", this.handleResize);
     this.controls.dispose();
     this.grass.dispose();
+    if (this.islandRoot) {
+      this.scene.remove(this.islandRoot);
+      disposeObjectGeometry(this.islandRoot);
+      this.islandRoot = undefined;
+    }
+    if (this.decorativeRoot) {
+      this.scene.remove(this.decorativeRoot);
+      disposeObjectGeometry(this.decorativeRoot);
+      this.decorativeRoot = undefined;
+    }
+    this.decorativeMaterial?.dispose();
+    this.decorativeMaterial = undefined;
     this.terrainMaterial.dispose();
     this.renderer.dispose();
   }
 
   private render = (): void => {
-    if (!this.running) {
+    if (!this.running || this.disposed) {
       return;
     }
     this.frameHandle = requestAnimationFrame(this.render);
@@ -121,6 +145,7 @@ export class IslandApp {
   private configureIsland(root: THREE.Object3D): THREE.Mesh {
     const bounds = new THREE.Box3();
     const size = new THREE.Vector3();
+    const replacedMaterials = new Set<THREE.Material>();
     let terrain: THREE.Mesh | undefined;
     let largestHorizontalArea = Number.NEGATIVE_INFINITY;
 
@@ -128,6 +153,7 @@ export class IslandApp {
       if (!(child instanceof THREE.Mesh)) {
         return;
       }
+      collectMaterials(child.material, replacedMaterials);
       child.material = this.terrainMaterial;
       child.receiveShadow = this.profile.shadows;
       bounds.setFromObject(child).getSize(size);
@@ -137,6 +163,9 @@ export class IslandApp {
         terrain = child;
       }
     });
+    for (const material of replacedMaterials) {
+      material.dispose();
+    }
 
     if (!terrain) {
       throw new Error("Island model does not contain a terrain mesh.");
@@ -158,21 +187,100 @@ export class IslandApp {
 
   private async loadDecorativeText(): Promise<void> {
     const gltf = await this.loader.loadAsync(DECORATIVE_TEXT_MODEL_PATH);
+    if (this.disposed) {
+      disposeObjectGeometry(gltf.scene);
+      disposeObjectMaterials(gltf.scene);
+      return;
+    }
+
+    const originalMaterials = new Set<THREE.Material>();
     const material = new THREE.MeshPhongMaterial({ color: 0x333333 });
     gltf.scene.scale.setScalar(MODEL_SCALE);
     gltf.scene.position.y += 0.5;
     gltf.scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
+        collectMaterials(child.material, originalMaterials);
         child.material = material;
         child.castShadow = this.profile.shadows;
       }
     });
+    for (const original of originalMaterials) {
+      original.dispose();
+    }
+    this.decorativeMaterial = material;
+    this.decorativeRoot = gltf.scene;
     this.scene.add(gltf.scene);
   }
 
+  private async runDevelopmentTools(): Promise<void> {
+    const params = new URLSearchParams(window.location.search);
+    const qaMode = params.get("qa");
+    if (
+      params.get("grassImpostorBake") !== "1" &&
+      qaMode !== "grass" &&
+      qaMode !== "grass-lod"
+    ) {
+      return;
+    }
+    const { GrassDevelopmentController } = await import(
+      "../dev/GrassDevelopmentController"
+    );
+    if (this.disposed) {
+      return;
+    }
+    const controller = new GrassDevelopmentController({
+      renderer: this.renderer,
+      scene: this.scene,
+      camera: this.camera,
+      controls: this.controls,
+      grassSystem: this.grass,
+    });
+    await controller.run();
+  }
+
   private readonly handleResize = (): void => {
+    if (this.disposed) {
+      return;
+    }
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
+}
+
+function collectMaterials(
+  material: THREE.Material | THREE.Material[],
+  target: Set<THREE.Material>,
+): void {
+  if (Array.isArray(material)) {
+    for (const entry of material) {
+      target.add(entry);
+    }
+    return;
+  }
+  target.add(material);
+}
+
+function disposeObjectMaterials(root: THREE.Object3D): void {
+  const materials = new Set<THREE.Material>();
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      collectMaterials(child.material, materials);
+    }
+  });
+  for (const material of materials) {
+    material.dispose();
+  }
+}
+
+function disposeObjectGeometry(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      geometries.add(child.geometry);
+    }
+  });
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
 }
