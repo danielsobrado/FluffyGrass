@@ -204,26 +204,48 @@ extraRadius)`, shaped deliberately like the path mask. Wired into all three
 placement paths in the prototype. The build gate asserts that clearance under
 a stone is ≤ 0.05 and exactly 1 well away from any stone.
 
-## Finding 7 — Phase 10 violates a standing repository instruction
+## Finding 7 — Phase 10's CI automation contradicts repository policy
 
 `CLAUDE.md` states: *"Do not add, configure, or use GitHub Actions in this
 repository."*
 
 Phase 10 specifies PR and scheduled CI workflows (decision 13, deliverables
-list), adds `playwright@1.55.0` as a dependency (decision 38), and gates
-merges on a pinned Playwright Chromium environment (decisions 5, 37, 41).
+list) and gates merges on them (decisions 37, 41). That is the part to remove:
+this project builds and verifies locally, and every plan must assume that.
 
-It also specifies a 49,152-case fuzz population, committed baseline PNGs, a
-release-report schema, and cumulative rollout stages with per-biome emergency
-switches — for a feature that currently draws rocks on a hillside.
+**Playwright itself is fine.** An earlier draft of this review lumped it in
+with the CI objection; that was wrong and is corrected here. Playwright is a
+reasonable tool when a task genuinely needs browser automation, and
+`CLAUDE.md` now says so explicitly. The objection was only ever to running it
+from CI and to gating merges on it. For most stone work the lighter route wins
+anyway — a root probe page plus headless Edge with SwiftShader is what
+produced every image in this review — but nothing prevents reaching for
+Playwright when that is not enough.
+
+Phase 10 also specifies a 49,152-case fuzz population, committed baseline
+PNGs, a release-report schema, and cumulative rollout stages with per-biome
+emergency switches — for a feature that currently draws rocks on a hillside.
 
 **Revision:** one verifier script in the existing style
 (`scripts/verify-stones.mjs`), wired into `npm run build` beside the other
 seven. It checks watertightness, determinism, budgets, ground contact,
 placement determinism across field instances, path clearance, grass clearance,
 and that the rollback flag disables everything. It runs in seconds and needs
-no new dependency. Visual review stays a human looking at a contact sheet,
-which is what it was always going to be.
+no new dependency. Visual review stays a human looking at a contact sheet.
+
+### An honest note on the repository's own state
+
+While applying this finding it turned out the repository *does* contain two
+tracked workflows — `.github/workflows/validate.yml` (build on PR) and
+`deploy-github-pages.yml` (publish on push to `main`) — actively maintained,
+with their action SHAs pinned recently. They predate this work and were not
+touched by it.
+
+So the instruction in `CLAUDE.md` and the contents of `.github/workflows/`
+disagree. The instruction is what governs planning documents: no specification
+in this directory may propose new CI automation. Whether the two existing
+workflows should stay is a separate decision for the repository owner, and is
+deliberately left alone here.
 
 ## Finding 8 — Several validation systems guard against impossible states
 
@@ -265,9 +287,14 @@ and leave the values to tuning against pictures. That is what
 
 ## Summary of disposition
 
+Every document listed below has been **rewritten in place** to match this
+review. None is a superseded relic: each now describes what should actually be
+built, records the measurements behind its changes, and keeps the tuning notes
+that were expensive to discover.
+
 | Old phase | Disposition |
 | --- | --- |
-| Plan (`-plan.md`) | Superseded; visual contract and archetype list survive |
+| Plan (`-plan.md`) | Rewritten; visual contract and archetype language survive |
 | 1 — core geometry | **Keep, with the clipping algorithm replaced** (Finding 2) |
 | 2 — archetype grammar | Keep, merged into the shape stage |
 | 3 — semantic regions & detail | **Cut**; replaced by baked tone/wear (Findings 3, 8) |
@@ -277,4 +304,4 @@ and leave the values to tuning against pictures. That is what
 | 7 — placement | Keep the cell model; use the repo's biome field; **add grass clearance** |
 | 8 — caching, library, instancing | **Cut**; unnecessary once Finding 3 is applied |
 | 9 — authoring bench | Reduce to the gallery harness, and build it **first** |
-| 10 — QA & rollout | **Replace**; one verifier, no Actions, no Playwright |
+| 10 — QA & rollout | **Replace**; one local verifier, no CI workflows |

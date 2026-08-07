@@ -166,8 +166,13 @@ independent field instances, that no grass-clearing stone stands on a walking
 way, that clearance under a stone is ≤ 0.05 and exactly 1 away from stones,
 and that `stonesEnabled: 0` disables everything.
 
-No GitHub Actions (repository instruction), no Playwright, no test framework,
-no new dependency. Visual review is a human and a contact sheet.
+No CI workflows (repository instruction) and no test framework. The verifier
+needs no new dependency. Visual review is a human and a contact sheet,
+captured with a root probe page and headless Edge.
+
+Playwright is available if a check genuinely needs browser automation that the
+probe-page route cannot do — pinned, a devDependency, run locally on demand.
+Nothing in the stone work needs it today.
 
 ## Explicitly not doing
 
