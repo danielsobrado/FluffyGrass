@@ -17,7 +17,6 @@ import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
 import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
-import { appendDetailFoliageAtlasDebugCanvas } from "../world/grass/WorldDetailFoliageAtlasFactory";
 import { GrassArtMenu } from "./GrassArtMenu";
 
 const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
@@ -28,7 +27,7 @@ const FRAME_STALL_THRESHOLD_MS = 1500;
 const CONTEXT_LOST_ERROR = "renderer: WebGL context lost";
 const DESKTOP_STREAMING_BUILD_BUDGET_MS = 8;
 const COMPACT_STREAMING_BUILD_BUDGET_MS = 5;
-// Sun elevation and azimuth are unchanged; only the shadow frustum moved.
+const MAX_RUNTIME_DELTA_SECONDS = 0.25;
 const SUN_DIRECTION = new THREE.Vector3(350, 500, 220).normalize();
 const SUN_SHADOW_DISTANCE = 200;
 const SUN_SHADOW_HALF_EXTENT = 7;
@@ -36,8 +35,6 @@ const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
 type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
 
-// Smoothing for the per-subsystem frame timings. Raw per-frame values jitter far
-// too much to read off a HUD that only refreshes four times a second.
 const FRAME_TIMING_SMOOTHING = 0.1;
 
 export class WorldApp {
@@ -80,6 +77,7 @@ export class WorldApp {
   private sampledGroundZ = Number.NaN;
   private sampledGroundHeight = 0;
   private running = false;
+  private disposed = false;
   private controlsEnabled = true;
   private terrainEnabled = true;
   private grassEnabled = true;
@@ -117,10 +115,6 @@ export class WorldApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
-    // A 14 m shadow box at 1024 resolves ~13 mm per texel, so the extra taps
-    // PCFSoft spends hiding a coarse map are wasted here — and they were being
-    // paid by the terrain and ultra-near grass fragment shaders, the two
-    // largest receivers on screen.
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.pixelRatio = Math.min(window.devicePixelRatio, profile.maxPixelRatio);
     this.applyRendererSize();
@@ -153,11 +147,7 @@ export class WorldApp {
     if (tierOverride !== null && /^\d+$/.test(tierOverride)) {
       this.grass.setQualityTierOverride(Number(tierOverride));
     }
-    // The renderer was sized before the grass existed, so seed the near band's
-    // pixel scale now; every later resize refreshes it.
     this.applyGrassViewportScale();
-    // The trail texture must exist before the controller spawns, because the
-    // controller resets the interaction field and that seeds the trail centre.
     grassTrailField.configure({
       resolution: config.grassTrailResolution,
       coverage: config.grassTrailCoverage,
@@ -210,14 +200,18 @@ export class WorldApp {
       !profile.compact &&
       new URLSearchParams(window.location.search).get("stats") === "1"
     ) {
-      await app.setupStats();
+      try {
+        await app.setupStats();
+      } catch (error) {
+        console.warn("[Drusniel World] Optional stats panel unavailable.", error);
+      }
     }
     void app.initializeGrass();
     return app;
   }
 
   start(): void {
-    if (this.running) {
+    if (this.running || this.disposed) {
       return;
     }
     this.running = true;
@@ -231,6 +225,10 @@ export class WorldApp {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.running = false;
     this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
@@ -244,9 +242,11 @@ export class WorldApp {
     this.terrain.dispose();
     this.grass.dispose();
     grassTrailField.dispose();
-    this.renderer.dispose();
     this.stats?.dom.remove();
+    this.stats = undefined;
     this.artMenu?.dispose();
+    this.artMenu = undefined;
+    this.renderer.dispose();
   }
 
   private bindRuntimeEvents(): void {
@@ -260,6 +260,9 @@ export class WorldApp {
   private readonly applyGrassArtDirection = (
     direction: GrassArtDirection,
   ): void => {
+    if (this.disposed) {
+      return;
+    }
     this.currentArtDirection = direction;
     this.terrain.setGrassArtDirection(direction);
     this.grass.setArtDirection(direction);
@@ -288,34 +291,49 @@ export class WorldApp {
   private async initializeGrass(): Promise<void> {
     try {
       await this.grass.initialize();
-      // `?accentAtlas=1` pins the baked detail-foliage atlas to the page so its
-      // cells can be eyeballed, the same development route `?grassImpostorBake=1`
-      // provides for the impostor atlas.
+      if (this.disposed) {
+        return;
+      }
       if (new URLSearchParams(window.location.search).get("accentAtlas") === "1") {
         const atlas = this.grass.getDetailFoliageAtlas();
         if (atlas) {
-          appendDetailFoliageAtlasDebugCanvas(atlas);
+          const { appendDetailFoliageAtlasDebugCanvas } = await import(
+            "../world/grass/WorldDetailFoliageAtlasFactory"
+          );
+          if (!this.disposed) {
+            appendDetailFoliageAtlasDebugCanvas(atlas);
+          }
         }
       }
     } catch (error) {
+      if (this.disposed) {
+        return;
+      }
       console.error("[Drusniel World] Grass initialization failed.", error);
       this.grassInitializationError = this.formatError(error);
       this.grassEnabled = false;
     } finally {
-      this.grassInitializing = false;
-      this.lastFrameTimestamp = performance.now();
+      if (!this.disposed) {
+        this.grassInitializing = false;
+        this.lastFrameTimestamp = performance.now();
+      }
     }
   }
 
   private render = (): void => {
-    if (!this.running) {
+    if (!this.running || this.disposed) {
       return;
     }
 
     this.frameHandle = requestAnimationFrame(this.render);
     this.lastFrameTimestamp = performance.now();
     this.frameCount += 1;
-    const deltaSeconds = this.clock.getDelta();
+    const rawDeltaSeconds = this.clock.getDelta();
+    const deltaSeconds = THREE.MathUtils.clamp(
+      Number.isFinite(rawDeltaSeconds) ? rawDeltaSeconds : 0,
+      0,
+      MAX_RUNTIME_DELTA_SECONDS,
+    );
     const streamingBudgetMs = this.profile.compact
       ? COMPACT_STREAMING_BUILD_BUDGET_MS
       : DESKTOP_STREAMING_BUILD_BUDGET_MS;
@@ -373,8 +391,6 @@ export class WorldApp {
   };
 
   private readonly updateGrass = (deltaSeconds: number): void => {
-    // Consumes the contacts the controller submitted this frame, so it has to
-    // run before the materials pick up the texture.
     grassTrailField.render(deltaSeconds);
     const cameraGroundHeight = this.flyMode
       ? this.sampleGroundHeight(this.camera.position)
@@ -393,7 +409,7 @@ export class WorldApp {
   };
 
   private readonly checkFrameHeartbeat = (): void => {
-    if (!this.running || document.hidden) {
+    if (!this.running || this.disposed || document.hidden) {
       return;
     }
     if (this.grassInitializing) {
@@ -459,13 +475,6 @@ export class WorldApp {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  /**
-   * How much world a device pixel covers per metre of camera distance. The near
-   * grass band widens blades that would otherwise project narrower than this,
-   * which is what stops a field of sub-pixel opaque blades from sparkling as
-   * the camera moves. Both inputs change on resize and on a field-of-view
-   * change, so it is recomputed with the renderer size rather than cached.
-   */
   private applyGrassViewportScale(): void {
     const bufferHeight = this.renderer.getDrawingBufferSize(
       this.drawingBufferSize,
@@ -485,9 +494,6 @@ export class WorldApp {
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
     sun.position.copy(SUN_DIRECTION).multiplyScalar(SUN_SHADOW_DISTANCE);
     sun.castShadow = this.profile.shadows && !this.flyMode;
-    // The character meshes are the only shadow casters in the world scene:
-    // terrain and every grass layer set castShadow = false. A frustum sized for
-    // the streamed world therefore spent its whole resolution on empty ground.
     sun.shadow.camera.left = -SUN_SHADOW_HALF_EXTENT;
     sun.shadow.camera.right = SUN_SHADOW_HALF_EXTENT;
     sun.shadow.camera.top = SUN_SHADOW_HALF_EXTENT;
@@ -495,8 +501,6 @@ export class WorldApp {
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = SUN_SHADOW_DISTANCE * 2;
     sun.shadow.camera.updateProjectionMatrix();
-    // Texels are now ~13 mm instead of ~176 mm, so the constant depth bias that
-    // a coarse map needs would detach the shadow. Scale-aware normal bias only.
     sun.shadow.normalBias = 0.02;
     sun.shadow.mapSize.set(
       this.profile.shadowMapSize,
@@ -508,11 +512,6 @@ export class WorldApp {
     this.updateSunShadow();
   }
 
-  /**
-   * Keeps the sun's shadow box centred on the only shadow caster in the scene.
-   * The centre is quantised to whole shadow texels in the light's own basis;
-   * without that the shadow edge crawls as the character walks.
-   */
   private updateSunShadow(): void {
     const sun = this.sun;
     if (!sun || !sun.castShadow) {
@@ -522,7 +521,6 @@ export class WorldApp {
     const focus = this.controls.getStreamingPosition();
     const texelSize =
       (2 * SUN_SHADOW_HALF_EXTENT) / Math.max(1, this.profile.shadowMapSize);
-    // Match three's lookAt basis: z points from the target back to the light.
     const zAxis = SUN_DIRECTION;
     this.shadowAxisX.crossVectors(UP_AXIS, zAxis).normalize();
     this.shadowAxisY.crossVectors(zAxis, this.shadowAxisX);
@@ -546,9 +544,17 @@ export class WorldApp {
 
   private async setupStats(): Promise<void> {
     const { default: StatsPanel } = await import("stats-gl");
-    this.stats = new StatsPanel({ minimal: true });
-    this.stats.init(this.renderer);
-    document.body.appendChild(this.stats.dom);
+    if (this.disposed) {
+      return;
+    }
+    const stats = new StatsPanel({ minimal: true });
+    stats.init(this.renderer);
+    if (this.disposed) {
+      stats.dom.remove();
+      return;
+    }
+    document.body.appendChild(stats.dom);
+    this.stats = stats;
   }
 
   private constrainCamera(): void {
@@ -619,23 +625,33 @@ export class WorldApp {
   }
 
   private readonly handleWindowError = (event: ErrorEvent): void => {
-    this.runtimeError = `window: ${this.formatError(event.error ?? event.message)}`;
+    if (!this.disposed) {
+      this.runtimeError = `window: ${this.formatError(event.error ?? event.message)}`;
+    }
   };
 
   private readonly handleUnhandledRejection = (
     event: PromiseRejectionEvent,
   ): void => {
-    this.runtimeError = `promise: ${this.formatError(event.reason)}`;
+    if (!this.disposed) {
+      this.runtimeError = `promise: ${this.formatError(event.reason)}`;
+    }
   };
 
   private readonly handleContextLost = (event: Event): void => {
     event.preventDefault();
+    if (this.disposed) {
+      return;
+    }
     this.rendererEnabled = false;
     this.runtimeErrorBeforeContextLoss = this.runtimeError;
     this.runtimeError = CONTEXT_LOST_ERROR;
   };
 
   private readonly handleContextRestored = (): void => {
+    if (this.disposed) {
+      return;
+    }
     this.rendererEnabled = true;
     if (this.runtimeError === CONTEXT_LOST_ERROR) {
       this.runtimeError = this.runtimeErrorBeforeContextLoss;
@@ -644,6 +660,9 @@ export class WorldApp {
   };
 
   private readonly handleResize = (): void => {
+    if (this.disposed) {
+      return;
+    }
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.applyRendererSize();
