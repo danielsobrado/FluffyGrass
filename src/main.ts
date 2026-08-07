@@ -5,6 +5,11 @@ import { APP_VERSION, BUILD_LABEL } from "./version";
 
 interface RunnableApp {
   start(): void;
+  dispose(): void;
+}
+
+interface Disposable {
+  dispose(): void;
 }
 
 const WORLD_NAME = "Drusniel World";
@@ -58,6 +63,7 @@ async function bootstrap(): Promise<void> {
       : `${WORLD_NAME} · Island Regression`;
 
   let app: RunnableApp;
+  let diagnostics: Disposable | undefined;
   if (sceneMode === "island") {
     const { IslandApp } = await import("./app/IslandApp");
     const island = new IslandApp(canvas, profile);
@@ -66,17 +72,31 @@ async function bootstrap(): Promise<void> {
   } else {
     const { WorldApp } = await import("./app/WorldApp");
     const world = await WorldApp.create(canvas, profile);
-    const { WorldDiagnosticsController } = await import(
-      "./runtime/WorldDiagnosticsController"
-    );
-    WorldDiagnosticsController.attach(world, {
-      gpuTiming: params.get("gpuTiming") === "1",
-      statsPanelEnabled: params.get("stats") === "1",
-    });
+    const diagnosticsEnabled =
+      params.get("diagnostics") === "1" ||
+      params.get("gpuTiming") === "1" ||
+      params.get("stats") === "1";
+    if (diagnosticsEnabled) {
+      const { WorldDiagnosticsController } = await import(
+        "./runtime/WorldDiagnosticsController"
+      );
+      diagnostics = WorldDiagnosticsController.attach(world, {
+        gpuTiming: params.get("gpuTiming") === "1",
+        statsPanelEnabled: params.get("stats") === "1",
+      });
+    }
     app = world;
   }
 
   app.start();
+  window.addEventListener(
+    "pagehide",
+    () => {
+      diagnostics?.dispose();
+      app.dispose();
+    },
+    { once: true },
+  );
 }
 
 function resolveSceneLabel(
