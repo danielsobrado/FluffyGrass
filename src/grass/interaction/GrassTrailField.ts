@@ -61,6 +61,7 @@ const QUANTIZED_RECOVERY_FLOOR_RATIO = 0.3;
 /** The trail simulation does not need to run at the display refresh rate. */
 const UPDATE_INTERVAL_SECONDS = 1 / 30;
 const UPDATE_INTERVAL_EPSILON_SECONDS = 1e-6;
+const MAX_FRAME_DELTA_SECONDS = 0.1;
 const CONTACT_VALUE_COUNT = 8;
 
 const UPDATE_VERTEX_SHADER = `
@@ -206,10 +207,11 @@ class GrassTrailField {
   private enabled = false;
 
   configure(config: Partial<GrassTrailConfig>): void {
-    this.config = { ...this.config, ...config };
-    this.inverseCoverage = 1 / Math.max(this.config.coverage, 0.001);
+    const next = { ...this.config, ...config };
+    validateConfig(next);
+    this.config = next;
+    this.inverseCoverage = 1 / this.config.coverage;
     if (this.renderer) {
-      // Resolution is baked into the targets, so rebuild them.
       const renderer = this.renderer;
       this.releaseTargets();
       this.attach(renderer);
@@ -221,61 +223,67 @@ class GrassTrailField {
       if (this.renderer === renderer) {
         return;
       }
-      // A different renderer owns different GL resources, and the live config
-      // may have moved since these targets were sized. Rebuild rather than
-      // keeping targets that belong to someone else.
       this.releaseTargets();
     }
     this.renderer = renderer;
-    const size = this.targetSize();
-    const type = resolveTargetType(renderer);
-    this.recoveryFloorRatio =
-      type === THREE.HalfFloatType
-        ? PRECISE_RECOVERY_FLOOR_RATIO
-        : QUANTIZED_RECOVERY_FLOOR_RATIO;
-    this.targets = [createTarget(size, type), createTarget(size, type)];
+    try {
+      const size = this.targetSize();
+      const type = resolveTargetType(renderer);
+      this.recoveryFloorRatio =
+        type === THREE.HalfFloatType
+          ? PRECISE_RECOVERY_FLOOR_RATIO
+          : QUANTIZED_RECOVERY_FLOOR_RATIO;
+      this.targets = [createTarget(size, type), createTarget(size, type)];
 
-    this.material = new THREE.ShaderMaterial({
-      vertexShader: UPDATE_VERTEX_SHADER,
-      fragmentShader: UPDATE_FRAGMENT_SHADER,
-      depthTest: false,
-      depthWrite: false,
-      uniforms: {
-        uPrevious: { value: this.targets[0].texture },
-        uCenter: { value: new THREE.Vector2() },
-        uPreviousCenter: { value: new THREE.Vector2() },
-        uCoverage: { value: this.config.coverage },
-        uInitialize: { value: 0 },
-        uDelta: { value: 0 },
-        uRecoveryRate: { value: this.config.recoveryRate },
-        uRecoveryFloor: {
-          value: this.config.recoveryRate * this.recoveryFloorRatio,
+      this.material = new THREE.ShaderMaterial({
+        vertexShader: UPDATE_VERTEX_SHADER,
+        fragmentShader: UPDATE_FRAGMENT_SHADER,
+        depthTest: false,
+        depthWrite: false,
+        uniforms: {
+          uPrevious: { value: this.targets[0].texture },
+          uCenter: { value: new THREE.Vector2() },
+          uPreviousCenter: { value: new THREE.Vector2() },
+          uCoverage: { value: this.config.coverage },
+          uInitialize: { value: 0 },
+          uDelta: { value: 0 },
+          uRecoveryRate: { value: this.config.recoveryRate },
+          uRecoveryFloor: {
+            value: this.config.recoveryRate * this.recoveryFloorRatio,
+          },
+          uFreshnessRate: { value: this.config.freshnessRate },
+          uContactCount: { value: 0 },
+          uContacts: {
+            value: Array.from(
+              { length: GRASS_TRAIL_MAX_CONTACTS },
+              () => new THREE.Vector4(),
+            ),
+          },
+          uContactShapes: {
+            value: Array.from(
+              { length: GRASS_TRAIL_MAX_CONTACTS },
+              () => new THREE.Vector4(0, 1, 0, 0),
+            ),
+          },
         },
-        uFreshnessRate: { value: this.config.freshnessRate },
-        uContactCount: { value: 0 },
-        uContacts: {
-          value: Array.from(
-            { length: GRASS_TRAIL_MAX_CONTACTS },
-            () => new THREE.Vector4(),
-          ),
-        },
-        uContactShapes: {
-          value: Array.from(
-            { length: GRASS_TRAIL_MAX_CONTACTS },
-            () => new THREE.Vector4(0, 1, 0, 0),
-          ),
-        },
-      },
-    });
-    this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
-    this.quad.frustumCulled = false;
-    this.scene.add(this.quad);
-    this.enabled = true;
-    this.primeTargets();
+      });
+      this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
+      this.quad.frustumCulled = false;
+      this.scene.add(this.quad);
+      this.enabled = true;
+      this.primeTargets();
+    } catch (error) {
+      this.releaseTargets();
+      this.renderer = undefined;
+      throw error;
+    }
   }
 
   /** Called once per frame by whoever drives the character. */
   setFocus(x: number, z: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      return;
+    }
     this.focus.set(x, z);
     this.hasFocus = true;
   }
@@ -291,6 +299,16 @@ class GrassTrailField {
     directionalBlend: number,
   ): void {
     if (
+      !areFinite(
+        x,
+        z,
+        radius,
+        strength,
+        directionX,
+        directionZ,
+        innerRadiusFraction,
+        directionalBlend,
+      ) ||
       strength <= 0 ||
       radius <= 0 ||
       this.contactCount >= GRASS_TRAIL_MAX_CONTACTS
@@ -318,32 +336,30 @@ class GrassTrailField {
     const renderer = this.renderer;
     const targets = this.targets;
     const material = this.material;
-    // Without a focus nothing has ever driven this field — the fly camera, for
-    // instance, has no character. Skip the pass rather than decay neutral.
     if (!renderer || !targets || !material || !this.enabled || !this.hasFocus) {
-      this.contactCount = 0;
-      this.accumulatedDeltaSeconds = 0;
+      this.resetPendingFrame();
+      return;
+    }
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+      this.resetPendingFrame();
       return;
     }
 
     this.accumulatedDeltaSeconds = Math.min(
-      0.1,
-      this.accumulatedDeltaSeconds + THREE.MathUtils.clamp(deltaSeconds, 0, 0.1),
+      MAX_FRAME_DELTA_SECONDS,
+      this.accumulatedDeltaSeconds +
+        Math.min(deltaSeconds, MAX_FRAME_DELTA_SECONDS),
     );
     if (
       this.accumulatedDeltaSeconds + UPDATE_INTERVAL_EPSILON_SECONDS <
       UPDATE_INTERVAL_SECONDS
     ) {
-      // Callers submit the complete current contact set every frame. Discard a
-      // skipped frame rather than accumulating duplicate idle stamps.
       this.contactCount = 0;
       return;
     }
     const delta = this.accumulatedDeltaSeconds;
     this.accumulatedDeltaSeconds = 0;
     this.previousCenter.copy(this.center);
-    // Snap the centre to whole texels. Without this the reprojection resamples
-    // on a sub-texel offset every frame and the trail crawls.
     const texelSize = this.config.coverage / this.targetSize();
     this.center.set(
       Math.round(this.focus.x / texelSize) * texelSize,
@@ -383,10 +399,13 @@ class GrassTrailField {
 
     const writeTarget = 1 - this.readTarget;
     const previousRenderTarget = renderer.getRenderTarget();
-    renderer.setRenderTarget(targets[writeTarget]);
-    renderer.render(this.scene, this.camera);
-    renderer.setRenderTarget(previousRenderTarget);
-    this.readTarget = writeTarget;
+    try {
+      renderer.setRenderTarget(targets[writeTarget]);
+      renderer.render(this.scene, this.camera);
+      this.readTarget = writeTarget;
+    } finally {
+      renderer.setRenderTarget(previousRenderTarget);
+    }
   }
 
   isEnabled(): boolean {
@@ -416,17 +435,16 @@ class GrassTrailField {
     this.renderer = undefined;
     this.enabled = false;
     this.hasFocus = false;
-    this.contactCount = 0;
-    this.accumulatedDeltaSeconds = 0;
+    this.resetPendingFrame();
   }
 
-  /**
-   * Texels per axis of the render targets. The texel snapping in {@link render}
-   * has to agree with the size the targets were actually built at, so both go
-   * through here.
-   */
   private targetSize(): number {
     return Math.max(32, Math.round(this.config.resolution));
+  }
+
+  private resetPendingFrame(): void {
+    this.contactCount = 0;
+    this.accumulatedDeltaSeconds = 0;
   }
 
   private releaseTargets(): void {
@@ -461,13 +479,35 @@ class GrassTrailField {
     material.uniforms.uContactCount.value = 0;
     material.uniforms.uDelta.value = 0;
     const previousRenderTarget = renderer.getRenderTarget();
-    for (const target of targets) {
-      renderer.setRenderTarget(target);
-      renderer.render(this.scene, this.camera);
+    try {
+      for (const target of targets) {
+        renderer.setRenderTarget(target);
+        renderer.render(this.scene, this.camera);
+      }
+    } finally {
+      renderer.setRenderTarget(previousRenderTarget);
+      material.uniforms.uInitialize.value = 0;
     }
-    renderer.setRenderTarget(previousRenderTarget);
-    material.uniforms.uInitialize.value = 0;
   }
+}
+
+function validateConfig(config: GrassTrailConfig): void {
+  if (!Number.isInteger(config.resolution) || config.resolution < 32) {
+    throw new Error("Grass trail resolution must be an integer of at least 32.");
+  }
+  for (const [label, value] of [
+    ["coverage", config.coverage],
+    ["recoveryRate", config.recoveryRate],
+    ["freshnessRate", config.freshnessRate],
+  ] as const) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`Grass trail ${label} must be a positive finite number.`);
+    }
+  }
+}
+
+function areFinite(...values: number[]): boolean {
+  return values.every(Number.isFinite);
 }
 
 /**
@@ -499,8 +539,6 @@ function createTarget(
     stencilBuffer: false,
     generateMipmaps: false,
   });
-  // Data, not colour: an sRGB transfer on either end would skew the stored
-  // direction and crush values.
   target.texture.colorSpace = THREE.NoColorSpace;
   return target;
 }
