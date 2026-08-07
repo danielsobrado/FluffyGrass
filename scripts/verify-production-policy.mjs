@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -12,18 +12,24 @@ function fail(message) {
   throw new Error(`[production-policy] ${message}`);
 }
 
-if (existsSync(WORKFLOW_DIRECTORY)) {
-  const workflowFiles = readdirSync(WORKFLOW_DIRECTORY, {
-    recursive: true,
-    withFileTypes: true,
-  })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        WORKFLOW_EXTENSIONS.has(extname(entry.name).toLowerCase()),
-    )
-    .map((entry) => entry.name);
+function findWorkflowFiles(directory) {
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...findWorkflowFiles(path));
+    } else if (
+      entry.isFile() &&
+      WORKFLOW_EXTENSIONS.has(extname(entry.name).toLowerCase())
+    ) {
+      files.push(relative(REPOSITORY_ROOT, path));
+    }
+  }
+  return files;
+}
 
+if (existsSync(WORKFLOW_DIRECTORY)) {
+  const workflowFiles = findWorkflowFiles(WORKFLOW_DIRECTORY);
   if (workflowFiles.length > 0) {
     fail(
       `GitHub Actions are not allowed in this repository: ${workflowFiles.join(", ")}.`,
@@ -38,9 +44,12 @@ if (deployScript.includes("ALLOW_DIRTY_DEPLOY")) {
 if (
   !deployScript.includes('sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main"') ||
   !deployScript.includes("must exactly match") ||
-  !deployScript.includes('["status", "--porcelain"]')
+  !deployScript.includes('["status", "--porcelain"]') ||
+  !deployScript.includes("assertSourceStillCurrent(sourceHead)")
 ) {
-  fail("Manual deployment must require a clean source branch synchronized with its remote.");
+  fail(
+    "Manual deployment must require a clean synchronized source branch and reject stale builds.",
+  );
 }
 
 console.log("[production-policy] No-Actions and manual deployment policies verified.");
