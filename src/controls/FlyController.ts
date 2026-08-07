@@ -22,6 +22,7 @@ export interface FlySpawn {
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_TOUCH_DISTANCE = 70;
+const MAX_FRAME_DELTA_SECONDS = 0.1;
 const POINTER_LOOK_SENSITIVITY = 0.004;
 const MOUSE_LOOK_SENSITIVITY = 0.0022;
 
@@ -44,6 +45,8 @@ export class FlyController {
   private mobileControls?: HTMLElement;
   private inputEventCount = 0;
   private lastInputType = "idle";
+  private previousTouchAction = "";
+  private disposed = false;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -56,6 +59,7 @@ export class FlyController {
     this.spawnPosition.copy(spawn.position);
     this.spawnYaw = spawn.yaw;
     this.spawnPitch = spawn.pitch;
+    this.previousTouchAction = canvas.style.touchAction;
     this.reset();
     this.bindEvents();
     if (profile.compact) {
@@ -64,7 +68,14 @@ export class FlyController {
   }
 
   update(deltaSeconds: number): void {
-    const delta = Math.min(Math.max(deltaSeconds, 0), 0.1);
+    if (this.disposed) {
+      return;
+    }
+    const delta = THREE.MathUtils.clamp(
+      Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
+      0,
+      MAX_FRAME_DELTA_SECONDS,
+    );
     const keyboardForward =
       (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0) -
       (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0);
@@ -120,6 +131,9 @@ export class FlyController {
   }
 
   reset(): void {
+    if (this.disposed) {
+      return;
+    }
     this.camera.position.copy(this.spawnPosition);
     this.yaw = this.spawnYaw;
     this.pitch = this.spawnPitch;
@@ -142,6 +156,10 @@ export class FlyController {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("blur", this.handleWindowBlur);
@@ -166,7 +184,10 @@ export class FlyController {
       window.removeEventListener("touchcancel", this.handleTouchEnd);
     }
 
+    this.clearTransientInput();
     this.mobileControls?.remove();
+    this.mobileControls = undefined;
+    this.canvas.style.touchAction = this.previousTouchAction;
   }
 
   private bindEvents(): void {
