@@ -63,43 +63,50 @@ async function bootstrap(): Promise<void> {
       ? `${WORLD_NAME} · ${APP_VERSION}`
       : `${WORLD_NAME} · Island Regression`;
 
-  let app: RunnableApp;
+  let app: RunnableApp | undefined;
   let diagnostics: Disposable | undefined;
-  if (sceneMode === "island") {
-    const { IslandApp } = await import("./app/IslandApp");
-    const island = new IslandApp(canvas, profile);
-    await island.initialize();
-    app = island;
-  } else {
-    const { WorldApp } = await import("./app/WorldApp");
-    const world = await WorldApp.create(canvas, profile);
-    const diagnosticsEnabled =
-      params.get("diagnostics") === "1" ||
-      params.get("gpuTiming") === "1" ||
-      params.get("stats") === "1";
-    if (diagnosticsEnabled) {
-      const { WorldDiagnosticsController } = await import(
-        "./runtime/WorldDiagnosticsController"
-      );
-      diagnostics = WorldDiagnosticsController.attach(world, {
-        gpuTiming: params.get("gpuTiming") === "1",
-        statsPanelEnabled: params.get("stats") === "1",
-      });
+  try {
+    if (sceneMode === "island") {
+      const { IslandApp } = await import("./app/IslandApp");
+      const island = new IslandApp(canvas, profile);
+      app = island;
+      await island.initialize();
+    } else {
+      const { WorldApp } = await import("./app/WorldApp");
+      const world = await WorldApp.create(canvas, profile);
+      app = world;
+      const diagnosticsEnabled =
+        params.get("diagnostics") === "1" ||
+        params.get("gpuTiming") === "1" ||
+        params.get("stats") === "1";
+      if (diagnosticsEnabled) {
+        const { WorldDiagnosticsController } = await import(
+          "./runtime/WorldDiagnosticsController"
+        );
+        diagnostics = WorldDiagnosticsController.attach(world, {
+          gpuTiming: params.get("gpuTiming") === "1",
+          statsPanelEnabled: params.get("stats") === "1",
+        });
+      }
     }
-    app = world;
-  }
 
-  app.start();
-  let disposed = false;
-  window.addEventListener("pagehide", (event) => {
-    if (event.persisted || disposed) {
-      return;
-    }
-    disposed = true;
+    app.start();
+    let disposed = false;
+    window.addEventListener("pagehide", (event) => {
+      if (event.persisted || disposed) {
+        return;
+      }
+      disposed = true;
+      diagnostics?.dispose();
+      uiController.dispose();
+      app?.dispose();
+    });
+  } catch (error) {
     diagnostics?.dispose();
+    app?.dispose();
     uiController.dispose();
-    app.dispose();
-  });
+    throw error;
+  }
 }
 
 function resolveSceneLabel(
