@@ -30,6 +30,11 @@ function run(command, args, options = {}) {
     cwd: options.cwd ?? REPOSITORY_ROOT,
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
+    // Node refuses to spawnSync a .cmd shim without a shell (the fix for
+    // CVE-2024-27980, from 18.20.2 / 20.12.2 on), and npm on Windows is
+    // npm.cmd — so this failed with a bare EINVAL. Only batch files need it,
+    // and git is a real executable, so the shell stays off everywhere else.
+    shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(command),
   });
 
   if (result.error) {
