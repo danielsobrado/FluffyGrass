@@ -66,13 +66,19 @@ float stoneGrowthNoise(vec2 p) {
 
 vec2 stoneGrowthProjection(vec3 position, vec3 normal) {
   vec3 axis = abs(normal);
-  if (axis.y >= axis.x && axis.y >= axis.z) {
-    return position.xz;
-  }
-  if (axis.x >= axis.z) {
-    return position.zy;
-  }
+  if (axis.y >= axis.x && axis.y >= axis.z) return position.xz;
+  if (axis.x >= axis.z) return position.zy;
   return position.xy;
+}
+
+float stoneColony(vec3 point, vec3 center, float innerRadius, float outerRadius) {
+  vec3 delta = point - center;
+  float distanceSquared = dot(delta, delta);
+  return 1.0 - smoothstep(
+    innerRadius * innerRadius,
+    outerRadius * outerRadius,
+    distanceSquared
+  );
 }
 `;
 
@@ -93,7 +99,10 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   float stoneLichenColorVariation = 1.0;
 
   if (stoneDetailWeight > 0.001) {
-    vec3 stoneGrowthNormal = normalize(vStoneWorldNormal);
+    // Merged stone geometry is flat shaded: every vertex of a logical face has
+    // the same packed unit normal, so interpolation does not require a fragment
+    // normalize. Avoiding that square root matters on close mossy faces.
+    vec3 stoneGrowthNormal = vStoneWorldNormal;
     vec2 stoneGrowthOffset = vec2(
       vStoneGrowthSeed * 37.17,
       vStoneGrowthSeed * 71.93
@@ -126,23 +135,29 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
       stoneGrowthHash(vec2(vStoneGrowthSeed * 117.1, 28.2)) - 0.5
     ) * vec3(0.86, 1.0, 0.86);
     float stoneColonyDistortion = (stoneColonyNoise - 0.5) * 0.2;
-    float stoneColonyA = 1.0 - smoothstep(
-      0.29,
-      0.41,
-      distance(stoneGrowthLocalPosition, stoneColonyCenterA) +
-        stoneColonyDistortion
+    float stoneColonyInnerA = max(0.03, 0.29 - stoneColonyDistortion);
+    float stoneColonyOuterA = max(stoneColonyInnerA + 0.03, 0.41 - stoneColonyDistortion);
+    float stoneColonyInnerB = max(0.03, 0.26 - stoneColonyDistortion);
+    float stoneColonyOuterB = max(stoneColonyInnerB + 0.03, 0.37 - stoneColonyDistortion);
+    float stoneColonyInnerC = max(0.03, 0.22 - stoneColonyDistortion);
+    float stoneColonyOuterC = max(stoneColonyInnerC + 0.03, 0.32 - stoneColonyDistortion);
+    float stoneColonyA = stoneColony(
+      stoneGrowthLocalPosition,
+      stoneColonyCenterA,
+      stoneColonyInnerA,
+      stoneColonyOuterA
     );
-    float stoneColonyB = 1.0 - smoothstep(
-      0.26,
-      0.37,
-      distance(stoneGrowthLocalPosition, stoneColonyCenterB) +
-        stoneColonyDistortion
+    float stoneColonyB = stoneColony(
+      stoneGrowthLocalPosition,
+      stoneColonyCenterB,
+      stoneColonyInnerB,
+      stoneColonyOuterB
     );
-    float stoneColonyC = 1.0 - smoothstep(
-      0.22,
-      0.32,
-      distance(stoneGrowthLocalPosition, stoneColonyCenterC) +
-        stoneColonyDistortion
+    float stoneColonyC = stoneColony(
+      stoneGrowthLocalPosition,
+      stoneColonyCenterC,
+      stoneColonyInnerC,
+      stoneColonyOuterC
     );
     float stoneConnectedColonies = max(
       stoneColonyA,
@@ -337,6 +352,6 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v9:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v10:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
