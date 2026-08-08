@@ -96,10 +96,11 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     0.72,
     stoneColonyNoise + vStoneMoss * 0.24
   );
-  float stoneMossCoverage = vStoneMoss * mix(
-    1.0,
+  float stoneMossPotential = smoothstep(0.06, 0.65, vStoneMoss);
+  float stoneMossCoverage = stoneMossPotential * mix(
+    0.18,
     stoneColonyMask,
-    min(0.86, uStoneGrowthDetailStrength * 0.86)
+    min(0.92, uStoneGrowthDetailStrength * 0.96)
   );
 
   float stoneLichenNoise = stoneGrowthNoise(
@@ -122,7 +123,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     );
     stoneMossCoverage *= mix(
       1.0,
-      stoneMossBreakup,
+      max(0.05, stoneMossBreakup),
       uStoneGrowthDetailStrength * stoneGrowthDetailFade
     );
 
