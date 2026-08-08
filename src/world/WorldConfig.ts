@@ -120,6 +120,19 @@ export interface WorldConfig {
   stoneGrainSize: number;
   /** Metres from camera at which the grain has faded out completely. */
   stoneGrainFadeDistance: number;
+  /** Strength of procedural colony breakup for moss and lichen. */
+  stoneGrowthDetailStrength: number;
+  /** Metres per fine growth feature; coarse colonies are derived from it. */
+  stoneGrowthDetailSize: number;
+  /** Metres from camera at which fine growth breakup has faded out. */
+  stoneGrowthDetailFadeDistance: number;
+  /** How strongly exposed faces dry out relative to sheltered faces. */
+  stoneMossExposureStrength: number;
+  /** World-space direction of the drying sun/wind field. */
+  stoneMossExposureAzimuthDegrees: number;
+  stoneMossExposureElevationDegrees: number;
+  /** Strength of vertical runoff streaks on mossy side faces. */
+  stoneMossStreakStrength: number;
   grassNearDistance: number;
   grassMidDistance: number;
   grassFarDistance: number;
