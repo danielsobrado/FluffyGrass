@@ -36,11 +36,17 @@ try {
   const runtimeVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneRuntimeVerification.ts",
   );
+  const growthVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneGrowthVerification.ts",
+  );
   const summary = await verification.verifyStones(configSource);
   const runtimeSummary = runtimeVerification.verifyRuntimeStoneVariants(
     configSource,
   );
-  console.log(`[stones] OK · ${summary} · ${runtimeSummary}`);
+  const growthSummary = growthVerification.verifyStoneGrowthField();
+  console.log(
+    `[stones] OK · ${summary} · ${runtimeSummary} · ${growthSummary}`,
+  );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
   process.exitCode = 1;
