@@ -5,6 +5,7 @@ const VERTEX_COMMON = `
 attribute float stoneMoss;
 attribute float stoneLichen;
 attribute float stoneGrowthSeed;
+attribute vec3 stoneGrowthCenter;
 attribute vec3 stoneMossColor;
 attribute vec3 stoneLichenColor;
 varying vec3 vStoneWorldPosition;
@@ -12,6 +13,7 @@ varying vec3 vStoneWorldNormal;
 varying float vStoneMoss;
 varying float vStoneLichen;
 varying float vStoneGrowthSeed;
+varying vec3 vStoneGrowthCenter;
 varying vec3 vStoneMossColor;
 varying vec3 vStoneLichenColor;
 `;
@@ -22,6 +24,7 @@ vStoneWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
 vStoneMoss = stoneMoss;
 vStoneLichen = stoneLichen;
 vStoneGrowthSeed = stoneGrowthSeed;
+vStoneGrowthCenter = (modelMatrix * vec4(stoneGrowthCenter, 1.0)).xyz;
 vStoneMossColor = stoneMossColor;
 vStoneLichenColor = stoneLichenColor;
 `;
@@ -36,6 +39,7 @@ varying vec3 vStoneWorldNormal;
 varying float vStoneMoss;
 varying float vStoneLichen;
 varying float vStoneGrowthSeed;
+varying vec3 vStoneGrowthCenter;
 varying vec3 vStoneMossColor;
 varying vec3 vStoneLichenColor;
 
@@ -82,6 +86,8 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   vec2 stoneGrowthUv =
     stoneGrowthProjection(vStoneWorldPosition, stoneGrowthNormal) +
     stoneGrowthOffset;
+  vec3 stoneGrowthLocalPosition =
+    vStoneWorldPosition - vStoneGrowthCenter;
   float stoneGrowthDistance = distance(cameraPosition, vStoneWorldPosition);
   float stoneGrowthDetailFade = 1.0 - smoothstep(
     uStoneGrowthDetailFade.x,
@@ -91,10 +97,52 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   float stoneColonyNoise = stoneGrowthNoise(
     stoneGrowthUv * uStoneGrowthDetailScale * 0.32 + vec2(7.31, 19.17)
   );
-  float stoneColonyMask = smoothstep(
+  float stoneNoiseColonyMask = smoothstep(
     0.18,
     0.72,
     stoneColonyNoise + vStoneMoss * 0.24
+  );
+  vec3 stoneColonyCenterA = vec3(
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 17.3, 2.1)) - 0.5,
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 29.7, 5.4)) * 0.46,
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 41.9, 8.7)) - 0.5
+  ) * vec3(0.82, 1.0, 0.82);
+  vec3 stoneColonyCenterB = vec3(
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 53.1, 11.2)) - 0.5,
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 67.7, 14.6)) * 0.52,
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 79.3, 17.9)) - 0.5
+  ) * vec3(0.9, 1.0, 0.9);
+  vec3 stoneColonyCenterC = vec3(
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 91.7, 21.3)) - 0.5,
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 103.9, 24.8)) * 0.58,
+    stoneGrowthHash(vec2(vStoneGrowthSeed * 117.1, 28.2)) - 0.5
+  ) * vec3(0.86, 1.0, 0.86);
+  float stoneColonyDistortion = (stoneColonyNoise - 0.5) * 0.2;
+  float stoneColonyA = 1.0 - smoothstep(
+    0.26,
+    0.43,
+    distance(stoneGrowthLocalPosition, stoneColonyCenterA) +
+      stoneColonyDistortion
+  );
+  float stoneColonyB = 1.0 - smoothstep(
+    0.24,
+    0.39,
+    distance(stoneGrowthLocalPosition, stoneColonyCenterB) +
+      stoneColonyDistortion
+  );
+  float stoneColonyC = 1.0 - smoothstep(
+    0.2,
+    0.34,
+    distance(stoneGrowthLocalPosition, stoneColonyCenterC) +
+      stoneColonyDistortion
+  );
+  float stoneConnectedColonies = max(
+    stoneColonyA,
+    max(stoneColonyB, stoneColonyC)
+  );
+  float stoneColonyMask = max(
+    stoneConnectedColonies,
+    stoneNoiseColonyMask * 0.28
   );
   float stoneMossPotential = smoothstep(0.06, 0.65, vStoneMoss);
   float stoneMossCoverage = stoneMossPotential * mix(
@@ -205,6 +253,10 @@ if (stoneGrainFade > 0.001) {
 }
 `;
 
+const LIGHTING_FLOOR = `
+outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.2);
+`;
+
 export function applyStoneSurfaceShader(
   material: THREE.MeshLambertMaterial,
   config: WorldConfig,
@@ -251,10 +303,14 @@ export function applyStoneSurfaceShader(
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>${colorFragment}`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        `${LIGHTING_FLOOR}#include <opaque_fragment>`,
       );
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v4:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v5:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }

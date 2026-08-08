@@ -134,37 +134,56 @@ function addStoneIndentation(
   const roll =
     hashStoneCell(recipe.seed, hashStoneLabel(recipe.archetype), 0x4e6f7463) /
     4294967296;
-  if (roll >= 0.22) return polygons;
-
-  let selectedIndex = -1;
-  let selectedArea = 0;
-  for (let index = 0; index < polygons.length; index += 1) {
-    const polygon = polygons[index];
-    if (
-      (polygon.role !== "side" && polygon.role !== "top") ||
-      polygon.points.length < 4
-    ) {
-      continue;
-    }
-    let nx = 0;
-    let ny = 0;
-    let nz = 0;
-    for (let corner = 0; corner < polygon.points.length; corner += 1) {
-      const a = polygon.points[corner];
-      const b = polygon.points[(corner + 1) % polygon.points.length];
-      nx += (a.y - b.y) * (a.z + b.z);
-      ny += (a.z - b.z) * (a.x + b.x);
-      nz += (a.x - b.x) * (a.y + b.y);
-    }
-    const area = Math.hypot(nx, ny, nz) * 0.5;
-    if (area > selectedArea) {
-      selectedArea = area;
-      selectedIndex = index;
-    }
+  const indentationCount = roll < 0.02 ? 3 : roll < 0.1 ? 2 : roll < 0.35 ? 1 : 0;
+  let result = polygons;
+  for (let indentation = 0; indentation < indentationCount; indentation += 1) {
+    result = addSingleStoneIndentation(result, recipe, indentation);
   }
-  if (selectedIndex < 0 || selectedArea < 0.035) return polygons;
+  return result;
+}
 
-  const face = polygons[selectedIndex];
+function polygonAreaAndNormal(
+  polygon: StonePolygon,
+): readonly [number, number, number, number] {
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  for (let corner = 0; corner < polygon.points.length; corner += 1) {
+    const a = polygon.points[corner];
+    const b = polygon.points[(corner + 1) % polygon.points.length];
+    nx += (a.y - b.y) * (a.z + b.z);
+    ny += (a.z - b.z) * (a.x + b.x);
+    nz += (a.x - b.x) * (a.y + b.y);
+  }
+  const length = Math.hypot(nx, ny, nz);
+  return [length * 0.5, nx / length, ny / length, nz / length];
+}
+
+function addSingleStoneIndentation(
+  polygons: StonePolygon[],
+  recipe: StoneRecipe,
+  indentation: number,
+): StonePolygon[] {
+  const candidates = polygons
+    .map((polygon, index) => ({
+      polygon,
+      index,
+      area: polygonAreaAndNormal(polygon)[0],
+    }))
+    .filter(
+      ({ polygon, area }) =>
+        (polygon.role === "side" || polygon.role === "top") &&
+        polygon.points.length >= 4 &&
+        area >= 0.035,
+    )
+    .sort((left, right) => right.area - left.area)
+    .slice(0, 4);
+  if (candidates.length === 0) return polygons;
+  const choice =
+    hashStoneCell(recipe.seed, indentation, 0x496e6465) % candidates.length;
+  const selected = candidates[choice];
+  const selectedIndex = selected.index;
+  const face = selected.polygon;
   let cx = 0;
   let cy = 0;
   let cz = 0;
@@ -176,41 +195,34 @@ function addStoneIndentation(
   cx /= face.points.length;
   cy /= face.points.length;
   cz /= face.points.length;
-  const a = face.points[0];
-  const b = face.points[1];
-  const c = face.points[2];
-  const abx = b.x - a.x;
-  const aby = b.y - a.y;
-  const abz = b.z - a.z;
-  const acx = c.x - a.x;
-  const acy = c.y - a.y;
-  const acz = c.z - a.z;
-  let nx = aby * acz - abz * acy;
-  let ny = abz * acx - abx * acz;
-  let nz = abx * acy - aby * acx;
-  const normalLength = Math.hypot(nx, ny, nz);
-  if (!(normalLength > 1e-6)) return polygons;
-  nx /= normalLength;
-  ny /= normalLength;
-  nz /= normalLength;
-  const insetScale = 0.48;
-  const depth = 0.035 + roll * 0.055;
-  const inner = face.points.map((point) => ({
-    x: cx + (point.x - cx) * insetScale - nx * depth,
-    y: cy + (point.y - cy) * insetScale - ny * depth,
-    z: cz + (point.z - cz) * insetScale - nz * depth,
-  }));
+  const [, nx, ny, nz] = polygonAreaAndNormal(face);
+  const detailRoll =
+    hashStoneCell(recipe.seed, indentation, 0x44657074) / 4294967296;
+  const insetScale = 0.62 + detailRoll * 0.14;
+  const depth = 0.025 + detailRoll * 0.035;
+  const inner = face.points.map((point, corner) => {
+    const cornerVariation =
+      hashStoneCell(recipe.seed, indentation * 17 + corner, 0x496e7365) /
+      4294967296;
+    const cornerScale = insetScale * (0.86 + cornerVariation * 0.24);
+    const cornerDepth = depth * (0.82 + cornerVariation * 0.28);
+    return {
+      x: cx + (point.x - cx) * cornerScale - nx * cornerDepth,
+      y: cy + (point.y - cy) * cornerScale - ny * cornerDepth,
+      z: cz + (point.z - cz) * cornerScale - nz * cornerDepth,
+    };
+  });
   const replacement: StonePolygon[] = [];
   for (let index = 0; index < face.points.length; index += 1) {
     const next = (index + 1) % face.points.length;
     replacement.push({
-      planeId: `notch-wall:${face.planeId}:${index}`,
+      planeId: `notch-wall:${indentation}:${face.planeId}:${index}`,
       role: "cut",
       points: [face.points[index], face.points[next], inner[next], inner[index]],
     });
   }
   replacement.push({
-    planeId: `notch-floor:${face.planeId}`,
+    planeId: `notch-floor:${indentation}:${face.planeId}`,
     role: "cut",
     points: inner,
   });
@@ -348,7 +360,18 @@ export function generateStoneMesh(
       normals[offset + 2] = normalZ;
       tones[vertexCursor] = tone;
       wears[vertexCursor] = wear;
-      mosses[vertexCursor] = resolveMoss(x, y, z, normalY, heightMetres, recipe);
+      const baseMoss = resolveMoss(
+        x,
+        y,
+        z,
+        normalY,
+        heightMetres,
+        recipe,
+      );
+      const notchShelter = face.planeId.startsWith("notch-")
+        ? 0.42 + 0.28 * (1 - Math.abs(normalY))
+        : 0;
+      mosses[vertexCursor] = Math.max(baseMoss, notchShelter);
       const emitted = vertexCursor;
       vertexCursor += 1;
       return emitted;

@@ -272,6 +272,7 @@ export class WorldStoneSystem {
     const mosses = new Float32Array(vertexCount);
     const lichens = new Float32Array(vertexCount);
     const growthSeeds = new Float32Array(vertexCount);
+    const growthCenters = new Float32Array(vertexCount * 3);
     const mossColors = new Float32Array(vertexCount * 3);
     const lichenColors = new Float32Array(vertexCount * 3);
     const indices =
@@ -387,6 +388,9 @@ export class WorldStoneSystem {
           lichenAmount * lichenExposure * mossCompetition * lichenHeight,
         );
         growthSeeds[vertex] = growthSeed;
+        growthCenters[target] = elements[12];
+        growthCenters[target + 1] = elements[13];
+        growthCenters[target + 2] = elements[14];
 
         mossColors[target] = growthColors.moss.r;
         mossColors[target + 1] = growthColors.moss.g;
@@ -423,6 +427,10 @@ export class WorldStoneSystem {
     geometry.setAttribute(
       "stoneGrowthSeed",
       new THREE.BufferAttribute(growthSeeds, 1),
+    );
+    geometry.setAttribute(
+      "stoneGrowthCenter",
+      new THREE.BufferAttribute(growthCenters, 3),
     );
     geometry.setAttribute(
       "stoneMossColor",

@@ -70,8 +70,10 @@ const CHIP_MINIMUM_EFFECTIVE_DEPTH = 0.004;
 /** Broad cuts below this share of the exposed surface are visual noise. */
 const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.055;
 /** Normalized chamfer depth: deliberately tiny, but real geometry. */
-const EDGE_CHAMFER_DEPTH = 0.01;
+const EDGE_CHAMFER_DEPTH = 0.018;
 const EDGE_CHAMFER_MIN_LENGTH = 0.14;
+const EDGE_CHAMFER_SHARE = 0.34;
+const FACE_HIERARCHY_TOLERANCE = 0.015;
 const TOP_BAND_HEIGHT_VARIATION = 0.38;
 const CONTACT_BAND_HEIGHT_VARIATION = 0.45;
 
@@ -128,9 +130,43 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
     id: "bottom",
     role: "bottom",
   });
-  planes.push(
-    normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
-  );
+  const ridgeRoll =
+    hashStoneCell(recipe.seed, recipe.archetype === "slab" ? 1 : 2, 0x52696467) /
+    4294967296;
+  const hasRidge =
+    (recipe.archetype === "slab" || recipe.archetype === "outcrop") &&
+    ridgeRoll < 0.68;
+  if (hasRidge) {
+    const ridgeJitter = (ridgeRoll - 0.34) * 0.7;
+    // Slabs/outcrops are elongated along local Z, so the crown changes slope
+    // across X and the resulting ridge runs with the long geological axis.
+    const ridgeAngle = ridgeJitter;
+    const acrossX = Math.cos(ridgeAngle);
+    const acrossZ = Math.sin(ridgeAngle);
+    const ridgeSlope = 0.13 + ridgeRoll * 0.2;
+    planes.push(
+      normalizePlane(
+        recipe.topTiltX + acrossX * ridgeSlope,
+        1,
+        recipe.topTiltZ + acrossZ * ridgeSlope,
+        1,
+        "top-ridge:0",
+        "top",
+      ),
+      normalizePlane(
+        recipe.topTiltX - acrossX * ridgeSlope,
+        1,
+        recipe.topTiltZ - acrossZ * ridgeSlope,
+        1,
+        "top-ridge:1",
+        "top",
+      ),
+    );
+  } else {
+    planes.push(
+      normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
+    );
+  }
 
   const sideCount = recipe.sideAngles.length;
   for (let side = 0; side < sideCount; side += 1) {
@@ -141,18 +177,28 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
     planes.push(
       normalizePlane(cos, recipe.taper, sin, radius, `side:${side}`, "side"),
     );
+    const lowerProfile = sideBandVariation(
+      recipe.seed,
+      side,
+      sideCount,
+      0x4c6f7765,
+    );
+    const contactInset =
+      lowerProfile < -0.55
+        ? recipe.contactInset * -0.3
+        : recipe.contactInset * (0.55 + (lowerProfile + 1) * 0.58);
     const contactHeight =
       recipe.contactBevelHeight *
       (1 +
         sideBandVariation(recipe.seed, side, sideCount, 0x436f6e74) *
           CONTACT_BAND_HEIGHT_VARIATION);
-    const contactSlope = recipe.contactInset / contactHeight;
+    const contactSlope = contactInset / contactHeight;
     planes.push(
       normalizePlane(
         cos,
         -contactSlope,
         sin,
-        radius - recipe.contactInset,
+        radius - contactInset,
         `contact-bevel:${side}`,
         "contact-bevel",
       ),
@@ -228,6 +274,27 @@ function polygonArea(points: StoneVec3[]): number {
     newellZ += (current.x - next.x) * (current.y + next.y);
   }
   return Math.hypot(newellX, newellY, newellZ) * 0.5;
+}
+
+function faceHierarchyScore(faces: StonePolygon[]): number {
+  const areas = faces
+    .filter(
+      (face) =>
+        face.role !== "bottom" &&
+        face.role !== "contact-bevel" &&
+        face.role !== "edge-bevel",
+    )
+    .map((face) => polygonArea(face.points))
+    .sort((left, right) => right - left);
+  const total = areas.reduce((sum, area) => sum + area, 0);
+  if (!(total > 0)) return 0;
+  const primaryShare =
+    areas.slice(0, 5).reduce((sum, area) => sum + area, 0) / total;
+  const tinyShare =
+    areas
+      .filter((area) => area / total < 0.025)
+      .reduce((sum, area) => sum + area, 0) / total;
+  return primaryShare - tinyShare * 0.8;
 }
 
 /** Sutherland–Hodgman clip of a convex polygon by one half-space. */
@@ -633,6 +700,12 @@ export function resolveCutPlanes(
       ) {
         continue;
       }
+      if (
+        faceHierarchyScore(candidateFaces) <
+        faceHierarchyScore(faces) - FACE_HIERARCHY_TOLERANCE
+      ) {
+        continue;
+      }
     }
     planes.push(plane);
     accepted.push(plane);
@@ -640,7 +713,10 @@ export function resolveCutPlanes(
   return accepted;
 }
 
-function addEdgeChamferPlanes(planes: StonePlane[]): StonePlane[] {
+function addEdgeChamferPlanes(
+  planes: StonePlane[],
+  recipe: StoneRecipe,
+): StonePlane[] {
   const faces = facesFromPlanes(planes);
   const planeById = new Map(planes.map((plane) => [plane.id, plane]));
   const edges = new Map<
@@ -679,6 +755,15 @@ function addEdgeChamferPlanes(planes: StonePlane[]): StonePlane[] {
     ) {
       continue;
     }
+    const midpointX = (edge.a.x + edge.b.x) * 0.5;
+    const midpointZ = (edge.a.z + edge.b.z) * 0.5;
+    const chamferRoll =
+      hashStoneCell(
+        Math.round(midpointX * 997),
+        Math.round(midpointZ * 991),
+        recipe.seed ^ 0x4265766c,
+      ) / 4294967296;
+    if (chamferRoll >= EDGE_CHAMFER_SHARE) continue;
     const a = planeById.get(faceA.planeId);
     const b = planeById.get(faceB.planeId);
     if (!a || !b) continue;
@@ -726,6 +811,6 @@ export function buildStonePolyhedron(
   const chamfers =
     recipe.archetype === "shard"
       ? []
-      : addEdgeChamferPlanes(structuralPlanes);
+      : addEdgeChamferPlanes(structuralPlanes, recipe);
   return facesFromPlanes([...structuralPlanes, ...chamfers]);
 }
