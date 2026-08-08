@@ -34,4 +34,6 @@ lod-blink.html
 trail-probe.html
 tools/lod-blink/
 tools/trail-probe/
-.shots/edge-profile-complete/
+
+# Local visual QA captures are generated artifacts, not source assets.
+.shots/
