@@ -1,4 +1,4 @@
-import { hashStoneCell } from "./StoneRandom";
+import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
 import type {
   StonePolygon,
@@ -56,7 +56,12 @@ const SNAP_EPSILON = 1e-3;
  * ever fusing genuinely distinct stone corners.
  */
 const QUANTIZE = 5e-4;
-const MINIMUM_AREA = 1e-5;
+/**
+ * Newell-vector length below which a face has no usable normal. This is a
+ * NaN guard, not a quality filter — face culling belongs to the clipper, which
+ * heals the holes it creates.
+ */
+const DEGENERATE_NORMAL_LENGTH = 1e-12;
 /** Dihedral angles below this stay unlit; above the upper bound fully lit. */
 const WEAR_ANGLE_START = 0.32;
 const WEAR_ANGLE_FULL = 0.85;
@@ -186,7 +191,7 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
 
   for (const face of faces) {
     const corners = face.points.length;
-    const faceTone = resolveFaceTone(face, recipe, heightMetres);
+    const faceTone = resolveFaceTone(face, recipe);
     const baseVertex = vertexCursor;
     const layout = faceBandLayout(face);
 
@@ -345,7 +350,12 @@ function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
     }
     const length = Math.hypot(newellX, newellY, newellZ);
     const area = length * 0.5;
-    if (area < MINIMUM_AREA) {
+    // Only reject what cannot produce a normal at all. Culling by area here
+    // would silently hole the *rendered* mesh: the clipper guarantees a closed
+    // surface and has already dropped its own slivers, so any face arriving
+    // with real area is load-bearing, and dropping it leaves its neighbours
+    // with edges that border nothing.
+    if (!(length > DEGENERATE_NORMAL_LENGTH)) {
       continue;
     }
 
@@ -419,18 +429,14 @@ function buildEdgeSharpness(faces: WorkingFace[]): Map<string, number> {
   return sharpness;
 }
 
-function resolveFaceTone(
-  face: WorkingFace,
-  recipe: StoneRecipe,
-  heightMetres: number,
-): number {
+function resolveFaceTone(face: WorkingFace, recipe: StoneRecipe): number {
   const roleTone = ROLE_TONE[face.role];
   // Per-face jitter is the facet patchwork of the reference boards; hashing
   // the plane id keeps it stable for a seed.
   const jitter =
     (hashStoneCell(
       recipe.seed,
-      hashStoneLabel32(face.planeId),
+      hashStoneLabel(face.planeId),
       0x51f0a3,
     ) /
       4294967296 -
@@ -439,7 +445,6 @@ function resolveFaceTone(
   // Sun-facing bias: faces already tilted upward carry a lighter paint value,
   // independent of runtime lighting.
   const upBias = Math.max(0, face.normalY) * 0.12;
-  void heightMetres;
   return clamp01(roleTone + jitter + upBias);
 }
 
@@ -477,14 +482,6 @@ function resolveCornerWear(
   // Downward-facing contact edges stay matte; light wear lives on the crown.
   const crownBias = 0.35 + 0.65 * clamp01(face.normalY * 0.5 + 0.62);
   return clamp01(sharp * alongJitter * crownBias * recipe.edgeWear);
-}
-
-function hashStoneLabel32(label: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < label.length; index += 1) {
-    hash = Math.imul(hash ^ label.charCodeAt(index), 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
 }
 
 function fingerprintMesh(

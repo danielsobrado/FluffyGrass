@@ -33,6 +33,16 @@ const TRIANGLE_BUDGET = 1000;
 /** Positions are quantized to half a millimetre for edge identity. */
 const EDGE_QUANTIZE = 5e-4;
 
+function renderEdgeKey(
+  positions: Float32Array,
+  a: number,
+  b: number,
+): string {
+  const keyA = `${Math.round(positions[a * 3] / EDGE_QUANTIZE)}:${Math.round(positions[a * 3 + 1] / EDGE_QUANTIZE)}:${Math.round(positions[a * 3 + 2] / EDGE_QUANTIZE)}`;
+  const keyB = `${Math.round(positions[b * 3] / EDGE_QUANTIZE)}:${Math.round(positions[b * 3 + 1] / EDGE_QUANTIZE)}:${Math.round(positions[b * 3 + 2] / EDGE_QUANTIZE)}`;
+  return keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+}
+
 function fail(message: string): never {
   throw new Error(`[stones] ${message}`);
 }
@@ -77,6 +87,31 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
       }
 
       const mesh = generateStoneMesh(recipe);
+
+      // Watertightness of the *rendered* triangles, not just the source
+      // polyhedron. These are different surfaces: the render mesh duplicates
+      // vertices per face for flat shading and fans each polygon, so a face
+      // dropped between the two stages would leave a visible hole that a
+      // polyhedron-only check cannot see. Edges are keyed by quantized
+      // position because indices are not shared across faces. Fan and
+      // rim/ring/centroid triangulations are both closed discs, so interior
+      // diagonals appear exactly twice and the two-incidence rule still holds.
+      const triangleEdges = new Map<string, number>();
+      for (let index = 0; index < mesh.indices.length; index += 3) {
+        for (let corner = 0; corner < 3; corner += 1) {
+          const a = mesh.indices[index + corner];
+          const b = mesh.indices[index + ((corner + 1) % 3)];
+          const key = renderEdgeKey(mesh.positions, a, b);
+          triangleEdges.set(key, (triangleEdges.get(key) ?? 0) + 1);
+        }
+      }
+      for (const [edge, count] of triangleEdges) {
+        assert(
+          count === 2,
+          `${archetype}:${seed} rendered edge ${edge} borders ${count} triangles; the render mesh leaks.`,
+        );
+      }
+
       const meshAgain = generateStoneMesh(recipe);
       assert(
         mesh.metrics.fingerprint === meshAgain.metrics.fingerprint,

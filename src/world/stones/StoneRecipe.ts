@@ -196,10 +196,6 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
 };
 
-export function getStoneArchetype(id: StoneArchetypeId): StoneArchetypeSpec {
-  return ARCHETYPES[id];
-}
-
 export interface StoneCut {
   /** Unit normal of the clipping half-space. */
   readonly normalX: number;

@@ -247,15 +247,16 @@ export class StoneField {
     }
     const instances = this.generateCell(cellX, cellZ);
     if (this.cells.size >= CELL_CACHE_LIMIT) {
-      let removed = 0;
+      // Evict oldest-first. Map preserves insertion order, and the cache is
+      // transparent — every entry is reproducible from its coordinates — so
+      // eviction can never change what the world looks like, only how often
+      // a cell is recomputed.
       for (const staleKey of this.cells.keys()) {
         this.cells.delete(staleKey);
-        removed += 1;
         if (this.cells.size <= CELL_CACHE_TRIM) {
           break;
         }
       }
-      void removed;
     }
     this.cells.set(key, instances);
     return instances;

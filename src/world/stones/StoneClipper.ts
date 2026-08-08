@@ -55,8 +55,6 @@ const MAX_HEAL_PASSES = 4;
  * global weld because these corners are already known to be spurious.
  */
 const HEAL_RADIUS = 1.2e-2;
-/** A closed solid needs at least a bottom, a top and three sides. */
-const MINIMUM_BOUNDING_PLANES = 5;
 /** Half-extent of the seed quad laid on each plane before clipping. */
 const FACE_QUAD_EXTENT = 6;
 /** Cuts must clear the contact footprint by this much normalized height. */
@@ -303,18 +301,22 @@ export function facesFromPlanes(planes: StonePlane[]): StonePolygon[] {
   // nothing, which converts one small gap into a larger one. Diagnosed on
   // shard:142, where the three gap corners sat 1.8e-3 apart — just outside an
   // earlier 1.5e-3 weld radius.
-  // A single global weld radius cannot close every case: raising it far enough
-  // for the worst near-concurrency starts collapsing legitimate short edges
-  // elsewhere and creates new gaps. So the global pass stays tight and any
-  // residue is healed locally, where a wider radius is known to be safe
-  // because those corners are already provably part of a hole.
-  const faces = healBoundaryGaps(weldFaces(buildFacesOnce(planes)));
-  if (faces.length < MINIMUM_BOUNDING_PLANES) {
-    return faces;
-  }
-  return faces.filter(
+  //
+  // A single global weld radius cannot close every case either: raising it far
+  // enough for the worst near-concurrency starts collapsing legitimate short
+  // edges elsewhere and creates new gaps. So the global pass stays tight and
+  // any residue is healed locally, where a wider radius is safe because those
+  // corners provably border a hole.
+  //
+  // Order matters. Dropping sliver faces has to happen *before* healing, for
+  // the same reason dropping planes was wrong: a discarded face leaves its
+  // neighbours holding unmatched edges. Healing afterwards closes whatever the
+  // drop opened, so this function's postcondition is a closed surface.
+  const welded = weldFaces(buildFacesOnce(planes));
+  const substantial = welded.filter(
     (face) => polygonArea(face.points) >= MINIMUM_FACE_AREA,
   );
+  return healBoundaryGaps(substantial);
 }
 
 /**
