@@ -62,6 +62,16 @@ const QUANTIZE = 5e-4;
  * heals the holes it creates.
  */
 const DEGENERATE_NORMAL_LENGTH = 1e-12;
+/**
+ * How far a rim normal leans off its face, toward the outward direction in the
+ * face plane. Purely a shading author: it fakes a chamfer on an edge that is
+ * still geometrically sharp.
+ */
+const CHAMFER_TILT = 0.32;
+/** Darkest tone multiplier where a stone meets the ground. */
+const CONTACT_SHADE_FLOOR = 0.62;
+/** Fraction of stone height over which the contact darkening lifts. */
+const CONTACT_SHADE_HEIGHT = 0.22;
 /** Dihedral angles below this stay unlit; above the upper bound fully lit. */
 const WEAR_ANGLE_START = 0.32;
 const WEAR_ANGLE_FULL = 0.85;
@@ -213,14 +223,17 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
       z: number,
       tone: number,
       wear: number,
+      normalX = face.normalX,
+      normalY = face.normalY,
+      normalZ = face.normalZ,
     ): number => {
       const offset = vertexCursor * 3;
       positions[offset] = x;
       positions[offset + 1] = y;
       positions[offset + 2] = z;
-      normals[offset] = face.normalX;
-      normals[offset + 1] = face.normalY;
-      normals[offset + 2] = face.normalZ;
+      normals[offset] = normalX;
+      normals[offset + 1] = normalY;
+      normals[offset + 2] = normalZ;
       tones[vertexCursor] = tone;
       wears[vertexCursor] = wear;
       const emitted = vertexCursor;
@@ -228,19 +241,65 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
       return emitted;
     };
 
+    /**
+     * A rim vertex's normal, tilted outward along the face plane.
+     *
+     * The rim band is coplanar with the rest of the face, so as pure geometry
+     * it cannot catch light differently. Authoring its normal as if the edge
+     * were chamfered makes the band shade as a bevel — the lit rim that reads
+     * as carved stone in the reference boards. Nothing moves, so the surface
+     * stays exactly as watertight as the clipper left it.
+     *
+     * Tilting *outward along the plane* rather than toward the neighbouring
+     * face is deliberate: it needs no adjacency lookup and it stays correct on
+     * a silhouette edge, where there is no neighbour to average with.
+     */
+    const rimNormal = (
+      x: number,
+      y: number,
+      z: number,
+    ): readonly [number, number, number] => {
+      const outX = x - centroidX;
+      const outY = y - centroidY;
+      const outZ = z - centroidZ;
+      const length = Math.hypot(outX, outY, outZ);
+      if (!(length > 1e-6)) {
+        return [face.normalX, face.normalY, face.normalZ];
+      }
+      const tiltX = face.normalX * (1 - CHAMFER_TILT) + (outX / length) * CHAMFER_TILT;
+      const tiltY = face.normalY * (1 - CHAMFER_TILT) + (outY / length) * CHAMFER_TILT;
+      const tiltZ = face.normalZ * (1 - CHAMFER_TILT) + (outZ / length) * CHAMFER_TILT;
+      const tiltLength = Math.hypot(tiltX, tiltY, tiltZ);
+      return [tiltX / tiltLength, tiltY / tiltLength, tiltZ / tiltLength];
+    };
+
     const cornerTone = (y: number): number => {
-      const heightShade = 0.68 + 0.32 * smoothstep(y, 0, heightMetres * 0.55);
-      return clamp01(faceTone * heightShade);
+      // Two separate falls: a broad top-to-bottom gradient, and a tighter
+      // darkening right at the ground. The second is what seats a stone in the
+      // terrain instead of leaving it looking placed on top of it.
+      const heightShade = 0.74 + 0.26 * smoothstep(y, 0, heightMetres * 0.6);
+      const contactShade =
+        CONTACT_SHADE_FLOOR +
+        (1 - CONTACT_SHADE_FLOOR) *
+          smoothstep(y, 0, heightMetres * CONTACT_SHADE_HEIGHT);
+      return clamp01(faceTone * heightShade * contactShade);
     };
 
     for (let corner = 0; corner < corners; corner += 1) {
       const point = face.points[corner];
+      const [rimX, rimY, rimZ] =
+        layout === "banded"
+          ? rimNormal(point.x, point.y, point.z)
+          : ([face.normalX, face.normalY, face.normalZ] as const);
       emitVertex(
         point.x,
         point.y,
         point.z,
         cornerTone(point.y),
         resolveCornerWear(face, corner, edgeSharpness, recipe),
+        rimX,
+        rimY,
+        rimZ,
       );
       const radial = Math.hypot(point.x, point.z);
       footprintRadius = Math.max(footprintRadius, radial);

@@ -69,8 +69,8 @@ export interface StoneArchetypeSpec {
 const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   pebble: {
     id: "pebble",
-    sideCount: [6, 7],
-    radiusJitter: { min: 0.06, max: 0.13 },
+    sideCount: [5, 7],
+    radiusJitter: { min: 0.09, max: 0.18 },
     taper: { min: 0.04, max: 0.1 },
     topScale: { min: 0.6, max: 0.8 },
     topBevelHeight: { min: 0.3, max: 0.42 },
@@ -88,8 +88,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   boulder: {
     id: "boulder",
-    sideCount: [7, 9],
-    radiusJitter: { min: 0.07, max: 0.18 },
+    sideCount: [6, 8],
+    radiusJitter: { min: 0.11, max: 0.22 },
     // The profile only has two bands — the tapered side ring and the crown
     // bevel — so "rounded" has to come from both: near-zero taper plus a
     // shallow bevel gives vertical sides under a flat lid, which reads as a
@@ -101,9 +101,9 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     contactInset: { min: 0.05, max: 0.1 },
     contactBevelHeight: { min: 0.1, max: 0.16 },
     lean: { min: 0.02, max: 0.12 },
-    cutCount: [1, 2],
-    cutDepth: { min: 0.05, max: 0.12 },
-    cutNormalY: { min: 0.25, max: 0.7 },
+    cutCount: [2, 4],
+    cutDepth: { min: 0.05, max: 0.14 },
+    cutNormalY: { min: 0.15, max: 0.72 },
     heightRatio: { min: 0.55, max: 0.95 },
     depthRatio: { min: 0.72, max: 1.4 },
     edgeWear: 0.75,
@@ -112,7 +112,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   slab: {
     id: "slab",
     sideCount: [6, 8],
-    radiusJitter: { min: 0.05, max: 0.11 },
+    radiusJitter: { min: 0.08, max: 0.16 },
     taper: { min: 0.05, max: 0.1 },
     topScale: { min: 0.68, max: 0.85 },
     topBevelHeight: { min: 0.2, max: 0.3 },
@@ -120,9 +120,9 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     contactInset: { min: 0.05, max: 0.09 },
     contactBevelHeight: { min: 0.1, max: 0.15 },
     lean: { min: 0, max: 0.08 },
-    cutCount: [1, 2],
-    cutDepth: { min: 0.06, max: 0.12 },
-    cutNormalY: { min: 0.2, max: 0.6 },
+    cutCount: [2, 3],
+    cutDepth: { min: 0.06, max: 0.14 },
+    cutNormalY: { min: 0.2, max: 0.62 },
     // Below ~0.34 a slab reads as a paper plate once placement scales it up;
     // uniform scale preserves the ratio, so thickness has to come from here.
     heightRatio: { min: 0.36, max: 0.54 },
@@ -178,7 +178,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   outcrop: {
     id: "outcrop",
     sideCount: [6, 8],
-    radiusJitter: { min: 0.08, max: 0.16 },
+    radiusJitter: { min: 0.12, max: 0.22 },
     taper: { min: 0.1, max: 0.2 },
     topScale: { min: 0.5, max: 0.7 },
     topBevelHeight: { min: 0.2, max: 0.3 },
