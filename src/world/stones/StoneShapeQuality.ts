@@ -8,6 +8,8 @@ import {
 } from "./StoneRecipe";
 
 const ATTEMPTS = 4;
+const QUALITY_CACHE_LIMIT = 256;
+const qualityRecipeCache = new Map<string, StoneRecipe>();
 
 function polygonArea(face: StonePolygon): number {
   let x = 0;
@@ -152,11 +154,30 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
   );
 }
 
-/** Deterministic best-of-four selection; attempt zero preserves seed identity. */
+function cacheRecipe(key: string, recipe: StoneRecipe): StoneRecipe {
+  if (qualityRecipeCache.size >= QUALITY_CACHE_LIMIT) {
+    const oldestKey = qualityRecipeCache.keys().next().value as
+      | string
+      | undefined;
+    if (oldestKey !== undefined) {
+      qualityRecipeCache.delete(oldestKey);
+    }
+  }
+  qualityRecipeCache.set(key, recipe);
+  return recipe;
+}
+
+/** Deterministic best-of-four selection with a bounded runtime cache. */
 export function resolveQualityStoneRecipe(
   archetype: StoneArchetypeId,
   seed: number,
 ): StoneRecipe {
+  const key = `${archetype}:${seed >>> 0}`;
+  const cached = qualityRecipeCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
   let best = resolveStoneRecipe(archetype, seed);
   let bestScore = scoreStoneShape(best);
   for (let attempt = 1; attempt < ATTEMPTS; attempt += 1) {
@@ -170,5 +191,5 @@ export function resolveQualityStoneRecipe(
       bestScore = candidateScore;
     }
   }
-  return best;
+  return cacheRecipe(key, best);
 }
