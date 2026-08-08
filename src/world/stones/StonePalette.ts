@@ -158,6 +158,7 @@ export function colorizeStoneVertices(
   target: Float32Array | Uint8Array,
   targetOffset = 0,
   targetScale = 1,
+  targetStride = 3,
 ): void {
   const secondary = tint.secondary;
   const blend = tint.secondaryBlend ?? 0;
@@ -219,7 +220,7 @@ export function colorizeStoneVertices(
       b = mixChannel(b, edgeB, wear);
     }
 
-    const offset = targetOffset + index * 3;
+    const offset = targetOffset + index * targetStride;
     target[offset] = r * valueScale;
     target[offset + 1] = g * valueScale;
     target[offset + 2] = b * valueScale;
