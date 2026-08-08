@@ -95,7 +95,10 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
 };
 
 const MIN_RADIUS = 0.075;
-const MIN_RING_GAP = 0.105;
+/** Authored ring centres stay well separated before per-sector height wander. */
+const AUTHORED_MIN_RING_GAP = 0.105;
+/** Effective geometry gap shared with the silhouette scorer. */
+export const STONE_PROFILE_MIN_HEIGHT_GAP = 0.06;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
@@ -131,6 +134,42 @@ function centerPoint(
   ];
 }
 
+function resolveEffectiveHeights(
+  baseHeights: readonly number[],
+  heightOffsets: readonly (readonly number[])[],
+  side: number,
+): number[] {
+  const heights = new Array<number>(baseHeights.length);
+  heights[0] = baseHeights[0];
+  const topHeight = baseHeights[baseHeights.length - 1];
+  for (let index = 1; index < baseHeights.length - 1; index += 1) {
+    const remaining = baseHeights.length - 1 - index;
+    const maximum = topHeight - remaining * STONE_PROFILE_MIN_HEIGHT_GAP;
+    const raw = baseHeights[index] + heightOffsets[index][side];
+    heights[index] = Math.min(
+      maximum,
+      Math.max(
+        heights[index - 1] + STONE_PROFILE_MIN_HEIGHT_GAP,
+        raw,
+      ),
+    );
+  }
+  heights[baseHeights.length - 1] = topHeight;
+  return heights;
+}
+
+/** Effective ring heights used by both geometry and art-direction scoring. */
+export function resolveStoneProfileHeights(
+  rings: readonly StoneProfileRing[],
+  side: number,
+): readonly number[] {
+  return resolveEffectiveHeights(
+    rings.map((ring) => ring.height),
+    rings.map((ring) => ring.heightOffsets),
+    side,
+  );
+}
+
 /**
  * Build contact → belly → shoulder → crown → top profiles.
  *
@@ -153,9 +192,10 @@ export function resolveStoneProfile(
   const shoulderHeight = random.range(0.53, 0.67);
   const crownHeight = clamp(
     1 - input.topBevelHeight,
-    shoulderHeight + MIN_RING_GAP,
+    shoulderHeight + AUTHORED_MIN_RING_GAP,
     0.88,
   );
+  const baseHeights = [0, bellyHeight, shoulderHeight, crownHeight, 1] as const;
 
   const center = random.fork("profile-centres");
   const wander = center.range(family.centerWander.min, family.centerWander.max);
@@ -189,6 +229,13 @@ export function resolveStoneProfile(
     0.32,
     1,
   );
+  const centers: readonly (readonly [number, number])[] = [
+    [0, 0],
+    [bellyX, bellyZ],
+    [shoulderX, shoulderZ],
+    [crownX, crownZ],
+    [topX, topZ],
+  ];
 
   const bellyBulge = random.range(
     family.bellyBulge.min,
@@ -199,9 +246,6 @@ export function resolveStoneProfile(
 
   for (let side = 0; side < sideCount; side += 1) {
     const base = input.sideRadii[side];
-    const angle = input.sideAngles[side];
-    const directionX = Math.cos(angle);
-    const directionZ = Math.sin(angle);
     const contactVariation = smoothSectorVariation(
       input.seed,
       side,
@@ -250,10 +294,11 @@ export function resolveStoneProfile(
         input.topScale *
         (1 + crownVariation * family.crownVariation * 0.55),
     );
+    const sector = random.fork(`profile-sector:${side}`);
     const crownRadius = Math.max(
       topRadius + 0.025,
-      shoulderRadius * random.range(0.7, 0.86) +
-        topRadius * random.range(0.14, 0.3) +
+      shoulderRadius * sector.range(0.7, 0.86) +
+        topRadius * sector.range(0.14, 0.3) +
         base * crownVariation * family.crownVariation,
     );
 
@@ -278,47 +323,40 @@ export function resolveStoneProfile(
         0.8,
     );
     heightOffsets[4].push(0);
+  }
 
-    // Make the complete support function concave in height. This guarantees
-    // every segment plane participates in one convex envelope instead of
-    // becoming a redundant internal plane after the ring offsets are applied.
-    const centers: readonly (readonly [number, number])[] = [
-      [0, 0],
-      [bellyX, bellyZ],
-      [shoulderX, shoulderZ],
-      [crownX, crownZ],
-      [topX, topZ],
-    ];
-    const baseHeights = [0, bellyHeight, shoulderHeight, crownHeight, 1];
+  // Make the support function concave in height using the exact ring heights
+  // the clipper will see. The earlier pass used pre-clamp heights, which could
+  // make a segment redundant after per-sector height wander was clamped.
+  for (let side = 0; side < sideCount; side += 1) {
+    const angle = input.sideAngles[side];
+    const directionX = Math.cos(angle);
+    const directionZ = Math.sin(angle);
+    const heights = resolveEffectiveHeights(baseHeights, heightOffsets, side);
     const supports = desired.map(
       (ring, ringIndex) =>
         ring[side] +
         directionX * centers[ringIndex][0] +
         directionZ * centers[ringIndex][1],
     );
+
     let previousSlope = Number.POSITIVE_INFINITY;
     for (let ringIndex = 1; ringIndex < supports.length; ringIndex += 1) {
-      const lowerHeight =
-        baseHeights[ringIndex - 1] + heightOffsets[ringIndex - 1][side];
-      const upperHeight =
-        baseHeights[ringIndex] + heightOffsets[ringIndex][side];
-      const span = Math.max(MIN_RING_GAP, upperHeight - lowerHeight);
+      const span = heights[ringIndex] - heights[ringIndex - 1];
       let slope = (supports[ringIndex] - supports[ringIndex - 1]) / span;
       if (Number.isFinite(previousSlope)) {
         const maximumSlope = previousSlope - family.slopeTurn;
         if (slope > maximumSlope) {
-          slope = maximumSlope;
-          supports[ringIndex] = supports[ringIndex - 1] + slope * span;
-          desired[ringIndex][side] = Math.max(
-            MIN_RADIUS,
-            supports[ringIndex] -
-              directionX * centers[ringIndex][0] -
-              directionZ * centers[ringIndex][1],
-          );
-          supports[ringIndex] =
-            desired[ringIndex][side] +
+          const projection =
             directionX * centers[ringIndex][0] +
             directionZ * centers[ringIndex][1];
+          const targetSupport =
+            supports[ringIndex - 1] + maximumSlope * span;
+          desired[ringIndex][side] = Math.max(
+            MIN_RADIUS,
+            targetSupport - projection,
+          );
+          supports[ringIndex] = desired[ringIndex][side] + projection;
           slope = (supports[ringIndex] - supports[ringIndex - 1]) / span;
         }
       }
