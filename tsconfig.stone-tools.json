@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "tools/stone-gallery/main.ts",
+    "tools/stone-world/main.ts"
+  ]
+}
