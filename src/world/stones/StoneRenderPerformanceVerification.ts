@@ -59,7 +59,19 @@ function buildRepresentativeBatch(
           });
         }
       }
-      return builder.build(sources);
+
+      const job = builder.begin(sources);
+      const expired = builder.advance(job, performance.now() - 1);
+      assert(
+        !expired.complete && job.sourceIndex === 0,
+        "Stone batch builder ignored an exhausted frame deadline.",
+      );
+      const completed = builder.advance(job, Number.POSITIVE_INFINITY);
+      assert(
+        completed.complete,
+        "Stone batch builder did not finish under an infinite verifier deadline.",
+      );
+      return completed.result;
     }
   }
   return undefined;
@@ -107,6 +119,10 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     config.stoneRenderBatchChunksPerAxis >= 2,
     "Production stones must batch at least 2x2 terrain chunks per draw.",
   );
+  assert(
+    config.stoneDetailRadiusCompact < config.stoneDetailRadius,
+    "Compact stones must use a smaller close-geometry radius than desktop.",
+  );
   verifyClearanceAmortization(config);
 
   const desktopUnbatched = (config.stoneRadiusDesktop * 2 + 1) ** 2;
@@ -126,6 +142,13 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   assert(
     compactBatches <= compactUnbatched * 0.4,
     `Compact stone batching regressed: ${compactBatches}/${compactUnbatched} draws.`,
+  );
+
+  const desktopDetailedChunks = (config.stoneDetailRadius * 2 + 1) ** 2;
+  const compactDetailedChunks = (config.stoneDetailRadiusCompact * 2 + 1) ** 2;
+  assert(
+    compactDetailedChunks <= desktopDetailedChunks * 0.4,
+    `Compact detailed-stone footprint regressed: ${compactDetailedChunks}/${desktopDetailedChunks} chunks.`,
   );
 
   const terrain = new TerrainField(config);
@@ -218,5 +241,5 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   );
   geometry.dispose();
 
-  return `${desktopBatches}/${desktopUnbatched} desktop draws · ${compactBatches}/${compactUnbatched} compact draws · ${bytesPerVertex} B/vertex`;
+  return `${desktopBatches}/${desktopUnbatched} desktop draws · ${compactBatches}/${compactUnbatched} compact draws · ${compactDetailedChunks}/${desktopDetailedChunks} compact detail · ${bytesPerVertex} B/vertex`;
 }
