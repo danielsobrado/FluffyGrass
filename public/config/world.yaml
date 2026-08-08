@@ -112,10 +112,21 @@ stoneChunksPerFrame: 1
 # Paths keep occasional kicked-aside stones without becoming decorative kerbs.
 stoneVergeChance: 0.62
 # Close-range surface grain remains off. The stylized look is carried by broad
-# geometry, painted value bands, chips and moss rather than texture noise.
+# geometry, painted value bands and biological growth rather than texture noise.
 stoneGrainStrength: 0
 stoneGrainSize: 0.6
 stoneGrainFadeDistance: 18
+
+# Biological growth. Broad colonies stay readable at distance; fine holes,
+# speckles and runoff breakup fade before they alias.
+stoneGrowthDetailStrength: 0.82
+stoneGrowthDetailSize: 0.32
+stoneGrowthDetailFadeDistance: 24
+# Sun/wind exposure dries outward faces and favours lichen there over moss.
+stoneMossExposureStrength: 0.68
+stoneMossExposureAzimuthDegrees: 32
+stoneMossExposureElevationDegrees: 49
+stoneMossStreakStrength: 0.32
 
 grassNearDistance: 24
 grassMidDistance: 80
