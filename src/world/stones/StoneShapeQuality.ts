@@ -1,4 +1,5 @@
 import { buildStonePolyhedron, type StonePolygon } from "./StoneClipper";
+import { resolveStoneProfileHeights } from "./StoneProfile";
 import { hashStoneCell } from "./StoneRandom";
 import {
   resolveStoneRecipe,
@@ -50,20 +51,17 @@ function profileArtDirection(recipe: StoneRecipe): number {
   let turnScore = 0;
   let monotonicTaper = 0;
   for (let side = 0; side < recipe.sideAngles.length; side += 1) {
+    const heights = resolveStoneProfileHeights(recipe.profileRings, side);
     const slopes: number[] = [];
     let alwaysNarrows = true;
     for (let ring = 0; ring < recipe.profileRings.length - 1; ring += 1) {
-      const lower = recipe.profileRings[ring];
-      const upper = recipe.profileRings[ring + 1];
-      const lowerHeight = lower.height + lower.heightOffsets[side];
-      const upperHeight = upper.height + upper.heightOffsets[side];
       const lowerSupport = ringSupport(recipe, ring, side);
       const upperSupport = ringSupport(recipe, ring + 1, side);
       slopes.push(
         (upperSupport - lowerSupport) /
-          Math.max(0.06, upperHeight - lowerHeight),
+          (heights[ring + 1] - heights[ring]),
       );
-      if (ring === 0 && upperSupport > lowerSupport * 1.015) {
+      if (upperSupport > lowerSupport * 1.015) {
         alwaysNarrows = false;
       }
     }
