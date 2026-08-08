@@ -3,8 +3,7 @@
  *
  * Stone paint and biological growth are resolved separately. The base mesh
  * keeps broad value bands while the shared stone shader applies moss and
- * lichen masks, so close-range colony breakup can reveal the original stone
- * instead of modulating an already-green vertex colour.
+ * lichen masks, so close-range colony breakup can reveal the original stone.
  */
 
 export interface StoneLinearColor {
@@ -21,7 +20,6 @@ export interface StonePalette {
   readonly edge: StoneLinearColor;
   readonly moss: StoneLinearColor;
   readonly lichen: StoneLinearColor;
-  /** Global multiplier on baked edge wear; keeps some sets matte. */
   readonly edgeStrength: number;
 }
 
@@ -67,11 +65,6 @@ function palette(
   };
 }
 
-/**
- * Muted production families. Moss remains darker and greener than the stone;
- * lichen is drier, paler and closer to olive-grey so exposed alpine and steppe
- * rocks do not simply look like meadow stones with less green on them.
- */
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
@@ -118,17 +111,15 @@ export const STONE_PALETTES = {
 export type StonePaletteKey = keyof typeof STONE_PALETTES;
 
 export interface StoneTintParams {
-  /** Multiplied into every stone ramp colour; 1 is neutral. */
   readonly valueScale: number;
-  /** Blended towards a second palette for borders and altitude bands. */
   readonly secondary?: StonePalette;
   readonly secondaryBlend?: number;
 }
 
 const RAMP_BANDING_STRENGTH = 0.62;
 
-function mixChannel(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
+function mixChannel(a: number, b: number, amount: number): number {
+  return a + (b - a) * amount;
 }
 
 function mixColor(
@@ -141,28 +132,6 @@ function mixColor(
     g: mixChannel(primary.g, secondary.g, amount),
     b: mixChannel(primary.b, secondary.b, amount),
   };
-}
-
-function sampleRamp(
-  paletteColors: StonePalette,
-  tone: number,
-): [number, number, number] {
-  const quantized = Math.round(tone * 3) / 3;
-  const banded = tone + (quantized - tone) * RAMP_BANDING_STRENGTH;
-  if (banded < 0.5) {
-    const t = banded * 2;
-    return [
-      mixChannel(paletteColors.shadow.r, paletteColors.mid.r, t),
-      mixChannel(paletteColors.shadow.g, paletteColors.mid.g, t),
-      mixChannel(paletteColors.shadow.b, paletteColors.mid.b, t),
-    ];
-  }
-  const t = (banded - 0.5) * 2;
-  return [
-    mixChannel(paletteColors.mid.r, paletteColors.light.r, t),
-    mixChannel(paletteColors.mid.g, paletteColors.light.g, t),
-    mixChannel(paletteColors.mid.b, paletteColors.light.b, t),
-  ];
 }
 
 export function resolveStoneGrowthColors(
@@ -180,7 +149,7 @@ export function resolveStoneGrowthColors(
   };
 }
 
-/** Resolve only the stone material colour. Biological growth is shader-applied. */
+/** Allocation-free stone material colour resolution for chunk-build hot paths. */
 export function colorizeStoneVertices(
   tones: Float32Array,
   wears: Float32Array,
@@ -191,14 +160,48 @@ export function colorizeStoneVertices(
 ): void {
   const secondary = tint.secondary;
   const blend = tint.secondaryBlend ?? 0;
+  const hasSecondary = secondary !== undefined && blend > 0;
+  const valueScale = tint.valueScale;
+
   for (let index = 0; index < tones.length; index += 1) {
-    let [r, g, b] = sampleRamp(paletteColors, tones[index]);
+    const tone = tones[index];
+    const quantized = Math.round(tone * 3) / 3;
+    const banded = tone + (quantized - tone) * RAMP_BANDING_STRENGTH;
+
+    let r: number;
+    let g: number;
+    let b: number;
+    let r2 = 0;
+    let g2 = 0;
+    let b2 = 0;
+
+    if (banded < 0.5) {
+      const amount = banded * 2;
+      r = mixChannel(paletteColors.shadow.r, paletteColors.mid.r, amount);
+      g = mixChannel(paletteColors.shadow.g, paletteColors.mid.g, amount);
+      b = mixChannel(paletteColors.shadow.b, paletteColors.mid.b, amount);
+      if (hasSecondary) {
+        r2 = mixChannel(secondary.shadow.r, secondary.mid.r, amount);
+        g2 = mixChannel(secondary.shadow.g, secondary.mid.g, amount);
+        b2 = mixChannel(secondary.shadow.b, secondary.mid.b, amount);
+      }
+    } else {
+      const amount = (banded - 0.5) * 2;
+      r = mixChannel(paletteColors.mid.r, paletteColors.light.r, amount);
+      g = mixChannel(paletteColors.mid.g, paletteColors.light.g, amount);
+      b = mixChannel(paletteColors.mid.b, paletteColors.light.b, amount);
+      if (hasSecondary) {
+        r2 = mixChannel(secondary.mid.r, secondary.light.r, amount);
+        g2 = mixChannel(secondary.mid.g, secondary.light.g, amount);
+        b2 = mixChannel(secondary.mid.b, secondary.light.b, amount);
+      }
+    }
+
     let edgeR = paletteColors.edge.r;
     let edgeG = paletteColors.edge.g;
     let edgeB = paletteColors.edge.b;
     let edgeStrength = paletteColors.edgeStrength;
-    if (secondary && blend > 0) {
-      const [r2, g2, b2] = sampleRamp(secondary, tones[index]);
+    if (hasSecondary) {
       r = mixChannel(r, r2, blend);
       g = mixChannel(g, g2, blend);
       b = mixChannel(b, b2, blend);
@@ -216,8 +219,8 @@ export function colorizeStoneVertices(
     }
 
     const offset = targetOffset + index * 3;
-    target[offset] = r * tint.valueScale;
-    target[offset + 1] = g * tint.valueScale;
-    target[offset + 2] = b * tint.valueScale;
+    target[offset] = r * valueScale;
+    target[offset + 1] = g * valueScale;
+    target[offset + 2] = b * valueScale;
   }
 }
