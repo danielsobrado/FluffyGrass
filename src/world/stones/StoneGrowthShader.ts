@@ -5,7 +5,7 @@ const VERTEX_COMMON = `
 attribute float stoneMoss;
 attribute float stoneLichen;
 attribute float stoneGrowthSeed;
-attribute vec3 stoneGrowthCenter;
+attribute vec3 stoneGrowthPosition;
 attribute vec3 stoneMossColor;
 attribute vec3 stoneLichenColor;
 varying vec3 vStoneWorldPosition;
@@ -13,7 +13,7 @@ varying vec3 vStoneWorldNormal;
 varying float vStoneMoss;
 varying float vStoneLichen;
 varying float vStoneGrowthSeed;
-varying vec3 vStoneGrowthCenter;
+varying vec3 vStoneGrowthPosition;
 varying vec3 vStoneMossColor;
 varying vec3 vStoneLichenColor;
 `;
@@ -24,7 +24,7 @@ vStoneWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
 vStoneMoss = stoneMoss;
 vStoneLichen = stoneLichen;
 vStoneGrowthSeed = stoneGrowthSeed;
-vStoneGrowthCenter = (modelMatrix * vec4(stoneGrowthCenter, 1.0)).xyz;
+vStoneGrowthPosition = stoneGrowthPosition;
 vStoneMossColor = stoneMossColor;
 vStoneLichenColor = stoneLichenColor;
 `;
@@ -39,7 +39,7 @@ varying vec3 vStoneWorldNormal;
 varying float vStoneMoss;
 varying float vStoneLichen;
 varying float vStoneGrowthSeed;
-varying vec3 vStoneGrowthCenter;
+varying vec3 vStoneGrowthPosition;
 varying vec3 vStoneMossColor;
 varying vec3 vStoneLichenColor;
 
@@ -86,8 +86,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   vec2 stoneGrowthUv =
     stoneGrowthProjection(vStoneWorldPosition, stoneGrowthNormal) +
     stoneGrowthOffset;
-  vec3 stoneGrowthLocalPosition =
-    vStoneWorldPosition - vStoneGrowthCenter;
+  vec3 stoneGrowthLocalPosition = vStoneGrowthPosition;
   float stoneGrowthDistance = distance(cameraPosition, vStoneWorldPosition);
   float stoneGrowthDetailFade = 1.0 - smoothstep(
     uStoneGrowthDetailFade.x,
@@ -314,6 +313,6 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v6:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v7:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
