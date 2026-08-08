@@ -5,6 +5,7 @@ import type { StoneField } from "./StoneField";
 import { applyStoneSurfaceShader } from "./StoneGrowthShader";
 import {
   StoneRenderBatchBuilder,
+  type StoneRenderBatchBuildJob,
   type StoneRenderBatchSource,
 } from "./StoneRenderBatchBuilder";
 
@@ -21,6 +22,12 @@ interface StoneBatchRequest {
   readonly sources: StoneRenderBatchSource[];
   distance: number;
   signature: string;
+}
+
+interface ActiveStoneBuild {
+  readonly request: StoneBatchRequest;
+  readonly job: StoneRenderBatchBuildJob;
+  cpuMs: number;
 }
 
 export interface StoneDiagnostics {
@@ -47,6 +54,7 @@ export class WorldStoneSystem {
   private readonly builder: StoneRenderBatchBuilder;
   private readonly enabled: boolean;
   private readonly grainTexture?: THREE.Texture;
+  private activeBuild?: ActiveStoneBuild;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private lastBuildMs = 0;
@@ -82,8 +90,6 @@ export class WorldStoneSystem {
       config,
       this.mossExposureDirection,
     );
-    // WorldApp registers the field before grass construction. Upgrade that
-    // direct sampler to the shared-cell cache as soon as config is available.
     setStoneClearanceField(stoneField, config);
 
     if (this.enabled && config.stoneGrainStrength > 0) {
@@ -116,7 +122,7 @@ export class WorldStoneSystem {
     }
     return {
       activeChunks: this.batches.size,
-      queuedChunks: this.queue.length,
+      queuedChunks: this.queue.length + (this.activeBuild ? 1 : 0),
       stones,
       triangles,
       drawCalls: this.batches.size,
@@ -126,6 +132,7 @@ export class WorldStoneSystem {
   }
 
   dispose(): void {
+    this.activeBuild = undefined;
     for (const batch of this.batches.values()) {
       this.removeBatch(batch);
     }
@@ -218,11 +225,24 @@ export class WorldStoneSystem {
       }
     }
 
+    if (this.activeBuild) {
+      const wanted = this.desired.get(this.activeBuild.request.key);
+      if (!wanted || wanted.signature !== this.activeBuild.request.signature) {
+        this.activeBuild = undefined;
+      }
+    }
+
     this.queue.length = 0;
     for (const request of this.desired.values()) {
       const existing = this.batches.get(request.key);
       if (existing?.signature === request.signature) continue;
       if (this.emptySignatures.get(request.key) === request.signature) continue;
+      if (
+        this.activeBuild?.request.key === request.key &&
+        this.activeBuild.request.signature === request.signature
+      ) {
+        continue;
+      }
       this.queue.push(request);
     }
     // Pop from the end so queue removal is O(1), with nearest batches first.
@@ -230,55 +250,89 @@ export class WorldStoneSystem {
   }
 
   private processQueue(buildDeadline: number): void {
-    let built = 0;
+    let completed = 0;
     while (
-      this.queue.length > 0 &&
-      built < this.config.stoneChunksPerFrame &&
+      completed < this.config.stoneChunksPerFrame &&
       performance.now() < buildDeadline
     ) {
-      const request = this.queue.pop();
-      if (!request || this.desired.get(request.key) !== request) continue;
-
-      const existing = this.batches.get(request.key);
-      if (existing?.signature === request.signature) continue;
-
-      const startedAt = performance.now();
-      const result = this.builder.build(request.sources);
-      this.lastBuildMs = performance.now() - startedAt;
-      this.maxBuildMs = Math.max(this.maxBuildMs, this.lastBuildMs);
-
-      if (existing) {
-        this.removeBatch(existing);
-        this.batches.delete(existing.key);
+      if (!this.activeBuild) {
+        const request = this.takeNextRequest();
+        if (!request) return;
+        this.activeBuild = {
+          request,
+          job: this.builder.begin(request.sources),
+          cpuMs: 0,
+        };
       }
 
-      if (!result) {
-        this.emptySignatures.set(request.key, request.signature);
-        built += 1;
+      const active = this.activeBuild;
+      const sliceStartedAt = performance.now();
+      const progress = this.builder.advance(active.job, buildDeadline);
+      active.cpuMs += performance.now() - sliceStartedAt;
+      if (!progress.complete) return;
+
+      const wanted = this.desired.get(active.request.key);
+      if (!wanted || wanted.signature !== active.request.signature) {
+        this.activeBuild = undefined;
         continue;
       }
 
-      this.emptySignatures.delete(request.key);
-      const mesh = new THREE.Mesh(result.geometry, this.material);
-      mesh.name = `world-stones-${request.key}`;
-      mesh.castShadow = this.receiveShadows && result.hasDetailedGeometry;
-      mesh.receiveShadow = this.receiveShadows;
-      mesh.matrixAutoUpdate = false;
-      mesh.matrixWorldAutoUpdate = false;
-      mesh.updateMatrix();
-      mesh.updateMatrixWorld(true);
-
-      const batch: StoneBatch = {
-        key: request.key,
-        signature: request.signature,
-        mesh,
-        triangles: result.triangles,
-        stones: result.stones,
-      };
-      this.batches.set(batch.key, batch);
-      this.scene.add(mesh);
-      built += 1;
+      this.lastBuildMs = active.cpuMs;
+      this.maxBuildMs = Math.max(this.maxBuildMs, active.cpuMs);
+      this.commitBuild(active.request, progress.result);
+      this.activeBuild = undefined;
+      completed += 1;
     }
+  }
+
+  private takeNextRequest(): StoneBatchRequest | undefined {
+    while (this.queue.length > 0) {
+      const request = this.queue.pop();
+      if (!request) return undefined;
+      const wanted = this.desired.get(request.key);
+      if (!wanted || wanted.signature !== request.signature) continue;
+      const existing = this.batches.get(request.key);
+      if (existing?.signature === request.signature) continue;
+      if (this.emptySignatures.get(request.key) === request.signature) continue;
+      return request;
+    }
+    return undefined;
+  }
+
+  private commitBuild(
+    request: StoneBatchRequest,
+    result: ReturnType<StoneRenderBatchBuilder["build"]>,
+  ): void {
+    const existing = this.batches.get(request.key);
+    if (existing) {
+      this.removeBatch(existing);
+      this.batches.delete(existing.key);
+    }
+
+    if (!result) {
+      this.emptySignatures.set(request.key, request.signature);
+      return;
+    }
+
+    this.emptySignatures.delete(request.key);
+    const mesh = new THREE.Mesh(result.geometry, this.material);
+    mesh.name = `world-stones-${request.key}`;
+    mesh.castShadow = this.receiveShadows && result.hasDetailedGeometry;
+    mesh.receiveShadow = this.receiveShadows;
+    mesh.matrixAutoUpdate = false;
+    mesh.matrixWorldAutoUpdate = false;
+    mesh.updateMatrix();
+    mesh.updateMatrixWorld(true);
+
+    const batch: StoneBatch = {
+      key: request.key,
+      signature: request.signature,
+      mesh,
+      triangles: result.triangles,
+      stones: result.stones,
+    };
+    this.batches.set(batch.key, batch);
+    this.scene.add(mesh);
   }
 
   private removeBatch(batch: StoneBatch): void {
