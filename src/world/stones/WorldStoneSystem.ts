@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
+import { setStoneClearanceField } from "./StoneClearance";
 import type { StoneField } from "./StoneField";
 import { applyStoneSurfaceShader } from "./StoneGrowthShader";
 import {
@@ -81,6 +82,9 @@ export class WorldStoneSystem {
       config,
       this.mossExposureDirection,
     );
+    // WorldApp registers the field before grass construction. Upgrade that
+    // direct sampler to the shared-cell cache as soon as config is available.
+    setStoneClearanceField(stoneField, config);
 
     if (this.enabled && config.stoneGrainStrength > 0) {
       this.grainTexture = this.createGrainTexture();
