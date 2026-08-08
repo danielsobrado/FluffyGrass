@@ -1,14 +1,12 @@
 /**
  * Stone palettes and the tone→colour ramp.
  *
- * A palette is four paint values — shadow, mid, light, and the edge-wear
- * accent — exactly the value structure of the reference boards (two to five
- * broad values per stone, lighter tops, pale worn edges). Colours are stored
- * linear so they can be written straight into vertex-colour attributes next to
- * the terrain's, which go through the same sRGB-hex → linear conversion.
+ * A palette is four paint values — shadow, mid, light, and edge-wear accent.
+ * The colours stay close to the terrain so stones read as part of the same
+ * world, while the stronger value separation keeps broad facets readable.
  *
- * Which palette a stone gets is a placement decision (biome, altitude), not a
- * geometry decision: geometry carries only ramp positions.
+ * Which palette a stone gets is a placement decision, not a geometry decision:
+ * geometry carries only ramp positions and placement resolves final colours.
  */
 
 export interface StoneLinearColor {
@@ -23,11 +21,7 @@ export interface StonePalette {
   readonly mid: StoneLinearColor;
   readonly light: StoneLinearColor;
   readonly edge: StoneLinearColor;
-  /**
-   * Colour of growth at the stone's base. It has to differ in *hue* from the
-   * stone, not just in value: the first pass picked colours a few percent off
-   * each palette's own mid tone and the result read as dirt, or as nothing.
-   */
+  /** Colour of growth at the stone's base. */
   readonly moss: StoneLinearColor;
   /** Global multiplier on baked edge wear; keeps some sets matte. */
   readonly edgeStrength: number;
@@ -69,50 +63,50 @@ function palette(
 }
 
 /**
- * The production families. Values sit deliberately close to the terrain's own
- * rock colours (#696b64 / #85857f) so stones read as outcrops of the same
- * world, then diverge by biome the way the grass profiles do.
+ * Muted production families. The previous highlights were pale enough to turn
+ * top faces chalky under the scene sun and ACES tone mapping; these retain the
+ * same hue families while keeping the painted edge as an accent, not an outline.
  */
 export const STONE_PALETTES = {
-  /** Meadow lowland: sage grey-green, mossy shadows. */
+  /** Meadow lowland: sage grey-green. */
   meadowSage: palette(
     "meadow-sage",
-    "#464c3d",
-    "#7d8468",
-    "#b0b795",
-    "#e6ebcb",
-    "#5ba32c",
-    1,
+    "#41483b",
+    "#6d7661",
+    "#98a486",
+    "#c6cfaa",
+    "#5f793e",
+    0.82,
   ),
-  /** Dry steppe: warm tan and umber. */
+  /** Dry steppe: warm tan and muted umber. */
   steppeTan: palette(
     "steppe-tan",
-    "#54492f",
-    "#8d7d5c",
-    "#bfae8b",
-    "#efe2c2",
-    "#a8a341",
-    0.95,
+    "#51462f",
+    "#807157",
+    "#a99a78",
+    "#d2c3a2",
+    "#7c7944",
+    0.78,
   ),
   /** Alpine and high altitude: cool granite grey. */
   graniteGrey: palette(
     "granite-grey",
-    "#3f423c",
-    "#71746b",
-    "#a3a59a",
-    "#dcddd2",
-    "#63a336",
-    1.05,
+    "#41433f",
+    "#676a63",
+    "#8f9289",
+    "#b9bcb3",
+    "#63774a",
+    0.86,
   ),
   /** Deep-shade mossy variant used for occasional lowland accents. */
   mossy: palette(
     "mossy",
-    "#3d4a35",
-    "#6b7a58",
-    "#9dad80",
-    "#d5e3b0",
-    "#4d9420",
-    0.9,
+    "#394337",
+    "#5d6a54",
+    "#839374",
+    "#b2c09d",
+    "#517337",
+    0.72,
   ),
 } as const;
 
@@ -121,16 +115,15 @@ export type StonePaletteKey = keyof typeof STONE_PALETTES;
 export interface StoneTintParams {
   /** Multiplied into every ramp colour; 1 is neutral. */
   readonly valueScale: number;
-  /**
-   * How much of the baked moss susceptibility actually grows here, in [0, 1].
-   * A placement decision: damp meadow stones are mossy, dry steppe stones are
-   * barely lichened, and the same geometry serves both.
-   */
+  /** How much of the baked moss susceptibility grows here, in [0, 1]. */
   readonly moss?: number;
   /** Blended towards a second palette for borders and altitude bands. */
   readonly secondary?: StonePalette;
   readonly secondaryBlend?: number;
 }
+
+const RAMP_BANDING_STRENGTH = 0.62;
+const MOSS_COLOR_STRENGTH = 0.72;
 
 function mixChannel(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -140,9 +133,10 @@ function sampleRamp(
   paletteColors: StonePalette,
   tone: number,
 ): [number, number, number] {
-  // Soft three-stop ramp with a gentle quantize: enough banding to read as
-  // painted values, not enough to posterize under real lighting.
-  const banded = tone + (Math.round(tone * 3) / 3 - tone) * 0.45;
+  // Pull values towards four broad paint bands while retaining enough
+  // interpolation for the contact gradient and edge transition to stay soft.
+  const quantized = Math.round(tone * 3) / 3;
+  const banded = tone + (quantized - tone) * RAMP_BANDING_STRENGTH;
   if (banded < 0.5) {
     const t = banded * 2;
     return [
@@ -207,9 +201,9 @@ export function colorizeStoneVertices(
       b = mixChannel(b, edgeB, wear);
     }
 
-    // Moss last, over the worn edge: growth covers a weathered edge rather
-    // than being polished away by it.
-    const moss = mosses[index] * mossAmount;
+    // Moss stays subordinate to the stone value structure. Full-strength green
+    // on a bright facet reads as painted colour rather than organic growth.
+    const moss = mosses[index] * mossAmount * MOSS_COLOR_STRENGTH;
     if (moss > 0) {
       r = mixChannel(r, mossR, moss);
       g = mixChannel(g, mossG, moss);
