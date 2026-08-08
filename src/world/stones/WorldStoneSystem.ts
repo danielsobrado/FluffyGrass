@@ -59,6 +59,7 @@ export class WorldStoneSystem {
   });
   private readonly mossExposureDirection = new THREE.Vector3();
   private readonly builder: StoneRenderBatchBuilder;
+  private readonly coarseShaderMinimumDistance: number;
   private readonly enabled: boolean;
   private readonly grainTexture?: THREE.Texture;
   private activeBuild?: ActiveStoneBuild;
@@ -78,7 +79,13 @@ export class WorldStoneSystem {
     this.detailMaterial.name = "world-stone-detail-material";
     this.detailMaterial.dithering = true;
     this.coarseMaterial.name = "world-stone-coarse-material";
-    this.coarseMaterial.dithering = true;
+    this.coarseMaterial.dithering = false;
+    this.coarseShaderMinimumDistance = Math.max(
+      config.stoneGrowthDetailStrength > 0
+        ? config.stoneGrowthDetailFadeDistance
+        : 0,
+      config.stoneGrainStrength > 0 ? config.stoneGrainFadeDistance : 0,
+    );
 
     const azimuth = THREE.MathUtils.degToRad(
       config.stoneMossExposureAzimuthDegrees,
@@ -331,14 +338,16 @@ export class WorldStoneSystem {
     }
 
     this.emptySignatures.delete(request.key);
-    const detailed = result.hasDetailedGeometry;
+    const useDetailMaterial =
+      result.hasDetailedGeometry || !this.isCoarseShaderSafe(request);
     const mesh = new THREE.Mesh(
       result.geometry,
-      detailed ? this.detailMaterial : this.coarseMaterial,
+      useDetailMaterial ? this.detailMaterial : this.coarseMaterial,
     );
     mesh.name = `world-stones-${request.key}`;
     mesh.position.set(result.originX, result.originY, result.originZ);
-    const localShadowDetail = this.receiveShadows && detailed;
+    const localShadowDetail =
+      this.receiveShadows && result.hasDetailedGeometry;
     mesh.castShadow = localShadowDetail;
     mesh.receiveShadow = localShadowDetail;
     mesh.matrixAutoUpdate = false;
@@ -355,6 +364,12 @@ export class WorldStoneSystem {
     this.batches.set(batch.key, batch);
     this.scene.add(mesh);
     mesh.updateMatrixWorld(true);
+  }
+
+  private isCoarseShaderSafe(request: StoneBatchRequest): boolean {
+    const minimumDistance =
+      Math.max(0, request.distance - 1) * this.config.chunkSize;
+    return minimumDistance >= this.coarseShaderMinimumDistance;
   }
 
   private removeBatch(batch: StoneBatch): void {
