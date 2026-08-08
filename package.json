@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && node scripts/verify-production-policy.mjs && node scripts/verify-runtime-safety.mjs && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-grass-placement.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && node scripts/verify-stones.mjs && vite build",
+    "build": "tsc && tsc -p tsconfig.stone-tools.json && node scripts/verify-production-policy.mjs && node scripts/verify-runtime-safety.mjs && node scripts/verify-lod-continuity.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-grass-placement.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && node scripts/verify-stones.mjs && vite build",
     "test:policy": "node scripts/verify-production-policy.mjs",
     "test:runtime-safety": "node scripts/verify-runtime-safety.mjs",
     "test:lod": "node scripts/verify-lod-continuity.mjs",
@@ -18,6 +18,7 @@
     "test:impostor-subpatch": "node scripts/verify-impostor-subpatch.mjs",
     "test:character-motion": "node scripts/verify-character-motion.mjs",
     "test:stones": "node scripts/verify-stones.mjs",
+    "test:stone-tools": "tsc -p tsconfig.stone-tools.json",
     "preview": "vite preview",
     "deploy:pages": "node scripts/deploy-github-pages.mjs"
   },
