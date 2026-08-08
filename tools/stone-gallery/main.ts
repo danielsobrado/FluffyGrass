@@ -139,6 +139,7 @@ const paletteColumns: StonePalette[] = paletteParam
 
 const columns = 8;
 const spacing = 2.6;
+const GROWTH_EPSILON = 1e-4;
 let totalTriangles = 0;
 let totalVertices = 0;
 
@@ -177,9 +178,13 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     const mosses = new Float32Array(mesh.mosses.length);
     const lichens = new Float32Array(mesh.mosses.length);
     const seeds = new Float32Array(mesh.mosses.length);
-    const centers = new Float32Array(mesh.mosses.length * 3);
+    const growthPositions = new Float32Array(mesh.mosses.length * 3);
     const mossColors = new Float32Array(mesh.mosses.length * 3);
     const lichenColors = new Float32Array(mesh.mosses.length * 3);
+    const inverseGrowthRadius =
+      0.5 / Math.max(mesh.metrics.footprintRadius, GROWTH_EPSILON);
+    const inverseGrowthHeight =
+      1 / Math.max(mesh.metrics.height, GROWTH_EPSILON);
     for (let vertex = 0; vertex < mesh.mosses.length; vertex += 1) {
       mosses[vertex] =
         growthParam === "moss"
@@ -191,6 +196,11 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
       lichens[vertex] = growthParam === "lichen" ? 0.82 : 0;
       seeds[vertex] = (seed % 104729) / 104729;
       const offset = vertex * 3;
+      growthPositions[offset] = mesh.positions[offset] * inverseGrowthRadius;
+      growthPositions[offset + 1] =
+        mesh.positions[offset + 1] * inverseGrowthHeight;
+      growthPositions[offset + 2] =
+        mesh.positions[offset + 2] * inverseGrowthRadius;
       mossColors[offset] = palette.moss.r;
       mossColors[offset + 1] = palette.moss.g;
       mossColors[offset + 2] = palette.moss.b;
@@ -202,8 +212,8 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     geometry.setAttribute("stoneLichen", new THREE.BufferAttribute(lichens, 1));
     geometry.setAttribute("stoneGrowthSeed", new THREE.BufferAttribute(seeds, 1));
     geometry.setAttribute(
-      "stoneGrowthCenter",
-      new THREE.BufferAttribute(centers, 3),
+      "stoneGrowthPosition",
+      new THREE.BufferAttribute(growthPositions, 3),
     );
     geometry.setAttribute(
       "stoneMossColor",
