@@ -100,10 +100,11 @@ stoneClusterChance: 0.82
 stoneGrassClearanceFeather: 0.4
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
-# Chipped geometry is only useful in the near field; broad facets carry farther.
+# Chipped geometry is only useful in the near field; compact keeps it to one
+# 64 m ring because the extra facets are sub-pixel earlier on smaller screens.
 stoneDetailRadius: 2
-# Merge a stable 2x2 terrain-chunk block into one stone draw. This cuts the
-# desktop stone draw-call envelope by roughly four while keeping 128 m culling.
+stoneDetailRadiusCompact: 1
+# Merge a stable 2x2 terrain-chunk block into one stone draw.
 stoneRenderBatchChunksPerAxis: 2
 stoneChunksPerFrame: 1
 # Paths keep occasional kicked-aside stones without becoming decorative kerbs.
