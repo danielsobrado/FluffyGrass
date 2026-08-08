@@ -80,8 +80,19 @@ function buildRepresentativeBatch(
 function attribute(
   geometry: THREE.BufferGeometry,
   name: string,
-): THREE.BufferAttribute {
-  return geometry.getAttribute(name) as THREE.BufferAttribute;
+): THREE.BufferAttribute | THREE.InterleavedBufferAttribute {
+  return geometry.getAttribute(name);
+}
+
+function requireInterleaved(
+  value: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  name: string,
+): THREE.InterleavedBufferAttribute {
+  assert(
+    value instanceof THREE.InterleavedBufferAttribute,
+    `${name} must use the packed interleaved stone stream.`,
+  );
+  return value;
 }
 
 function verifyClearanceAmortization(
@@ -112,7 +123,7 @@ function verifyClearanceAmortization(
   );
 }
 
-/** Production contracts for draw-call count and resident vertex bandwidth. */
+/** Production contracts for draw count, detail footprint, and vertex bandwidth. */
 export function verifyStoneRenderPerformance(configSource: string): string {
   const config = new WorldConfigLoader().parse(configSource);
   assert(
@@ -175,71 +186,73 @@ export function verifyStoneRenderPerformance(configSource: string): string {
 
   const geometry = result.geometry;
   const position = attribute(geometry, "position");
-  const normal = attribute(geometry, "normal");
-  const color = attribute(geometry, "color");
-  const moss = attribute(geometry, "stoneMoss");
-  const lichen = attribute(geometry, "stoneLichen");
-  const seed = attribute(geometry, "stoneGrowthSeed");
-  const growthPosition = attribute(geometry, "stoneGrowthPosition");
-  const mossColor = attribute(geometry, "stoneMossColor");
-  const lichenColor = attribute(geometry, "stoneLichenColor");
+  assert(
+    position instanceof THREE.BufferAttribute &&
+      position.array instanceof Float32Array,
+    "Stone positions must remain a dedicated Float32 stream.",
+  );
 
-  assert(
-    normal.array instanceof Int16Array && normal.normalized,
-    "Stone normals must stay normalized Int16 attributes.",
+  const normal = requireInterleaved(attribute(geometry, "normal"), "normal");
+  const growthPosition = requireInterleaved(
+    attribute(geometry, "stoneGrowthPosition"),
+    "stoneGrowthPosition",
   );
   assert(
-    color.array instanceof Uint8Array && color.normalized,
-    "Stone base colors must stay normalized byte attributes.",
+    normal.data === growthPosition.data &&
+      normal.data.array instanceof Int16Array &&
+      normal.normalized &&
+      growthPosition.normalized,
+    "Stone normals and growth coordinates must share one normalized Int16 stream.",
   );
+
+  const color = requireInterleaved(attribute(geometry, "color"), "color");
+  const moss = requireInterleaved(attribute(geometry, "stoneMoss"), "stoneMoss");
+  const lichen = requireInterleaved(
+    attribute(geometry, "stoneLichen"),
+    "stoneLichen",
+  );
+  const seed = requireInterleaved(
+    attribute(geometry, "stoneGrowthSeed"),
+    "stoneGrowthSeed",
+  );
+  const mossColor = requireInterleaved(
+    attribute(geometry, "stoneMossColor"),
+    "stoneMossColor",
+  );
+  const lichenColor = requireInterleaved(
+    attribute(geometry, "stoneLichenColor"),
+    "stoneLichenColor",
+  );
+  const byteData = color.data;
   assert(
-    moss.array instanceof Uint8Array &&
-      lichen.array instanceof Uint8Array &&
+    byteData.array instanceof Uint8Array &&
+      moss.data === byteData &&
+      lichen.data === byteData &&
+      seed.data === byteData &&
+      mossColor.data === byteData &&
+      lichenColor.data === byteData &&
+      color.normalized &&
       moss.normalized &&
-      lichen.normalized,
-    "Stone biological coverage must stay normalized byte attributes.",
-  );
-  assert(
-    seed.array instanceof Uint16Array && seed.normalized,
-    "Stone growth seeds must stay normalized Uint16 attributes.",
-  );
-  assert(
-    growthPosition.array instanceof Int16Array && growthPosition.normalized,
-    "Stone local growth coordinates must stay normalized Int16 attributes.",
-  );
-  assert(
-    mossColor.array instanceof Uint8Array &&
-      lichenColor.array instanceof Uint8Array &&
+      lichen.normalized &&
+      seed.normalized &&
       mossColor.normalized &&
       lichenColor.normalized,
-    "Stone growth colors must stay normalized byte attributes.",
+    "Stone color, growth, and seed data must share one normalized Uint8 stream.",
   );
   assert(
     geometry.boundingBox !== null && geometry.boundingSphere !== null,
     "Stone batches must provide precomputed culling bounds.",
   );
 
-  const attributes = [
-    position,
-    normal,
-    color,
-    moss,
-    lichen,
-    seed,
-    growthPosition,
-    mossColor,
-    lichenColor,
-  ];
-  const bytesPerVertex = attributes.reduce(
-    (sum, current) =>
-      sum + current.itemSize * current.array.BYTES_PER_ELEMENT,
-    0,
-  );
+  const bytesPerVertex =
+    position.itemSize * position.array.BYTES_PER_ELEMENT +
+    normal.data.stride * normal.data.array.BYTES_PER_ELEMENT +
+    byteData.stride * byteData.array.BYTES_PER_ELEMENT;
   assert(
-    bytesPerVertex <= 40,
+    bytesPerVertex <= 36,
     `Stone vertex payload regressed to ${bytesPerVertex} bytes.`,
   );
   geometry.dispose();
 
-  return `${desktopBatches}/${desktopUnbatched} desktop draws · ${compactBatches}/${compactUnbatched} compact draws · ${compactDetailedChunks}/${desktopDetailedChunks} compact detail · ${bytesPerVertex} B/vertex`;
+  return `${desktopBatches}/${desktopUnbatched} desktop draws · ${compactBatches}/${compactUnbatched} compact draws · ${compactDetailedChunks}/${desktopDetailedChunks} compact detail · ${bytesPerVertex} B/vertex · 3 vertex streams`;
 }
