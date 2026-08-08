@@ -30,7 +30,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassChunksPerFrame: POSITIVE_INTEGER,
   grassPatchSize: POSITIVE,
   grassRenderBatchesPerAxis: POSITIVE_INTEGER,
-  grassFarImpostorsPerPatch: { minimum: 1, maximum: 1, integer: true },
+  grassFarImpostorsPerPatch: { minimum: 1, maximum: 4, integer: true },
   grassBladesPerSquareMeterDesktop: { minimum: 4, maximum: 160 },
   grassBladesPerSquareMeterCompact: { minimum: 4, maximum: 160 },
   grassNearTileSize: POSITIVE,
@@ -84,6 +84,20 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassMinAltitude: {},
   grassMaxAltitude: {},
   grassMaxSlopeDegrees: { minimum: 1, maximum: 89 },
+  stonesEnabled: { minimum: 0, maximum: 1, integer: true },
+  stoneCellSize: { minimum: 8, maximum: 64 },
+  stoneDensity: { minimum: 0, maximum: 3 },
+  stoneVariantsPerArchetype: { minimum: 2, maximum: 16, integer: true },
+  stoneClusterChance: { minimum: 0, maximum: 1 },
+  stoneGrassClearanceFeather: { minimum: 0.1, maximum: 2 },
+  stoneRadiusDesktop: POSITIVE_INTEGER,
+  stoneRadiusCompact: POSITIVE_INTEGER,
+  stoneDetailRadius: POSITIVE_INTEGER,
+  stoneChunksPerFrame: POSITIVE_INTEGER,
+  stoneVergeChance: { minimum: 0, maximum: 1 },
+  stoneGrainStrength: { minimum: 0, maximum: 0.5 },
+  stoneGrainSize: { minimum: 0.05, maximum: 4 },
+  stoneGrainFadeDistance: { minimum: 2, maximum: 120 },
   grassNearDistance: POSITIVE,
   grassMidDistance: POSITIVE,
   grassFarDistance: POSITIVE,
@@ -133,8 +147,12 @@ export class WorldConfigLoader {
         `Unable to load world config from ${url}: HTTP ${response.status}.`,
       );
     }
+    return this.parse(await response.text());
+  }
 
-    const values = FlatConfig.parse(await response.text(), "world");
+  /** Parse and validate config source directly; the node verifiers use this. */
+  parse(source: string): WorldConfig {
+    const values = FlatConfig.parse(source, "world");
     const config = {} as WorldConfig;
     for (const key of Object.keys(CONFIG_SCHEMA) as (keyof WorldConfig)[]) {
       config[key] = this.readNumber(values, key, CONFIG_SCHEMA[key]);
@@ -168,6 +186,9 @@ export class WorldConfigLoader {
     if (config.grassClumpAspectMin > config.grassClumpAspectMax) {
       throw new Error("grassClumpAspect range is reversed.");
     }
+    // The remainder of the heading is independent per-blade randomness. Letting
+    // the two structured weights reach 1 would put every blade of a tuft back
+    // on one axis, which is the alignment this configuration exists to remove.
     if (
       config.grassClumpDominantDirectionWeight +
         config.grassClumpRadialDirectionWeight >
@@ -216,6 +237,20 @@ export class WorldConfigLoader {
     if (config.pathBranchWidth > config.pathWidth) {
       throw new Error("pathBranchWidth must not exceed pathWidth.");
     }
+    if (config.stoneRadiusCompact > config.stoneRadiusDesktop) {
+      throw new Error(
+        "Compact stone radius must not exceed the desktop radius.",
+      );
+    }
+    if (
+      config.stoneRadiusDesktop > config.terrainRadiusDesktop ||
+      config.stoneRadiusCompact > config.terrainRadiusCompact
+    ) {
+      // A stone chunk without terrain under it would visibly float.
+      throw new Error("Stone streaming radius must not exceed terrain radius.");
+    }
+    // A way whose cleared band approaches the spacing between neighbouring ways
+    // stops reading as a path through the grass and starts erasing the field.
     if (config.pathWidth >= config.pathSpacing * 0.05) {
       throw new Error("pathWidth must stay far below pathSpacing.");
     }
@@ -326,11 +361,19 @@ export class WorldConfigLoader {
         "Grass interaction radii must be lower than grassNearDistance.",
       );
     }
+    // The trail square is centred on the character, so anything it must record
+    // has to fit inside half of it.
     if (config.grassLandingPulseRadius >= config.grassTrailCoverage * 0.5) {
       throw new Error(
         "grassLandingPulseRadius must fit inside half of grassTrailCoverage.",
       );
     }
+    // Only the near single-blade layers sample the trail; the mid layer compiles
+    // the bend out entirely. Mid blades start grassNearDistance from the CAMERA
+    // and the trail square is centred on the CHARACTER, so the nearest mid blade
+    // sits (grassNearDistance - characterCameraMaxDistance) from the trail
+    // centre. Once half the coverage reaches that far, crushed grass springs
+    // upright across the near/mid handoff instead of continuing into it.
     if (
       config.grassTrailCoverage * 0.5 >=
       config.grassNearDistance - config.characterCameraMaxDistance
@@ -340,6 +383,9 @@ export class WorldConfigLoader {
           "(grassNearDistance minus characterCameraMaxDistance).",
       );
     }
+    // A footprint has to survive rasterization into the trail texture. Below
+    // roughly two texels across it aliases into a flickering speck instead of a
+    // print, and no amount of shader tuning recovers it.
     const trailTexelSize = config.grassTrailCoverage / config.grassTrailResolution;
     if (config.grassFootContactRadius < trailTexelSize) {
       throw new Error(

@@ -90,6 +90,36 @@ export interface WorldConfig {
   grassMinAltitude: number;
   grassMaxAltitude: number;
   grassMaxSlopeDegrees: number;
+  /**
+   * Procedural stones. `stonesEnabled` is the rollback flag: 0 removes every
+   * stone and every grass-clearance effect without touching other systems.
+   */
+  stonesEnabled: number;
+  /** Metres per placement cell; expected count scales with cell area. */
+  stoneCellSize: number;
+  /** Expected stones per 16 m cell in neutral meadow before biome factors. */
+  stoneDensity: number;
+  stoneVariantsPerArchetype: number;
+  /** Chance a large grounded stone seeds a satellite cluster. */
+  stoneClusterChance: number;
+  /** Metres of soft edge on the grass cleared around a stone footprint. */
+  stoneGrassClearanceFeather: number;
+  stoneRadiusDesktop: number;
+  stoneRadiusCompact: number;
+  /** Chunk distance that still includes the small nestling stones. */
+  stoneDetailRadius: number;
+  stoneChunksPerFrame: number;
+  /** Chance per attempt that a stone is placed lining a walking way. */
+  stoneVergeChance: number;
+  /**
+   * Close-range albedo grain. 0 disables the effect and the shader injection
+   * with it, so the stones fall back to pure flat-value art at no cost.
+   */
+  stoneGrainStrength: number;
+  /** Metres per repeat of the grain texture. */
+  stoneGrainSize: number;
+  /** Metres from camera at which the grain has faded out completely. */
+  stoneGrainFadeDistance: number;
   grassNearDistance: number;
   grassMidDistance: number;
   grassFarDistance: number;
