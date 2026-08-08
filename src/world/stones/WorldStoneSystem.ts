@@ -409,9 +409,11 @@ export class WorldStoneSystem {
       colorizeStoneVertices(
         variant.tones,
         variant.wears,
+        variant.mosses,
         palette,
         {
           valueScale: instance.valueScale,
+          moss: instance.moss,
           secondary:
             instance.graniteBlend > 0.01 && palette !== STONE_PALETTES.graniteGrey
               ? STONE_PALETTES.graniteGrey

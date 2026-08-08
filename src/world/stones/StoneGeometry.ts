@@ -30,6 +30,12 @@ export interface StoneMeshData {
   readonly tones: Float32Array;
   /** Edge-highlight strength per vertex, in [0, 1]. */
   readonly wears: Float32Array;
+  /**
+   * Moss susceptibility per vertex, in [0, 1]. How readily this point *would*
+   * take moss, not how much it has: the amount is a placement decision, so one
+   * geometry serves a damp meadow and a dry steppe without regenerating.
+   */
+  readonly mosses: Float32Array;
   readonly indices: Uint16Array;
   readonly metrics: StoneMeshMetrics;
 }
@@ -82,6 +88,14 @@ const INTERIOR_SWAY = 0.13;
 const CONTACT_SHADE_FLOOR = 0.62;
 /** Fraction of stone height over which the contact darkening lifts. */
 const CONTACT_SHADE_HEIGHT = 0.22;
+/**
+ * Fraction of stone height that moss can climb. Moss creeps up from the
+ * ground, so the band is what ties a stone to the terrain it stands in — the
+ * lower third reads as damp, the crown stays clean.
+ */
+const MOSS_CLIMB = 0.42;
+/** Metres per blotch of the moss patchiness hash. */
+const MOSS_PATCH_SIZE = 0.26;
 /** Dihedral angles below this stay unlit; above the upper bound fully lit. */
 const WEAR_ANGLE_START = 0.32;
 const WEAR_ANGLE_FULL = 0.85;
@@ -202,6 +216,7 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
   const normals = new Float32Array(vertexCount * 3);
   const tones = new Float32Array(vertexCount);
   const wears = new Float32Array(vertexCount);
+  const mosses = new Float32Array(vertexCount);
   const indices = new Uint16Array(triangleCount * 3);
 
   let vertexCursor = 0;
@@ -246,6 +261,7 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
       normals[offset + 2] = normalZ;
       tones[vertexCursor] = tone;
       wears[vertexCursor] = wear;
+      mosses[vertexCursor] = resolveMoss(x, y, z, normalY, heightMetres, recipe);
       const emitted = vertexCursor;
       vertexCursor += 1;
       return emitted;
@@ -482,7 +498,7 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
     fingerprint: fingerprintMesh(positions, tones),
   };
 
-  return { positions, normals, tones, wears, indices, metrics };
+  return { positions, normals, tones, wears, mosses, indices, metrics };
 }
 
 /**
@@ -614,6 +630,42 @@ function resolveFaceTone(face: WorkingFace, recipe: StoneRecipe): number {
   // independent of runtime lighting.
   const upBias = Math.max(0, face.normalY) * 0.12;
   return clamp01(roleTone + jitter + upBias);
+}
+
+/**
+ * How readily a point takes moss.
+ *
+ * Three factors, all cheap and all baked once: how far it is above the ground,
+ * which way it faces, and a blotch hash so the edge of the growth is ragged
+ * rather than a clean waterline. Undersides keep a floor rather than going to
+ * zero — the damp shade beneath an overhang is exactly where moss does best,
+ * even though it faces down.
+ */
+function resolveMoss(
+  x: number,
+  y: number,
+  z: number,
+  normalY: number,
+  heightMetres: number,
+  recipe: StoneRecipe,
+): number {
+  const climb = 1 - smoothstep(y, 0, heightMetres * MOSS_CLIMB);
+  if (climb <= 0) {
+    return 0;
+  }
+  // Up-facing ledges hold moisture; vertical faces shed it. The floor keeps
+  // sheltered undersides in play.
+  const facing = normalY >= 0 ? 0.45 + 0.55 * normalY : 0.45 + 0.3 * -normalY;
+  const blotch =
+    hashStoneCell(
+      Math.round(x / MOSS_PATCH_SIZE) * 31 + Math.round(y / MOSS_PATCH_SIZE),
+      Math.round(z / MOSS_PATCH_SIZE) * 17 - Math.round(y / MOSS_PATCH_SIZE),
+      recipe.seed ^ 0x6d055,
+    ) / 4294967296;
+  // Widening the blotch with depth into the band keeps growth continuous at
+  // the base and broken at its upper edge, which is how it actually creeps.
+  const patch = smoothstep(climb * 1.35, blotch * 0.85, blotch * 0.85 + 0.3);
+  return clamp01(climb * facing * patch);
 }
 
 function resolveCornerWear(

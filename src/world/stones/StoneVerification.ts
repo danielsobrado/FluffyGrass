@@ -176,6 +176,10 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
           mesh.wears[index] >= 0 && mesh.wears[index] <= 1,
           `${archetype}:${seed} wear out of range.`,
         );
+        assert(
+          mesh.mosses[index] >= 0 && mesh.mosses[index] <= 1,
+          `${archetype}:${seed} moss out of range.`,
+        );
       }
       assert(
         mesh.metrics.vertexCount <= VERTEX_BUDGET &&

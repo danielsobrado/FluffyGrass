@@ -48,6 +48,12 @@ export interface StoneInstance {
   readonly paletteKey: StonePaletteKey;
   /** Blend towards granite with altitude, resolved at colorize time. */
   readonly graniteBlend: number;
+  /**
+   * How much of the geometry's baked moss susceptibility actually grows here.
+   * Damp lowland meadow is mossy, dry steppe barely lichened, and bare rock
+   * above the grass line has almost nothing on it.
+   */
+  readonly moss: number;
   readonly valueScale: number;
   /** Terrain normal at the root, and how strongly to align to it. */
   readonly normalX: number;
@@ -87,6 +93,8 @@ const SLOPE_WEIGHTS: ArchetypeWeights = {
 };
 
 const BIOME_DENSITY = [1, 1.4, 1.7];
+/** Moss by biome: damp meadow, dry steppe, thin alpine. */
+const BIOME_MOSS = [1, 0.3, 0.55];
 const BIOME_PALETTE: readonly StonePaletteKey[] = [
   "meadowSage",
   "steppeTan",
@@ -676,6 +684,7 @@ export class StoneField {
           this.config.grassMaxAltitude + 30,
         ),
         valueScale: attempt.range(0.92, 1.06),
+        moss: this.resolveMoss(attempt, stoneHeight, biomeIndex, rockiness),
         normalX: normal.x,
         normalY: normal.y,
         normalZ: normal.z,
@@ -808,6 +817,10 @@ export class StoneField {
       this.config.grassMaxAltitude - 35,
       this.config.grassMaxAltitude + 30,
     );
+    // Moss follows the same conditions grass does, so a stone is mossy exactly
+    // where the ground around it is green — which is what makes the growth
+    // read as belonging to the place rather than painted on the asset.
+    const moss = this.resolveMoss(random, height, biomeIndex, rockiness);
     let paletteKey = BIOME_PALETTE[biomeIndex];
     if (
       paletteKey === "meadowSage" &&
@@ -850,6 +863,7 @@ export class StoneField {
       paletteKey,
       graniteBlend,
       valueScale: random.range(0.92, 1.06),
+      moss,
       normalX: normal.x,
       normalY: normal.y,
       normalZ: normal.z,
@@ -903,6 +917,7 @@ export class StoneField {
             paletteKey,
             graniteBlend,
             valueScale: random.range(0.92, 1.06),
+            moss,
             normalX: halfNormal.x,
             normalY: halfNormal.y,
             normalZ: halfNormal.z,
@@ -969,6 +984,45 @@ export class StoneField {
         );
       }
     }
+  }
+
+  /**
+   * How much moss grows on a stone standing here.
+   *
+   * Keyed to the same altitude window the grass uses, so growth stops where
+   * the meadow does. Rocky ground gets a little less: a boulder field is
+   * exposed and drains, which is also what stops every stone in a scree slope
+   * from wearing the same green skirt.
+   */
+  private resolveMoss(
+    random: StoneRandom,
+    height: number,
+    biomeIndex: number,
+    rockiness: number,
+  ): number {
+    const altitudeFade =
+      smoothstep(
+        height,
+        this.config.grassMinAltitude - 4,
+        this.config.grassMinAltitude + 10,
+      ) *
+      (1 -
+        smoothstep(
+          height,
+          this.config.grassMaxAltitude - 45,
+          this.config.grassMaxAltitude + 5,
+        ));
+    const exposure = 1 - 0.35 * rockiness;
+    return Math.max(
+      0,
+      Math.min(
+        1,
+        BIOME_MOSS[biomeIndex] *
+          altitudeFade *
+          exposure *
+          random.range(0.55, 1.15),
+      ),
+    );
   }
 
   private pickArchetype(

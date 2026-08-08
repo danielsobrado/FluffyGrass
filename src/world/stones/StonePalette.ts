@@ -23,6 +23,12 @@ export interface StonePalette {
   readonly mid: StoneLinearColor;
   readonly light: StoneLinearColor;
   readonly edge: StoneLinearColor;
+  /**
+   * Colour of growth at the stone's base. It has to differ in *hue* from the
+   * stone, not just in value: the first pass picked colours a few percent off
+   * each palette's own mid tone and the result read as dirt, or as nothing.
+   */
+  readonly moss: StoneLinearColor;
   /** Global multiplier on baked edge wear; keeps some sets matte. */
   readonly edgeStrength: number;
 }
@@ -48,6 +54,7 @@ function palette(
   mid: string,
   light: string,
   edge: string,
+  moss: string,
   edgeStrength: number,
 ): StonePalette {
   return {
@@ -56,6 +63,7 @@ function palette(
     mid: linearFromHex(mid),
     light: linearFromHex(light),
     edge: linearFromHex(edge),
+    moss: linearFromHex(moss),
     edgeStrength,
   };
 }
@@ -73,6 +81,7 @@ export const STONE_PALETTES = {
     "#7d8468",
     "#b0b795",
     "#e6ebcb",
+    "#5ba32c",
     1,
   ),
   /** Dry steppe: warm tan and umber. */
@@ -82,6 +91,7 @@ export const STONE_PALETTES = {
     "#8d7d5c",
     "#bfae8b",
     "#efe2c2",
+    "#a8a341",
     0.95,
   ),
   /** Alpine and high altitude: cool granite grey. */
@@ -91,6 +101,7 @@ export const STONE_PALETTES = {
     "#71746b",
     "#a3a59a",
     "#dcddd2",
+    "#63a336",
     1.05,
   ),
   /** Deep-shade mossy variant used for occasional lowland accents. */
@@ -100,6 +111,7 @@ export const STONE_PALETTES = {
     "#6b7a58",
     "#9dad80",
     "#d5e3b0",
+    "#4d9420",
     0.9,
   ),
 } as const;
@@ -109,6 +121,12 @@ export type StonePaletteKey = keyof typeof STONE_PALETTES;
 export interface StoneTintParams {
   /** Multiplied into every ramp colour; 1 is neutral. */
   readonly valueScale: number;
+  /**
+   * How much of the baked moss susceptibility actually grows here, in [0, 1].
+   * A placement decision: damp meadow stones are mossy, dry steppe stones are
+   * barely lichened, and the same geometry serves both.
+   */
+  readonly moss?: number;
   /** Blended towards a second palette for borders and altitude bands. */
   readonly secondary?: StonePalette;
   readonly secondaryBlend?: number;
@@ -150,6 +168,7 @@ function sampleRamp(
 export function colorizeStoneVertices(
   tones: Float32Array,
   wears: Float32Array,
+  mosses: Float32Array,
   paletteColors: StonePalette,
   tint: StoneTintParams,
   target: Float32Array,
@@ -157,12 +176,16 @@ export function colorizeStoneVertices(
 ): void {
   const secondary = tint.secondary;
   const blend = tint.secondaryBlend ?? 0;
+  const mossAmount = tint.moss ?? 0;
   for (let index = 0; index < tones.length; index += 1) {
     let [r, g, b] = sampleRamp(paletteColors, tones[index]);
     let edgeR = paletteColors.edge.r;
     let edgeG = paletteColors.edge.g;
     let edgeB = paletteColors.edge.b;
     let edgeStrength = paletteColors.edgeStrength;
+    let mossR = paletteColors.moss.r;
+    let mossG = paletteColors.moss.g;
+    let mossB = paletteColors.moss.b;
     if (secondary && blend > 0) {
       const [r2, g2, b2] = sampleRamp(secondary, tones[index]);
       r = mixChannel(r, r2, blend);
@@ -172,6 +195,9 @@ export function colorizeStoneVertices(
       edgeG = mixChannel(edgeG, secondary.edge.g, blend);
       edgeB = mixChannel(edgeB, secondary.edge.b, blend);
       edgeStrength = mixChannel(edgeStrength, secondary.edgeStrength, blend);
+      mossR = mixChannel(mossR, secondary.moss.r, blend);
+      mossG = mixChannel(mossG, secondary.moss.g, blend);
+      mossB = mixChannel(mossB, secondary.moss.b, blend);
     }
 
     const wear = wears[index] * edgeStrength;
@@ -179,6 +205,15 @@ export function colorizeStoneVertices(
       r = mixChannel(r, edgeR, wear);
       g = mixChannel(g, edgeG, wear);
       b = mixChannel(b, edgeB, wear);
+    }
+
+    // Moss last, over the worn edge: growth covers a weathered edge rather
+    // than being polished away by it.
+    const moss = mosses[index] * mossAmount;
+    if (moss > 0) {
+      r = mixChannel(r, mossR, moss);
+      g = mixChannel(g, mossG, moss);
+      b = mixChannel(b, mossB, moss);
     }
 
     const offset = targetOffset + index * 3;
