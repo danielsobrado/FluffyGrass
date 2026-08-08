@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { TerrainField } from "../TerrainField";
 import { WorldConfigLoader } from "../WorldConfigLoader";
+import { StoneClearanceCache } from "./StoneClearanceCache";
 import { StoneField, type StoneInstance } from "./StoneField";
 import {
   StoneRenderBatchBuilder,
@@ -71,6 +72,34 @@ function attribute(
   return geometry.getAttribute(name) as THREE.BufferAttribute;
 }
 
+function verifyClearanceAmortization(
+  config: ReturnType<WorldConfigLoader["parse"]>,
+): void {
+  let chunkCollections = 0;
+  const fakeField = {
+    collectChunkInstances(
+      _chunkX: number,
+      _chunkZ: number,
+      _includeSmall: boolean,
+      out: StoneInstance[],
+    ): StoneInstance[] {
+      chunkCollections += 1;
+      out.length = 0;
+      return out;
+    },
+  } as unknown as StoneField;
+  const cache = new StoneClearanceCache(fakeField, config);
+  const origin = config.stoneCellSize * 2.25;
+  for (let index = 0; index < 4096; index += 1) {
+    const offset = (index % 32) * (config.stoneCellSize / 128);
+    cache.sample(origin + offset, origin + offset * 0.5);
+  }
+  assert(
+    chunkCollections <= 4,
+    `Clearance cache repeated ${chunkCollections} chunk collections inside one stone cell.`,
+  );
+}
+
 /** Production contracts for draw-call count and resident vertex bandwidth. */
 export function verifyStoneRenderPerformance(configSource: string): string {
   const config = new WorldConfigLoader().parse(configSource);
@@ -78,6 +107,7 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     config.stoneRenderBatchChunksPerAxis >= 2,
     "Production stones must batch at least 2x2 terrain chunks per draw.",
   );
+  verifyClearanceAmortization(config);
 
   const desktopUnbatched = (config.stoneRadiusDesktop * 2 + 1) ** 2;
   const compactUnbatched = (config.stoneRadiusCompact * 2 + 1) ** 2;
