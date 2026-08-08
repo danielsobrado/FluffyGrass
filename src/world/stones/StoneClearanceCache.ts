@@ -3,15 +3,8 @@ import type { StoneField, StoneInstance } from "./StoneField";
 
 const CACHE_LIMIT = 512;
 const CACHE_TRIM = 384;
-const CELL_KEY_MASK = 0xffff;
-const CELL_KEY_STRIDE = 0x10000;
+const CELL_KEY_MARGIN = 4;
 const EDGE_EPSILON = 1e-6;
-
-function cellKey(cellX: number, cellZ: number): number {
-  return (
-    ((cellX & CELL_KEY_MASK) * CELL_KEY_STRIDE + (cellZ & CELL_KEY_MASK)) >>> 0
-  );
-}
 
 function smoothstep(value: number, minimum: number, maximum: number): number {
   if (value <= minimum) return 0;
@@ -21,18 +14,26 @@ function smoothstep(value: number, minimum: number, maximum: number): number {
 }
 
 /**
- * Amortizes stone clearance across all grass blades sharing a 16 m stone cell.
+ * Amortizes stone clearance across all grass blades sharing a stone cell.
  * The expensive deterministic placement walk runs once per neighborhood rather
  * than once per blade; hot samples are one numeric Map lookup plus distance tests.
  */
 export class StoneClearanceCache {
   private readonly neighborhoods = new Map<number, StoneInstance[]>();
   private readonly chunkScratch: StoneInstance[] = [];
+  private readonly cellKeyOffset: number;
+  private readonly cellKeyStride: number;
 
   constructor(
     private readonly field: StoneField,
     private readonly config: WorldConfig,
-  ) {}
+  ) {
+    const halfCells =
+      Math.ceil(config.worldSize / (config.stoneCellSize * 2)) +
+      CELL_KEY_MARGIN;
+    this.cellKeyOffset = halfCells;
+    this.cellKeyStride = halfCells * 2 + 1;
+  }
 
   sample(x: number, z: number, extraRadius = 0): number {
     const cellX = Math.floor(x / this.config.stoneCellSize);
@@ -64,7 +65,7 @@ export class StoneClearanceCache {
   }
 
   private getNeighborhood(cellX: number, cellZ: number): StoneInstance[] {
-    const key = cellKey(cellX, cellZ);
+    const key = this.cellKey(cellX, cellZ);
     const cached = this.neighborhoods.get(key);
     if (cached) return cached;
 
@@ -110,5 +111,13 @@ export class StoneClearanceCache {
     }
     this.neighborhoods.set(key, candidates);
     return candidates;
+  }
+
+  private cellKey(cellX: number, cellZ: number): number {
+    return (
+      (cellX + this.cellKeyOffset) * this.cellKeyStride +
+      cellZ +
+      this.cellKeyOffset
+    );
   }
 }
