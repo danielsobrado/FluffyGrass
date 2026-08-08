@@ -30,6 +30,19 @@ const UP = new THREE.Vector3(0, 1, 0);
 const HASH_UNIT = 1 / 4294967296;
 const GROWTH_SEED_SALT = 0x43b0d7;
 const GROWTH_EPSILON = 1e-4;
+const BYTE_MAX = 255;
+const UINT16_MAX = 65535;
+const INT16_NORMAL_MAX = 32767;
+
+function packUnitByte(value: number): number {
+  return Math.round(Math.max(0, Math.min(1, value)) * BYTE_MAX);
+}
+
+function packSignedInt16(value: number): number {
+  return Math.round(
+    Math.max(-1, Math.min(1, value)) * INT16_NORMAL_MAX,
+  );
+}
 
 /** CPU-side merger for one static render batch. */
 export class StoneRenderBatchBuilder {
@@ -55,9 +68,7 @@ export class StoneRenderBatchBuilder {
     sources: readonly StoneRenderBatchSource[],
   ): StoneRenderBatchGeometry | undefined {
     this.collectInstances(sources);
-    if (this.instances.length === 0) {
-      return undefined;
-    }
+    if (this.instances.length === 0) return undefined;
 
     let vertexCount = 0;
     let indexCount = 0;
@@ -76,15 +87,18 @@ export class StoneRenderBatchBuilder {
       triangles += variant.metrics.triangleCount;
     }
 
+    // Static render attributes are aggressively packed. Positions remain
+    // Float32 because they are world-space, while normals/local coordinates use
+    // normalized Int16 and colors/coverage use normalized bytes.
     const positions = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
-    const colors = new Float32Array(vertexCount * 3);
-    const mosses = new Float32Array(vertexCount);
-    const lichens = new Float32Array(vertexCount);
-    const growthSeeds = new Float32Array(vertexCount);
-    const growthPositions = new Float32Array(vertexCount * 3);
-    const mossColors = new Float32Array(vertexCount * 3);
-    const lichenColors = new Float32Array(vertexCount * 3);
+    const normals = new Int16Array(vertexCount * 3);
+    const colors = new Uint8Array(vertexCount * 3);
+    const mosses = new Uint8Array(vertexCount);
+    const lichens = new Uint8Array(vertexCount);
+    const growthSeeds = new Uint16Array(vertexCount);
+    const growthPositions = new Int16Array(vertexCount * 3);
+    const mossColors = new Uint8Array(vertexCount * 3);
+    const lichenColors = new Uint8Array(vertexCount * 3);
     const indices =
       vertexCount <= 65535
         ? new Uint16Array(indexCount)
@@ -99,7 +113,11 @@ export class StoneRenderBatchBuilder {
     let maximumY = Number.NEGATIVE_INFINITY;
     let maximumZ = Number.NEGATIVE_INFINITY;
 
-    for (let instanceIndex = 0; instanceIndex < this.instances.length; instanceIndex += 1) {
+    for (
+      let instanceIndex = 0;
+      instanceIndex < this.instances.length;
+      instanceIndex += 1
+    ) {
       const instance = this.instances[instanceIndex];
       const variant = this.variants[instanceIndex];
       const palette = STONE_PALETTES[instance.paletteKey];
@@ -118,6 +136,13 @@ export class StoneRenderBatchBuilder {
           Math.round(instance.z * 8),
           instance.variantIndex ^ GROWTH_SEED_SALT,
         ) * HASH_UNIT;
+      const packedGrowthSeed = Math.round(growthSeed * UINT16_MAX);
+      const packedMossR = packUnitByte(growthColors.moss.r);
+      const packedMossG = packUnitByte(growthColors.moss.g);
+      const packedMossB = packUnitByte(growthColors.moss.b);
+      const packedLichenR = packUnitByte(growthColors.lichen.r);
+      const packedLichenG = packUnitByte(growthColors.lichen.g);
+      const packedLichenB = packUnitByte(growthColors.lichen.b);
       const inverseGrowthRadius =
         0.5 / Math.max(variant.metrics.footprintRadius, GROWTH_EPSILON);
       const inverseGrowthHeight =
@@ -172,18 +197,15 @@ export class StoneRenderBatchBuilder {
         const nx = sourceNormals[source];
         const ny = sourceNormals[source + 1];
         const nz = sourceNormals[source + 2];
-        // The placement transform contains only rotation and uniform positive
-        // scale, so multiplying by 1/scale preserves the unit normal without a
-        // per-vertex sqrt.
         const normalX =
           (elements[0] * nx + elements[4] * ny + elements[8] * nz) * inverseScale;
         const normalY =
           (elements[1] * nx + elements[5] * ny + elements[9] * nz) * inverseScale;
         const normalZ =
           (elements[2] * nx + elements[6] * ny + elements[10] * nz) * inverseScale;
-        normals[target] = normalX;
-        normals[target + 1] = normalY;
-        normals[target + 2] = normalZ;
+        normals[target] = packSignedInt16(normalX);
+        normals[target + 1] = packSignedInt16(normalY);
+        normals[target + 2] = packSignedInt16(normalZ);
 
         const heightFraction = py * inverseGrowthHeight;
         const exposure = Math.max(
@@ -203,18 +225,18 @@ export class StoneRenderBatchBuilder {
           instance.graniteBlend,
           this.growthScratch,
         );
-        mosses[vertex] = this.growthScratch.moss;
-        lichens[vertex] = this.growthScratch.lichen;
-        growthSeeds[vertex] = growthSeed;
-        growthPositions[target] = px * inverseGrowthRadius;
-        growthPositions[target + 1] = heightFraction;
-        growthPositions[target + 2] = pz * inverseGrowthRadius;
-        mossColors[target] = growthColors.moss.r;
-        mossColors[target + 1] = growthColors.moss.g;
-        mossColors[target + 2] = growthColors.moss.b;
-        lichenColors[target] = growthColors.lichen.r;
-        lichenColors[target + 1] = growthColors.lichen.g;
-        lichenColors[target + 2] = growthColors.lichen.b;
+        mosses[vertex] = packUnitByte(this.growthScratch.moss);
+        lichens[vertex] = packUnitByte(this.growthScratch.lichen);
+        growthSeeds[vertex] = packedGrowthSeed;
+        growthPositions[target] = packSignedInt16(px * inverseGrowthRadius);
+        growthPositions[target + 1] = packSignedInt16(heightFraction);
+        growthPositions[target + 2] = packSignedInt16(pz * inverseGrowthRadius);
+        mossColors[target] = packedMossR;
+        mossColors[target + 1] = packedMossG;
+        mossColors[target + 2] = packedMossB;
+        lichenColors[target] = packedLichenR;
+        lichenColors[target + 1] = packedLichenG;
+        lichenColors[target + 2] = packedLichenB;
       }
 
       colorizeStoneVertices(
@@ -224,6 +246,7 @@ export class StoneRenderBatchBuilder {
         tint,
         colors,
         vertexCursor * 3,
+        BYTE_MAX,
       );
 
       const sourceIndices = variant.indices;
@@ -236,25 +259,28 @@ export class StoneRenderBatchBuilder {
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1));
-    geometry.setAttribute("stoneLichen", new THREE.BufferAttribute(lichens, 1));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3, true));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3, true));
+    geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1, true));
+    geometry.setAttribute(
+      "stoneLichen",
+      new THREE.BufferAttribute(lichens, 1, true),
+    );
     geometry.setAttribute(
       "stoneGrowthSeed",
-      new THREE.BufferAttribute(growthSeeds, 1),
+      new THREE.BufferAttribute(growthSeeds, 1, true),
     );
     geometry.setAttribute(
       "stoneGrowthPosition",
-      new THREE.BufferAttribute(growthPositions, 3),
+      new THREE.BufferAttribute(growthPositions, 3, true),
     );
     geometry.setAttribute(
       "stoneMossColor",
-      new THREE.BufferAttribute(mossColors, 3),
+      new THREE.BufferAttribute(mossColors, 3, true),
     );
     geometry.setAttribute(
       "stoneLichenColor",
-      new THREE.BufferAttribute(lichenColors, 3),
+      new THREE.BufferAttribute(lichenColors, 3, true),
     );
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
