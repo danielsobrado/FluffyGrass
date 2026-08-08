@@ -30,7 +30,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   grassChunksPerFrame: POSITIVE_INTEGER,
   grassPatchSize: POSITIVE,
   grassRenderBatchesPerAxis: POSITIVE_INTEGER,
-  grassFarImpostorsPerPatch: { minimum: 1, maximum: 4, integer: true },
+  grassFarImpostorsPerPatch: { minimum: 1, maximum: 1, integer: true },
   grassBladesPerSquareMeterDesktop: { minimum: 4, maximum: 160 },
   grassBladesPerSquareMeterCompact: { minimum: 4, maximum: 160 },
   grassNearTileSize: POSITIVE,
