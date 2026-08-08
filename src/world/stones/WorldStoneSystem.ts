@@ -106,7 +106,10 @@ export class WorldStoneSystem {
       config,
       this.mossExposureDirection,
     );
-    setStoneClearanceField(stoneField, config);
+    setStoneClearanceField(
+      this.enabled ? stoneField : undefined,
+      this.enabled ? config : undefined,
+    );
 
     if (this.enabled && config.stoneGrainStrength > 0) {
       this.grainTexture = this.createGrainTexture();
@@ -161,6 +164,7 @@ export class WorldStoneSystem {
     this.queue.length = 0;
     this.desired.clear();
     this.emptySignatures.clear();
+    setStoneClearanceField(undefined);
     this.detailMaterial.dispose();
     this.coarseMaterial.dispose();
     this.grainTexture?.dispose();
