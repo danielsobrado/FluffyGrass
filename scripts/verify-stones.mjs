@@ -3,15 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
-/**
- * Build gate for the procedural stones.
- *
- * The verifier loads the real runtime modules through Vite SSR instead of
- * re-deriving geometry maths. Broad seed sweeps stress construction and profile
- * contracts; runtime checks exercise the exact quality-selected variants used
- * by StoneField for the configured world seed.
- */
-
+/** Build gate for procedural stone geometry, runtime behavior, and cost. */
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
@@ -42,14 +34,21 @@ try {
   const growthVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneGrowthVerification.ts",
   );
+  const performanceVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneRenderPerformanceVerification.ts",
+  );
+
   const summary = await verification.verifyStones(configSource);
   const profileSummary = profileVerification.verifyStoneProfiles();
   const runtimeSummary = runtimeVerification.verifyRuntimeStoneVariants(
     configSource,
   );
   const growthSummary = growthVerification.verifyStoneGrowthField();
+  const performanceSummary =
+    performanceVerification.verifyStoneRenderPerformance(configSource);
+
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${performanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
