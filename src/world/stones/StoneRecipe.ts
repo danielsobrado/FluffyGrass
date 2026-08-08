@@ -6,11 +6,12 @@ import { StoneRandom } from "./StoneRandom";
  * Every stone is one convex mass: a ring of side planes with taper, a tilted
  * top, bevel rings at the crown and the ground contact, and a few broad
  * diagonal cuts. Archetypes are curated parameter families over that grammar,
- * not separate generators — which is what keeps the whole population reading
- * as one asset set, the property the reference boards are organised around.
+ * not separate generators — which keeps the whole population reading as one
+ * asset set.
  *
- * All profile values live in a normalized space (base radius ~0.5, height 1)
- * and only become metres through {@link StoneDimensions} at the end.
+ * The profile deliberately uses few, large planes. Variation comes from
+ * coherent silhouette lobes, uneven plane spacing, broad cuts, and controlled
+ * lean rather than from adding sides or high-frequency noise.
  */
 
 export type StoneArchetypeId =
@@ -40,13 +41,15 @@ export interface StoneArchetypeSpec {
   readonly sideCount: readonly [number, number];
   /** Fractional radius jitter per side, smoothed once around the ring. */
   readonly radiusJitter: Band;
+  /** Coherent low-frequency silhouette bias, independent of per-side jitter. */
+  readonly silhouetteAsymmetry: Band;
   /** How much narrower the profile gets per unit height. */
   readonly taper: Band;
   /** Crown footprint as a fraction of the body profile. */
   readonly topScale: Band;
   /** Height of the crown bevel ring, as a fraction of the body. */
   readonly topBevelHeight: Band;
-  /** Maximum top-plane tilt (slope, not radians). */
+  /** Maximum top-plane slope magnitude. */
   readonly topTiltMax: number;
   /** Ground-contact inset and bevel ring height. */
   readonly contactInset: Band;
@@ -57,7 +60,7 @@ export interface StoneArchetypeSpec {
   readonly cutDepth: Band;
   /** Upward component of cut-plane normals. */
   readonly cutNormalY: Band;
-  /** Metre aspect ratios applied by placement scale. */
+  /** Metre aspect ratios applied before placement scale. */
   readonly heightRatio: Band;
   readonly depthRatio: Band;
   /** Corner chips applied at close range only. */
@@ -72,142 +75,135 @@ export interface StoneArchetypeSpec {
 const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   pebble: {
     id: "pebble",
-    sideCount: [5, 7],
-    radiusJitter: { min: 0.09, max: 0.18 },
-    taper: { min: 0.04, max: 0.1 },
-    topScale: { min: 0.6, max: 0.8 },
-    topBevelHeight: { min: 0.3, max: 0.42 },
-    topTiltMax: 0.12,
-    contactInset: { min: 0.06, max: 0.1 },
-    contactBevelHeight: { min: 0.14, max: 0.2 },
-    lean: { min: 0, max: 0.05 },
-    cutCount: [0, 0],
-    cutDepth: { min: 0.05, max: 0.08 },
-    cutNormalY: { min: 0.3, max: 0.6 },
-    heightRatio: { min: 0.38, max: 0.6 },
-    depthRatio: { min: 0.72, max: 1.35 },
+    sideCount: [5, 6],
+    radiusJitter: { min: 0.1, max: 0.2 },
+    silhouetteAsymmetry: { min: 0.03, max: 0.08 },
+    taper: { min: 0.08, max: 0.16 },
+    topScale: { min: 0.58, max: 0.78 },
+    topBevelHeight: { min: 0.24, max: 0.36 },
+    topTiltMax: 0.1,
+    contactInset: { min: 0.06, max: 0.11 },
+    contactBevelHeight: { min: 0.12, max: 0.18 },
+    lean: { min: 0.01, max: 0.06 },
+    cutCount: [0, 1],
+    cutDepth: { min: 0.04, max: 0.08 },
+    cutNormalY: { min: 0.25, max: 0.65 },
+    heightRatio: { min: 0.34, max: 0.52 },
+    depthRatio: { min: 0.78, max: 1.28 },
     chipCount: [0, 2],
     chipDepth: { min: 0.012, max: 0.035 },
-    edgeWear: 0.4,
-    embed: { min: 0.16, max: 0.3 },
+    edgeWear: 0.32,
+    embed: { min: 0.2, max: 0.34 },
   },
   boulder: {
     id: "boulder",
-    sideCount: [6, 8],
-    radiusJitter: { min: 0.11, max: 0.22 },
-    // The profile only has two bands — the tapered side ring and the crown
-    // bevel — so "rounded" has to come from both: near-zero taper plus a
-    // shallow bevel gives vertical sides under a flat lid, which reads as a
-    // drum rather than a boulder.
-    taper: { min: 0.13, max: 0.24 },
-    topScale: { min: 0.36, max: 0.56 },
-    topBevelHeight: { min: 0.36, max: 0.56 },
+    sideCount: [5, 7],
+    radiusJitter: { min: 0.14, max: 0.28 },
+    silhouetteAsymmetry: { min: 0.08, max: 0.17 },
+    taper: { min: 0.12, max: 0.22 },
+    topScale: { min: 0.44, max: 0.64 },
+    topBevelHeight: { min: 0.28, max: 0.44 },
     topTiltMax: 0.16,
-    contactInset: { min: 0.05, max: 0.1 },
-    contactBevelHeight: { min: 0.1, max: 0.16 },
-    lean: { min: 0.02, max: 0.12 },
-    cutCount: [2, 4],
-    cutDepth: { min: 0.05, max: 0.14 },
-    cutNormalY: { min: 0.15, max: 0.72 },
-    heightRatio: { min: 0.55, max: 0.95 },
-    depthRatio: { min: 0.72, max: 1.4 },
+    contactInset: { min: 0.05, max: 0.11 },
+    contactBevelHeight: { min: 0.09, max: 0.15 },
+    lean: { min: 0.04, max: 0.14 },
+    cutCount: [1, 3],
+    cutDepth: { min: 0.06, max: 0.16 },
+    cutNormalY: { min: 0.12, max: 0.68 },
+    heightRatio: { min: 0.52, max: 0.84 },
+    depthRatio: { min: 0.8, max: 1.45 },
     chipCount: [2, 4],
     chipDepth: { min: 0.015, max: 0.045 },
-    edgeWear: 0.52,
-    embed: { min: 0.12, max: 0.22 },
+    edgeWear: 0.42,
+    embed: { min: 0.16, max: 0.27 },
   },
   slab: {
     id: "slab",
-    sideCount: [6, 8],
-    radiusJitter: { min: 0.08, max: 0.16 },
-    taper: { min: 0.05, max: 0.1 },
-    topScale: { min: 0.68, max: 0.85 },
-    topBevelHeight: { min: 0.2, max: 0.3 },
-    topTiltMax: 0.22,
-    contactInset: { min: 0.05, max: 0.09 },
+    sideCount: [5, 7],
+    radiusJitter: { min: 0.12, max: 0.24 },
+    silhouetteAsymmetry: { min: 0.06, max: 0.14 },
+    taper: { min: 0.06, max: 0.12 },
+    topScale: { min: 0.7, max: 0.88 },
+    topBevelHeight: { min: 0.18, max: 0.28 },
+    topTiltMax: 0.2,
+    contactInset: { min: 0.05, max: 0.1 },
     contactBevelHeight: { min: 0.1, max: 0.15 },
-    lean: { min: 0, max: 0.08 },
-    cutCount: [2, 3],
-    cutDepth: { min: 0.06, max: 0.14 },
-    cutNormalY: { min: 0.2, max: 0.62 },
-    // Below ~0.34 a slab reads as a paper plate once placement scales it up;
-    // uniform scale preserves the ratio, so thickness has to come from here.
-    heightRatio: { min: 0.36, max: 0.54 },
-    depthRatio: { min: 0.85, max: 1.3 },
-    chipCount: [2, 5],
+    lean: { min: 0.01, max: 0.08 },
+    cutCount: [1, 3],
+    cutDepth: { min: 0.05, max: 0.13 },
+    cutNormalY: { min: 0.18, max: 0.58 },
+    heightRatio: { min: 0.4, max: 0.58 },
+    depthRatio: { min: 0.95, max: 1.45 },
+    chipCount: [2, 4],
     chipDepth: { min: 0.018, max: 0.05 },
-    edgeWear: 0.55,
-    embed: { min: 0.18, max: 0.32 },
+    edgeWear: 0.43,
+    embed: { min: 0.22, max: 0.35 },
   },
   block: {
     id: "block",
     sideCount: [5, 6],
-    radiusJitter: { min: 0.04, max: 0.09 },
-    taper: { min: 0.05, max: 0.12 },
-    topScale: { min: 0.64, max: 0.82 },
-    topBevelHeight: { min: 0.18, max: 0.28 },
-    topTiltMax: 0.15,
-    contactInset: { min: 0.05, max: 0.09 },
-    contactBevelHeight: { min: 0.09, max: 0.14 },
-    lean: { min: 0.02, max: 0.1 },
-    cutCount: [1, 3],
-    cutDepth: { min: 0.09, max: 0.18 },
-    cutNormalY: { min: 0.15, max: 0.55 },
-    heightRatio: { min: 0.55, max: 0.85 },
-    depthRatio: { min: 0.7, max: 1.1 },
-    chipCount: [3, 6],
+    radiusJitter: { min: 0.05, max: 0.12 },
+    silhouetteAsymmetry: { min: 0.04, max: 0.1 },
+    taper: { min: 0.06, max: 0.13 },
+    topScale: { min: 0.62, max: 0.8 },
+    topBevelHeight: { min: 0.17, max: 0.27 },
+    topTiltMax: 0.13,
+    contactInset: { min: 0.04, max: 0.09 },
+    contactBevelHeight: { min: 0.08, max: 0.13 },
+    lean: { min: 0.03, max: 0.1 },
+    cutCount: [2, 4],
+    cutDepth: { min: 0.08, max: 0.17 },
+    cutNormalY: { min: 0.1, max: 0.52 },
+    heightRatio: { min: 0.52, max: 0.8 },
+    depthRatio: { min: 0.76, max: 1.18 },
+    chipCount: [3, 5],
     chipDepth: { min: 0.02, max: 0.06 },
-    edgeWear: 0.58,
-    embed: { min: 0.1, max: 0.2 },
+    edgeWear: 0.46,
+    embed: { min: 0.13, max: 0.22 },
   },
   shard: {
     id: "shard",
-    // A shard is an angular leaning wedge, not a pillar. Its character comes
-    // from a small crown plus a strongly tilted top, so the silhouette rises to
-    // a ridge rather than a flat cap: at topScale 0.45+ over a level top it
-    // read as a menhir regardless of how the height was tuned.
-    sideCount: [5, 6],
-    radiusJitter: { min: 0.09, max: 0.18 },
-    taper: { min: 0.13, max: 0.22 },
-    // Crown scale and bevel height trade off against each other: a small crown
-    // under a tall bevel is one continuous taper to an apex, which reads as a
-    // tent. Keeping the bevel a distinct facet band leaves a truncated top.
-    topScale: { min: 0.32, max: 0.48 },
-    topBevelHeight: { min: 0.16, max: 0.28 },
-    topTiltMax: 0.4,
+    sideCount: [4, 5],
+    radiusJitter: { min: 0.13, max: 0.26 },
+    silhouetteAsymmetry: { min: 0.12, max: 0.22 },
+    taper: { min: 0.16, max: 0.28 },
+    topScale: { min: 0.22, max: 0.38 },
+    topBevelHeight: { min: 0.15, max: 0.24 },
+    topTiltMax: 0.46,
     contactInset: { min: 0.03, max: 0.06 },
     contactBevelHeight: { min: 0.06, max: 0.1 },
-    lean: { min: 0.1, max: 0.2 },
-    cutCount: [2, 3],
-    cutDepth: { min: 0.1, max: 0.2 },
-    cutNormalY: { min: 0.1, max: 0.5 },
-    heightRatio: { min: 0.8, max: 1.2 },
-    depthRatio: { min: 0.72, max: 1.05 },
-    chipCount: [2, 5],
+    lean: { min: 0.14, max: 0.28 },
+    cutCount: [2, 4],
+    cutDepth: { min: 0.1, max: 0.22 },
+    cutNormalY: { min: 0.08, max: 0.48 },
+    heightRatio: { min: 0.72, max: 1.05 },
+    depthRatio: { min: 0.68, max: 1 },
+    chipCount: [2, 4],
     chipDepth: { min: 0.018, max: 0.055 },
-    edgeWear: 0.48,
-    embed: { min: 0.08, max: 0.16 },
+    edgeWear: 0.38,
+    embed: { min: 0.1, max: 0.18 },
   },
   outcrop: {
     id: "outcrop",
-    sideCount: [6, 8],
-    radiusJitter: { min: 0.12, max: 0.22 },
-    taper: { min: 0.1, max: 0.2 },
-    topScale: { min: 0.5, max: 0.7 },
-    topBevelHeight: { min: 0.2, max: 0.3 },
-    topTiltMax: 0.2,
+    sideCount: [5, 7],
+    radiusJitter: { min: 0.16, max: 0.3 },
+    silhouetteAsymmetry: { min: 0.12, max: 0.24 },
+    taper: { min: 0.1, max: 0.18 },
+    topScale: { min: 0.52, max: 0.72 },
+    topBevelHeight: { min: 0.18, max: 0.28 },
+    topTiltMax: 0.18,
     contactInset: { min: 0.04, max: 0.08 },
     contactBevelHeight: { min: 0.08, max: 0.13 },
-    lean: { min: 0, max: 0.12 },
-    cutCount: [1, 3],
-    cutDepth: { min: 0.1, max: 0.2 },
-    cutNormalY: { min: 0.2, max: 0.65 },
-    heightRatio: { min: 0.5, max: 0.8 },
-    depthRatio: { min: 0.9, max: 1.4 },
-    chipCount: [2, 5],
+    lean: { min: 0.03, max: 0.14 },
+    cutCount: [2, 4],
+    cutDepth: { min: 0.08, max: 0.18 },
+    cutNormalY: { min: 0.15, max: 0.58 },
+    heightRatio: { min: 0.42, max: 0.68 },
+    depthRatio: { min: 1.05, max: 1.65 },
+    chipCount: [2, 4],
     chipDepth: { min: 0.018, max: 0.05 },
-    edgeWear: 0.45,
-    embed: { min: 0.25, max: 0.4 },
+    edgeWear: 0.36,
+    embed: { min: 0.3, max: 0.46 },
   },
 };
 
@@ -220,14 +216,6 @@ export interface StoneCut {
   readonly depthFraction: number;
 }
 
-/**
- * A chip: a shallow plane that shaves a small facet off a corner.
- *
- * Mechanically identical to a cut, but an order of magnitude shallower and
- * biased upward, because knocks land on the exposed upper corners rather than
- * on the buried base. Kept as its own list so it can be omitted wholesale for
- * distant stones, where the facets are far below a pixel.
- */
 export interface StoneRecipe {
   readonly archetype: StoneArchetypeId;
   readonly seed: number;
@@ -255,18 +243,20 @@ export interface StoneRecipe {
 
 const TWO_PI = Math.PI * 2;
 const BASE_RADIUS = 0.5;
-/**
- * Fractional jitter on the angular gap between neighbouring side planes. At
- * 0.45 the tightest gap stays near 38% of nominal spacing, matching the floor
- * the original specification enforced through retries.
- */
-const SIDE_GAP_JITTER = 0.45;
+/** Keeps side-plane gaps irregular without allowing near-concurrent planes. */
+const SIDE_GAP_JITTER = 0.4;
 /** Cuts closer in direction than this are rotated apart or dropped. */
 const CUT_SIMILARITY_LIMIT = 0.96;
 const GOLDEN_ANGLE = 2.399963229728653;
+const SILHOUETTE_RADIUS_MIN = BASE_RADIUS * 0.55;
+const SILHOUETTE_RADIUS_MAX = BASE_RADIUS * 1.5;
 
 function rangeOf(random: StoneRandom, band: Band): number {
   return random.range(band.min, band.max);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 export function resolveStoneRecipe(
@@ -286,13 +276,9 @@ export function resolveStoneRecipe(
   const angleOffset = profile.range(0, TWO_PI / sideCount);
   const jitterAmplitude = rangeOf(profile, spec.radiusJitter);
 
-  // Angles are built from jittered *gaps* normalized to a full turn, not from
-  // jittered positions that are then sorted. Independently jittered positions
-  // can land arbitrarily close together, and two nearly coincident side planes
-  // produce a sliver face and a knife-edge silhouette — which is exactly what
-  // a population generated that way looks like. Normalizing gaps bounds the
-  // smallest gap at roughly (1 - jitter) / (1 + jitter) of nominal spacing, so
-  // the ring stays irregular without ever degenerating.
+  // Build angles from normalized jittered gaps. Jittering positions and sorting
+  // them can put two side planes almost on top of each other, producing thin
+  // flutes and unstable facets.
   const angles = root.fork("side-angles");
   const gaps: number[] = [];
   let gapTotal = 0;
@@ -313,21 +299,46 @@ export function resolveStoneRecipe(
   for (let side = 0; side < sideCount; side += 1) {
     rawRadii.push(BASE_RADIUS * (1 + radii.signed(jitterAmplitude)));
   }
-  // One cyclic smoothing pass keeps neighbouring facets related — pure
-  // independent jitter reads as crumpled, not carved.
+
+  // Per-side randomness provides facets, but it does not provide a readable
+  // silhouette. A low-frequency lobe makes one shoulder dominant and the
+  // opposite side recede, which breaks the rotational "low-poly sphere" look
+  // without adding geometry or noise-displacing the surface.
+  const silhouette = root.fork("silhouette");
+  const primaryAngle = silhouette.range(0, TWO_PI);
+  const secondaryAngle = primaryAngle + silhouette.range(0.9, 1.8);
+  const primaryStrength = rangeOf(silhouette, spec.silhouetteAsymmetry);
+  const secondaryStrength = primaryStrength * silhouette.range(0.18, 0.42);
   const sideRadii: number[] = [];
   for (let side = 0; side < sideCount; side += 1) {
     const previous = rawRadii[(side + sideCount - 1) % sideCount];
     const next = rawRadii[(side + 1) % sideCount];
-    sideRadii.push(previous * 0.25 + rawRadii[side] * 0.5 + next * 0.25);
+    const smoothed = previous * 0.16 + rawRadii[side] * 0.68 + next * 0.16;
+    const angle = sideAngles[side];
+    const lobe =
+      Math.cos(angle - primaryAngle) * primaryStrength +
+      Math.cos((angle - secondaryAngle) * 2) * secondaryStrength;
+    sideRadii.push(
+      clamp(
+        smoothed * (1 + lobe),
+        SILHOUETTE_RADIUS_MIN,
+        SILHOUETTE_RADIUS_MAX,
+      ),
+    );
   }
 
   const shape = root.fork("shape");
   const taper = rangeOf(shape, spec.taper);
   const topScale = rangeOf(shape, spec.topScale);
   const topBevelHeight = rangeOf(shape, spec.topBevelHeight);
-  const topTiltX = shape.signed(spec.topTiltMax);
-  const topTiltZ = shape.signed(spec.topTiltMax);
+
+  // Resolve the top slope as a vector magnitude plus direction. Sampling X and
+  // Z independently lets the diagonal exceed the documented maximum by sqrt(2)
+  // and produces accidental tent-like crowns.
+  const topTiltAngle = shape.range(0, TWO_PI);
+  const topTiltStrength = shape.range(0.3, 1) * spec.topTiltMax;
+  const topTiltX = Math.cos(topTiltAngle) * topTiltStrength;
+  const topTiltZ = Math.sin(topTiltAngle) * topTiltStrength;
   const contactInset = rangeOf(shape, spec.contactInset);
   const contactBevelHeight = rangeOf(shape, spec.contactBevelHeight);
 
@@ -337,13 +348,17 @@ export function resolveStoneRecipe(
   const leanX = Math.cos(leanAngle) * leanStrength;
   const leanZ = Math.sin(leanAngle) * leanStrength;
 
+  // Cuts share a loose axis and then walk around it by the golden angle. This
+  // gives deliberate broad facets instead of unrelated random bites while the
+  // similarity guard still prevents near-duplicate planes.
+  const cutAxis = root.fork("cut-axis").range(0, TWO_PI);
   const cutsStream = root.fork("cuts");
   const cutCount = cutsStream.integer(spec.cutCount[0], spec.cutCount[1]);
   const cuts: StoneCut[] = [];
   for (let index = 0; index < cutCount; index += 1) {
     const cutStream = root.fork(`cut:${index}`);
     const normalY = rangeOf(cutStream, spec.cutNormalY);
-    let azimuth = cutStream.range(0, TWO_PI);
+    let azimuth = cutAxis + index * GOLDEN_ANGLE + cutStream.signed(0.5);
     const horizontal = Math.sqrt(Math.max(0, 1 - normalY * normalY));
     let attempts = 0;
     let accepted = false;
@@ -371,18 +386,16 @@ export function resolveStoneRecipe(
     }
   }
 
-  // Chips are resolved for every stone whether or not they are used, so the
-  // near and far bodies of one seed differ by exactly these planes and nothing
-  // else — the far stone is the near stone with its chips left off, not a
-  // separately generated rock.
+  // Chips are resolved for every stone whether or not they are used, so near
+  // and far forms differ by exactly these shallow planes and nothing else.
   const chipStream = root.fork("chips");
   const chipCount = chipStream.integer(spec.chipCount[0], spec.chipCount[1]);
+  const chipAxis = root.fork("chip-axis").range(0, TWO_PI);
   const chips: StoneCut[] = [];
   for (let index = 0; index < chipCount; index += 1) {
     const chip = root.fork(`chip:${index}`);
-    // Biased upward: a buried corner does not get knocked.
     const normalY = chip.range(0.15, 0.9);
-    const azimuth = chip.range(0, TWO_PI);
+    const azimuth = chipAxis + index * GOLDEN_ANGLE + chip.signed(0.55);
     const horizontal = Math.sqrt(Math.max(0, 1 - normalY * normalY));
     chips.push({
       normalX: Math.cos(azimuth) * horizontal,
@@ -393,7 +406,7 @@ export function resolveStoneRecipe(
   }
 
   const wearStream = root.fork("wear");
-  const edgeWear = spec.edgeWear * wearStream.range(0.8, 1.2);
+  const edgeWear = spec.edgeWear * wearStream.range(0.82, 1.12);
   const embed = rangeOf(wearStream, spec.embed);
 
   return {
