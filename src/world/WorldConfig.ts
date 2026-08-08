@@ -22,36 +22,14 @@ export interface WorldConfig {
   grassUltraNearDistance: number;
   grassUltraNearTransitionDistance: number;
   grassUltraNearDensityMultiplier: number;
-  /**
-   * Compact devices carry their own ultra-near multiplier. The broad, opaque
-   * blade silhouette does not need the desktop stack on a phone, and the two
-   * profiles were previously forced to share one value, so lowering it for
-   * compact would have silently thinned the desktop near band as well.
-   */
+  /** Compact devices carry their own ultra-near multiplier. */
   grassUltraNearDensityMultiplierCompact: number;
-  /**
-   * Natural near-grass tuft distribution.
-   *
-   * Grass does grow in tufts, but every tuft used to be the same tuft: one
-   * radius, one circle, one radial heading rule. Randomising the values inside
-   * a fixed grammar cannot fix that — the grammar itself has to vary, which is
-   * what these do. All of them are resolved from a hash of the tuft's global
-   * coordinates, so neighbouring tiles agree on a shared tuft and placement
-   * stays byte-stable for a seed.
-   */
   grassClumpRadiusScaleMin: number;
   grassClumpRadiusScaleMax: number;
   grassClumpAspectMin: number;
   grassClumpAspectMax: number;
-  /**
-   * Exponent on the unit radial sample. 0.5 is uniform over disc area; the
-   * previous implementation used an effective 1.0, whose area density goes as
-   * 1/r and piles most of a tuft's blades onto its centre.
-   */
   grassClumpRadialExponent: number;
-  /** Share of a blade's heading taken from its tuft's dominant direction. */
   grassClumpDominantDirectionWeight: number;
-  /** Share taken from the outward radial direction; the rest is independent. */
   grassClumpRadialDirectionWeight: number;
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
@@ -90,48 +68,30 @@ export interface WorldConfig {
   grassMinAltitude: number;
   grassMaxAltitude: number;
   grassMaxSlopeDegrees: number;
-  /**
-   * Procedural stones. `stonesEnabled` is the rollback flag: 0 removes every
-   * stone and every grass-clearance effect without touching other systems.
-   */
+  /** 0 is the rollback flag for every stone system. */
   stonesEnabled: number;
-  /** Metres per placement cell; expected count scales with cell area. */
   stoneCellSize: number;
-  /** Expected stones per 16 m cell in neutral meadow before biome factors. */
   stoneDensity: number;
   stoneVariantsPerArchetype: number;
-  /** Chance a large grounded stone seeds a satellite cluster. */
   stoneClusterChance: number;
-  /** Metres of soft edge on the grass cleared around a stone footprint. */
   stoneGrassClearanceFeather: number;
   stoneRadiusDesktop: number;
   stoneRadiusCompact: number;
-  /** Chunk distance that still includes the small nestling stones. */
   stoneDetailRadius: number;
+  /** Terrain chunks grouped per stone render batch axis. */
+  stoneRenderBatchChunksPerAxis: number;
+  /** Maximum completed stone render batches per frame. */
   stoneChunksPerFrame: number;
-  /** Chance per attempt that a stone is placed lining a walking way. */
   stoneVergeChance: number;
-  /**
-   * Close-range albedo grain. 0 disables the effect and the shader injection
-   * with it, so the stones fall back to pure flat-value art at no cost.
-   */
   stoneGrainStrength: number;
-  /** Metres per repeat of the grain texture. */
   stoneGrainSize: number;
-  /** Metres from camera at which the grain has faded out completely. */
   stoneGrainFadeDistance: number;
-  /** Strength of procedural colony breakup for moss and lichen. */
   stoneGrowthDetailStrength: number;
-  /** Metres per fine growth feature; coarse colonies are derived from it. */
   stoneGrowthDetailSize: number;
-  /** Metres from camera at which fine growth breakup has faded out. */
   stoneGrowthDetailFadeDistance: number;
-  /** How strongly exposed faces dry out relative to sheltered faces. */
   stoneMossExposureStrength: number;
-  /** World-space direction of the drying sun/wind field. */
   stoneMossExposureAzimuthDegrees: number;
   stoneMossExposureElevationDegrees: number;
-  /** Strength of vertical runoff streaks on mossy side faces. */
   stoneMossStreakStrength: number;
   grassNearDistance: number;
   grassMidDistance: number;
