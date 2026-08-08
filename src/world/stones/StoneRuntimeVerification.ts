@@ -5,6 +5,9 @@ import type { StoneMeshData } from "./StoneGeometry";
 import { STONE_ARCHETYPE_IDS } from "./StoneRecipe";
 
 const NORMAL_LENGTH_TOLERANCE = 0.025;
+const EDGE_QUANTIZE = 5e-4;
+const VERTEX_BUDGET = 1500;
+const TRIANGLE_BUDGET = 1000;
 
 function fail(message: string): never {
   throw new Error(`[stones-runtime] ${message}`);
@@ -13,6 +16,42 @@ function fail(message: string): never {
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     fail(message);
+  }
+}
+
+function edgeKey(
+  positions: Float32Array,
+  first: number,
+  second: number,
+): string {
+  const pointKey = (index: number): string => {
+    const offset = index * 3;
+    return `${Math.round(positions[offset] / EDGE_QUANTIZE)}:${Math.round(
+      positions[offset + 1] / EDGE_QUANTIZE,
+    )}:${Math.round(positions[offset + 2] / EDGE_QUANTIZE)}`;
+  };
+  const firstKey = pointKey(first);
+  const secondKey = pointKey(second);
+  return firstKey < secondKey
+    ? `${firstKey}|${secondKey}`
+    : `${secondKey}|${firstKey}`;
+}
+
+function verifyClosedMesh(mesh: StoneMeshData, label: string): void {
+  const edgeCounts = new Map<string, number>();
+  for (let index = 0; index < mesh.indices.length; index += 3) {
+    for (let corner = 0; corner < 3; corner += 1) {
+      const first = mesh.indices[index + corner];
+      const second = mesh.indices[index + ((corner + 1) % 3)];
+      const key = edgeKey(mesh.positions, first, second);
+      edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1);
+    }
+  }
+  for (const [edge, count] of edgeCounts) {
+    assert(
+      count === 2,
+      `${label} edge ${edge} borders ${count} triangles.`,
+    );
   }
 }
 
@@ -36,6 +75,10 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
   assert(
     mesh.indices.length === triangles * 3,
     `${label} index count does not match metrics.`,
+  );
+  assert(
+    vertices <= VERTEX_BUDGET && triangles <= TRIANGLE_BUDGET,
+    `${label} exceeds its mesh budget (${vertices} verts, ${triangles} tris).`,
   );
 
   for (let index = 0; index < mesh.positions.length; index += 1) {
@@ -84,6 +127,7 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
     mesh.metrics.footprintRadius >= mesh.metrics.contactRadius,
     `${label} contact radius exceeds its footprint.`,
   );
+  verifyClosedMesh(mesh, label);
 }
 
 /** Exercises the exact variant path used by StoneField, including quality selection. */
