@@ -64,6 +64,13 @@ function buildRepresentativeBatch(
   return undefined;
 }
 
+function attribute(
+  geometry: THREE.BufferGeometry,
+  name: string,
+): THREE.BufferAttribute {
+  return geometry.getAttribute(name) as THREE.BufferAttribute;
+}
+
 /** Production contracts for draw-call count and resident vertex bandwidth. */
 export function verifyStoneRenderPerformance(configSource: string): string {
   const config = new WorldConfigLoader().parse(configSource);
@@ -114,14 +121,15 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   assert(result !== undefined, "Unable to find a representative stone render batch.");
 
   const geometry = result.geometry;
-  const normal = geometry.getAttribute("normal");
-  const color = geometry.getAttribute("color");
-  const moss = geometry.getAttribute("stoneMoss");
-  const lichen = geometry.getAttribute("stoneLichen");
-  const seed = geometry.getAttribute("stoneGrowthSeed");
-  const growthPosition = geometry.getAttribute("stoneGrowthPosition");
-  const mossColor = geometry.getAttribute("stoneMossColor");
-  const lichenColor = geometry.getAttribute("stoneLichenColor");
+  const position = attribute(geometry, "position");
+  const normal = attribute(geometry, "normal");
+  const color = attribute(geometry, "color");
+  const moss = attribute(geometry, "stoneMoss");
+  const lichen = attribute(geometry, "stoneLichen");
+  const seed = attribute(geometry, "stoneGrowthSeed");
+  const growthPosition = attribute(geometry, "stoneGrowthPosition");
+  const mossColor = attribute(geometry, "stoneMossColor");
+  const lichenColor = attribute(geometry, "stoneLichenColor");
 
   assert(
     normal.array instanceof Int16Array && normal.normalized,
@@ -159,7 +167,7 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   );
 
   const attributes = [
-    geometry.getAttribute("position"),
+    position,
     normal,
     color,
     moss,
@@ -170,8 +178,8 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     lichenColor,
   ];
   const bytesPerVertex = attributes.reduce(
-    (sum, attribute) =>
-      sum + attribute.itemSize * attribute.array.BYTES_PER_ELEMENT,
+    (sum, current) =>
+      sum + current.itemSize * current.array.BYTES_PER_ELEMENT,
     0,
   );
   assert(
