@@ -109,6 +109,22 @@ stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
 stoneDetailRadius: 3
 stoneChunksPerFrame: 1
+# Close-range surface grain, available but off by design.
+#
+# It works — triplanar, world space, faded before it can alias, reusing the
+# terrain's own noise texture, and at 0 the shader is never injected so it
+# costs nothing. It was tried and it does not earn its place: the useful range
+# is narrow and unhelpful. Fine enough to see (feature size under ~0.6 m) and
+# the stones read as dirty concrete, which fights the flat-value art the
+# reference boards are built on; coarse enough to stay tasteful (~1.8 m) and
+# the value is near-constant across a one-metre stone, so nothing is visible.
+#
+# Raise stoneGrainStrength towards 0.2 with stoneGrainSize near 0.6 to judge it
+# for yourself. The close-range flatness it targets is better answered by the
+# chamfered rims, which cost nothing per fragment.
+stoneGrainStrength: 0
+stoneGrainSize: 0.6
+stoneGrainFadeDistance: 18
 
 grassNearDistance: 24
 grassMidDistance: 80

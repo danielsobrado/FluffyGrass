@@ -109,6 +109,15 @@ export interface WorldConfig {
   /** Chunk distance that still includes the small nestling stones. */
   stoneDetailRadius: number;
   stoneChunksPerFrame: number;
+  /**
+   * Close-range albedo grain. 0 disables the effect and the shader injection
+   * with it, so the stones fall back to pure flat-value art at no cost.
+   */
+  stoneGrainStrength: number;
+  /** Metres per repeat of the grain texture. */
+  stoneGrainSize: number;
+  /** Metres from camera at which the grain has faded out completely. */
+  stoneGrainFadeDistance: number;
   grassNearDistance: number;
   grassMidDistance: number;
   grassFarDistance: number;

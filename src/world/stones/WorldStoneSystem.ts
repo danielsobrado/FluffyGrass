@@ -42,6 +42,71 @@ export interface StoneDiagnostics {
 
 const UP = new THREE.Vector3(0, 1, 0);
 
+/**
+ * Close-range surface grain.
+ *
+ * The stones are deliberately flat-value art, so this exists only to take the
+ * plastic sheen off a facet that fills the screen. Three constraints keep it
+ * from fighting the style or the architecture:
+ *
+ * - It reuses the terrain's own `perlinnoise.webp` in *world* space, so it
+ *   adds one already-paid texture bind and no per-stone data. Unique textures
+ *   would mean per-stone materials, which is one draw call per stone — the
+ *   thing baked vertex colour exists to avoid.
+ * - It is triplanar. Stones are convex and flat-shaded with faces pointing
+ *   every direction, so a single projection would streak badly on the sides.
+ * - It fades out entirely a few metres from the camera. The grain is only ever
+ *   answering a close-range problem, and past that distance it would be
+ *   sub-pixel noise that aliases as the camera moves.
+ *
+ * Amplitude is a multiplier on albedo, not a colour: it rides the palette
+ * rather than tinting towards one.
+ */
+const STONE_GRAIN_VERTEX = `
+varying vec3 vStoneWorldPosition;
+varying vec3 vStoneWorldNormal;
+`;
+
+const STONE_GRAIN_POSITION = `
+vStoneWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vStoneWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+`;
+
+const STONE_GRAIN_FRAGMENT = `
+uniform sampler2D uStoneGrain;
+uniform float uStoneGrainStrength;
+uniform float uStoneGrainScale;
+uniform vec2 uStoneGrainFade;
+varying vec3 vStoneWorldPosition;
+varying vec3 vStoneWorldNormal;
+`;
+
+const STONE_GRAIN_COLOR = `
+float stoneGrainDistance = distance(cameraPosition, vStoneWorldPosition);
+float stoneGrainFade = 1.0 - smoothstep(
+  uStoneGrainFade.x,
+  uStoneGrainFade.y,
+  stoneGrainDistance
+);
+if (stoneGrainFade > 0.001) {
+  // Triplanar weights from the face normal, sharpened so a face mostly uses
+  // the one projection that suits it rather than a mush of all three.
+  vec3 stoneBlend = pow(abs(vStoneWorldNormal), vec3(4.0));
+  stoneBlend /= max(stoneBlend.x + stoneBlend.y + stoneBlend.z, 0.0001);
+  vec2 stoneUvX = vStoneWorldPosition.zy * uStoneGrainScale;
+  vec2 stoneUvY = vStoneWorldPosition.xz * uStoneGrainScale;
+  vec2 stoneUvZ = vStoneWorldPosition.xy * uStoneGrainScale;
+  float stoneGrain =
+    texture2D(uStoneGrain, stoneUvX).r * stoneBlend.x +
+    texture2D(uStoneGrain, stoneUvY).r * stoneBlend.y +
+    texture2D(uStoneGrain, stoneUvZ).r * stoneBlend.z;
+  // The detail texture clusters around the middle, so stretch away from it
+  // before applying. Multiplying albedo keeps the palette's hue intact.
+  diffuseColor.rgb *= 1.0 +
+    (stoneGrain - 0.5) * 2.0 * uStoneGrainStrength * stoneGrainFade;
+}
+`;
+
 export class WorldStoneSystem {
   private readonly chunks = new Map<string, StoneChunk>();
   private readonly queue: StoneChunkRequest[] = [];
@@ -57,6 +122,7 @@ export class WorldStoneSystem {
   private readonly positionScratch = new THREE.Vector3();
   private readonly scaleScratch = new THREE.Vector3();
   private readonly enabled: boolean;
+  private readonly grainTexture?: THREE.Texture;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private lastBuildMs = 0;
@@ -72,6 +138,57 @@ export class WorldStoneSystem {
     this.enabled = config.stonesEnabled >= 1;
     this.material.name = "world-stone-material";
     this.material.dithering = true;
+
+    // At zero strength the shader is never touched at all, so dialling the
+    // grain off costs nothing rather than costing a branch on every fragment.
+    if (this.enabled && config.stoneGrainStrength > 0) {
+      this.grainTexture = this.createGrainTexture();
+      this.applyGrainShader(this.grainTexture);
+    }
+  }
+
+  private createGrainTexture(): THREE.Texture {
+    const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
+    texture.name = "world-stone-grain";
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
+    return texture;
+  }
+
+  private applyGrainShader(texture: THREE.Texture): void {
+    const fadeEnd = this.config.stoneGrainFadeDistance;
+    this.material.onBeforeCompile = (shader) => {
+      shader.uniforms.uStoneGrain = { value: texture };
+      shader.uniforms.uStoneGrainStrength = {
+        value: this.config.stoneGrainStrength,
+      };
+      shader.uniforms.uStoneGrainScale = {
+        value: 1 / this.config.stoneGrainSize,
+      };
+      // Fading across the last third keeps the boundary from reading as a ring
+      // on the ground around the camera.
+      shader.uniforms.uStoneGrainFade = {
+        value: new THREE.Vector2(fadeEnd * 0.6, fadeEnd),
+      };
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", `#include <common>${STONE_GRAIN_VERTEX}`)
+        .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>${STONE_GRAIN_POSITION}`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>${STONE_GRAIN_FRAGMENT}`)
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>${STONE_GRAIN_COLOR}`,
+        );
+    };
+    this.material.customProgramCacheKey = () => "world-stone-grain-v1";
+    this.material.needsUpdate = true;
   }
 
   update(position: THREE.Vector3, buildDeadline: number): void {
@@ -113,6 +230,7 @@ export class WorldStoneSystem {
     this.queue.length = 0;
     this.desired.clear();
     this.material.dispose();
+    this.grainTexture?.dispose();
   }
 
   private reconcile(): void {
