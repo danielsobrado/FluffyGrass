@@ -1,16 +1,12 @@
 import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
 import type { StoneField, StoneInstance } from "./StoneField";
-import { STONE_PALETTES, colorizeStoneVertices } from "./StonePalette";
-
-/**
- * Streams stones in around the camera, one merged mesh per terrain chunk.
- *
- * Merging instead of instancing is deliberate: a chunk holds a dozen or two
- * different low-poly variants, so per-variant InstancedMesh would multiply draw
- * calls while one baked mesh per chunk costs a single draw and lets every
- * instance carry its own palette in vertex colours for free.
- */
+import {
+  STONE_PALETTES,
+  colorizeStoneVertices,
+  resolveStoneGrowthColors,
+  type StonePaletteKey,
+} from "./StonePalette";
 
 interface StoneChunk {
   key: string;
@@ -38,28 +34,170 @@ export interface StoneDiagnostics {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const LICHEN_ENVIRONMENT: Record<StonePaletteKey, number> = {
+  meadowSage: 0.24,
+  steppeTan: 0.72,
+  graniteGrey: 0.86,
+  mossy: 0.16,
+};
 
-/**
- * Optional close-range surface grain. At zero strength the shader is never
- * injected, so the default stylized path pays no fragment cost for it.
- */
-const STONE_GRAIN_VERTEX = `
+const STONE_SURFACE_VERTEX_COMMON = `
+attribute float stoneMoss;
+attribute float stoneLichen;
+attribute vec3 stoneMossColor;
+attribute vec3 stoneLichenColor;
 varying vec3 vStoneWorldPosition;
 varying vec3 vStoneWorldNormal;
+varying float vStoneMoss;
+varying float vStoneLichen;
+varying vec3 vStoneMossColor;
+varying vec3 vStoneLichenColor;
 `;
 
-const STONE_GRAIN_POSITION = `
+const STONE_SURFACE_VERTEX_POSITION = `
 vStoneWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vStoneWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+vStoneMoss = stoneMoss;
+vStoneLichen = stoneLichen;
+vStoneMossColor = stoneMossColor;
+vStoneLichenColor = stoneLichenColor;
 `;
 
-const STONE_GRAIN_FRAGMENT = `
+const STONE_GROWTH_FRAGMENT_COMMON = `
+uniform float uStoneGrowthDetailStrength;
+uniform float uStoneGrowthDetailScale;
+uniform vec2 uStoneGrowthDetailFade;
+uniform float uStoneMossStreakStrength;
+varying vec3 vStoneWorldPosition;
+varying vec3 vStoneWorldNormal;
+varying float vStoneMoss;
+varying float vStoneLichen;
+varying vec3 vStoneMossColor;
+varying vec3 vStoneLichenColor;
+
+float stoneGrowthHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float stoneGrowthNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(stoneGrowthHash(i), stoneGrowthHash(i + vec2(1.0, 0.0)), u.x),
+    mix(
+      stoneGrowthHash(i + vec2(0.0, 1.0)),
+      stoneGrowthHash(i + vec2(1.0, 1.0)),
+      u.x
+    ),
+    u.y
+  );
+}
+
+vec2 stoneGrowthProjection(vec3 position, vec3 normal) {
+  vec3 axis = abs(normal);
+  if (axis.y >= axis.x && axis.y >= axis.z) {
+    return position.xz;
+  }
+  if (axis.x >= axis.z) {
+    return position.zy;
+  }
+  return position.xy;
+}
+`;
+
+const STONE_GROWTH_COLOR = `
+vec3 stoneGrowthNormal = normalize(vStoneWorldNormal);
+vec2 stoneGrowthUv = stoneGrowthProjection(vStoneWorldPosition, stoneGrowthNormal);
+float stoneGrowthDistance = distance(cameraPosition, vStoneWorldPosition);
+float stoneGrowthDetailFade = 1.0 - smoothstep(
+  uStoneGrowthDetailFade.x,
+  uStoneGrowthDetailFade.y,
+  stoneGrowthDistance
+);
+float stoneColonyNoise = stoneGrowthNoise(
+  stoneGrowthUv * uStoneGrowthDetailScale * 0.32 + vec2(7.31, 19.17)
+);
+float stoneColonyMask = smoothstep(
+  0.18,
+  0.72,
+  stoneColonyNoise + vStoneMoss * 0.24
+);
+float stoneMossCoverage = vStoneMoss * mix(
+  1.0,
+  stoneColonyMask,
+  min(0.86, uStoneGrowthDetailStrength * 0.86)
+);
+
+float stoneLichenNoise = stoneGrowthNoise(
+  stoneGrowthUv * uStoneGrowthDetailScale * 1.45 + vec2(41.73, 8.91)
+);
+float stoneLichenCoverage = vStoneLichen * smoothstep(
+  0.56,
+  0.82,
+  stoneLichenNoise
+);
+
+if (stoneGrowthDetailFade > 0.001 && (vStoneMoss + vStoneLichen) > 0.001) {
+  float stoneFineNoise = stoneGrowthNoise(
+    stoneGrowthUv * uStoneGrowthDetailScale * 2.35 + vec2(23.41, 57.13)
+  );
+  float stoneMossBreakup = smoothstep(
+    0.27,
+    0.76,
+    stoneFineNoise * 0.64 + stoneColonyNoise * 0.36
+  );
+  stoneMossCoverage *= mix(
+    1.0,
+    stoneMossBreakup,
+    uStoneGrowthDetailStrength * stoneGrowthDetailFade
+  );
+
+  float stoneSideAmount = 1.0 - abs(stoneGrowthNormal.y);
+  float stoneRunoffNoise = stoneGrowthNoise(
+    vec2(
+      (vStoneWorldPosition.x + vStoneWorldPosition.z * 0.37) *
+        uStoneGrowthDetailScale * 0.62,
+      vStoneWorldPosition.y * uStoneGrowthDetailScale * 0.24
+    ) + vec2(11.7, 3.9)
+  );
+  float stoneRunoff = smoothstep(0.24, 0.78, stoneRunoffNoise);
+  stoneMossCoverage *= mix(
+    1.0,
+    0.55 + stoneRunoff * 0.58,
+    uStoneMossStreakStrength * stoneSideAmount * stoneGrowthDetailFade
+  );
+
+  float stoneLichenFine = stoneGrowthNoise(
+    stoneGrowthUv * uStoneGrowthDetailScale * 4.2 + vec2(71.1, 14.3)
+  );
+  float stoneLichenBreakup = smoothstep(
+    0.62,
+    0.86,
+    stoneLichenFine * 0.68 + stoneLichenNoise * 0.32
+  );
+  stoneLichenCoverage *= mix(
+    1.0,
+    stoneLichenBreakup,
+    uStoneGrowthDetailStrength * stoneGrowthDetailFade
+  );
+}
+
+stoneMossCoverage = clamp(stoneMossCoverage, 0.0, 1.0);
+stoneLichenCoverage = clamp(stoneLichenCoverage, 0.0, 1.0);
+vec3 stoneLichenColor = vStoneLichenColor * mix(0.90, 1.08, stoneLichenNoise);
+vec3 stoneMossColor = vStoneMossColor * mix(0.82, 1.08, stoneColonyNoise);
+diffuseColor.rgb = mix(diffuseColor.rgb, stoneLichenColor, stoneLichenCoverage);
+diffuseColor.rgb = mix(diffuseColor.rgb, stoneMossColor, stoneMossCoverage);
+`;
+
+const STONE_GRAIN_FRAGMENT_COMMON = `
 uniform sampler2D uStoneGrain;
 uniform float uStoneGrainStrength;
 uniform float uStoneGrainScale;
 uniform vec2 uStoneGrainFade;
-varying vec3 vStoneWorldPosition;
-varying vec3 vStoneWorldNormal;
 `;
 
 const STONE_GRAIN_COLOR = `
@@ -84,6 +222,10 @@ if (stoneGrainFade > 0.001) {
 }
 `;
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
 export class WorldStoneSystem {
   private readonly chunks = new Map<string, StoneChunk>();
   private readonly queue: StoneChunkRequest[] = [];
@@ -98,6 +240,7 @@ export class WorldStoneSystem {
   private readonly normalScratch = new THREE.Vector3();
   private readonly positionScratch = new THREE.Vector3();
   private readonly scaleScratch = new THREE.Vector3();
+  private readonly mossExposureDirection = new THREE.Vector3();
   private readonly enabled: boolean;
   private readonly grainTexture?: THREE.Texture;
   private centerChunkX = Number.NaN;
@@ -116,9 +259,26 @@ export class WorldStoneSystem {
     this.material.name = "world-stone-material";
     this.material.dithering = true;
 
+    const azimuth = THREE.MathUtils.degToRad(
+      config.stoneMossExposureAzimuthDegrees,
+    );
+    const elevation = THREE.MathUtils.degToRad(
+      config.stoneMossExposureElevationDegrees,
+    );
+    const horizontal = Math.cos(elevation);
+    this.mossExposureDirection
+      .set(
+        Math.cos(azimuth) * horizontal,
+        Math.sin(elevation),
+        Math.sin(azimuth) * horizontal,
+      )
+      .normalize();
+
     if (this.enabled && config.stoneGrainStrength > 0) {
       this.grainTexture = this.createGrainTexture();
-      this.applyGrainShader(this.grainTexture);
+    }
+    if (this.enabled) {
+      this.applySurfaceShader(this.grainTexture);
     }
   }
 
@@ -134,33 +294,58 @@ export class WorldStoneSystem {
     return texture;
   }
 
-  private applyGrainShader(texture: THREE.Texture): void {
-    const fadeEnd = this.config.stoneGrainFadeDistance;
+  private applySurfaceShader(texture?: THREE.Texture): void {
+    const growthFadeEnd = this.config.stoneGrowthDetailFadeDistance;
+    const grainFadeEnd = this.config.stoneGrainFadeDistance;
     this.material.onBeforeCompile = (shader) => {
-      shader.uniforms.uStoneGrain = { value: texture };
-      shader.uniforms.uStoneGrainStrength = {
-        value: this.config.stoneGrainStrength,
+      shader.uniforms.uStoneGrowthDetailStrength = {
+        value: this.config.stoneGrowthDetailStrength,
       };
-      shader.uniforms.uStoneGrainScale = {
-        value: 1 / this.config.stoneGrainSize,
+      shader.uniforms.uStoneGrowthDetailScale = {
+        value: 1 / this.config.stoneGrowthDetailSize,
       };
-      shader.uniforms.uStoneGrainFade = {
-        value: new THREE.Vector2(fadeEnd * 0.6, fadeEnd),
+      shader.uniforms.uStoneGrowthDetailFade = {
+        value: new THREE.Vector2(growthFadeEnd * 0.55, growthFadeEnd),
       };
+      shader.uniforms.uStoneMossStreakStrength = {
+        value: this.config.stoneMossStreakStrength,
+      };
+
+      let fragmentCommon = STONE_GROWTH_FRAGMENT_COMMON;
+      let colorFragment = STONE_GROWTH_COLOR;
+      if (texture) {
+        shader.uniforms.uStoneGrain = { value: texture };
+        shader.uniforms.uStoneGrainStrength = {
+          value: this.config.stoneGrainStrength,
+        };
+        shader.uniforms.uStoneGrainScale = {
+          value: 1 / this.config.stoneGrainSize,
+        };
+        shader.uniforms.uStoneGrainFade = {
+          value: new THREE.Vector2(grainFadeEnd * 0.6, grainFadeEnd),
+        };
+        fragmentCommon += STONE_GRAIN_FRAGMENT_COMMON;
+        colorFragment += STONE_GRAIN_COLOR;
+      }
+
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", `#include <common>${STONE_GRAIN_VERTEX}`)
+        .replace(
+          "#include <common>",
+          `#include <common>${STONE_SURFACE_VERTEX_COMMON}`,
+        )
         .replace(
           "#include <begin_vertex>",
-          `#include <begin_vertex>${STONE_GRAIN_POSITION}`,
+          `#include <begin_vertex>${STONE_SURFACE_VERTEX_POSITION}`,
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>${STONE_GRAIN_FRAGMENT}`)
+        .replace("#include <common>", `#include <common>${fragmentCommon}`)
         .replace(
           "#include <color_fragment>",
-          `#include <color_fragment>${STONE_GRAIN_COLOR}`,
+          `#include <color_fragment>${colorFragment}`,
         );
     };
-    this.material.customProgramCacheKey = () => "world-stone-grain-v1";
+    this.material.customProgramCacheKey = () =>
+      `world-stone-surface-v2:${texture ? "grain" : "growth"}`;
     this.material.needsUpdate = true;
   }
 
@@ -314,6 +499,10 @@ export class WorldStoneSystem {
     const positions = new Float32Array(vertexCount * 3);
     const normals = new Float32Array(vertexCount * 3);
     const colors = new Float32Array(vertexCount * 3);
+    const mosses = new Float32Array(vertexCount);
+    const lichens = new Float32Array(vertexCount);
+    const mossColors = new Float32Array(vertexCount * 3);
+    const lichenColors = new Float32Array(vertexCount * 3);
     const indices =
       vertexCount <= 65535
         ? new Uint16Array(indexCount)
@@ -329,6 +518,17 @@ export class WorldStoneSystem {
         instance.variantIndex,
         request.detail,
       );
+      const palette = STONE_PALETTES[instance.paletteKey];
+      const tint = {
+        valueScale: instance.valueScale,
+        secondary:
+          instance.graniteBlend > 0.01 && palette !== STONE_PALETTES.graniteGrey
+            ? STONE_PALETTES.graniteGrey
+            : undefined,
+        secondaryBlend: instance.graniteBlend,
+      };
+      const growthColors = resolveStoneGrowthColors(palette, tint);
+      const lichenAmount = this.resolveLichenAmount(instance);
 
       this.normalScratch
         .set(instance.normalX, instance.normalY, instance.normalZ)
@@ -354,7 +554,8 @@ export class WorldStoneSystem {
       const count = variant.metrics.vertexCount;
       for (let index = 0; index < count; index += 1) {
         const source = index * 3;
-        const target = (vertexCursor + index) * 3;
+        const vertex = vertexCursor + index;
+        const target = vertex * 3;
         const px = sourcePositions[source];
         const py = sourcePositions[source + 1];
         const pz = sourcePositions[source + 2];
@@ -364,6 +565,7 @@ export class WorldStoneSystem {
           elements[1] * px + elements[5] * py + elements[9] * pz + elements[13];
         positions[target + 2] =
           elements[2] * px + elements[6] * py + elements[10] * pz + elements[14];
+
         const nx = sourceNormals[source];
         const ny = sourceNormals[source + 1];
         const nz = sourceNormals[source + 2];
@@ -371,26 +573,43 @@ export class WorldStoneSystem {
         const ry = elements[1] * nx + elements[5] * ny + elements[9] * nz;
         const rz = elements[2] * nx + elements[6] * ny + elements[10] * nz;
         const inverseLength = 1 / Math.hypot(rx, ry, rz);
-        normals[target] = rx * inverseLength;
-        normals[target + 1] = ry * inverseLength;
-        normals[target + 2] = rz * inverseLength;
+        const normalX = rx * inverseLength;
+        const normalY = ry * inverseLength;
+        const normalZ = rz * inverseLength;
+        normals[target] = normalX;
+        normals[target + 1] = normalY;
+        normals[target + 2] = normalZ;
+
+        const exposure = Math.max(
+          0,
+          normalX * this.mossExposureDirection.x +
+            normalY * this.mossExposureDirection.y +
+            normalZ * this.mossExposureDirection.z,
+        );
+        const shadeRetention =
+          1 - exposure * this.config.stoneMossExposureStrength;
+        mosses[vertex] = clamp01(
+          variant.mosses[index] * instance.moss * shadeRetention,
+        );
+        const lichenExposure = 0.38 + exposure * 0.62;
+        const mossCompetition = 1 - variant.mosses[index] * 0.5;
+        lichens[vertex] = clamp01(
+          lichenAmount * lichenExposure * mossCompetition,
+        );
+
+        mossColors[target] = growthColors.moss.r;
+        mossColors[target + 1] = growthColors.moss.g;
+        mossColors[target + 2] = growthColors.moss.b;
+        lichenColors[target] = growthColors.lichen.r;
+        lichenColors[target + 1] = growthColors.lichen.g;
+        lichenColors[target + 2] = growthColors.lichen.b;
       }
 
-      const palette = STONE_PALETTES[instance.paletteKey];
       colorizeStoneVertices(
         variant.tones,
         variant.wears,
-        variant.mosses,
         palette,
-        {
-          valueScale: instance.valueScale,
-          moss: instance.moss,
-          secondary:
-            instance.graniteBlend > 0.01 && palette !== STONE_PALETTES.graniteGrey
-              ? STONE_PALETTES.graniteGrey
-              : undefined,
-          secondaryBlend: instance.graniteBlend,
-        },
+        tint,
         colors,
         vertexCursor * 3,
       );
@@ -408,14 +627,22 @@ export class WorldStoneSystem {
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
     geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1));
+    geometry.setAttribute("stoneLichen", new THREE.BufferAttribute(lichens, 1));
+    geometry.setAttribute(
+      "stoneMossColor",
+      new THREE.BufferAttribute(mossColors, 3),
+    );
+    geometry.setAttribute(
+      "stoneLichenColor",
+      new THREE.BufferAttribute(lichenColors, 3),
+    );
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
 
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.name = `world-stones-${request.key}`;
-    // Only detailed near chunks cast. The sun shadow camera covers the local
-    // play area, so distant stone chunks gain nothing from another shadow draw.
     mesh.castShadow = this.receiveShadows && request.detail;
     mesh.receiveShadow = this.receiveShadows;
     mesh.matrixAutoUpdate = false;
@@ -427,6 +654,13 @@ export class WorldStoneSystem {
       triangles,
       stones: instances.length,
     };
+  }
+
+  private resolveLichenAmount(instance: StoneInstance): number {
+    const biomeAmount = LICHEN_ENVIRONMENT[instance.paletteKey];
+    const altitudeBoost = instance.graniteBlend * 0.34;
+    const dampSuppression = 1 - instance.moss * 0.42;
+    return clamp01((biomeAmount + altitudeBoost) * dampSuppression);
   }
 
   private removeChunk(chunk: StoneChunk): void {
