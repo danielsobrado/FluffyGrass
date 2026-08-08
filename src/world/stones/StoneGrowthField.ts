@@ -12,8 +12,8 @@ export interface StoneGrowthSample {
 }
 
 export interface StoneGrowthWeights {
-  readonly moss: number;
-  readonly lichen: number;
+  moss: number;
+  lichen: number;
 }
 
 const UPPER_LEDGE_MOSS_STRENGTH = 0.3;
@@ -29,28 +29,36 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-/** Resolve coarse growth before near-camera shader breakup. */
-export function resolveStoneGrowthWeights(
-  sample: StoneGrowthSample,
-): StoneGrowthWeights {
-  const heightFraction = clamp01(sample.heightFraction);
+/** Allocation-free coarse growth resolver for render-build hot paths. */
+export function resolveStoneGrowthWeightsInto(
+  baseMossSusceptibility: number,
+  normalY: number,
+  heightFractionValue: number,
+  exposureValue: number,
+  exposureStrength: number,
+  environmentMoss: number,
+  paletteKey: StonePaletteKey,
+  graniteBlend: number,
+  target: StoneGrowthWeights,
+): void {
+  const heightFraction = clamp01(heightFractionValue);
   const upperLedgeMoss =
-    Math.pow(Math.max(0, sample.normalY), 1.5) *
+    Math.pow(Math.max(0, normalY), 1.5) *
     UPPER_LEDGE_MOSS_STRENGTH *
     heightFraction;
   const mossSusceptibility = Math.max(
-    sample.baseMossSusceptibility,
+    baseMossSusceptibility,
     upperLedgeMoss,
   );
-  const exposure = clamp01(sample.exposure);
-  const shadeRetention = 1 - exposure * sample.exposureStrength;
+  const exposure = clamp01(exposureValue);
+  const shadeRetention = 1 - exposure * exposureStrength;
   const moss = clamp01(
-    mossSusceptibility * sample.environmentMoss * shadeRetention,
+    mossSusceptibility * environmentMoss * shadeRetention,
   );
 
-  const biomeLichen = LICHEN_ENVIRONMENT[sample.paletteKey];
-  const altitudeBoost = sample.graniteBlend * 0.34;
-  const dampSuppression = 1 - sample.environmentMoss * 0.42;
+  const biomeLichen = LICHEN_ENVIRONMENT[paletteKey];
+  const altitudeBoost = graniteBlend * 0.34;
+  const dampSuppression = 1 - environmentMoss * 0.42;
   const lichenEnvironment = clamp01(
     (biomeLichen + altitudeBoost) * dampSuppression,
   );
@@ -59,9 +67,28 @@ export function resolveStoneGrowthWeights(
   const lichenHeight =
     LICHEN_HEIGHT_FLOOR +
     (1 - LICHEN_HEIGHT_FLOOR) * heightFraction;
-  const lichen = clamp01(
+
+  target.moss = moss;
+  target.lichen = clamp01(
     lichenEnvironment * lichenExposure * mossCompetition * lichenHeight,
   );
+}
 
-  return { moss, lichen };
+/** Resolve coarse growth before near-camera shader breakup. */
+export function resolveStoneGrowthWeights(
+  sample: StoneGrowthSample,
+): StoneGrowthWeights {
+  const result: StoneGrowthWeights = { moss: 0, lichen: 0 };
+  resolveStoneGrowthWeightsInto(
+    sample.baseMossSusceptibility,
+    sample.normalY,
+    sample.heightFraction,
+    sample.exposure,
+    sample.exposureStrength,
+    sample.environmentMoss,
+    sample.paletteKey,
+    sample.graniteBlend,
+    result,
+  );
+  return result;
 }
