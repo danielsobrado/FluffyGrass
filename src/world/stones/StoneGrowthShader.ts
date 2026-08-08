@@ -20,7 +20,7 @@ varying vec3 vStoneLichenColor;
 
 const VERTEX_POSITION = `
 vStoneWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
-vStoneWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+vStoneWorldNormal = mat3(modelMatrix) * objectNormal;
 vStoneMoss = stoneMoss;
 vStoneLichen = stoneLichen;
 vStoneGrowthSeed = stoneGrowthSeed;
@@ -32,7 +32,7 @@ vStoneLichenColor = stoneLichenColor;
 const GROWTH_FRAGMENT_COMMON = `
 uniform float uStoneGrowthDetailStrength;
 uniform float uStoneGrowthDetailScale;
-uniform vec2 uStoneGrowthDetailFade;
+uniform vec2 uStoneGrowthDetailFadeSquared;
 uniform float uStoneMossStreakStrength;
 varying vec3 vStoneWorldPosition;
 varying vec3 vStoneWorldNormal;
@@ -78,12 +78,12 @@ vec2 stoneGrowthProjection(vec3 position, vec3 normal) {
 
 const GROWTH_COLOR = `
 if ((vStoneMoss + vStoneLichen) > 0.001) {
-  vec3 stoneGrowthNormal = normalize(vStoneWorldNormal);
-  float stoneGrowthDistance = distance(cameraPosition, vStoneWorldPosition);
+  vec3 stoneCameraDelta = cameraPosition - vStoneWorldPosition;
+  float stoneGrowthDistanceSquared = dot(stoneCameraDelta, stoneCameraDelta);
   float stoneGrowthDetailFade = 1.0 - smoothstep(
-    uStoneGrowthDetailFade.x,
-    uStoneGrowthDetailFade.y,
-    stoneGrowthDistance
+    uStoneGrowthDetailFadeSquared.x,
+    uStoneGrowthDetailFadeSquared.y,
+    stoneGrowthDistanceSquared
   );
   float stoneDetailWeight =
     clamp(uStoneGrowthDetailStrength, 0.0, 1.0) * stoneGrowthDetailFade;
@@ -93,6 +93,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   float stoneLichenColorVariation = 1.0;
 
   if (stoneDetailWeight > 0.001) {
+    vec3 stoneGrowthNormal = normalize(vStoneWorldNormal);
     vec2 stoneGrowthOffset = vec2(
       vStoneGrowthSeed * 37.17,
       vStoneGrowthSeed * 71.93
@@ -244,18 +245,19 @@ const GRAIN_FRAGMENT_COMMON = `
 uniform sampler2D uStoneGrain;
 uniform float uStoneGrainStrength;
 uniform float uStoneGrainScale;
-uniform vec2 uStoneGrainFade;
+uniform vec2 uStoneGrainFadeSquared;
 `;
 
 const GRAIN_COLOR = `
-float stoneGrainDistance = distance(cameraPosition, vStoneWorldPosition);
+vec3 stoneGrainCameraDelta = cameraPosition - vStoneWorldPosition;
+float stoneGrainDistanceSquared = dot(stoneGrainCameraDelta, stoneGrainCameraDelta);
 float stoneGrainFade = 1.0 - smoothstep(
-  uStoneGrainFade.x,
-  uStoneGrainFade.y,
-  stoneGrainDistance
+  uStoneGrainFadeSquared.x,
+  uStoneGrainFadeSquared.y,
+  stoneGrainDistanceSquared
 );
 if (stoneGrainFade > 0.001) {
-  vec3 stoneBlend = pow(abs(vStoneWorldNormal), vec3(4.0));
+  vec3 stoneBlend = pow(abs(normalize(vStoneWorldNormal)), vec3(4.0));
   stoneBlend /= max(stoneBlend.x + stoneBlend.y + stoneBlend.z, 0.0001);
   vec2 stoneUvX = vStoneWorldPosition.zy * uStoneGrainScale;
   vec2 stoneUvY = vStoneWorldPosition.xz * uStoneGrainScale;
@@ -279,7 +281,9 @@ export function applyStoneSurfaceShader(
   grainTexture?: THREE.Texture,
 ): void {
   const growthFadeEnd = config.stoneGrowthDetailFadeDistance;
+  const growthFadeStart = growthFadeEnd * 0.55;
   const grainFadeEnd = config.stoneGrainFadeDistance;
+  const grainFadeStart = grainFadeEnd * 0.6;
 
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uStoneGrowthDetailStrength = {
@@ -288,8 +292,11 @@ export function applyStoneSurfaceShader(
     shader.uniforms.uStoneGrowthDetailScale = {
       value: 1 / config.stoneGrowthDetailSize,
     };
-    shader.uniforms.uStoneGrowthDetailFade = {
-      value: new THREE.Vector2(growthFadeEnd * 0.55, growthFadeEnd),
+    shader.uniforms.uStoneGrowthDetailFadeSquared = {
+      value: new THREE.Vector2(
+        growthFadeStart * growthFadeStart,
+        growthFadeEnd * growthFadeEnd,
+      ),
     };
     shader.uniforms.uStoneMossStreakStrength = {
       value: config.stoneMossStreakStrength,
@@ -301,8 +308,11 @@ export function applyStoneSurfaceShader(
       shader.uniforms.uStoneGrain = { value: grainTexture };
       shader.uniforms.uStoneGrainStrength = { value: config.stoneGrainStrength };
       shader.uniforms.uStoneGrainScale = { value: 1 / config.stoneGrainSize };
-      shader.uniforms.uStoneGrainFade = {
-        value: new THREE.Vector2(grainFadeEnd * 0.6, grainFadeEnd),
+      shader.uniforms.uStoneGrainFadeSquared = {
+        value: new THREE.Vector2(
+          grainFadeStart * grainFadeStart,
+          grainFadeEnd * grainFadeEnd,
+        ),
       };
       fragmentCommon += GRAIN_FRAGMENT_COMMON;
       colorFragment += GRAIN_COLOR;
@@ -327,6 +337,6 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v8:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v9:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
