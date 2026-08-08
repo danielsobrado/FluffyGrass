@@ -42,10 +42,9 @@ export function resolveStoneGrowthWeightsInto(
   target: StoneGrowthWeights,
 ): void {
   const heightFraction = clamp01(heightFractionValue);
+  const upward = Math.max(0, normalY);
   const upperLedgeMoss =
-    Math.pow(Math.max(0, normalY), 1.5) *
-    UPPER_LEDGE_MOSS_STRENGTH *
-    heightFraction;
+    upward * Math.sqrt(upward) * UPPER_LEDGE_MOSS_STRENGTH * heightFraction;
   const mossSusceptibility = Math.max(
     baseMossSusceptibility,
     upperLedgeMoss,
