@@ -6,11 +6,10 @@ import { createServer } from "vite";
 /**
  * Build gate for the procedural stones.
  *
- * Unlike the other verifiers, this one loads the real modules through Vite
- * SSR instead of re-deriving their maths: the geometry checks exercise a
- * convex half-space clipper, and a hand-maintained copy of that clipper is
- * exactly the kind of divergence-prone duplicate the other scripts warn
- * about. Vite is already a dependency; no test framework is added.
+ * The verifier loads the real runtime modules through Vite SSR instead of
+ * re-deriving geometry maths. The broad seed sweep stresses construction while
+ * the runtime pass exercises the exact quality-selected variants StoneField
+ * will cache and render for the configured world seed.
  */
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -34,8 +33,14 @@ try {
   const verification = await server.ssrLoadModule(
     "/src/world/stones/StoneVerification.ts",
   );
+  const runtimeVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneRuntimeVerification.ts",
+  );
   const summary = await verification.verifyStones(configSource);
-  console.log(`[stones] OK · ${summary}`);
+  const runtimeSummary = runtimeVerification.verifyRuntimeStoneVariants(
+    configSource,
+  );
+  console.log(`[stones] OK · ${summary} · ${runtimeSummary}`);
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
   process.exitCode = 1;
