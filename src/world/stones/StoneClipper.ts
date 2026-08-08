@@ -1,21 +1,7 @@
 import type { StoneRecipe } from "./StoneRecipe";
 import { hashStoneCell } from "./StoneRandom";
 
-/**
- * Convex polyhedron construction from half-spaces.
- *
- * Every face is built directly on its own plane: a large quad laid out on the
- * plane is clipped by every *other* half-space, and whatever survives is that
- * plane's face. A convex body assembled this way is watertight by
- * construction — there is no incremental cap bookkeeping to get wrong, which
- * is exactly where the classic clip-and-cap formulation leaks (missing lids,
- * flipped slivers) once epsilons stack up.
- *
- * Broad deliberate planes are the whole point of this generator: they give the
- * stylized faceted silhouette that noise-displaced spheres never produce.
- * Everything stays in plain numbers; Three.js enters only at the adapter.
- */
-
+/** Convex polyhedron construction from deterministic half-spaces. */
 export type StonePlaneRole =
   | "bottom"
   | "top"
@@ -47,59 +33,29 @@ export interface StonePolygon {
 }
 
 const PLANE_EPSILON = 1e-7;
-/** Adjacent points closer than this collapse; normalized units (~stone ≈ 1). */
 const POINT_MERGE_EPSILON = 2.5e-4;
 const MINIMUM_FACE_AREA = 5e-6;
-/** Local gap-healing passes; each merges at least one pair of corners. */
 const MAX_HEAL_PASSES = 4;
-/**
- * Radius for merging corners that provably border a hole. Wider than the
- * global weld because these corners are already known to be spurious.
- */
 const HEAL_RADIUS = 1.2e-2;
-/** Half-extent of the seed quad laid on each plane before clipping. */
 const FACE_QUAD_EXTENT = 6;
-/** Cuts must clear the contact footprint by this much normalized height. */
 const CUT_GROUND_CLEARANCE = 0.02;
 const CUT_MINIMUM_EFFECTIVE_DEPTH = 0.015;
-/**
- * Chips are an order of magnitude shallower than cuts, so they need their own
- * floor — the cut minimum would reject every one of them.
- */
 const CHIP_MINIMUM_EFFECTIVE_DEPTH = 0.004;
-/** Broad cuts below this share of the exposed surface are visual noise. */
 const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.055;
-/** Normalized chamfer depth: deliberately tiny, but real geometry. */
-const EDGE_CHAMFER_DEPTH = 0.018;
-const EDGE_CHAMFER_MIN_LENGTH = 0.14;
-const EDGE_CHAMFER_SHARE = 0.34;
+const EDGE_CHAMFER_DEPTH = 0.016;
+const EDGE_CHAMFER_MIN_LENGTH = 0.16;
+const EDGE_CHAMFER_SHARE = 0.22;
 const FACE_HIERARCHY_TOLERANCE = 0.015;
-const TOP_BAND_HEIGHT_VARIATION = 0.38;
-const CONTACT_BAND_HEIGHT_VARIATION = 0.45;
-const SHOULDER_HEIGHT = 0.46;
+const PROFILE_MIN_HEIGHT_GAP = 0.06;
 
-/**
- * Smooth deterministic variation around a cyclic side ring. Independent
- * heights would make saw teeth; neighboring samples keep the edge geological
- * while preventing one level manufactured band from circling the stone.
- */
-function sideBandVariation(
-  seed: number,
-  side: number,
-  sideCount: number,
-  salt: number,
-): number {
-  const sample = (index: number): number =>
-    (hashStoneCell(seed, (index + sideCount) % sideCount, salt) /
-      4294967296 -
-      0.5) *
-    2;
-  return (
-    sample(side - 1) * 0.2 +
-    sample(side) * 0.6 +
-    sample(side + 1) * 0.2
-  );
-}
+const RIDGE_CHANCE: Record<StoneRecipe["archetype"], number> = {
+  pebble: 0.08,
+  boulder: 0.44,
+  slab: 0.82,
+  block: 0.2,
+  shard: 0,
+  outcrop: 0.88,
+};
 
 function normalizePlane(
   nx: number,
@@ -120,155 +76,121 @@ function normalizePlane(
   };
 }
 
-/** Body planes for a recipe; cuts are resolved separately against the body. */
-export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
-  const planes: StonePlane[] = [];
-  planes.push({
-    nx: 0,
-    ny: -1,
-    nz: 0,
-    constant: 0,
-    id: "bottom",
-    role: "bottom",
-  });
-  const ridgeRoll =
-    hashStoneCell(recipe.seed, recipe.archetype === "slab" ? 1 : 2, 0x52696467) /
-    4294967296;
-  const hasRidge =
-    (recipe.archetype === "slab" || recipe.archetype === "outcrop") &&
-    ridgeRoll < 0.68;
-  if (hasRidge) {
-    const ridgeJitter = (ridgeRoll - 0.34) * 0.7;
-    // Slabs/outcrops are elongated along local Z, so the crown changes slope
-    // across X and the resulting ridge runs with the long geological axis.
-    const ridgeAngle = ridgeJitter;
-    const acrossX = Math.cos(ridgeAngle);
-    const acrossZ = Math.sin(ridgeAngle);
-    const ridgeSlope = 0.13 + ridgeRoll * 0.2;
-    planes.push(
-      normalizePlane(
-        recipe.topTiltX + acrossX * ridgeSlope,
-        1,
-        recipe.topTiltZ + acrossZ * ridgeSlope,
-        1,
-        "top-ridge:0",
-        "top",
-      ),
-      normalizePlane(
-        recipe.topTiltX - acrossX * ridgeSlope,
-        1,
-        recipe.topTiltZ - acrossZ * ridgeSlope,
-        1,
-        "top-ridge:1",
-        "top",
-      ),
+function profileHeights(recipe: StoneRecipe, side: number): number[] {
+  const rings = recipe.profileRings;
+  const heights = new Array<number>(rings.length);
+  heights[0] = 0;
+  for (let index = 1; index < rings.length - 1; index += 1) {
+    const remaining = rings.length - 1 - index;
+    const maximum = 1 - remaining * PROFILE_MIN_HEIGHT_GAP;
+    const raw = rings[index].height + rings[index].heightOffsets[side];
+    heights[index] = Math.min(
+      maximum,
+      Math.max(heights[index - 1] + PROFILE_MIN_HEIGHT_GAP, raw),
     );
-  } else {
+  }
+  heights[rings.length - 1] = 1;
+  return heights;
+}
+
+function addTopPlanes(planes: StonePlane[], recipe: StoneRecipe): void {
+  const ridgeRoll = hashStoneCell(recipe.seed, 0x52696467, 0x546f7052) / 4294967296;
+  if (ridgeRoll >= RIDGE_CHANCE[recipe.archetype]) {
     planes.push(
       normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
     );
+    return;
   }
 
+  const axisRoll = hashStoneCell(recipe.seed, 0x41786973, 0x52696467) / 4294967296;
+  const acrossAngle =
+    recipe.archetype === "slab" || recipe.archetype === "outcrop"
+      ? (axisRoll - 0.5) * 0.55
+      : axisRoll * Math.PI * 2;
+  const acrossX = Math.cos(acrossAngle);
+  const acrossZ = Math.sin(acrossAngle);
+  const familyStrength =
+    recipe.archetype === "slab" || recipe.archetype === "outcrop" ? 0.19 : 0.13;
+  const ridgeSlope = familyStrength * (0.72 + ridgeRoll * 0.72);
+  planes.push(
+    normalizePlane(
+      recipe.topTiltX + acrossX * ridgeSlope,
+      1,
+      recipe.topTiltZ + acrossZ * ridgeSlope,
+      1,
+      "top-ridge:0",
+      "top",
+    ),
+    normalizePlane(
+      recipe.topTiltX - acrossX * ridgeSlope,
+      1,
+      recipe.topTiltZ - acrossZ * ridgeSlope,
+      1,
+      "top-ridge:1",
+      "top",
+    ),
+  );
+}
+
+/**
+ * Build the layered macro body. Each radial sector contributes four planes:
+ * contact→belly, belly→shoulder, shoulder→crown, and crown→top. The support
+ * radius and centre both change between rings, so silhouettes turn repeatedly
+ * through the height instead of exposing one long extruded wall.
+ */
+export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
+  const planes: StonePlane[] = [
+    {
+      nx: 0,
+      ny: -1,
+      nz: 0,
+      constant: 0,
+      id: "bottom",
+      role: "bottom",
+    },
+  ];
+  addTopPlanes(planes, recipe);
+
+  const rings = recipe.profileRings;
   const sideCount = recipe.sideAngles.length;
   for (let side = 0; side < sideCount; side += 1) {
     const angle = recipe.sideAngles[side];
-    const radius = recipe.sideRadii[side];
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const shoulderRoll =
-      hashStoneCell(recipe.seed, side, 0x53686f75) / 4294967296;
-    const useShoulder =
-      recipe.archetype !== "pebble" &&
-      recipe.archetype !== "shard" &&
-      shoulderRoll <
-        (recipe.archetype === "slab" || recipe.archetype === "outcrop"
-          ? 0.72
-          : 0.52);
-    if (useShoulder) {
-      const direction = sideBandVariation(
-        recipe.seed,
-        side,
-        sideCount,
-        0x52696e67,
+    const nx = Math.cos(angle);
+    const nz = Math.sin(angle);
+    const heights = profileHeights(recipe, side);
+
+    for (let segment = 0; segment < rings.length - 1; segment += 1) {
+      const lower = rings[segment];
+      const upper = rings[segment + 1];
+      const lowerHeight = heights[segment];
+      const upperHeight = heights[segment + 1];
+      const heightSpan = Math.max(
+        PROFILE_MIN_HEIGHT_GAP,
+        upperHeight - lowerHeight,
       );
-      const angleShift =
-        direction * (recipe.archetype === "slab" ? 0.065 : 0.095);
-      const upperCos = Math.cos(angle + angleShift);
-      const upperSin = Math.sin(angle + angleShift);
-      const bend = 0.09 + Math.abs(direction) * 0.1;
-      const lowerSlope = recipe.taper - bend;
-      const upperSlope = recipe.taper + bend;
+      const lowerSupport =
+        lower.radii[side] + nx * lower.centerX + nz * lower.centerZ;
+      const upperSupport =
+        upper.radii[side] + nx * upper.centerX + nz * upper.centerZ;
+      const ny = (lowerSupport - upperSupport) / heightSpan;
+      const constant = lowerSupport + ny * lowerHeight;
+      const role: StonePlaneRole =
+        segment === 0
+          ? "contact-bevel"
+          : segment === rings.length - 2
+            ? "top-bevel"
+            : "side";
       planes.push(
         normalizePlane(
-          cos,
-          lowerSlope,
-          sin,
-          radius,
-          `side-lower:${side}`,
-          "side",
+          nx,
+          ny,
+          nz,
+          constant,
+          `profile:${segment}:${side}`,
+          role,
         ),
-        normalizePlane(
-          upperCos,
-          upperSlope,
-          upperSin,
-          radius + (upperSlope - lowerSlope) * SHOULDER_HEIGHT,
-          `side-upper:${side}`,
-          "side",
-        ),
-      );
-    } else {
-      planes.push(
-        normalizePlane(cos, recipe.taper, sin, radius, `side:${side}`, "side"),
       );
     }
-    const lowerProfile = sideBandVariation(
-      recipe.seed,
-      side,
-      sideCount,
-      0x4c6f7765,
-    );
-    const contactInset =
-      lowerProfile < -0.55
-        ? recipe.contactInset * -0.3
-        : recipe.contactInset * (0.55 + (lowerProfile + 1) * 0.58);
-    const contactHeight =
-      recipe.contactBevelHeight *
-      (1 +
-        sideBandVariation(recipe.seed, side, sideCount, 0x436f6e74) *
-          CONTACT_BAND_HEIGHT_VARIATION);
-    const contactSlope = contactInset / contactHeight;
-    planes.push(
-      normalizePlane(
-        cos,
-        -contactSlope,
-        sin,
-        radius - contactInset,
-        `contact-bevel:${side}`,
-        "contact-bevel",
-      ),
-    );
-    const topBevelHeight =
-      recipe.topBevelHeight *
-      (1 +
-        sideBandVariation(recipe.seed, side, sideCount, 0x546f7042) *
-          TOP_BAND_HEIGHT_VARIATION);
-    const bevelStart = 1 - topBevelHeight;
-    const radiusAtStart = radius - recipe.taper * bevelStart;
-    const radiusAtTop = Math.max(
-      0.08,
-      (radius - recipe.taper) * recipe.topScale,
-    );
-    const bevelSlope = (radiusAtStart - radiusAtTop) / topBevelHeight;
-    planes.push(
-      normalizePlane(
-        cos,
-        bevelSlope,
-        sin,
-        radiusAtStart + bevelSlope * bevelStart,
-        `top-bevel:${side}`,
-        "top-bevel",
-      ),
-    );
   }
   return planes;
 }
@@ -341,7 +263,6 @@ function faceHierarchyScore(faces: StonePolygon[]): number {
   return primaryShare - tinyShare * 0.8;
 }
 
-/** Sutherland–Hodgman clip of a convex polygon by one half-space. */
 function clipPolygonByHalfSpace(
   points: StoneVec3[],
   plane: StonePlane,
@@ -356,9 +277,7 @@ function clipPolygonByHalfSpace(
     const currentInside = currentDistance <= PLANE_EPSILON;
     const nextInside = nextDistance <= PLANE_EPSILON;
 
-    if (currentInside) {
-      clipped.push(current);
-    }
+    if (currentInside) clipped.push(current);
     if (currentInside !== nextInside) {
       const denominator = currentDistance - nextDistance;
       if (Math.abs(denominator) > PLANE_EPSILON) {
@@ -374,10 +293,6 @@ function clipPolygonByHalfSpace(
   return clipped;
 }
 
-/**
- * A large quad on the plane, wound counter-clockwise when viewed from outside
- * (along the outward normal).
- */
 function seedQuadOnPlane(plane: StonePlane): StoneVec3[] {
   const absX = Math.abs(plane.nx);
   const absY = Math.abs(plane.ny);
@@ -385,13 +300,10 @@ function seedQuadOnPlane(plane: StonePlane): StoneVec3[] {
   let referenceX = 0;
   let referenceY = 0;
   let referenceZ = 0;
-  if (absX <= absY && absX <= absZ) {
-    referenceX = 1;
-  } else if (absY <= absZ) {
-    referenceY = 1;
-  } else {
-    referenceZ = 1;
-  }
+  if (absX <= absY && absX <= absZ) referenceX = 1;
+  else if (absY <= absZ) referenceY = 1;
+  else referenceZ = 1;
+
   let tangentX = referenceY * plane.nz - referenceZ * plane.ny;
   let tangentY = referenceZ * plane.nx - referenceX * plane.nz;
   let tangentZ = referenceX * plane.ny - referenceY * plane.nx;
@@ -406,26 +318,19 @@ function seedQuadOnPlane(plane: StonePlane): StoneVec3[] {
   const centerX = plane.nx * plane.constant;
   const centerY = plane.ny * plane.constant;
   const centerZ = plane.nz * plane.constant;
-  const extent = FACE_QUAD_EXTENT;
-
   const corner = (tangentSign: number, bitangentSign: number): StoneVec3 => ({
     x:
       centerX +
-      (tangentX * tangentSign + bitangentX * bitangentSign) * extent,
+      (tangentX * tangentSign + bitangentX * bitangentSign) * FACE_QUAD_EXTENT,
     y:
       centerY +
-      (tangentY * tangentSign + bitangentY * bitangentSign) * extent,
+      (tangentY * tangentSign + bitangentY * bitangentSign) * FACE_QUAD_EXTENT,
     z:
       centerZ +
-      (tangentZ * tangentSign + bitangentZ * bitangentSign) * extent,
+      (tangentZ * tangentSign + bitangentZ * bitangentSign) * FACE_QUAD_EXTENT,
   });
-
-  // With bitangent = normal × tangent, (tangent, bitangent, normal) is
-  // right-handed, so this order is counter-clockwise seen from outside.
   const quad = [corner(1, 1), corner(-1, 1), corner(-1, -1), corner(1, -1)];
 
-  // Newell insurance: reverse if the winding disagrees with the outward
-  // normal. Cheap, and it makes the construction immune to basis mistakes.
   let newellX = 0;
   let newellY = 0;
   let newellZ = 0;
@@ -442,34 +347,7 @@ function seedQuadOnPlane(plane: StonePlane): StoneVec3[] {
   return quad;
 }
 
-/**
- * Build every face of the convex body bounded by `planes`. Faces that get
- * fully clipped away (a plane made redundant by tighter neighbours) simply do
- * not appear.
- */
 export function facesFromPlanes(planes: StonePlane[]): StonePolygon[] {
-  // Leaks here come from *near-concurrent planes*, not from bad bookkeeping.
-  // Where three planes almost meet at a point, their pairwise intersections
-  // land a fraction of a millimetre apart and leave a tiny triangular gap
-  // between three otherwise correct faces. Welding those corners onto one
-  // representative closes the gap exactly.
-  //
-  // Removing the "offending" plane instead is actively wrong, and was tried:
-  // deleting a face leaves its neighbours holding edges that now border
-  // nothing, which converts one small gap into a larger one. Diagnosed on
-  // shard:142, where the three gap corners sat 1.8e-3 apart — just outside an
-  // earlier 1.5e-3 weld radius.
-  //
-  // A single global weld radius cannot close every case either: raising it far
-  // enough for the worst near-concurrency starts collapsing legitimate short
-  // edges elsewhere and creates new gaps. So the global pass stays tight and
-  // any residue is healed locally, where a wider radius is safe because those
-  // corners provably border a hole.
-  //
-  // Order matters. Dropping sliver faces has to happen *before* healing, for
-  // the same reason dropping planes was wrong: a discarded face leaves its
-  // neighbours holding unmatched edges. Healing afterwards closes whatever the
-  // drop opened, so this function's postcondition is a closed surface.
   const welded = weldFaces(buildFacesOnce(planes));
   const substantial = welded.filter(
     (face) => polygonArea(face.points) >= MINIMUM_FACE_AREA,
@@ -477,14 +355,6 @@ export function facesFromPlanes(planes: StonePlane[]): StonePolygon[] {
   return healBoundaryGaps(substantial);
 }
 
-/**
- * Close residual holes by merging only the corners that border them.
- *
- * Any edge belonging to one face instead of two bounds a hole. Its endpoints
- * are therefore corners the global weld should have merged and did not, so
- * they can be merged against each other at a wider radius without risking
- * geometry that is already correct.
- */
 function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
   let current = faces;
   for (let pass = 0; pass < MAX_HEAL_PASSES; pass += 1) {
@@ -512,9 +382,7 @@ function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
         }
       }
     }
-    if (suspects.size === 0) {
-      return current;
-    }
+    if (suspects.size === 0) return current;
 
     const representatives = new Map<StoneVec3, StoneVec3>();
     const chosen: StoneVec3[] = [];
@@ -529,15 +397,10 @@ function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
           break;
         }
       }
-      if (match) {
-        representatives.set(suspect, match);
-      } else {
-        chosen.push(suspect);
-      }
+      if (match) representatives.set(suspect, match);
+      else chosen.push(suspect);
     }
-    if (representatives.size === 0) {
-      return current;
-    }
+    if (representatives.size === 0) return current;
 
     const healed: StonePolygon[] = [];
     for (const face of current) {
@@ -560,32 +423,17 @@ function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
   return current;
 }
 
-/** Quantization for edge identity; matches the build gate's own check. */
 const EDGE_QUANTIZE = 5e-4;
-/**
- * Global corner-weld radius. Kept tight: wide enough for ordinary float drift
- * between independently computed faces, narrow enough not to collapse real
- * short edges. Residual near-concurrency is handled by {@link healBoundaryGaps}.
- */
 const WELD_EPSILON = 2e-3;
 
-/**
- * Build one face per plane by clipping a large quad on that plane against
- * every other half-space. A plane made redundant by tighter neighbours simply
- * yields nothing.
- */
 function buildFacesOnce(planes: StonePlane[]): StonePolygon[] {
   const faces: StonePolygon[] = [];
   for (const plane of planes) {
     let points = seedQuadOnPlane(plane);
     for (const other of planes) {
-      if (other === plane) {
-        continue;
-      }
+      if (other === plane) continue;
       points = clipPolygonByHalfSpace(points, other);
-      if (points.length < 3) {
-        break;
-      }
+      if (points.length < 3) break;
     }
     const cleaned = cleanPolygonPoints(points);
     if (cleaned.length >= 3) {
@@ -612,9 +460,7 @@ function weldFaces(faces: StonePolygon[]): StonePolygon[] {
         for (let dx = -1; dx <= 1; dx += 1) {
           const key = `${cellX + dx}:${cellY + dy}:${cellZ + dz}`;
           const bucket = buckets.get(key);
-          if (!bucket) {
-            continue;
-          }
+          if (!bucket) continue;
           for (const existing of bucket) {
             const offsetX = existing.x - point.x;
             const offsetY = existing.y - point.y;
@@ -631,11 +477,8 @@ function weldFaces(faces: StonePolygon[]): StonePolygon[] {
     }
     const ownKey = `${cellX}:${cellY}:${cellZ}`;
     const ownBucket = buckets.get(ownKey);
-    if (ownBucket) {
-      ownBucket.push(point);
-    } else {
-      buckets.set(ownKey, [point]);
-    }
+    if (ownBucket) ownBucket.push(point);
+    else buckets.set(ownKey, [point]);
     return point;
   };
 
@@ -658,11 +501,6 @@ function weldFaces(faces: StonePolygon[]): StonePolygon[] {
   return welded;
 }
 
-/**
- * Resolve the recipe's broad cuts into planes. Each cut measures the current
- * body so its depth is a fraction of the real span, and it is pushed off the
- * contact footprint so a cut can never undermine the base the stone stands on.
- */
 export function resolveCutPlanes(
   bodyPlanes: StonePlane[],
   recipe: StoneRecipe,
@@ -670,14 +508,11 @@ export function resolveCutPlanes(
 ): StonePlane[] {
   const planes = [...bodyPlanes];
   const accepted: StonePlane[] = [];
-  // Chips are ordinary cuts, only far shallower, and always resolved after the
-  // broad ones so their depth is measured against a body that already has its
-  // major planes. Omitting them is the entire difference between the near and
-  // far form of a stone.
   const operations = includeChips
     ? [...recipe.cuts, ...recipe.chips]
     : recipe.cuts;
   const firstChip = recipe.cuts.length;
+
   for (let index = 0; index < operations.length; index += 1) {
     const cut = operations[index];
     const isChip = index >= firstChip;
@@ -700,9 +535,8 @@ export function resolveCutPlanes(
       }
     }
     const span = maximumProjection - minimumProjection;
-    if (span <= PLANE_EPSILON) {
-      continue;
-    }
+    if (span <= PLANE_EPSILON) continue;
+
     const candidate = maximumProjection - cut.depthFraction * span;
     const guarded =
       maximumGroundProjection > Number.NEGATIVE_INFINITY
@@ -711,9 +545,8 @@ export function resolveCutPlanes(
     const minimumDepth = isChip
       ? CHIP_MINIMUM_EFFECTIVE_DEPTH
       : CUT_MINIMUM_EFFECTIVE_DEPTH;
-    if ((maximumProjection - guarded) / span < minimumDepth) {
-      continue;
-    }
+    if ((maximumProjection - guarded) / span < minimumDepth) continue;
+
     const plane: StonePlane = {
       nx: cut.normalX,
       ny: cut.normalY,
@@ -722,10 +555,6 @@ export function resolveCutPlanes(
       id: isChip ? `chip:${index - firstChip}` : `cut:${index}`,
       role: "cut",
     };
-    // Shard cuts are silhouette-defining wedge planes; rejecting a small one
-    // can restore the tall parent mass and make that family broader, not
-    // cleaner. The area hierarchy gate targets the grounded families whose
-    // cuts are surface articulation.
     if (!isChip && recipe.archetype !== "shard") {
       const candidateFaces = facesFromPlanes([...planes, plane]);
       const exposed = candidateFaces.filter(
@@ -738,10 +567,7 @@ export function resolveCutPlanes(
       const cutArea = exposed
         .filter((face) => face.planeId === plane.id)
         .reduce((sum, face) => sum + polygonArea(face.points), 0);
-      if (
-        !(totalArea > 0) ||
-        cutArea / totalArea < MINIMUM_MAJOR_CUT_AREA_SHARE
-      ) {
+      if (!(totalArea > 0) || cutArea / totalArea < MINIMUM_MAJOR_CUT_AREA_SHARE) {
         continue;
       }
       if (
@@ -808,6 +634,7 @@ function addEdgeChamferPlanes(
         recipe.seed ^ 0x4265766c,
       ) / 4294967296;
     if (chamferRoll >= EDGE_CHAMFER_SHARE) continue;
+
     const a = planeById.get(faceA.planeId);
     const b = planeById.get(faceB.planeId);
     if (!a || !b) continue;
@@ -834,14 +661,6 @@ function addEdgeChamferPlanes(
   return chamfers;
 }
 
-/**
- * Full normalized-space body for a recipe.
- *
- * `includeChips` selects the close-range form. Both forms come from the same
- * recipe and differ only by the chip planes, so a stone never changes identity
- * between them — it only loses facets a few centimetres across, which are far
- * below a pixel at the distance the swap happens.
- */
 export function buildStonePolyhedron(
   recipe: StoneRecipe,
   includeChips = false,
@@ -849,9 +668,6 @@ export function buildStonePolyhedron(
   const bodyPlanes = buildStonePlanes(recipe);
   const cutPlanes = resolveCutPlanes(bodyPlanes, recipe, includeChips);
   const structuralPlanes = [...bodyPlanes, ...cutPlanes];
-  // Shards already carry a narrow crown/contact bevel and depend on long cuts
-  // for their wedge silhouette; extra all-body chamfer planes can intersect a
-  // distant side of such a thin form. Keep their deliberately sharp fracture.
   const chamfers =
     recipe.archetype === "shard"
       ? []
