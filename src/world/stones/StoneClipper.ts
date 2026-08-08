@@ -76,6 +76,7 @@ const EDGE_CHAMFER_SHARE = 0.34;
 const FACE_HIERARCHY_TOLERANCE = 0.015;
 const TOP_BAND_HEIGHT_VARIATION = 0.38;
 const CONTACT_BAND_HEIGHT_VARIATION = 0.45;
+const SHOULDER_HEIGHT = 0.46;
 
 /**
  * Smooth deterministic variation around a cyclic side ring. Independent
@@ -174,9 +175,52 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
     const radius = recipe.sideRadii[side];
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    planes.push(
-      normalizePlane(cos, recipe.taper, sin, radius, `side:${side}`, "side"),
-    );
+    const shoulderRoll =
+      hashStoneCell(recipe.seed, side, 0x53686f75) / 4294967296;
+    const useShoulder =
+      recipe.archetype !== "pebble" &&
+      recipe.archetype !== "shard" &&
+      shoulderRoll <
+        (recipe.archetype === "slab" || recipe.archetype === "outcrop"
+          ? 0.72
+          : 0.52);
+    if (useShoulder) {
+      const direction = sideBandVariation(
+        recipe.seed,
+        side,
+        sideCount,
+        0x52696e67,
+      );
+      const angleShift =
+        direction * (recipe.archetype === "slab" ? 0.065 : 0.095);
+      const upperCos = Math.cos(angle + angleShift);
+      const upperSin = Math.sin(angle + angleShift);
+      const bend = 0.09 + Math.abs(direction) * 0.1;
+      const lowerSlope = recipe.taper - bend;
+      const upperSlope = recipe.taper + bend;
+      planes.push(
+        normalizePlane(
+          cos,
+          lowerSlope,
+          sin,
+          radius,
+          `side-lower:${side}`,
+          "side",
+        ),
+        normalizePlane(
+          upperCos,
+          upperSlope,
+          upperSin,
+          radius + (upperSlope - lowerSlope) * SHOULDER_HEIGHT,
+          `side-upper:${side}`,
+          "side",
+        ),
+      );
+    } else {
+      planes.push(
+        normalizePlane(cos, recipe.taper, sin, radius, `side:${side}`, "side"),
+      );
+    }
     const lowerProfile = sideBandVariation(
       recipe.seed,
       side,

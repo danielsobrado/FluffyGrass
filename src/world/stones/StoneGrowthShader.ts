@@ -104,35 +104,35 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   );
   vec3 stoneColonyCenterA = vec3(
     stoneGrowthHash(vec2(vStoneGrowthSeed * 17.3, 2.1)) - 0.5,
-    stoneGrowthHash(vec2(vStoneGrowthSeed * 29.7, 5.4)) * 0.46,
+    0.06 + stoneGrowthHash(vec2(vStoneGrowthSeed * 29.7, 5.4)) * 0.26,
     stoneGrowthHash(vec2(vStoneGrowthSeed * 41.9, 8.7)) - 0.5
   ) * vec3(0.82, 1.0, 0.82);
   vec3 stoneColonyCenterB = vec3(
     stoneGrowthHash(vec2(vStoneGrowthSeed * 53.1, 11.2)) - 0.5,
-    stoneGrowthHash(vec2(vStoneGrowthSeed * 67.7, 14.6)) * 0.52,
+    0.08 + stoneGrowthHash(vec2(vStoneGrowthSeed * 67.7, 14.6)) * 0.3,
     stoneGrowthHash(vec2(vStoneGrowthSeed * 79.3, 17.9)) - 0.5
   ) * vec3(0.9, 1.0, 0.9);
   vec3 stoneColonyCenterC = vec3(
     stoneGrowthHash(vec2(vStoneGrowthSeed * 91.7, 21.3)) - 0.5,
-    stoneGrowthHash(vec2(vStoneGrowthSeed * 103.9, 24.8)) * 0.58,
+    0.1 + stoneGrowthHash(vec2(vStoneGrowthSeed * 103.9, 24.8)) * 0.34,
     stoneGrowthHash(vec2(vStoneGrowthSeed * 117.1, 28.2)) - 0.5
   ) * vec3(0.86, 1.0, 0.86);
   float stoneColonyDistortion = (stoneColonyNoise - 0.5) * 0.2;
   float stoneColonyA = 1.0 - smoothstep(
-    0.26,
-    0.43,
+    0.29,
+    0.41,
     distance(stoneGrowthLocalPosition, stoneColonyCenterA) +
       stoneColonyDistortion
   );
   float stoneColonyB = 1.0 - smoothstep(
-    0.24,
-    0.39,
+    0.26,
+    0.37,
     distance(stoneGrowthLocalPosition, stoneColonyCenterB) +
       stoneColonyDistortion
   );
   float stoneColonyC = 1.0 - smoothstep(
-    0.2,
-    0.34,
+    0.22,
+    0.32,
     distance(stoneGrowthLocalPosition, stoneColonyCenterC) +
       stoneColonyDistortion
   );
@@ -146,7 +146,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   );
   float stoneMossPotential = smoothstep(0.06, 0.65, vStoneMoss);
   float stoneMossCoverage = stoneMossPotential * mix(
-    0.18,
+    0.04,
     stoneColonyMask,
     min(0.92, uStoneGrowthDetailStrength * 0.96)
   );
@@ -254,7 +254,7 @@ if (stoneGrainFade > 0.001) {
 `;
 
 const LIGHTING_FLOOR = `
-outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.2);
+outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.24);
 `;
 
 export function applyStoneSurfaceShader(

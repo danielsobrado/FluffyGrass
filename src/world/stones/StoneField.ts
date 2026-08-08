@@ -5,9 +5,9 @@ import { sampleGrassBiome, pickGrassBiomeIndex } from "../grass/WorldBiomeField"
 import { hashStoneCell, StoneRandom } from "./StoneRandom";
 import {
   STONE_ARCHETYPE_IDS,
-  resolveStoneRecipe,
   type StoneArchetypeId,
 } from "./StoneRecipe";
+import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
 import { generateStoneMesh, type StoneMeshData } from "./StoneGeometry";
 import { type StonePaletteKey } from "./StonePalette";
 
@@ -196,7 +196,10 @@ export class StoneField {
         hashStoneCell(archetype.length, variantIndex, this.config.seed),
         this.config.seed,
       );
-      mesh = generateStoneMesh(resolveStoneRecipe(archetype, seed), detailed);
+      mesh = generateStoneMesh(
+        resolveQualityStoneRecipe(archetype, seed),
+        detailed,
+      );
       this.variants.set(key, mesh);
     }
     return mesh;

@@ -2,9 +2,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   STONE_ARCHETYPE_IDS,
-  resolveStoneRecipe,
   type StoneArchetypeId,
 } from "../../src/world/stones/StoneRecipe";
+import { resolveQualityStoneRecipe } from "../../src/world/stones/StoneShapeQuality";
 import { generateStoneMesh } from "../../src/world/stones/StoneGeometry";
 import { WorldConfigLoader } from "../../src/world/WorldConfigLoader";
 import { applyStoneSurfaceShader } from "../../src/world/stones/StoneGrowthShader";
@@ -120,7 +120,7 @@ const shownArchetypes: readonly StoneArchetypeId[] = focusParam
 shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
   for (let column = 0; column < columns; column += 1) {
     const seed = (seedOffset + row * 101 + column * 17 + 5) >>> 0;
-    const recipe = resolveStoneRecipe(archetype, seed);
+    const recipe = resolveQualityStoneRecipe(archetype, seed);
     const mesh = generateStoneMesh(recipe, chipsParam);
     totalTriangles += mesh.metrics.triangleCount;
     totalVertices += mesh.metrics.vertexCount;
