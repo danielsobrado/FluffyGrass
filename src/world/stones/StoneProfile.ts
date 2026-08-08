@@ -1,0 +1,366 @@
+import { hashStoneCell, StoneRandom } from "./StoneRandom";
+import type { StoneArchetypeId } from "./StoneRecipe";
+
+export interface StoneProfileRing {
+  readonly height: number;
+  readonly centerX: number;
+  readonly centerZ: number;
+  readonly radii: readonly number[];
+  /** Smooth per-sector vertical variation; top/contact rings remain fixed. */
+  readonly heightOffsets: readonly number[];
+}
+
+export interface StoneProfileInput {
+  readonly archetype: StoneArchetypeId;
+  readonly seed: number;
+  readonly sideAngles: readonly number[];
+  readonly sideRadii: readonly number[];
+  readonly taper: number;
+  readonly topScale: number;
+  readonly topBevelHeight: number;
+  readonly contactInset: number;
+  readonly contactBevelHeight: number;
+}
+
+interface Range {
+  readonly min: number;
+  readonly max: number;
+}
+
+interface ProfileFamily {
+  readonly bellyBulge: Range;
+  readonly bellyVariation: number;
+  readonly shoulderVariation: number;
+  readonly crownVariation: number;
+  readonly centerWander: Range;
+  readonly verticalVariation: number;
+  readonly slopeTurn: number;
+}
+
+const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
+  pebble: {
+    bellyBulge: { min: 0.02, max: 0.08 },
+    bellyVariation: 0.035,
+    shoulderVariation: 0.035,
+    crownVariation: 0.025,
+    centerWander: { min: 0.015, max: 0.045 },
+    verticalVariation: 0.025,
+    slopeTurn: 0.025,
+  },
+  boulder: {
+    bellyBulge: { min: 0.09, max: 0.19 },
+    bellyVariation: 0.075,
+    shoulderVariation: 0.075,
+    crownVariation: 0.055,
+    centerWander: { min: 0.055, max: 0.13 },
+    verticalVariation: 0.055,
+    slopeTurn: 0.055,
+  },
+  slab: {
+    bellyBulge: { min: 0.035, max: 0.09 },
+    bellyVariation: 0.05,
+    shoulderVariation: 0.055,
+    crownVariation: 0.04,
+    centerWander: { min: 0.035, max: 0.09 },
+    verticalVariation: 0.04,
+    slopeTurn: 0.04,
+  },
+  block: {
+    bellyBulge: { min: 0.02, max: 0.075 },
+    bellyVariation: 0.045,
+    shoulderVariation: 0.05,
+    crownVariation: 0.035,
+    centerWander: { min: 0.025, max: 0.07 },
+    verticalVariation: 0.035,
+    slopeTurn: 0.035,
+  },
+  shard: {
+    bellyBulge: { min: -0.015, max: 0.035 },
+    bellyVariation: 0.045,
+    shoulderVariation: 0.06,
+    crownVariation: 0.055,
+    centerWander: { min: 0.065, max: 0.15 },
+    verticalVariation: 0.045,
+    slopeTurn: 0.045,
+  },
+  outcrop: {
+    bellyBulge: { min: 0.09, max: 0.21 },
+    bellyVariation: 0.09,
+    shoulderVariation: 0.085,
+    crownVariation: 0.06,
+    centerWander: { min: 0.07, max: 0.16 },
+    verticalVariation: 0.065,
+    slopeTurn: 0.06,
+  },
+};
+
+const MIN_RADIUS = 0.075;
+const MIN_RING_GAP = 0.105;
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function signedHash(seed: number, index: number, salt: number): number {
+  return hashStoneCell(seed, index, salt) / 2147483648 - 1;
+}
+
+function smoothSectorVariation(
+  seed: number,
+  side: number,
+  sideCount: number,
+  salt: number,
+): number {
+  const sample = (offset: number): number =>
+    signedHash(seed, (side + offset + sideCount) % sideCount, salt);
+  return sample(-1) * 0.2 + sample(0) * 0.6 + sample(1) * 0.2;
+}
+
+function centerPoint(
+  strength: number,
+  primaryAngle: number,
+  secondaryAngle: number,
+  primaryWeight: number,
+  secondaryWeight: number,
+): readonly [number, number] {
+  return [
+    Math.cos(primaryAngle) * strength * primaryWeight +
+      Math.cos(secondaryAngle) * strength * secondaryWeight,
+    Math.sin(primaryAngle) * strength * primaryWeight +
+      Math.sin(secondaryAngle) * strength * secondaryWeight,
+  ];
+}
+
+/**
+ * Build contact → belly → shoulder → crown → top profiles.
+ *
+ * The rings are deliberately not scaled copies. Each sector gets its own broad
+ * bulge/recession, ring boundaries wander vertically, and the profile centre
+ * changes direction with height. The resulting convex envelope keeps the
+ * clipper robust while breaking the long wall + roof grammar of the old body.
+ */
+export function resolveStoneProfile(
+  input: StoneProfileInput,
+  random: StoneRandom,
+): readonly StoneProfileRing[] {
+  const family = PROFILE_FAMILIES[input.archetype];
+  const sideCount = input.sideAngles.length;
+  const bellyHeight = clamp(
+    Math.max(input.contactBevelHeight * 1.35, random.range(0.2, 0.3)),
+    0.18,
+    0.34,
+  );
+  const shoulderHeight = random.range(0.53, 0.67);
+  const crownHeight = clamp(
+    1 - input.topBevelHeight,
+    shoulderHeight + MIN_RING_GAP,
+    0.88,
+  );
+
+  const center = random.fork("profile-centres");
+  const wander = center.range(family.centerWander.min, family.centerWander.max);
+  const primaryAngle = center.range(0, Math.PI * 2);
+  const secondaryAngle = primaryAngle + center.range(1.15, 2.35);
+  const [bellyX, bellyZ] = centerPoint(
+    wander,
+    primaryAngle,
+    secondaryAngle,
+    0.32,
+    0.08,
+  );
+  const [shoulderX, shoulderZ] = centerPoint(
+    wander,
+    primaryAngle,
+    secondaryAngle,
+    0.72,
+    0.22,
+  );
+  const [crownX, crownZ] = centerPoint(
+    wander,
+    primaryAngle,
+    secondaryAngle,
+    0.55,
+    0.72,
+  );
+  const [topX, topZ] = centerPoint(
+    wander,
+    primaryAngle,
+    secondaryAngle,
+    0.32,
+    1,
+  );
+
+  const bellyBulge = random.range(
+    family.bellyBulge.min,
+    family.bellyBulge.max,
+  );
+  const desired: number[][] = [[], [], [], [], []];
+  const heightOffsets: number[][] = [[], [], [], [], []];
+
+  for (let side = 0; side < sideCount; side += 1) {
+    const base = input.sideRadii[side];
+    const angle = input.sideAngles[side];
+    const directionX = Math.cos(angle);
+    const directionZ = Math.sin(angle);
+    const contactVariation = smoothSectorVariation(
+      input.seed,
+      side,
+      sideCount,
+      0x436f6e74,
+    );
+    const bellyVariation = smoothSectorVariation(
+      input.seed,
+      side,
+      sideCount,
+      0x42656c6c,
+    );
+    const shoulderVariation = smoothSectorVariation(
+      input.seed,
+      side,
+      sideCount,
+      0x53686f75,
+    );
+    const crownVariation = smoothSectorVariation(
+      input.seed,
+      side,
+      sideCount,
+      0x43726f77,
+    );
+
+    const contactRadius = Math.max(
+      MIN_RADIUS,
+      base - input.contactInset * (0.55 + (contactVariation + 1) * 0.32),
+    );
+    const bellyRadius = Math.max(
+      MIN_RADIUS,
+      base *
+        (1 +
+          bellyBulge +
+          bellyVariation * family.bellyVariation),
+    );
+    const shoulderRadius = Math.max(
+      MIN_RADIUS,
+      base -
+        input.taper * shoulderHeight * 0.48 +
+        base * shoulderVariation * family.shoulderVariation,
+    );
+    const topRadius = Math.max(
+      MIN_RADIUS,
+      (base - input.taper) *
+        input.topScale *
+        (1 + crownVariation * family.crownVariation * 0.55),
+    );
+    const crownRadius = Math.max(
+      topRadius + 0.025,
+      shoulderRadius * random.range(0.7, 0.86) +
+        topRadius * random.range(0.14, 0.3) +
+        base * crownVariation * family.crownVariation,
+    );
+
+    desired[0].push(contactRadius);
+    desired[1].push(bellyRadius);
+    desired[2].push(shoulderRadius);
+    desired[3].push(crownRadius);
+    desired[4].push(topRadius);
+
+    heightOffsets[0].push(0);
+    heightOffsets[1].push(
+      smoothSectorVariation(input.seed, side, sideCount, 0x42656c48) *
+        family.verticalVariation,
+    );
+    heightOffsets[2].push(
+      smoothSectorVariation(input.seed, side, sideCount, 0x53686f48) *
+        family.verticalVariation,
+    );
+    heightOffsets[3].push(
+      smoothSectorVariation(input.seed, side, sideCount, 0x43726f48) *
+        family.verticalVariation *
+        0.8,
+    );
+    heightOffsets[4].push(0);
+
+    // Make the complete support function concave in height. This guarantees
+    // every segment plane participates in one convex envelope instead of
+    // becoming a redundant internal plane after the ring offsets are applied.
+    const centers: readonly (readonly [number, number])[] = [
+      [0, 0],
+      [bellyX, bellyZ],
+      [shoulderX, shoulderZ],
+      [crownX, crownZ],
+      [topX, topZ],
+    ];
+    const baseHeights = [0, bellyHeight, shoulderHeight, crownHeight, 1];
+    const supports = desired.map(
+      (ring, ringIndex) =>
+        ring[side] +
+        directionX * centers[ringIndex][0] +
+        directionZ * centers[ringIndex][1],
+    );
+    let previousSlope = Number.POSITIVE_INFINITY;
+    for (let ringIndex = 1; ringIndex < supports.length; ringIndex += 1) {
+      const lowerHeight =
+        baseHeights[ringIndex - 1] + heightOffsets[ringIndex - 1][side];
+      const upperHeight =
+        baseHeights[ringIndex] + heightOffsets[ringIndex][side];
+      const span = Math.max(MIN_RING_GAP, upperHeight - lowerHeight);
+      let slope = (supports[ringIndex] - supports[ringIndex - 1]) / span;
+      if (Number.isFinite(previousSlope)) {
+        const maximumSlope = previousSlope - family.slopeTurn;
+        if (slope > maximumSlope) {
+          slope = maximumSlope;
+          supports[ringIndex] = supports[ringIndex - 1] + slope * span;
+          desired[ringIndex][side] = Math.max(
+            MIN_RADIUS,
+            supports[ringIndex] -
+              directionX * centers[ringIndex][0] -
+              directionZ * centers[ringIndex][1],
+          );
+          supports[ringIndex] =
+            desired[ringIndex][side] +
+            directionX * centers[ringIndex][0] +
+            directionZ * centers[ringIndex][1];
+          slope = (supports[ringIndex] - supports[ringIndex - 1]) / span;
+        }
+      }
+      previousSlope = slope;
+    }
+  }
+
+  return [
+    {
+      height: 0,
+      centerX: 0,
+      centerZ: 0,
+      radii: desired[0],
+      heightOffsets: heightOffsets[0],
+    },
+    {
+      height: bellyHeight,
+      centerX: bellyX,
+      centerZ: bellyZ,
+      radii: desired[1],
+      heightOffsets: heightOffsets[1],
+    },
+    {
+      height: shoulderHeight,
+      centerX: shoulderX,
+      centerZ: shoulderZ,
+      radii: desired[2],
+      heightOffsets: heightOffsets[2],
+    },
+    {
+      height: crownHeight,
+      centerX: crownX,
+      centerZ: crownZ,
+      radii: desired[3],
+      heightOffsets: heightOffsets[3],
+    },
+    {
+      height: 1,
+      centerX: topX,
+      centerZ: topZ,
+      radii: desired[4],
+      heightOffsets: heightOffsets[4],
+    },
+  ];
+}
