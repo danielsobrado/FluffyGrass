@@ -160,7 +160,10 @@ export class WorldStoneSystem {
     const radius = this.compact
       ? this.config.stoneRadiusCompact
       : this.config.stoneRadiusDesktop;
-    const detailRadius = Math.min(radius, this.config.stoneDetailRadius);
+    const configuredDetailRadius = this.compact
+      ? this.config.stoneDetailRadiusCompact
+      : this.config.stoneDetailRadius;
+    const detailRadius = Math.min(radius, configuredDetailRadius);
     const batchAxis = this.config.stoneRenderBatchChunksPerAxis;
     const chunkSize = this.config.chunkSize;
     const halfWorld = this.config.worldSize * 0.5;
@@ -245,7 +248,6 @@ export class WorldStoneSystem {
       }
       this.queue.push(request);
     }
-    // Pop from the end so queue removal is O(1), with nearest batches first.
     this.queue.sort((left, right) => right.distance - left.distance);
   }
 
@@ -317,8 +319,9 @@ export class WorldStoneSystem {
     this.emptySignatures.delete(request.key);
     const mesh = new THREE.Mesh(result.geometry, this.material);
     mesh.name = `world-stones-${request.key}`;
-    mesh.castShadow = this.receiveShadows && result.hasDetailedGeometry;
-    mesh.receiveShadow = this.receiveShadows;
+    const localShadowDetail = this.receiveShadows && result.hasDetailedGeometry;
+    mesh.castShadow = localShadowDetail;
+    mesh.receiveShadow = localShadowDetail;
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldAutoUpdate = false;
     mesh.updateMatrix();
