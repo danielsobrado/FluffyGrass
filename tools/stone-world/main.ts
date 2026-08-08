@@ -4,27 +4,41 @@ import { TerrainField } from "../../src/world/TerrainField";
 import { StoneField } from "../../src/world/stones/StoneField";
 import { WorldStoneSystem } from "../../src/world/stones/WorldStoneSystem";
 
-/**
- * In-world placement probe: real terrain field, real stone field, real
- * streaming system, with the terrain drawn as a plain vertex-coloured mesh
- * instead of the streamed chunk pipeline. That keeps the page fast enough to
- * screenshot under SwiftShader while still exercising the code that decides
- * where stones stand. Not part of the app bundle.
- *
- * URL parameters:
- *   ?x=<metres>&z=<metres>  camera focus (default: world origin)
- *   ?h=<metres>             camera height above ground (default 26)
- *   ?d=<metres>             camera pull-back distance (default 60)
- *   ?span=<metres>          terrain patch size (default 320)
- */
+type GrowthMode = "natural" | "moss" | "lichen";
 
 const params = new URLSearchParams(window.location.search);
-const focusX = Number(params.get("x") ?? "0");
-const focusZ = Number(params.get("z") ?? "0");
-const cameraHeight = Number(params.get("h") ?? "26");
-const cameraDistance = Number(params.get("d") ?? "60");
-const span = Number(params.get("span") ?? "320");
-const growth = params.get("growth") ?? "natural";
+
+function readNumberParam(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const raw = params.get(name);
+  if (raw === null) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(
+      `Invalid ${name}=${raw}; expected a number in [${minimum}, ${maximum}].`,
+    );
+  }
+  return value;
+}
+
+function readGrowthMode(value: string | null): GrowthMode {
+  if (value === null) return "natural";
+  if (value === "natural" || value === "moss" || value === "lichen") {
+    return value;
+  }
+  throw new Error(`Invalid growth=${value}; expected natural, moss, or lichen.`);
+}
+
+const focusX = readNumberParam("x", 0, -1_000_000, 1_000_000);
+const focusZ = readNumberParam("z", 0, -1_000_000, 1_000_000);
+const cameraHeight = readNumberParam("h", 26, 1, 1000);
+const cameraDistance = readNumberParam("d", 60, 1, 2000);
+const span = readNumberParam("span", 320, 64, 4096);
+const growth = readGrowthMode(params.get("growth"));
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
 const out = document.querySelector<HTMLElement>("#out");
@@ -32,10 +46,9 @@ if (!canvas) {
   throw new Error("Canvas #canvas missing.");
 }
 
-// A headless capture of a failed probe is just a blank page, which is
-// indistinguishable from a slow one. Surface failures into the page itself.
 function reportFailure(detail: unknown): void {
-  const message = detail instanceof Error ? detail.stack ?? detail.message : String(detail);
+  const message =
+    detail instanceof Error ? detail.stack ?? detail.message : String(detail);
   if (out) {
     out.textContent = `PROBE FAILED\n${message}`;
     out.style.color = "#b00";
@@ -43,22 +56,33 @@ function reportFailure(detail: unknown): void {
   }
   document.title = "Stone world probe · FAILED";
 }
-window.addEventListener("error", (event) => reportFailure(event.error ?? event.message));
-window.addEventListener("unhandledrejection", (event) => reportFailure(event.reason));
+window.addEventListener("error", (event) =>
+  reportFailure(event.error ?? event.message),
+);
+window.addEventListener("unhandledrejection", (event) =>
+  reportFailure(event.reason),
+);
 
-// Synchronous on purpose. Headless capture fires its screenshot at the `load`
-// event, and `load` does not wait for a module's top-level `await` to settle —
-// so an async config fetch means the capture lands on an empty page and the
-// browser exits before the scene exists. Blocking here keeps the whole build
-// inside module evaluation, which `load` does wait for.
 const configRequest = new XMLHttpRequest();
 configRequest.open("GET", "./config/world.yaml", false);
 configRequest.send();
+if (configRequest.status !== 200 && configRequest.status !== 0) {
+  throw new Error(`Unable to load world config: HTTP ${configRequest.status}.`);
+}
 const loadedConfig = new WorldConfigLoader().parse(configRequest.responseText);
-// Keep every streamed stone over the finite terrain patch rendered by this
-// probe. Production streams terrain and stones together; the probe does not.
+const halfWorld = loadedConfig.worldSize * 0.5;
+const patchHalfSpan = span * 0.5;
+if (
+  Math.abs(focusX) + patchHalfSpan > halfWorld ||
+  Math.abs(focusZ) + patchHalfSpan > halfWorld
+) {
+  throw new Error(
+    `Probe patch around ${focusX},${focusZ} with span ${span} leaves the configured world.`,
+  );
+}
+
 const probeChunkRadius = Math.max(
-  1,
+  0,
   Math.floor(span / (loadedConfig.chunkSize * 2)) - 1,
 );
 const config = {
@@ -108,13 +132,11 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color("#bfd4df");
 scene.fog = new THREE.FogExp2("#bfd4df", 0.00105);
 
-// WorldApp lighting, verbatim.
 scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
 const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
 sun.position.set(350, 500, 220).normalize().multiplyScalar(200);
 scene.add(sun);
 
-// Terrain patch: same height and colour fields the streamer uses.
 const resolution = 192;
 const terrainGeometry = new THREE.PlaneGeometry(
   span,
@@ -128,7 +150,6 @@ const terrainColors = new Float32Array(terrainPositions.count * 3);
 const normalScratch = new THREE.Vector3();
 const colorScratch = new THREE.Color();
 const pathScratch = new THREE.Vector2();
-/** Matches TerrainStreamer's uTerrainPathSoil, so ways read the same here. */
 const PATH_SOIL_COLOR = new THREE.Color("#574833");
 for (let index = 0; index < terrainPositions.count; index += 1) {
   const x = terrainPositions.getX(index) + focusX;
@@ -146,10 +167,6 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
   );
   field.sampleColor(x, z, height, normalScratch, suitability, colorScratch);
 
-  // Tint the walking ways into the patch. The real soil comes from the
-  // terrain shader, which this probe does not run, so without this the ways
-  // are invisible here — and a verge of stones lining an invisible way cannot
-  // be judged at all.
   field.samplePathDistances(x, z, pathScratch);
   const visibility = field.samplePathVisibility(height);
   if (visibility > 0.01) {
@@ -165,8 +182,7 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
       ),
     );
     if (tread > 0) {
-      const soil = tread * visibility;
-      colorScratch.lerp(PATH_SOIL_COLOR, soil);
+      colorScratch.lerp(PATH_SOIL_COLOR, tread * visibility);
     }
   }
 
@@ -188,7 +204,6 @@ scene.add(
 
 const stones = new WorldStoneSystem(scene, stoneField, config, false, false);
 const focus = new THREE.Vector3(focusX, 0, focusZ);
-// Force every chunk in range to build in one go rather than over frames.
 stones.update(focus, Number.POSITIVE_INFINITY);
 for (let pass = 0; pass < 400; pass += 1) {
   stones.update(focus, Number.POSITIVE_INFINITY);
@@ -217,9 +232,6 @@ if (out) {
     `build peak ${diagnostics.maxBuildMs.toFixed(1)} ms`;
 }
 
-// Keep drawing rather than rendering once. The page loads its config through
-// fetch, so headless capture can fire before the scene exists; a standing
-// render loop makes any capture time after build a valid one.
 function frame(): void {
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
