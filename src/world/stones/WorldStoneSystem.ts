@@ -38,6 +38,8 @@ export interface StoneDiagnostics {
 const UP = new THREE.Vector3(0, 1, 0);
 const HASH_UNIT = 1 / 4294967296;
 const GROWTH_SEED_SALT = 0x43b0d7;
+const UPPER_LEDGE_MOSS_STRENGTH = 0.3;
+const LICHEN_HEIGHT_FLOOR = 0.55;
 const LICHEN_ENVIRONMENT: Record<StonePaletteKey, number> = {
   meadowSage: 0.24,
   steppeTan: 0.72,
@@ -355,6 +357,15 @@ export class WorldStoneSystem {
         normals[target + 1] = normalY;
         normals[target + 2] = normalZ;
 
+        const heightFraction = clamp01(py / variant.metrics.height);
+        const upperLedgeMoss =
+          Math.pow(Math.max(0, normalY), 1.5) *
+          UPPER_LEDGE_MOSS_STRENGTH *
+          heightFraction;
+        const mossSusceptibility = Math.max(
+          variant.mosses[index],
+          upperLedgeMoss,
+        );
         const exposure = Math.max(
           0,
           normalX * this.mossExposureDirection.x +
@@ -364,12 +375,16 @@ export class WorldStoneSystem {
         const shadeRetention =
           1 - exposure * this.config.stoneMossExposureStrength;
         mosses[vertex] = clamp01(
-          variant.mosses[index] * instance.moss * shadeRetention,
+          mossSusceptibility * instance.moss * shadeRetention,
         );
+
         const lichenExposure = 0.38 + exposure * 0.62;
-        const mossCompetition = 1 - variant.mosses[index] * 0.5;
+        const mossCompetition = 1 - mossSusceptibility * 0.5;
+        const lichenHeight =
+          LICHEN_HEIGHT_FLOOR +
+          (1 - LICHEN_HEIGHT_FLOOR) * heightFraction;
         lichens[vertex] = clamp01(
-          lichenAmount * lichenExposure * mossCompetition,
+          lichenAmount * lichenExposure * mossCompetition * lichenHeight,
         );
         growthSeeds[vertex] = growthSeed;
 
