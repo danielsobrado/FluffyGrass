@@ -136,6 +136,21 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   );
   verifyClearanceAmortization(config);
 
+  const shaderDetailDistance = Math.max(
+    config.stoneGrowthDetailStrength > 0
+      ? config.stoneGrowthDetailFadeDistance
+      : 0,
+    config.stoneGrainStrength > 0 ? config.stoneGrainFadeDistance : 0,
+  );
+  assert(
+    config.stoneDetailRadiusCompact * config.chunkSize >= shaderDetailDistance,
+    "Compact geometry detail must cover the complete detailed stone shader fade.",
+  );
+  assert(
+    config.stoneDetailRadius * config.chunkSize >= shaderDetailDistance,
+    "Desktop geometry detail must cover the complete detailed stone shader fade.",
+  );
+
   const desktopUnbatched = (config.stoneRadiusDesktop * 2 + 1) ** 2;
   const compactUnbatched = (config.stoneRadiusCompact * 2 + 1) ** 2;
   const desktopBatches = maximumBatchCount(
@@ -191,6 +206,16 @@ export function verifyStoneRenderPerformance(configSource: string): string {
       position.array instanceof Float32Array,
     "Stone positions must remain a dedicated Float32 stream.",
   );
+
+  const localPositionLimit =
+    config.chunkSize * config.stoneRenderBatchChunksPerAxis;
+  for (let index = 0; index < position.array.length; index += 3) {
+    assert(
+      Math.abs(position.array[index]) <= localPositionLimit &&
+        Math.abs(position.array[index + 2]) <= localPositionLimit,
+      "Stone batch positions escaped the local precision envelope.",
+    );
+  }
 
   const normal = requireInterleaved(attribute(geometry, "normal"), "normal");
   const growthPosition = requireInterleaved(
