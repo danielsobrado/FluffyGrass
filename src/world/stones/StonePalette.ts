@@ -155,13 +155,14 @@ export function colorizeStoneVertices(
   wears: Float32Array,
   paletteColors: StonePalette,
   tint: StoneTintParams,
-  target: Float32Array,
+  target: Float32Array | Uint8Array,
   targetOffset = 0,
+  targetScale = 1,
 ): void {
   const secondary = tint.secondary;
   const blend = tint.secondaryBlend ?? 0;
   const hasSecondary = secondary !== undefined && blend > 0;
-  const valueScale = tint.valueScale;
+  const valueScale = tint.valueScale * targetScale;
 
   for (let index = 0; index < tones.length; index += 1) {
     const tone = tones[index];
