@@ -94,6 +94,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     uStoneGrowthDetailFade.y,
     stoneGrowthDistance
   );
+  float stoneDetailBlend = clamp(uStoneGrowthDetailStrength, 0.0, 1.0);
   float stoneColonyNoise = stoneGrowthNoise(
     stoneGrowthUv * uStoneGrowthDetailScale * 0.32 + vec2(7.31, 19.17)
   );
@@ -145,20 +146,22 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     stoneNoiseColonyMask * 0.28
   );
   float stoneMossPotential = smoothstep(0.06, 0.65, vStoneMoss);
-  float stoneMossCoverage = stoneMossPotential * mix(
-    0.04,
-    stoneColonyMask,
-    min(0.92, uStoneGrowthDetailStrength * 0.96)
+  float stoneMossCoverage = mix(
+    vStoneMoss,
+    stoneMossPotential * stoneColonyMask,
+    min(0.92, stoneDetailBlend * 0.96)
   );
 
   float stoneLichenNoise = stoneGrowthNoise(
     stoneGrowthUv * uStoneGrowthDetailScale * 0.58 + vec2(41.73, 8.91)
   );
-  float stoneLichenCoverage = vStoneLichen * smoothstep(
+  float stoneLichenPattern = smoothstep(
     0.55,
     0.79,
     stoneLichenNoise
   );
+  float stoneLichenCoverage =
+    vStoneLichen * mix(1.0, stoneLichenPattern, stoneDetailBlend);
 
   if (stoneGrowthDetailFade > 0.001) {
     float stoneFineNoise = stoneGrowthNoise(
@@ -172,7 +175,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     stoneMossCoverage *= mix(
       1.0,
       max(0.05, stoneMossBreakup),
-      uStoneGrowthDetailStrength * stoneGrowthDetailFade
+      stoneDetailBlend * stoneGrowthDetailFade
     );
 
     float stoneSideAmount = 1.0 - abs(stoneGrowthNormal.y);
@@ -201,7 +204,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     stoneLichenCoverage *= mix(
       1.0,
       stoneLichenBreakup,
-      uStoneGrowthDetailStrength * stoneGrowthDetailFade
+      stoneDetailBlend * stoneGrowthDetailFade
     );
   }
 
@@ -311,6 +314,6 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v5:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v6:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
