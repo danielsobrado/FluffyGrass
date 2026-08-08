@@ -103,11 +103,11 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   );
 
   float stoneLichenNoise = stoneGrowthNoise(
-    stoneGrowthUv * uStoneGrowthDetailScale * 1.45 + vec2(41.73, 8.91)
+    stoneGrowthUv * uStoneGrowthDetailScale * 0.58 + vec2(41.73, 8.91)
   );
   float stoneLichenCoverage = vStoneLichen * smoothstep(
-    0.56,
-    0.82,
+    0.55,
+    0.79,
     stoneLichenNoise
   );
 
@@ -254,6 +254,6 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v3:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v4:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
