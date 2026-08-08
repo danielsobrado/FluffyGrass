@@ -29,6 +29,38 @@ vStoneMossColor = stoneMossColor;
 vStoneLichenColor = stoneLichenColor;
 `;
 
+const COARSE_VERTEX_COMMON = `
+attribute float stoneMoss;
+attribute float stoneLichen;
+attribute vec3 stoneMossColor;
+attribute vec3 stoneLichenColor;
+varying float vStoneMoss;
+varying float vStoneLichen;
+varying vec3 vStoneMossColor;
+varying vec3 vStoneLichenColor;
+`;
+
+const COARSE_VERTEX_POSITION = `
+vStoneMoss = stoneMoss;
+vStoneLichen = stoneLichen;
+vStoneMossColor = stoneMossColor;
+vStoneLichenColor = stoneLichenColor;
+`;
+
+const COARSE_FRAGMENT_COMMON = `
+varying float vStoneMoss;
+varying float vStoneLichen;
+varying vec3 vStoneMossColor;
+varying vec3 vStoneLichenColor;
+`;
+
+const COARSE_COLOR = `
+if ((vStoneMoss + vStoneLichen) > 0.001) {
+  diffuseColor.rgb = mix(diffuseColor.rgb, vStoneLichenColor, vStoneLichen);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vStoneMossColor, vStoneMoss);
+}
+`;
+
 const GROWTH_FRAGMENT_COMMON = `
 uniform float uStoneGrowthDetailStrength;
 uniform float uStoneGrowthDetailScale;
@@ -353,5 +385,34 @@ export function applyStoneSurfaceShader(
 
   material.customProgramCacheKey = () =>
     `world-stone-surface-v10:${grainTexture ? "grain" : "growth"}`;
+  material.needsUpdate = true;
+}
+
+/** Far batches have already passed every close-detail fade. */
+export function applyStoneCoarseSurfaceShader(
+  material: THREE.MeshLambertMaterial,
+): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>${COARSE_VERTEX_COMMON}`)
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>${COARSE_VERTEX_POSITION}`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>${COARSE_FRAGMENT_COMMON}`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>${COARSE_COLOR}`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        `${LIGHTING_FLOOR}#include <opaque_fragment>`,
+      );
+  };
+  material.customProgramCacheKey = () => "world-stone-coarse-v1";
   material.needsUpdate = true;
 }
