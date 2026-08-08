@@ -93,6 +93,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   stoneRadiusDesktop: POSITIVE_INTEGER,
   stoneRadiusCompact: POSITIVE_INTEGER,
   stoneDetailRadius: POSITIVE_INTEGER,
+  stoneDetailRadiusCompact: POSITIVE_INTEGER,
   stoneRenderBatchChunksPerAxis: { minimum: 1, maximum: 4, integer: true },
   stoneChunksPerFrame: POSITIVE_INTEGER,
   stoneVergeChance: { minimum: 0, maximum: 1 },
@@ -252,6 +253,17 @@ export class WorldConfigLoader {
       config.stoneRadiusCompact > config.terrainRadiusCompact
     ) {
       throw new Error("Stone streaming radius must not exceed terrain radius.");
+    }
+    if (config.stoneDetailRadius > config.stoneRadiusDesktop) {
+      throw new Error("stoneDetailRadius must not exceed stoneRadiusDesktop.");
+    }
+    if (
+      config.stoneDetailRadiusCompact > config.stoneDetailRadius ||
+      config.stoneDetailRadiusCompact > config.stoneRadiusCompact
+    ) {
+      throw new Error(
+        "stoneDetailRadiusCompact must fit inside compact and desktop stone detail radii.",
+      );
     }
     if (config.pathWidth >= config.pathSpacing * 0.05) {
       throw new Error("pathWidth must stay far below pathSpacing.");
