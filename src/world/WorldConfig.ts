@@ -78,6 +78,7 @@ export interface WorldConfig {
   stoneRadiusDesktop: number;
   stoneRadiusCompact: number;
   stoneDetailRadius: number;
+  stoneDetailRadiusCompact: number;
   /** Terrain chunks grouped per stone render batch axis. */
   stoneRenderBatchChunksPerAxis: number;
   /** Maximum completed stone render batches per frame. */
