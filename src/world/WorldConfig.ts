@@ -109,6 +109,8 @@ export interface WorldConfig {
   /** Chunk distance that still includes the small nestling stones. */
   stoneDetailRadius: number;
   stoneChunksPerFrame: number;
+  /** Chance per attempt that a stone is placed lining a walking way. */
+  stoneVergeChance: number;
   /**
    * Close-range albedo grain. 0 disables the effect and the shader injection
    * with it, so the stones fall back to pure flat-value art at no cost.

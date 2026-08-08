@@ -109,6 +109,9 @@ stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
 stoneDetailRadius: 3
 stoneChunksPerFrame: 1
+# Stones lining the walking ways, as if cleared aside when the way was cut.
+# Scaled by rockiness, so a way through clean meadow stays clean.
+stoneVergeChance: 0.75
 # Close-range surface grain, available but off by design.
 #
 # It works — triplanar, world space, faded before it can alias, reusing the

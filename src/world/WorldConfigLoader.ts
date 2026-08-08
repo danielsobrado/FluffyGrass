@@ -94,6 +94,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   stoneRadiusCompact: POSITIVE_INTEGER,
   stoneDetailRadius: POSITIVE_INTEGER,
   stoneChunksPerFrame: POSITIVE_INTEGER,
+  stoneVergeChance: { minimum: 0, maximum: 1 },
   stoneGrainStrength: { minimum: 0, maximum: 0.5 },
   stoneGrainSize: { minimum: 0.05, maximum: 4 },
   stoneGrainFadeDistance: { minimum: 2, maximum: 120 },
