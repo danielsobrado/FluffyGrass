@@ -27,7 +27,6 @@ interface StoneBatchRequest {
 interface ActiveStoneBuild {
   readonly request: StoneBatchRequest;
   readonly job: StoneRenderBatchBuildJob;
-  cpuMs: number;
 }
 
 export interface StoneDiagnostics {
@@ -37,7 +36,9 @@ export interface StoneDiagnostics {
   stones: number;
   triangles: number;
   drawCalls: number;
+  /** CPU time of the latest frame-budgeted build slice. */
   lastBuildMs: number;
+  /** Highest single build-slice CPU time observed. */
   maxBuildMs: number;
 }
 
@@ -263,14 +264,15 @@ export class WorldStoneSystem {
         this.activeBuild = {
           request,
           job: this.builder.begin(request.sources),
-          cpuMs: 0,
         };
       }
 
       const active = this.activeBuild;
       const sliceStartedAt = performance.now();
       const progress = this.builder.advance(active.job, buildDeadline);
-      active.cpuMs += performance.now() - sliceStartedAt;
+      const sliceMs = performance.now() - sliceStartedAt;
+      this.lastBuildMs = sliceMs;
+      this.maxBuildMs = Math.max(this.maxBuildMs, sliceMs);
       if (!progress.complete) return;
 
       const wanted = this.desired.get(active.request.key);
@@ -279,8 +281,6 @@ export class WorldStoneSystem {
         continue;
       }
 
-      this.lastBuildMs = active.cpuMs;
-      this.maxBuildMs = Math.max(this.maxBuildMs, active.cpuMs);
       this.commitBuild(active.request, progress.result);
       this.activeBuild = undefined;
       completed += 1;
@@ -325,7 +325,6 @@ export class WorldStoneSystem {
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldAutoUpdate = false;
     mesh.updateMatrix();
-    mesh.updateMatrixWorld(true);
 
     const batch: StoneBatch = {
       key: request.key,
@@ -336,6 +335,7 @@ export class WorldStoneSystem {
     };
     this.batches.set(batch.key, batch);
     this.scene.add(mesh);
+    mesh.updateMatrixWorld(true);
   }
 
   private removeBatch(batch: StoneBatch): void {
