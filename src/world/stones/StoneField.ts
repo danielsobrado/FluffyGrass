@@ -175,9 +175,20 @@ export class StoneField {
     this.enabled = config.stonesEnabled >= 1;
   }
 
-  /** Pre-generated mesh for an instance; built lazily, cached forever. */
-  getVariant(archetype: StoneArchetypeId, variantIndex: number): StoneMeshData {
-    const key = `${archetype}:${variantIndex}`;
+  /**
+   * Pre-generated mesh for an instance; built lazily, cached forever.
+   *
+   * `detailed` selects the chipped close-range form. Both come from the same
+   * recipe and differ only by a handful of shallow corner facets, so a stone
+   * keeps its identity across the swap — and the swap happens at the detail
+   * radius, by which distance those facets are far below a pixel.
+   */
+  getVariant(
+    archetype: StoneArchetypeId,
+    variantIndex: number,
+    detailed = false,
+  ): StoneMeshData {
+    const key = `${archetype}:${variantIndex}:${detailed ? "near" : "far"}`;
     let mesh = this.variants.get(key);
     if (!mesh) {
       const seed = hashStoneCell(
@@ -185,7 +196,7 @@ export class StoneField {
         hashStoneCell(archetype.length, variantIndex, this.config.seed),
         this.config.seed,
       );
-      mesh = generateStoneMesh(resolveStoneRecipe(archetype, seed));
+      mesh = generateStoneMesh(resolveStoneRecipe(archetype, seed), detailed);
       this.variants.set(key, mesh);
     }
     return mesh;

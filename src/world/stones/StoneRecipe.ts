@@ -60,6 +60,9 @@ export interface StoneArchetypeSpec {
   /** Metre aspect ratios applied by placement scale. */
   readonly heightRatio: Band;
   readonly depthRatio: Band;
+  /** Corner chips applied at close range only. */
+  readonly chipCount: readonly [number, number];
+  readonly chipDepth: Band;
   /** Baseline strength of the painted edge-wear accent. */
   readonly edgeWear: number;
   /** Fraction of final height sunk into the terrain at placement. */
@@ -83,6 +86,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.3, max: 0.6 },
     heightRatio: { min: 0.38, max: 0.6 },
     depthRatio: { min: 0.72, max: 1.35 },
+    chipCount: [0, 2],
+    chipDepth: { min: 0.012, max: 0.035 },
     edgeWear: 0.4,
     embed: { min: 0.16, max: 0.3 },
   },
@@ -106,6 +111,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.15, max: 0.72 },
     heightRatio: { min: 0.55, max: 0.95 },
     depthRatio: { min: 0.72, max: 1.4 },
+    chipCount: [2, 4],
+    chipDepth: { min: 0.015, max: 0.045 },
     edgeWear: 0.52,
     embed: { min: 0.12, max: 0.22 },
   },
@@ -127,6 +134,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     // uniform scale preserves the ratio, so thickness has to come from here.
     heightRatio: { min: 0.36, max: 0.54 },
     depthRatio: { min: 0.85, max: 1.3 },
+    chipCount: [2, 5],
+    chipDepth: { min: 0.018, max: 0.05 },
     edgeWear: 0.55,
     embed: { min: 0.18, max: 0.32 },
   },
@@ -146,6 +155,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.15, max: 0.55 },
     heightRatio: { min: 0.55, max: 0.85 },
     depthRatio: { min: 0.7, max: 1.1 },
+    chipCount: [3, 6],
+    chipDepth: { min: 0.02, max: 0.06 },
     edgeWear: 0.58,
     embed: { min: 0.1, max: 0.2 },
   },
@@ -172,6 +183,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.1, max: 0.5 },
     heightRatio: { min: 0.8, max: 1.2 },
     depthRatio: { min: 0.72, max: 1.05 },
+    chipCount: [2, 5],
+    chipDepth: { min: 0.018, max: 0.055 },
     edgeWear: 0.48,
     embed: { min: 0.08, max: 0.16 },
   },
@@ -191,6 +204,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.2, max: 0.65 },
     heightRatio: { min: 0.5, max: 0.8 },
     depthRatio: { min: 0.9, max: 1.4 },
+    chipCount: [2, 5],
+    chipDepth: { min: 0.018, max: 0.05 },
     edgeWear: 0.45,
     embed: { min: 0.25, max: 0.4 },
   },
@@ -205,6 +220,14 @@ export interface StoneCut {
   readonly depthFraction: number;
 }
 
+/**
+ * A chip: a shallow plane that shaves a small facet off a corner.
+ *
+ * Mechanically identical to a cut, but an order of magnitude shallower and
+ * biased upward, because knocks land on the exposed upper corners rather than
+ * on the buried base. Kept as its own list so it can be omitted wholesale for
+ * distant stones, where the facets are far below a pixel.
+ */
 export interface StoneRecipe {
   readonly archetype: StoneArchetypeId;
   readonly seed: number;
@@ -224,6 +247,8 @@ export interface StoneRecipe {
   readonly leanX: number;
   readonly leanZ: number;
   readonly cuts: readonly StoneCut[];
+  /** Shallow corner breaks, applied only to close-range geometry. */
+  readonly chips: readonly StoneCut[];
   readonly edgeWear: number;
   readonly embed: number;
 }
@@ -346,6 +371,27 @@ export function resolveStoneRecipe(
     }
   }
 
+  // Chips are resolved for every stone whether or not they are used, so the
+  // near and far bodies of one seed differ by exactly these planes and nothing
+  // else — the far stone is the near stone with its chips left off, not a
+  // separately generated rock.
+  const chipStream = root.fork("chips");
+  const chipCount = chipStream.integer(spec.chipCount[0], spec.chipCount[1]);
+  const chips: StoneCut[] = [];
+  for (let index = 0; index < chipCount; index += 1) {
+    const chip = root.fork(`chip:${index}`);
+    // Biased upward: a buried corner does not get knocked.
+    const normalY = chip.range(0.15, 0.9);
+    const azimuth = chip.range(0, TWO_PI);
+    const horizontal = Math.sqrt(Math.max(0, 1 - normalY * normalY));
+    chips.push({
+      normalX: Math.cos(azimuth) * horizontal,
+      normalY,
+      normalZ: Math.sin(azimuth) * horizontal,
+      depthFraction: chip.range(spec.chipDepth.min, spec.chipDepth.max),
+    });
+  }
+
   const wearStream = root.fork("wear");
   const edgeWear = spec.edgeWear * wearStream.range(0.8, 1.2);
   const embed = rangeOf(wearStream, spec.embed);
@@ -368,6 +414,7 @@ export function resolveStoneRecipe(
     leanX,
     leanZ,
     cuts,
+    chips,
     edgeWear,
     embed,
   };

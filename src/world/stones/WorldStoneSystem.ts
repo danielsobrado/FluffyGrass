@@ -332,6 +332,7 @@ export class WorldStoneSystem {
       const variant = this.stoneField.getVariant(
         instance.archetype,
         instance.variantIndex,
+        request.detail,
       );
       vertexCount += variant.metrics.vertexCount;
       indexCount += variant.indices.length;
@@ -353,6 +354,7 @@ export class WorldStoneSystem {
       const variant = this.stoneField.getVariant(
         instance.archetype,
         instance.variantIndex,
+        request.detail,
       );
 
       // Lean the stone into the slope by a fraction of the terrain normal:

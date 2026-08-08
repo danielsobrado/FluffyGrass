@@ -135,8 +135,11 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
-  const polygons = buildStonePolyhedron(recipe);
+export function generateStoneMesh(
+  recipe: StoneRecipe,
+  includeChips = false,
+): StoneMeshData {
+  const polygons = buildStonePolyhedron(recipe, includeChips);
 
   // The clipper welds shared corners, so one geometric corner is the *same*
   // object in every face that touches it. Any in-place edit therefore has to

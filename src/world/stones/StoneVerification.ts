@@ -19,6 +19,7 @@ interface StoneVerificationSummary {
   maxTriangles: number;
   chunksChecked: number;
   instancesChecked: number;
+  chippedTriangles: number;
 }
 
 /**
@@ -55,6 +56,8 @@ function assert(condition: boolean, message: string): asserts condition {
 
 function verifyGeometry(summary: StoneVerificationSummary): void {
   const fingerprints = new Set<number>();
+  let chippedDiffering = 0;
+  let chippedTriangles = 0;
   for (const archetype of STONE_ARCHETYPE_IDS) {
     for (let seed = 0; seed < GEOMETRY_SEEDS_PER_ARCHETYPE; seed += 1) {
       const recipe = resolveStoneRecipe(archetype, seed);
@@ -110,6 +113,43 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
           count === 2,
           `${archetype}:${seed} rendered edge ${edge} borders ${count} triangles; the render mesh leaks.`,
         );
+      }
+
+      // The chipped close-range form is a second surface with its own faces,
+      // so it needs the same guarantees. A chip list that silently did nothing
+      // would satisfy every other check in this file.
+      const chipped = generateStoneMesh(recipe, true);
+      const chippedEdges = new Map<string, number>();
+      for (let index = 0; index < chipped.indices.length; index += 3) {
+        for (let corner = 0; corner < 3; corner += 1) {
+          const a = chipped.indices[index + corner];
+          const b = chipped.indices[index + ((corner + 1) % 3)];
+          const key = renderEdgeKey(chipped.positions, a, b);
+          chippedEdges.set(key, (chippedEdges.get(key) ?? 0) + 1);
+        }
+      }
+      for (const [edge, count] of chippedEdges) {
+        assert(
+          count === 2,
+          `${archetype}:${seed} chipped edge ${edge} borders ${count} triangles.`,
+        );
+      }
+      // Not monotonic, and it should not be: a chip that clips a corner can
+      // also trim the neighbouring faces down to fewer vertices, so the count
+      // can fall slightly. Only a collapse would indicate the chip planes are
+      // eating the body rather than nicking it.
+      assert(
+        chipped.metrics.triangleCount >= mesh.metrics.triangleCount * 0.85,
+        `${archetype}:${seed} chipping collapsed the body (${mesh.metrics.triangleCount} -> ${chipped.metrics.triangleCount} tris).`,
+      );
+      assert(
+        chipped.metrics.vertexCount <= VERTEX_BUDGET &&
+          chipped.metrics.triangleCount <= TRIANGLE_BUDGET,
+        `${archetype}:${seed} chipped form exceeds budgets (${chipped.metrics.vertexCount} verts, ${chipped.metrics.triangleCount} tris).`,
+      );
+      chippedTriangles = Math.max(chippedTriangles, chipped.metrics.triangleCount);
+      if (chipped.metrics.fingerprint !== mesh.metrics.fingerprint) {
+        chippedDiffering += 1;
       }
 
       const meshAgain = generateStoneMesh(recipe);
@@ -212,6 +252,14 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
     `Only ${fingerprints.size} of ${total} stones are unique.`,
   );
   summary.uniqueFingerprints = fingerprints.size;
+  // Most stones should actually gain chips. A few archetypes roll zero, and a
+  // chip can land too shallow to survive its minimum depth, so this is a floor
+  // rather than a requirement on every seed.
+  assert(
+    chippedDiffering >= total * 0.7,
+    `Only ${chippedDiffering} of ${total} stones changed when chipped; the chip planes are not taking effect.`,
+  );
+  summary.chippedTriangles = chippedTriangles;
 }
 
 function verifyPlacement(
@@ -364,12 +412,13 @@ export async function verifyStones(configSource: string): Promise<string> {
     maxTriangles: 0,
     chunksChecked: 0,
     instancesChecked: 0,
+    chippedTriangles: 0,
   };
   verifyGeometry(summary);
   verifyPlacement(configSource, summary);
   return (
     `${summary.meshesChecked} meshes (${summary.uniqueFingerprints} unique, ` +
     `≤${summary.maxVertices} verts, ≤${summary.maxTriangles} tris) · ` +
-    `${summary.instancesChecked} instances across ${summary.chunksChecked} chunks`
+    `${summary.instancesChecked} instances across ${summary.chunksChecked} chunks · chipped <=${summary.chippedTriangles} tris`
   );
 }

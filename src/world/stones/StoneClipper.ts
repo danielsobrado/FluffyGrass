@@ -60,6 +60,11 @@ const FACE_QUAD_EXTENT = 6;
 /** Cuts must clear the contact footprint by this much normalized height. */
 const CUT_GROUND_CLEARANCE = 0.02;
 const CUT_MINIMUM_EFFECTIVE_DEPTH = 0.015;
+/**
+ * Chips are an order of magnitude shallower than cuts, so they need their own
+ * floor — the cut minimum would reject every one of them.
+ */
+const CHIP_MINIMUM_EFFECTIVE_DEPTH = 0.004;
 
 function normalizePlane(
   nx: number,
@@ -508,11 +513,21 @@ function weldFaces(faces: StonePolygon[]): StonePolygon[] {
 export function resolveCutPlanes(
   bodyPlanes: StonePlane[],
   recipe: StoneRecipe,
+  includeChips = false,
 ): StonePlane[] {
   const planes = [...bodyPlanes];
   const accepted: StonePlane[] = [];
-  for (let index = 0; index < recipe.cuts.length; index += 1) {
-    const cut = recipe.cuts[index];
+  // Chips are ordinary cuts, only far shallower, and always resolved after the
+  // broad ones so their depth is measured against a body that already has its
+  // major planes. Omitting them is the entire difference between the near and
+  // far form of a stone.
+  const operations = includeChips
+    ? [...recipe.cuts, ...recipe.chips]
+    : recipe.cuts;
+  const firstChip = recipe.cuts.length;
+  for (let index = 0; index < operations.length; index += 1) {
+    const cut = operations[index];
+    const isChip = index >= firstChip;
     const faces = facesFromPlanes(planes);
     let minimumProjection = Number.POSITIVE_INFINITY;
     let maximumProjection = Number.NEGATIVE_INFINITY;
@@ -540,7 +555,10 @@ export function resolveCutPlanes(
       maximumGroundProjection > Number.NEGATIVE_INFINITY
         ? Math.max(candidate, maximumGroundProjection + CUT_GROUND_CLEARANCE)
         : candidate;
-    if ((maximumProjection - guarded) / span < CUT_MINIMUM_EFFECTIVE_DEPTH) {
+    const minimumDepth = isChip
+      ? CHIP_MINIMUM_EFFECTIVE_DEPTH
+      : CUT_MINIMUM_EFFECTIVE_DEPTH;
+    if ((maximumProjection - guarded) / span < minimumDepth) {
       continue;
     }
     const plane: StonePlane = {
@@ -548,7 +566,7 @@ export function resolveCutPlanes(
       ny: cut.normalY,
       nz: cut.normalZ,
       constant: guarded,
-      id: `cut:${index}`,
+      id: isChip ? `chip:${index - firstChip}` : `cut:${index}`,
       role: "cut",
     };
     planes.push(plane);
@@ -557,9 +575,19 @@ export function resolveCutPlanes(
   return accepted;
 }
 
-/** Full normalized-space body for a recipe. */
-export function buildStonePolyhedron(recipe: StoneRecipe): StonePolygon[] {
+/**
+ * Full normalized-space body for a recipe.
+ *
+ * `includeChips` selects the close-range form. Both forms come from the same
+ * recipe and differ only by the chip planes, so a stone never changes identity
+ * between them — it only loses facets a few centimetres across, which are far
+ * below a pixel at the distance the swap happens.
+ */
+export function buildStonePolyhedron(
+  recipe: StoneRecipe,
+  includeChips = false,
+): StonePolygon[] {
   const bodyPlanes = buildStonePlanes(recipe);
-  const cutPlanes = resolveCutPlanes(bodyPlanes, recipe);
+  const cutPlanes = resolveCutPlanes(bodyPlanes, recipe, includeChips);
   return facesFromPlanes([...bodyPlanes, ...cutPlanes]);
 }

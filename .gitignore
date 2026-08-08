@@ -41,3 +41,6 @@ tools/stone-world/
 
 # Local capture helper for the stone probe pages.
 .shoot.sh
+
+# Local capture output from the stone probes.
+.shots/
