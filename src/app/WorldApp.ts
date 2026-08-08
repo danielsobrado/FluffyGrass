@@ -12,6 +12,9 @@ import type { WorldController } from "../controls/WorldController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
+import { setStoneClearanceField } from "../world/stones/StoneClearance";
+import { StoneField } from "../world/stones/StoneField";
+import { WorldStoneSystem } from "../world/stones/WorldStoneSystem";
 import { TerrainField } from "../world/TerrainField";
 import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
@@ -46,6 +49,8 @@ export class WorldApp {
   private artMenu?: GrassArtMenu;
   private readonly field: TerrainField;
   private readonly terrain: TerrainStreamer;
+  private readonly stoneField: StoneField;
+  private readonly stones: WorldStoneSystem;
   private readonly grass: WorldGrassSystem;
   private readonly controls: WorldController;
   private readonly hud = document.querySelector<HTMLElement>("#world-stats");
@@ -133,6 +138,15 @@ export class WorldApp {
     this.terrain = new TerrainStreamer(
       this.scene,
       this.field,
+      config,
+      profile.compact,
+      profile.shadows && !useFlyControls,
+    );
+    this.stoneField = new StoneField(this.field, config);
+    setStoneClearanceField(this.stoneField);
+    this.stones = new WorldStoneSystem(
+      this.scene,
+      this.stoneField,
       config,
       profile.compact,
       profile.shadows && !useFlyControls,
@@ -240,6 +254,8 @@ export class WorldApp {
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.controls.dispose();
     this.terrain.dispose();
+    this.stones.dispose();
+    setStoneClearanceField(undefined);
     this.grass.dispose();
     grassTrailField.dispose();
     this.stats?.dom.remove();
@@ -385,6 +401,10 @@ export class WorldApp {
 
   private readonly updateTerrain = (): void => {
     this.terrain.update(
+      this.controls.getStreamingPosition(),
+      this.streamingBuildDeadline,
+    );
+    this.stones.update(
       this.controls.getStreamingPosition(),
       this.streamingBuildDeadline,
     );
