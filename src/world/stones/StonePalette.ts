@@ -1,12 +1,10 @@
 /**
  * Stone palettes and the tone→colour ramp.
  *
- * A palette is four paint values — shadow, mid, light, and edge-wear accent.
- * The colours stay close to the terrain so stones read as part of the same
- * world, while the stronger value separation keeps broad facets readable.
- *
- * Which palette a stone gets is a placement decision, not a geometry decision:
- * geometry carries only ramp positions and placement resolves final colours.
+ * Stone paint and biological growth are resolved separately. The base mesh
+ * keeps broad value bands while the shared stone shader applies moss and
+ * lichen masks, so close-range colony breakup can reveal the original stone
+ * instead of modulating an already-green vertex colour.
  */
 
 export interface StoneLinearColor {
@@ -21,10 +19,15 @@ export interface StonePalette {
   readonly mid: StoneLinearColor;
   readonly light: StoneLinearColor;
   readonly edge: StoneLinearColor;
-  /** Colour of growth at the stone's base. */
   readonly moss: StoneLinearColor;
+  readonly lichen: StoneLinearColor;
   /** Global multiplier on baked edge wear; keeps some sets matte. */
   readonly edgeStrength: number;
+}
+
+export interface StoneGrowthColors {
+  readonly moss: StoneLinearColor;
+  readonly lichen: StoneLinearColor;
 }
 
 function srgbChannelToLinear(channel: number): number {
@@ -49,6 +52,7 @@ function palette(
   light: string,
   edge: string,
   moss: string,
+  lichen: string,
   edgeStrength: number,
 ): StonePalette {
   return {
@@ -58,54 +62,55 @@ function palette(
     light: linearFromHex(light),
     edge: linearFromHex(edge),
     moss: linearFromHex(moss),
+    lichen: linearFromHex(lichen),
     edgeStrength,
   };
 }
 
 /**
- * Muted production families. The previous highlights were pale enough to turn
- * top faces chalky under the scene sun and ACES tone mapping; these retain the
- * same hue families while keeping the painted edge as an accent, not an outline.
+ * Muted production families. Moss remains darker and greener than the stone;
+ * lichen is drier, paler and closer to olive-grey so exposed alpine and steppe
+ * rocks do not simply look like meadow stones with less green on them.
  */
 export const STONE_PALETTES = {
-  /** Meadow lowland: sage grey-green. */
   meadowSage: palette(
     "meadow-sage",
     "#41483b",
     "#6d7661",
     "#98a486",
     "#c6cfaa",
-    "#5f793e",
+    "#536f3d",
+    "#9da276",
     0.82,
   ),
-  /** Dry steppe: warm tan and muted umber. */
   steppeTan: palette(
     "steppe-tan",
     "#51462f",
     "#807157",
     "#a99a78",
     "#d2c3a2",
-    "#7c7944",
+    "#6f7041",
+    "#b4aa72",
     0.78,
   ),
-  /** Alpine and high altitude: cool granite grey. */
   graniteGrey: palette(
     "granite-grey",
     "#41433f",
     "#676a63",
     "#8f9289",
     "#b9bcb3",
-    "#63774a",
+    "#586d45",
+    "#a6ad8d",
     0.86,
   ),
-  /** Deep-shade mossy variant used for occasional lowland accents. */
   mossy: palette(
     "mossy",
     "#394337",
     "#5d6a54",
     "#839374",
     "#b2c09d",
-    "#517337",
+    "#466a35",
+    "#929d70",
     0.72,
   ),
 } as const;
@@ -113,28 +118,35 @@ export const STONE_PALETTES = {
 export type StonePaletteKey = keyof typeof STONE_PALETTES;
 
 export interface StoneTintParams {
-  /** Multiplied into every ramp colour; 1 is neutral. */
+  /** Multiplied into every stone ramp colour; 1 is neutral. */
   readonly valueScale: number;
-  /** How much of the baked moss susceptibility grows here, in [0, 1]. */
-  readonly moss?: number;
   /** Blended towards a second palette for borders and altitude bands. */
   readonly secondary?: StonePalette;
   readonly secondaryBlend?: number;
 }
 
 const RAMP_BANDING_STRENGTH = 0.62;
-const MOSS_COLOR_STRENGTH = 0.72;
 
 function mixChannel(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function mixColor(
+  primary: StoneLinearColor,
+  secondary: StoneLinearColor,
+  amount: number,
+): StoneLinearColor {
+  return {
+    r: mixChannel(primary.r, secondary.r, amount),
+    g: mixChannel(primary.g, secondary.g, amount),
+    b: mixChannel(primary.b, secondary.b, amount),
+  };
 }
 
 function sampleRamp(
   paletteColors: StonePalette,
   tone: number,
 ): [number, number, number] {
-  // Pull values towards four broad paint bands while retaining enough
-  // interpolation for the contact gradient and edge transition to stay soft.
   const quantized = Math.round(tone * 3) / 3;
   const banded = tone + (quantized - tone) * RAMP_BANDING_STRENGTH;
   if (banded < 0.5) {
@@ -153,16 +165,25 @@ function sampleRamp(
   ];
 }
 
-/**
- * Resolve final linear vertex colours from baked tones and wears.
- *
- * `target` must hold `tones.length * 3` floats; pass an offset to colorize in
- * place inside a merged chunk attribute.
- */
+export function resolveStoneGrowthColors(
+  paletteColors: StonePalette,
+  tint: StoneTintParams,
+): StoneGrowthColors {
+  const secondary = tint.secondary;
+  const blend = tint.secondaryBlend ?? 0;
+  if (!secondary || blend <= 0) {
+    return { moss: paletteColors.moss, lichen: paletteColors.lichen };
+  }
+  return {
+    moss: mixColor(paletteColors.moss, secondary.moss, blend),
+    lichen: mixColor(paletteColors.lichen, secondary.lichen, blend),
+  };
+}
+
+/** Resolve only the stone material colour. Biological growth is shader-applied. */
 export function colorizeStoneVertices(
   tones: Float32Array,
   wears: Float32Array,
-  mosses: Float32Array,
   paletteColors: StonePalette,
   tint: StoneTintParams,
   target: Float32Array,
@@ -170,16 +191,12 @@ export function colorizeStoneVertices(
 ): void {
   const secondary = tint.secondary;
   const blend = tint.secondaryBlend ?? 0;
-  const mossAmount = tint.moss ?? 0;
   for (let index = 0; index < tones.length; index += 1) {
     let [r, g, b] = sampleRamp(paletteColors, tones[index]);
     let edgeR = paletteColors.edge.r;
     let edgeG = paletteColors.edge.g;
     let edgeB = paletteColors.edge.b;
     let edgeStrength = paletteColors.edgeStrength;
-    let mossR = paletteColors.moss.r;
-    let mossG = paletteColors.moss.g;
-    let mossB = paletteColors.moss.b;
     if (secondary && blend > 0) {
       const [r2, g2, b2] = sampleRamp(secondary, tones[index]);
       r = mixChannel(r, r2, blend);
@@ -189,9 +206,6 @@ export function colorizeStoneVertices(
       edgeG = mixChannel(edgeG, secondary.edge.g, blend);
       edgeB = mixChannel(edgeB, secondary.edge.b, blend);
       edgeStrength = mixChannel(edgeStrength, secondary.edgeStrength, blend);
-      mossR = mixChannel(mossR, secondary.moss.r, blend);
-      mossG = mixChannel(mossG, secondary.moss.g, blend);
-      mossB = mixChannel(mossB, secondary.moss.b, blend);
     }
 
     const wear = wears[index] * edgeStrength;
@@ -199,15 +213,6 @@ export function colorizeStoneVertices(
       r = mixChannel(r, edgeR, wear);
       g = mixChannel(g, edgeG, wear);
       b = mixChannel(b, edgeB, wear);
-    }
-
-    // Moss stays subordinate to the stone value structure. Full-strength green
-    // on a bright facet reads as painted colour rather than organic growth.
-    const moss = mosses[index] * mossAmount * MOSS_COLOR_STRENGTH;
-    if (moss > 0) {
-      r = mixChannel(r, mossR, moss);
-      g = mixChannel(g, mossG, moss);
-      b = mixChannel(b, mossB, moss);
     }
 
     const offset = targetOffset + index * 3;
