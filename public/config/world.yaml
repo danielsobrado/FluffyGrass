@@ -95,36 +95,24 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-# Procedural stones. Placement is a pure world-space field: rocky regions
-# gather clusters, biomes and altitude shift family and palette, walking ways
-# stay clear but get lined verges, and grass clears itself around footprints.
-# stonesEnabled: 0 rolls the whole system back.
+# Procedural stones. Fewer independent seeds plus a stronger cluster chance
+# creates deliberate rock groups and clean negative space instead of uniform
+# scatter. More cached variants keep repeated silhouettes harder to spot.
 stonesEnabled: 1
 stoneCellSize: 16
-stoneDensity: 0.2
-stoneVariantsPerArchetype: 6
-stoneClusterChance: 0.7
-stoneGrassClearanceFeather: 0.55
+stoneDensity: 0.17
+stoneVariantsPerArchetype: 10
+stoneClusterChance: 0.82
+stoneGrassClearanceFeather: 0.4
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
-stoneDetailRadius: 3
+# Chipped geometry is only useful in the near field; broad facets carry farther.
+stoneDetailRadius: 2
 stoneChunksPerFrame: 1
-# Stones lining the walking ways, as if cleared aside when the way was cut.
-# Scaled by rockiness, so a way through clean meadow stays clean.
-stoneVergeChance: 0.75
-# Close-range surface grain, available but off by design.
-#
-# It works — triplanar, world space, faded before it can alias, reusing the
-# terrain's own noise texture, and at 0 the shader is never injected so it
-# costs nothing. It was tried and it does not earn its place: the useful range
-# is narrow and unhelpful. Fine enough to see (feature size under ~0.6 m) and
-# the stones read as dirty concrete, which fights the flat-value art the
-# reference boards are built on; coarse enough to stay tasteful (~1.8 m) and
-# the value is near-constant across a one-metre stone, so nothing is visible.
-#
-# Raise stoneGrainStrength towards 0.2 with stoneGrainSize near 0.6 to judge it
-# for yourself. The close-range flatness it targets is better answered by the
-# chamfered rims, which cost nothing per fragment.
+# Paths keep occasional kicked-aside stones without becoming decorative kerbs.
+stoneVergeChance: 0.62
+# Close-range surface grain remains off. The stylized look is carried by broad
+# geometry, painted value bands, chips and moss rather than texture noise.
 stoneGrainStrength: 0
 stoneGrainSize: 0.6
 stoneGrainFadeDistance: 18
