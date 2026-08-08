@@ -319,6 +319,7 @@ export class WorldStoneSystem {
     this.emptySignatures.delete(request.key);
     const mesh = new THREE.Mesh(result.geometry, this.material);
     mesh.name = `world-stones-${request.key}`;
+    mesh.position.set(result.originX, result.originY, result.originZ);
     const localShadowDetail = this.receiveShadows && result.hasDetailedGeometry;
     mesh.castShadow = localShadowDetail;
     mesh.receiveShadow = localShadowDetail;
