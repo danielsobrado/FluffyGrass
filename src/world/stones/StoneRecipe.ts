@@ -83,7 +83,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.3, max: 0.6 },
     heightRatio: { min: 0.38, max: 0.6 },
     depthRatio: { min: 0.72, max: 1.35 },
-    edgeWear: 0.55,
+    edgeWear: 0.4,
     embed: { min: 0.16, max: 0.3 },
   },
   boulder: {
@@ -106,7 +106,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.15, max: 0.72 },
     heightRatio: { min: 0.55, max: 0.95 },
     depthRatio: { min: 0.72, max: 1.4 },
-    edgeWear: 0.75,
+    edgeWear: 0.52,
     embed: { min: 0.12, max: 0.22 },
   },
   slab: {
@@ -127,7 +127,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     // uniform scale preserves the ratio, so thickness has to come from here.
     heightRatio: { min: 0.36, max: 0.54 },
     depthRatio: { min: 0.85, max: 1.3 },
-    edgeWear: 0.8,
+    edgeWear: 0.55,
     embed: { min: 0.18, max: 0.32 },
   },
   block: {
@@ -146,7 +146,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.15, max: 0.55 },
     heightRatio: { min: 0.55, max: 0.85 },
     depthRatio: { min: 0.7, max: 1.1 },
-    edgeWear: 0.85,
+    edgeWear: 0.58,
     embed: { min: 0.1, max: 0.2 },
   },
   shard: {
@@ -172,7 +172,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.1, max: 0.5 },
     heightRatio: { min: 0.8, max: 1.2 },
     depthRatio: { min: 0.72, max: 1.05 },
-    edgeWear: 0.7,
+    edgeWear: 0.48,
     embed: { min: 0.08, max: 0.16 },
   },
   outcrop: {
@@ -191,7 +191,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.2, max: 0.65 },
     heightRatio: { min: 0.5, max: 0.8 },
     depthRatio: { min: 0.9, max: 1.4 },
-    edgeWear: 0.65,
+    edgeWear: 0.45,
     embed: { min: 0.25, max: 0.4 },
   },
 };

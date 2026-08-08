@@ -67,7 +67,17 @@ const DEGENERATE_NORMAL_LENGTH = 1e-12;
  * face plane. Purely a shading author: it fakes a chamfer on an edge that is
  * still geometrically sharp.
  */
-const CHAMFER_TILT = 0.32;
+const CHAMFER_TILT = 0.26;
+/**
+ * Floor on the per-corner chamfer multiplier. Below 1 the bevel varies from
+ * corner to corner, so some edges stay nearly sharp and others read worn.
+ */
+const CHAMFER_TILT_MIN = 0.35;
+/**
+ * How far interior normals sway off the face plane. Deliberately small: this
+ * is meant to break a flat shade, not to make a facet look curved.
+ */
+const INTERIOR_SWAY = 0.13;
 /** Darkest tone multiplier where a stone meets the ground. */
 const CONTACT_SHADE_FLOOR = 0.62;
 /** Fraction of stone height over which the contact darkening lifts. */
@@ -253,6 +263,12 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
      * Tilting *outward along the plane* rather than toward the neighbouring
      * face is deliberate: it needs no adjacency lookup and it stays correct on
      * a silhouette edge, where there is no neighbour to average with.
+     *
+     * The amount varies per corner. A single global tilt gave every edge of
+     * every stone an identical bevel, which is what made the set read as
+     * machined rather than weathered: real wear rounds some edges hard and
+     * leaves others nearly sharp. The hash is over the corner's own position,
+     * so neighbouring faces sharing a corner agree on how worn it is.
      */
     const rimNormal = (
       x: number,
@@ -266,11 +282,76 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
       if (!(length > 1e-6)) {
         return [face.normalX, face.normalY, face.normalZ];
       }
-      const tiltX = face.normalX * (1 - CHAMFER_TILT) + (outX / length) * CHAMFER_TILT;
-      const tiltY = face.normalY * (1 - CHAMFER_TILT) + (outY / length) * CHAMFER_TILT;
-      const tiltZ = face.normalZ * (1 - CHAMFER_TILT) + (outZ / length) * CHAMFER_TILT;
+      const wearHash =
+        hashStoneCell(
+          Math.round(x * 130),
+          Math.round(z * 130 + y * 71),
+          recipe.seed ^ 0x2f6b1d,
+        ) / 4294967296;
+      const tilt =
+        CHAMFER_TILT * (CHAMFER_TILT_MIN + (1 - CHAMFER_TILT_MIN) * wearHash);
+      const tiltX = face.normalX * (1 - tilt) + (outX / length) * tilt;
+      const tiltY = face.normalY * (1 - tilt) + (outY / length) * tilt;
+      const tiltZ = face.normalZ * (1 - tilt) + (outZ / length) * tilt;
       const tiltLength = Math.hypot(tiltX, tiltY, tiltZ);
       return [tiltX / tiltLength, tiltY / tiltLength, tiltZ / tiltLength];
+    };
+
+    /**
+     * Interior normals, nudged off the face plane by a hashed few degrees.
+     *
+     * A facet whose interior is one exact plane returns one exact shade, which
+     * is what leaves the large faces looking like flat-shaded CG rather than
+     * stone. Tilting the inset ring and centroid very slightly — well under
+     * the crease angle, so the facet still reads as one plane — lets the light
+     * fall unevenly across it. This is the cheap half of what a texture was
+     * being considered for, and unlike a texture it scales with the stone
+     * instead of tiling across it.
+     */
+    const interiorNormal = (
+      x: number,
+      y: number,
+      z: number,
+    ): readonly [number, number, number] => {
+      const swayA =
+        hashStoneCell(
+          Math.round(x * 47 + y * 23),
+          Math.round(z * 47 - y * 19),
+          recipe.seed ^ 0x7ab3c1,
+        ) /
+          4294967296 -
+        0.5;
+      const swayB =
+        hashStoneCell(
+          Math.round(z * 41 - x * 17),
+          Math.round(y * 43 + x * 29),
+          recipe.seed ^ 0x51d7e9,
+        ) /
+          4294967296 -
+        0.5;
+      // Sway across the face, not along its normal: perturbing in the plane's
+      // own tangent basis keeps the normal from ever leaning inward.
+      const tangentX = -face.normalZ;
+      const tangentZ = face.normalX;
+      const tangentLength = Math.hypot(tangentX, tangentZ);
+      if (!(tangentLength > 1e-6)) {
+        return [face.normalX, face.normalY, face.normalZ];
+      }
+      const unitTangentX = tangentX / tangentLength;
+      const unitTangentZ = tangentZ / tangentLength;
+      const bitangentX = face.normalY * unitTangentZ;
+      const bitangentY = face.normalZ * unitTangentX - face.normalX * unitTangentZ;
+      const bitangentZ = -face.normalY * unitTangentX;
+      const swayX =
+        unitTangentX * swayA * INTERIOR_SWAY + bitangentX * swayB * INTERIOR_SWAY;
+      const swayY = bitangentY * swayB * INTERIOR_SWAY;
+      const swayZ =
+        unitTangentZ * swayA * INTERIOR_SWAY + bitangentZ * swayB * INTERIOR_SWAY;
+      const nx = face.normalX + swayX;
+      const ny = face.normalY + swayY;
+      const nz = face.normalZ + swayZ;
+      const swayLength = Math.hypot(nx, ny, nz);
+      return [nx / swayLength, ny / swayLength, nz / swayLength];
     };
 
     const cornerTone = (y: number): number => {
@@ -327,21 +408,49 @@ export function generateStoneMesh(recipe: StoneRecipe): StoneMeshData {
       const towardY = centroidY - point.y;
       const towardZ = centroidZ - point.z;
       const distance = Math.hypot(towardX, towardY, towardZ);
-      const step = distance > 1e-6 ? Math.min(0.45, bandWidth / distance) : 0;
+      // The band width itself varies per corner, so the bevel wanders around a
+      // facet instead of tracing it at a constant offset.
+      const widthHash =
+        hashStoneCell(
+          Math.round(point.x * 90 + point.z * 37),
+          Math.round(point.z * 90 - point.y * 53),
+          recipe.seed ^ 0x1c4fa7,
+        ) / 4294967296;
+      const cornerBand = bandWidth * (0.6 + 0.8 * widthHash);
+      const step = distance > 1e-6 ? Math.min(0.45, cornerBand / distance) : 0;
+      const insetX = point.x + towardX * step;
+      const insetY = point.y + towardY * step;
+      const insetZ = point.z + towardZ * step;
+      const [insetNormalX, insetNormalY, insetNormalZ] = interiorNormal(
+        insetX,
+        insetY,
+        insetZ,
+      );
       emitVertex(
-        point.x + towardX * step,
-        point.y + towardY * step,
-        point.z + towardZ * step,
-        cornerTone(point.y + towardY * step),
+        insetX,
+        insetY,
+        insetZ,
+        cornerTone(insetY),
         0,
+        insetNormalX,
+        insetNormalY,
+        insetNormalZ,
       );
     }
+    const [centreNormalX, centreNormalY, centreNormalZ] = interiorNormal(
+      centroidX,
+      centroidY,
+      centroidZ,
+    );
     const centroidIndex = emitVertex(
       centroidX,
       centroidY,
       centroidZ,
       cornerTone(centroidY),
       0,
+      centreNormalX,
+      centreNormalY,
+      centreNormalZ,
     );
 
     for (let corner = 0; corner < corners; corner += 1) {
@@ -529,15 +638,14 @@ function resolveCornerWear(
 
   // Hand-painted irregularity: the highlight swells and fades along an edge.
   const point = face.points[corner];
-  const alongJitter =
-    0.55 +
-    0.45 *
-      (hashStoneCell(
-        Math.round(point.x * 37 + point.y * 91),
-        Math.round(point.z * 53 - point.y * 17),
-        recipe.seed,
-      ) /
-        4294967296);
+  const alongJitter = Math.pow(
+    hashStoneCell(
+      Math.round(point.x * 37 + point.y * 91),
+      Math.round(point.z * 53 - point.y * 17),
+      recipe.seed,
+    ) / 4294967296,
+    1.6,
+  );
   // Downward-facing contact edges stay matte; light wear lives on the crown.
   const crownBias = 0.35 + 0.65 * clamp01(face.normalY * 0.5 + 0.62);
   return clamp01(sharp * alongJitter * crownBias * recipe.edgeWear);
