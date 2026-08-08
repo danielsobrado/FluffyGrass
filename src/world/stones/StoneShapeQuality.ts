@@ -1,6 +1,6 @@
 import { buildStonePolyhedron, type StonePolygon } from "./StoneClipper";
 import { resolveStoneProfileHeights } from "./StoneProfile";
-import { hashStoneCell } from "./StoneRandom";
+import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import {
   resolveStoneRecipe,
   type StoneArchetypeId,
@@ -9,6 +9,7 @@ import {
 
 const ATTEMPTS = 4;
 const QUALITY_CACHE_LIMIT = 256;
+const QUALITY_SEED_SALT = 0x41727479;
 const qualityRecipeCache = new Map<string, StoneRecipe>();
 
 function polygonArea(face: StonePolygon): number {
@@ -167,6 +168,10 @@ function cacheRecipe(key: string, recipe: StoneRecipe): StoneRecipe {
   return recipe;
 }
 
+function resolveArchetypeSeed(archetype: StoneArchetypeId, seed: number): number {
+  return hashStoneCell(seed, hashStoneLabel(archetype), QUALITY_SEED_SALT);
+}
+
 /** Deterministic best-of-four selection with a bounded runtime cache. */
 export function resolveQualityStoneRecipe(
   archetype: StoneArchetypeId,
@@ -178,12 +183,13 @@ export function resolveQualityStoneRecipe(
     return cached;
   }
 
-  let best = resolveStoneRecipe(archetype, seed);
+  const archetypeSeed = resolveArchetypeSeed(archetype, seed);
+  let best = resolveStoneRecipe(archetype, archetypeSeed);
   let bestScore = scoreStoneShape(best);
   for (let attempt = 1; attempt < ATTEMPTS; attempt += 1) {
     const candidate = resolveStoneRecipe(
       archetype,
-      hashStoneCell(seed, attempt, 0x5175616c),
+      hashStoneCell(archetypeSeed, attempt, 0x5175616c),
     );
     const candidateScore = scoreStoneShape(candidate);
     if (candidateScore > bestScore) {
