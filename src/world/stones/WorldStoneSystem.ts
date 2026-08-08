@@ -7,12 +7,9 @@ import { STONE_PALETTES, colorizeStoneVertices } from "./StonePalette";
  * Streams stones in around the camera, one merged mesh per terrain chunk.
  *
  * Merging instead of instancing is deliberate: a chunk holds a dozen or two
- * *different* low-poly variants (a few hundred triangles each), so per-variant
- * InstancedMesh would multiply draw calls for no batching win, while one
- * baked mesh per chunk costs a single draw, culls with the chunk's bounds,
- * and lets every instance carry its own palette in vertex colours for free.
- * Rebuilds only happen when a chunk streams in or crosses the detail band, so
- * the merge cost is a streaming cost, not a frame cost.
+ * different low-poly variants, so per-variant InstancedMesh would multiply draw
+ * calls while one baked mesh per chunk costs a single draw and lets every
+ * instance carry its own palette in vertex colours for free.
  */
 
 interface StoneChunk {
@@ -43,24 +40,8 @@ export interface StoneDiagnostics {
 const UP = new THREE.Vector3(0, 1, 0);
 
 /**
- * Close-range surface grain.
- *
- * The stones are deliberately flat-value art, so this exists only to take the
- * plastic sheen off a facet that fills the screen. Three constraints keep it
- * from fighting the style or the architecture:
- *
- * - It reuses the terrain's own `perlinnoise.webp` in *world* space, so it
- *   adds one already-paid texture bind and no per-stone data. Unique textures
- *   would mean per-stone materials, which is one draw call per stone — the
- *   thing baked vertex colour exists to avoid.
- * - It is triplanar. Stones are convex and flat-shaded with faces pointing
- *   every direction, so a single projection would streak badly on the sides.
- * - It fades out entirely a few metres from the camera. The grain is only ever
- *   answering a close-range problem, and past that distance it would be
- *   sub-pixel noise that aliases as the camera moves.
- *
- * Amplitude is a multiplier on albedo, not a colour: it rides the palette
- * rather than tinting towards one.
+ * Optional close-range surface grain. At zero strength the shader is never
+ * injected, so the default stylized path pays no fragment cost for it.
  */
 const STONE_GRAIN_VERTEX = `
 varying vec3 vStoneWorldPosition;
@@ -89,8 +70,6 @@ float stoneGrainFade = 1.0 - smoothstep(
   stoneGrainDistance
 );
 if (stoneGrainFade > 0.001) {
-  // Triplanar weights from the face normal, sharpened so a face mostly uses
-  // the one projection that suits it rather than a mush of all three.
   vec3 stoneBlend = pow(abs(vStoneWorldNormal), vec3(4.0));
   stoneBlend /= max(stoneBlend.x + stoneBlend.y + stoneBlend.z, 0.0001);
   vec2 stoneUvX = vStoneWorldPosition.zy * uStoneGrainScale;
@@ -100,8 +79,6 @@ if (stoneGrainFade > 0.001) {
     texture2D(uStoneGrain, stoneUvX).r * stoneBlend.x +
     texture2D(uStoneGrain, stoneUvY).r * stoneBlend.y +
     texture2D(uStoneGrain, stoneUvZ).r * stoneBlend.z;
-  // The detail texture clusters around the middle, so stretch away from it
-  // before applying. Multiplying albedo keeps the palette's hue intact.
   diffuseColor.rgb *= 1.0 +
     (stoneGrain - 0.5) * 2.0 * uStoneGrainStrength * stoneGrainFade;
 }
@@ -139,8 +116,6 @@ export class WorldStoneSystem {
     this.material.name = "world-stone-material";
     this.material.dithering = true;
 
-    // At zero strength the shader is never touched at all, so dialling the
-    // grain off costs nothing rather than costing a branch on every fragment.
     if (this.enabled && config.stoneGrainStrength > 0) {
       this.grainTexture = this.createGrainTexture();
       this.applyGrainShader(this.grainTexture);
@@ -169,8 +144,6 @@ export class WorldStoneSystem {
       shader.uniforms.uStoneGrainScale = {
         value: 1 / this.config.stoneGrainSize,
       };
-      // Fading across the last third keeps the boundary from reading as a ring
-      // on the ground around the camera.
       shader.uniforms.uStoneGrainFade = {
         value: new THREE.Vector2(fadeEnd * 0.6, fadeEnd),
       };
@@ -357,8 +330,6 @@ export class WorldStoneSystem {
         request.detail,
       );
 
-      // Lean the stone into the slope by a fraction of the terrain normal:
-      // pebbles ride the ground, monoliths stay deliberately upright.
       this.normalScratch
         .set(instance.normalX, instance.normalY, instance.normalZ)
         .multiplyScalar(instance.tiltStrength)
@@ -396,8 +367,6 @@ export class WorldStoneSystem {
         const nx = sourceNormals[source];
         const ny = sourceNormals[source + 1];
         const nz = sourceNormals[source + 2];
-        // Uniform scale: rotating the normal by the same matrix basis and
-        // renormalizing is exact.
         const rx = elements[0] * nx + elements[4] * ny + elements[8] * nz;
         const ry = elements[1] * nx + elements[5] * ny + elements[9] * nz;
         const rz = elements[2] * nx + elements[6] * ny + elements[10] * nz;
@@ -445,7 +414,9 @@ export class WorldStoneSystem {
 
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.name = `world-stones-${request.key}`;
-    mesh.castShadow = false;
+    // Only detailed near chunks cast. The sun shadow camera covers the local
+    // play area, so distant stone chunks gain nothing from another shadow draw.
+    mesh.castShadow = this.receiveShadows && request.detail;
     mesh.receiveShadow = this.receiveShadows;
     mesh.matrixAutoUpdate = false;
 
