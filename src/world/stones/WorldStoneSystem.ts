@@ -38,6 +38,7 @@ export interface StoneDiagnostics {
 const UP = new THREE.Vector3(0, 1, 0);
 const HASH_UNIT = 1 / 4294967296;
 const GROWTH_SEED_SALT = 0x43b0d7;
+const GROWTH_EPSILON = 1e-4;
 
 export class WorldStoneSystem {
   private readonly chunks = new Map<string, StoneChunk>();
@@ -260,7 +261,7 @@ export class WorldStoneSystem {
     const mosses = new Float32Array(vertexCount);
     const lichens = new Float32Array(vertexCount);
     const growthSeeds = new Float32Array(vertexCount);
-    const growthCenters = new Float32Array(vertexCount * 3);
+    const growthPositions = new Float32Array(vertexCount * 3);
     const mossColors = new Float32Array(vertexCount * 3);
     const lichenColors = new Float32Array(vertexCount * 3);
     const indices =
@@ -294,6 +295,10 @@ export class WorldStoneSystem {
           Math.round(instance.z * 8),
           instance.variantIndex ^ GROWTH_SEED_SALT,
         ) * HASH_UNIT;
+      const inverseGrowthRadius =
+        0.5 / Math.max(variant.metrics.footprintRadius, GROWTH_EPSILON);
+      const inverseGrowthHeight =
+        1 / Math.max(variant.metrics.height, GROWTH_EPSILON);
 
       this.normalScratch
         .set(instance.normalX, instance.normalY, instance.normalZ)
@@ -345,7 +350,7 @@ export class WorldStoneSystem {
         normals[target + 1] = normalY;
         normals[target + 2] = normalZ;
 
-        const heightFraction = py / variant.metrics.height;
+        const heightFraction = py * inverseGrowthHeight;
         const exposure = Math.max(
           0,
           normalX * this.mossExposureDirection.x +
@@ -365,9 +370,9 @@ export class WorldStoneSystem {
         mosses[vertex] = growth.moss;
         lichens[vertex] = growth.lichen;
         growthSeeds[vertex] = growthSeed;
-        growthCenters[target] = elements[12];
-        growthCenters[target + 1] = elements[13];
-        growthCenters[target + 2] = elements[14];
+        growthPositions[target] = px * inverseGrowthRadius;
+        growthPositions[target + 1] = heightFraction;
+        growthPositions[target + 2] = pz * inverseGrowthRadius;
 
         mossColors[target] = growthColors.moss.r;
         mossColors[target + 1] = growthColors.moss.g;
@@ -406,8 +411,8 @@ export class WorldStoneSystem {
       new THREE.BufferAttribute(growthSeeds, 1),
     );
     geometry.setAttribute(
-      "stoneGrowthCenter",
-      new THREE.BufferAttribute(growthCenters, 3),
+      "stoneGrowthPosition",
+      new THREE.BufferAttribute(growthPositions, 3),
     );
     geometry.setAttribute(
       "stoneMossColor",
