@@ -1,4 +1,5 @@
 import type { StoneRecipe } from "./StoneRecipe";
+import { hashStoneCell } from "./StoneRandom";
 
 /**
  * Convex polyhedron construction from half-spaces.
@@ -71,6 +72,31 @@ const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.055;
 /** Normalized chamfer depth: deliberately tiny, but real geometry. */
 const EDGE_CHAMFER_DEPTH = 0.01;
 const EDGE_CHAMFER_MIN_LENGTH = 0.14;
+const TOP_BAND_HEIGHT_VARIATION = 0.38;
+const CONTACT_BAND_HEIGHT_VARIATION = 0.45;
+
+/**
+ * Smooth deterministic variation around a cyclic side ring. Independent
+ * heights would make saw teeth; neighboring samples keep the edge geological
+ * while preventing one level manufactured band from circling the stone.
+ */
+function sideBandVariation(
+  seed: number,
+  side: number,
+  sideCount: number,
+  salt: number,
+): number {
+  const sample = (index: number): number =>
+    (hashStoneCell(seed, (index + sideCount) % sideCount, salt) /
+      4294967296 -
+      0.5) *
+    2;
+  return (
+    sample(side - 1) * 0.2 +
+    sample(side) * 0.6 +
+    sample(side + 1) * 0.2
+  );
+}
 
 function normalizePlane(
   nx: number,
@@ -115,7 +141,12 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
     planes.push(
       normalizePlane(cos, recipe.taper, sin, radius, `side:${side}`, "side"),
     );
-    const contactSlope = recipe.contactInset / recipe.contactBevelHeight;
+    const contactHeight =
+      recipe.contactBevelHeight *
+      (1 +
+        sideBandVariation(recipe.seed, side, sideCount, 0x436f6e74) *
+          CONTACT_BAND_HEIGHT_VARIATION);
+    const contactSlope = recipe.contactInset / contactHeight;
     planes.push(
       normalizePlane(
         cos,
@@ -126,13 +157,18 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
         "contact-bevel",
       ),
     );
-    const bevelStart = 1 - recipe.topBevelHeight;
+    const topBevelHeight =
+      recipe.topBevelHeight *
+      (1 +
+        sideBandVariation(recipe.seed, side, sideCount, 0x546f7042) *
+          TOP_BAND_HEIGHT_VARIATION);
+    const bevelStart = 1 - topBevelHeight;
     const radiusAtStart = radius - recipe.taper * bevelStart;
     const radiusAtTop = Math.max(
       0.08,
       (radius - recipe.taper) * recipe.topScale,
     );
-    const bevelSlope = (radiusAtStart - radiusAtTop) / recipe.topBevelHeight;
+    const bevelSlope = (radiusAtStart - radiusAtTop) / topBevelHeight;
     planes.push(
       normalizePlane(
         cos,

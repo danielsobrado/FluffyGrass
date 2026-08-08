@@ -75,7 +75,7 @@ export interface StoneArchetypeSpec {
 const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   pebble: {
     id: "pebble",
-    sideCount: [5, 6],
+    sideCount: [6, 8],
     radiusJitter: { min: 0.1, max: 0.2 },
     silhouetteAsymmetry: { min: 0.03, max: 0.08 },
     taper: { min: 0.08, max: 0.16 },
@@ -97,7 +97,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   boulder: {
     id: "boulder",
-    sideCount: [5, 7],
+    sideCount: [7, 9],
     radiusJitter: { min: 0.14, max: 0.28 },
     silhouetteAsymmetry: { min: 0.08, max: 0.17 },
     taper: { min: 0.12, max: 0.22 },
@@ -119,7 +119,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   slab: {
     id: "slab",
-    sideCount: [5, 7],
+    sideCount: [6, 8],
     radiusJitter: { min: 0.12, max: 0.24 },
     silhouetteAsymmetry: { min: 0.06, max: 0.14 },
     taper: { min: 0.06, max: 0.12 },
@@ -185,7 +185,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   outcrop: {
     id: "outcrop",
-    sideCount: [5, 7],
+    sideCount: [7, 9],
     radiusJitter: { min: 0.16, max: 0.3 },
     silhouetteAsymmetry: { min: 0.12, max: 0.24 },
     taper: { min: 0.1, max: 0.18 },
