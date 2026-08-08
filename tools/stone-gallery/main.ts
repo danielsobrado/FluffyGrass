@@ -12,29 +12,60 @@ import {
   STONE_PALETTES,
   colorizeStoneVertices,
   type StonePalette,
+  type StonePaletteKey,
 } from "../../src/world/stones/StonePalette";
 
-/**
- * Look-development probe for the procedural stones. Replicates the world
- * scene's lighting and tone mapping (WorldApp.addLights + ACES) so palette
- * decisions made here hold in production. Not part of the app bundle.
- *
- * URL parameters:
- *   ?palette=meadowSage|steppeTan|graniteGrey|mossy  (default: mixed columns)
- *   ?seed=<number>  offset applied to every stone seed
- *   ?scale=<number> uniform stone scale (default 1)
- *   ?moss=<0..1>    moss amount (default 0.7)
- *   ?chips=0        disable close-range corner chips
- */
+type GrowthMode = "none" | "moss" | "lichen";
 
 const params = new URLSearchParams(window.location.search);
-const seedOffset = Number(params.get("seed") ?? "0") | 0;
+
+function readNumberParam(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const raw = params.get(name);
+  if (raw === null) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(
+      `Invalid ${name}=${raw}; expected a number in [${minimum}, ${maximum}].`,
+    );
+  }
+  return value;
+}
+
+function isArchetype(value: string): value is StoneArchetypeId {
+  return (STONE_ARCHETYPE_IDS as readonly string[]).includes(value);
+}
+
+function isPalette(value: string): value is StonePaletteKey {
+  return Object.prototype.hasOwnProperty.call(STONE_PALETTES, value);
+}
+
+function readGrowthMode(value: string | null): GrowthMode {
+  if (value === null) return "none";
+  if (value === "none" || value === "moss" || value === "lichen") {
+    return value;
+  }
+  throw new Error(`Invalid growth=${value}; expected none, moss, or lichen.`);
+}
+
+const seedOffset = Math.trunc(
+  readNumberParam("seed", 0, -2147483648, 2147483647),
+);
 const paletteParam = params.get("palette");
-const scaleParam = Number(params.get("scale") ?? "1");
+if (paletteParam !== null && !isPalette(paletteParam)) {
+  throw new Error(`Unknown stone palette: ${paletteParam}.`);
+}
+const scaleParam = readNumberParam("scale", 1, 0.05, 20);
 const focusParam = params.get("focus");
-const mossParam = Number(params.get("moss") ?? "0.7");
-const growthParam = params.get("growth") ?? "none";
-// Chips are the close-range form; the gallery shows them by default.
+if (focusParam !== null && !isArchetype(focusParam)) {
+  throw new Error(`Unknown stone archetype: ${focusParam}.`);
+}
+const mossParam = readNumberParam("moss", 0.7, 0, 1);
+const growthParam = readGrowthMode(params.get("growth"));
 const chipsParam = params.get("chips") !== "0";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
@@ -68,13 +99,11 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0.4, 0);
 controls.update();
 
-// WorldApp lighting, verbatim: hemisphere + warm sun, no shadows on stones.
 scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
 const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
 sun.position.set(350, 500, 220).normalize().multiplyScalar(60);
 scene.add(sun);
 
-// Terrain-coloured ground so palettes are judged against the real backdrop.
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
   new THREE.MeshLambertMaterial({
@@ -87,16 +116,16 @@ scene.add(ground);
 const configRequest = new XMLHttpRequest();
 configRequest.open("GET", "/config/world.yaml", false);
 configRequest.send();
+if (configRequest.status !== 200 && configRequest.status !== 0) {
+  throw new Error(`Unable to load world config: HTTP ${configRequest.status}.`);
+}
 const config = new WorldConfigLoader().parse(configRequest.responseText);
 const material = new THREE.MeshLambertMaterial({ vertexColors: true });
 material.dithering = true;
 applyStoneSurfaceShader(material, config);
 
 const paletteColumns: StonePalette[] = paletteParam
-  ? [
-      STONE_PALETTES[paletteParam as keyof typeof STONE_PALETTES] ??
-        STONE_PALETTES.meadowSage,
-    ]
+  ? [STONE_PALETTES[paletteParam]]
   : [
       STONE_PALETTES.meadowSage,
       STONE_PALETTES.meadowSage,
@@ -114,7 +143,7 @@ let totalTriangles = 0;
 let totalVertices = 0;
 
 const shownArchetypes: readonly StoneArchetypeId[] = focusParam
-  ? [focusParam as StoneArchetypeId]
+  ? [focusParam]
   : STONE_ARCHETYPE_IDS;
 
 shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
@@ -128,9 +157,15 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     const palette =
       paletteColumns[Math.min(column, paletteColumns.length - 1)];
     const colors = new Float32Array(mesh.tones.length * 3);
-    colorizeStoneVertices(mesh.tones, mesh.wears, palette, {
-      valueScale: 0.94 + ((seed * 2654435761) >>> 28) / 160,
-    }, colors);
+    colorizeStoneVertices(
+      mesh.tones,
+      mesh.wears,
+      palette,
+      {
+        valueScale: 0.94 + ((seed * 2654435761) >>> 28) / 160,
+      },
+      colors,
+    );
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
@@ -166,9 +201,18 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1));
     geometry.setAttribute("stoneLichen", new THREE.BufferAttribute(lichens, 1));
     geometry.setAttribute("stoneGrowthSeed", new THREE.BufferAttribute(seeds, 1));
-    geometry.setAttribute("stoneGrowthCenter", new THREE.BufferAttribute(centers, 3));
-    geometry.setAttribute("stoneMossColor", new THREE.BufferAttribute(mossColors, 3));
-    geometry.setAttribute("stoneLichenColor", new THREE.BufferAttribute(lichenColors, 3));
+    geometry.setAttribute(
+      "stoneGrowthCenter",
+      new THREE.BufferAttribute(centers, 3),
+    );
+    geometry.setAttribute(
+      "stoneMossColor",
+      new THREE.BufferAttribute(mossColors, 3),
+    );
+    geometry.setAttribute(
+      "stoneLichenColor",
+      new THREE.BufferAttribute(lichenColors, 3),
+    );
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
 
     const object = new THREE.Mesh(geometry, material);
