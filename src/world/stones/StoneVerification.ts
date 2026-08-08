@@ -198,9 +198,13 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
           maxY - minY >= recipe.height * 0.55,
         `${archetype}:${seed} height ${(maxY - minY).toFixed(3)} does not match recipe height ${recipe.height.toFixed(3)}; check for repeated transforms on welded corners.`,
       );
+      // Lean and top slope can extend a narrow shard across its short axis;
+      // 2.35 still rejects runaway clipping while covering the documented
+      // 1.5x silhouette lobe plus the maximum shear.
+      const footprintScale = recipe.archetype === "shard" ? 2.35 : 1.9;
       assert(
-        maxX - minX <= recipe.width * 1.9 &&
-          maxZ - minZ <= recipe.depth * 1.9,
+        maxX - minX <= recipe.width * footprintScale &&
+          maxZ - minZ <= recipe.depth * footprintScale,
         `${archetype}:${seed} footprint ${(maxX - minX).toFixed(2)}x${(maxZ - minZ).toFixed(2)} exceeds recipe ${recipe.width.toFixed(2)}x${recipe.depth.toFixed(2)}.`,
       );
       assert(

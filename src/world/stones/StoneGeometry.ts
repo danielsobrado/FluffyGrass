@@ -16,11 +16,9 @@ import { buildStonePolyhedron } from "./StoneClipper";
  * placed instance when chunks are merged, so one geometry serves every biome
  * tint without new draw calls, and recolouring never regenerates topology.
  *
- * Larger faces are built as rim → inset ring → centroid. Every rim vertex of
- * a convex polyhedron lies on silhouette edges, so painting wear at the rim
- * needs interior vertices to interpolate against; the inset ring pins the
- * highlight into a narrow band along the facet border — the hand-painted edge
- * line of the reference boards — instead of a glow smeared to the centre.
+ * Every logical polygon remains one exactly flat-shaded face. Important edges
+ * are chamfered by the clipper as actual narrow polygons, so broad faces no
+ * longer need inset rings, centroid fans, or perturbed normals to fake wear.
  */
 
 export interface StoneMeshData {
@@ -68,22 +66,6 @@ const QUANTIZE = 5e-4;
  * heals the holes it creates.
  */
 const DEGENERATE_NORMAL_LENGTH = 1e-12;
-/**
- * How far a rim normal leans off its face, toward the outward direction in the
- * face plane. Purely a shading author: it fakes a chamfer on an edge that is
- * still geometrically sharp.
- */
-const CHAMFER_TILT = 0.26;
-/**
- * Floor on the per-corner chamfer multiplier. Below 1 the bevel varies from
- * corner to corner, so some edges stay nearly sharp and others read worn.
- */
-const CHAMFER_TILT_MIN = 0.35;
-/**
- * How far interior normals sway off the face plane. Deliberately small: this
- * is meant to break a flat shade, not to make a facet look curved.
- */
-const INTERIOR_SWAY = 0.13;
 /** Darkest tone multiplier where a stone meets the ground. */
 const CONTACT_SHADE_FLOOR = 0.62;
 /** Fraction of stone height over which the contact darkening lifts. */
@@ -106,6 +88,7 @@ const ROLE_TONE: Record<StonePlaneRole, number> = {
   side: 0.46,
   cut: 0.6,
   "contact-bevel": 0.26,
+  "edge-bevel": 0.7,
   bottom: 0.06,
 };
 
@@ -135,11 +118,117 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+/**
+ * Replace one broad exposed polygon with a shallow recessed patch. This is a
+ * genuine concavity (an annular set of wall quads plus a floor), not another
+ * convex clipping plane. It is deliberately sparse so the notch reads as a
+ * broken-away pocket rather than a procedural stamp across the whole set.
+ */
+function addStoneIndentation(
+  polygons: StonePolygon[],
+  recipe: StoneRecipe,
+): StonePolygon[] {
+  if (recipe.archetype === "pebble" || recipe.archetype === "shard") {
+    return polygons;
+  }
+  const roll =
+    hashStoneCell(recipe.seed, hashStoneLabel(recipe.archetype), 0x4e6f7463) /
+    4294967296;
+  if (roll >= 0.22) return polygons;
+
+  let selectedIndex = -1;
+  let selectedArea = 0;
+  for (let index = 0; index < polygons.length; index += 1) {
+    const polygon = polygons[index];
+    if (
+      (polygon.role !== "side" && polygon.role !== "top") ||
+      polygon.points.length < 4
+    ) {
+      continue;
+    }
+    let nx = 0;
+    let ny = 0;
+    let nz = 0;
+    for (let corner = 0; corner < polygon.points.length; corner += 1) {
+      const a = polygon.points[corner];
+      const b = polygon.points[(corner + 1) % polygon.points.length];
+      nx += (a.y - b.y) * (a.z + b.z);
+      ny += (a.z - b.z) * (a.x + b.x);
+      nz += (a.x - b.x) * (a.y + b.y);
+    }
+    const area = Math.hypot(nx, ny, nz) * 0.5;
+    if (area > selectedArea) {
+      selectedArea = area;
+      selectedIndex = index;
+    }
+  }
+  if (selectedIndex < 0 || selectedArea < 0.035) return polygons;
+
+  const face = polygons[selectedIndex];
+  let cx = 0;
+  let cy = 0;
+  let cz = 0;
+  for (const point of face.points) {
+    cx += point.x;
+    cy += point.y;
+    cz += point.z;
+  }
+  cx /= face.points.length;
+  cy /= face.points.length;
+  cz /= face.points.length;
+  const a = face.points[0];
+  const b = face.points[1];
+  const c = face.points[2];
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const acx = c.x - a.x;
+  const acy = c.y - a.y;
+  const acz = c.z - a.z;
+  let nx = aby * acz - abz * acy;
+  let ny = abz * acx - abx * acz;
+  let nz = abx * acy - aby * acx;
+  const normalLength = Math.hypot(nx, ny, nz);
+  if (!(normalLength > 1e-6)) return polygons;
+  nx /= normalLength;
+  ny /= normalLength;
+  nz /= normalLength;
+  const insetScale = 0.48;
+  const depth = 0.035 + roll * 0.055;
+  const inner = face.points.map((point) => ({
+    x: cx + (point.x - cx) * insetScale - nx * depth,
+    y: cy + (point.y - cy) * insetScale - ny * depth,
+    z: cz + (point.z - cz) * insetScale - nz * depth,
+  }));
+  const replacement: StonePolygon[] = [];
+  for (let index = 0; index < face.points.length; index += 1) {
+    const next = (index + 1) % face.points.length;
+    replacement.push({
+      planeId: `notch-wall:${face.planeId}:${index}`,
+      role: "cut",
+      points: [face.points[index], face.points[next], inner[next], inner[index]],
+    });
+  }
+  replacement.push({
+    planeId: `notch-floor:${face.planeId}`,
+    role: "cut",
+    points: inner,
+  });
+  return [
+    ...polygons.slice(0, selectedIndex),
+    ...replacement,
+    ...polygons.slice(selectedIndex + 1),
+  ];
+}
+
 export function generateStoneMesh(
   recipe: StoneRecipe,
   includeChips = false,
 ): StoneMeshData {
-  const polygons = buildStonePolyhedron(recipe, includeChips);
+  const polygons = addStoneIndentation(
+    buildStonePolyhedron(recipe, includeChips),
+    recipe,
+  );
 
   // The clipper welds shared corners, so one geometric corner is the *same*
   // object in every face that touches it. Any in-place edit therefore has to
@@ -201,18 +290,14 @@ export function generateStoneMesh(
   }
   const heightMetres = Math.max(maxY, 1e-3);
 
-  // Count output size: banded faces emit rim + inset ring + centroid.
+  // Logical polygons triangulate only for the GPU; every triangle receives the
+  // same exact face normal, so internal diagonals remain visually invisible.
   let vertexCount = 0;
   let triangleCount = 0;
   for (const face of faces) {
     const corners = face.points.length;
-    if (faceBandLayout(face) === "plain") {
-      vertexCount += corners;
-      triangleCount += corners - 2;
-    } else {
-      vertexCount += corners * 2 + 1;
-      triangleCount += corners * 3;
-    }
+    vertexCount += corners + 1;
+    triangleCount += corners;
   }
 
   const positions = new Float32Array(vertexCount * 3);
@@ -231,7 +316,6 @@ export function generateStoneMesh(
     const corners = face.points.length;
     const faceTone = resolveFaceTone(face, recipe);
     const baseVertex = vertexCursor;
-    const layout = faceBandLayout(face);
 
     let centroidX = 0;
     let centroidY = 0;
@@ -270,109 +354,6 @@ export function generateStoneMesh(
       return emitted;
     };
 
-    /**
-     * A rim vertex's normal, tilted outward along the face plane.
-     *
-     * The rim band is coplanar with the rest of the face, so as pure geometry
-     * it cannot catch light differently. Authoring its normal as if the edge
-     * were chamfered makes the band shade as a bevel — the lit rim that reads
-     * as carved stone in the reference boards. Nothing moves, so the surface
-     * stays exactly as watertight as the clipper left it.
-     *
-     * Tilting *outward along the plane* rather than toward the neighbouring
-     * face is deliberate: it needs no adjacency lookup and it stays correct on
-     * a silhouette edge, where there is no neighbour to average with.
-     *
-     * The amount varies per corner. A single global tilt gave every edge of
-     * every stone an identical bevel, which is what made the set read as
-     * machined rather than weathered: real wear rounds some edges hard and
-     * leaves others nearly sharp. The hash is over the corner's own position,
-     * so neighbouring faces sharing a corner agree on how worn it is.
-     */
-    const rimNormal = (
-      x: number,
-      y: number,
-      z: number,
-    ): readonly [number, number, number] => {
-      const outX = x - centroidX;
-      const outY = y - centroidY;
-      const outZ = z - centroidZ;
-      const length = Math.hypot(outX, outY, outZ);
-      if (!(length > 1e-6)) {
-        return [face.normalX, face.normalY, face.normalZ];
-      }
-      const wearHash =
-        hashStoneCell(
-          Math.round(x * 130),
-          Math.round(z * 130 + y * 71),
-          recipe.seed ^ 0x2f6b1d,
-        ) / 4294967296;
-      const tilt =
-        CHAMFER_TILT * (CHAMFER_TILT_MIN + (1 - CHAMFER_TILT_MIN) * wearHash);
-      const tiltX = face.normalX * (1 - tilt) + (outX / length) * tilt;
-      const tiltY = face.normalY * (1 - tilt) + (outY / length) * tilt;
-      const tiltZ = face.normalZ * (1 - tilt) + (outZ / length) * tilt;
-      const tiltLength = Math.hypot(tiltX, tiltY, tiltZ);
-      return [tiltX / tiltLength, tiltY / tiltLength, tiltZ / tiltLength];
-    };
-
-    /**
-     * Interior normals, nudged off the face plane by a hashed few degrees.
-     *
-     * A facet whose interior is one exact plane returns one exact shade, which
-     * is what leaves the large faces looking like flat-shaded CG rather than
-     * stone. Tilting the inset ring and centroid very slightly — well under
-     * the crease angle, so the facet still reads as one plane — lets the light
-     * fall unevenly across it. This is the cheap half of what a texture was
-     * being considered for, and unlike a texture it scales with the stone
-     * instead of tiling across it.
-     */
-    const interiorNormal = (
-      x: number,
-      y: number,
-      z: number,
-    ): readonly [number, number, number] => {
-      const swayA =
-        hashStoneCell(
-          Math.round(x * 47 + y * 23),
-          Math.round(z * 47 - y * 19),
-          recipe.seed ^ 0x7ab3c1,
-        ) /
-          4294967296 -
-        0.5;
-      const swayB =
-        hashStoneCell(
-          Math.round(z * 41 - x * 17),
-          Math.round(y * 43 + x * 29),
-          recipe.seed ^ 0x51d7e9,
-        ) /
-          4294967296 -
-        0.5;
-      // Sway across the face, not along its normal: perturbing in the plane's
-      // own tangent basis keeps the normal from ever leaning inward.
-      const tangentX = -face.normalZ;
-      const tangentZ = face.normalX;
-      const tangentLength = Math.hypot(tangentX, tangentZ);
-      if (!(tangentLength > 1e-6)) {
-        return [face.normalX, face.normalY, face.normalZ];
-      }
-      const unitTangentX = tangentX / tangentLength;
-      const unitTangentZ = tangentZ / tangentLength;
-      const bitangentX = face.normalY * unitTangentZ;
-      const bitangentY = face.normalZ * unitTangentX - face.normalX * unitTangentZ;
-      const bitangentZ = -face.normalY * unitTangentX;
-      const swayX =
-        unitTangentX * swayA * INTERIOR_SWAY + bitangentX * swayB * INTERIOR_SWAY;
-      const swayY = bitangentY * swayB * INTERIOR_SWAY;
-      const swayZ =
-        unitTangentZ * swayA * INTERIOR_SWAY + bitangentZ * swayB * INTERIOR_SWAY;
-      const nx = face.normalX + swayX;
-      const ny = face.normalY + swayY;
-      const nz = face.normalZ + swayZ;
-      const swayLength = Math.hypot(nx, ny, nz);
-      return [nx / swayLength, ny / swayLength, nz / swayLength];
-    };
-
     const cornerTone = (y: number): number => {
       // Two separate falls: a broad top-to-bottom gradient, and a tighter
       // darkening right at the ground. The second is what seats a stone in the
@@ -387,19 +368,15 @@ export function generateStoneMesh(
 
     for (let corner = 0; corner < corners; corner += 1) {
       const point = face.points[corner];
-      const [rimX, rimY, rimZ] =
-        layout === "banded"
-          ? rimNormal(point.x, point.y, point.z)
-          : ([face.normalX, face.normalY, face.normalZ] as const);
       emitVertex(
         point.x,
         point.y,
         point.z,
         cornerTone(point.y),
         resolveCornerWear(face, corner, edgeSharpness, recipe),
-        rimX,
-        rimY,
-        rimZ,
+        face.normalX,
+        face.normalY,
+        face.normalZ,
       );
       const radial = Math.hypot(point.x, point.z);
       footprintRadius = Math.max(footprintRadius, radial);
@@ -408,86 +385,18 @@ export function generateStoneMesh(
       }
     }
 
-    if (layout === "plain") {
-      for (let corner = 1; corner < corners - 1; corner += 1) {
-        indices[indexCursor] = baseVertex;
-        indices[indexCursor + 1] = baseVertex + corner;
-        indices[indexCursor + 2] = baseVertex + corner + 1;
-        indexCursor += 3;
-      }
-      continue;
-    }
-
-    // Inset ring: the highlight band ends here, so its width follows the
-    // face size but stays in painted-line territory on hero faces.
-    const bandWidth = Math.min(0.16, 0.04 + Math.sqrt(face.area) * 0.16);
-    for (let corner = 0; corner < corners; corner += 1) {
-      const point = face.points[corner];
-      const towardX = centroidX - point.x;
-      const towardY = centroidY - point.y;
-      const towardZ = centroidZ - point.z;
-      const distance = Math.hypot(towardX, towardY, towardZ);
-      // The band width itself varies per corner, so the bevel wanders around a
-      // facet instead of tracing it at a constant offset.
-      const widthHash =
-        hashStoneCell(
-          Math.round(point.x * 90 + point.z * 37),
-          Math.round(point.z * 90 - point.y * 53),
-          recipe.seed ^ 0x1c4fa7,
-        ) / 4294967296;
-      const cornerBand = bandWidth * (0.6 + 0.8 * widthHash);
-      const step = distance > 1e-6 ? Math.min(0.45, cornerBand / distance) : 0;
-      const insetX = point.x + towardX * step;
-      const insetY = point.y + towardY * step;
-      const insetZ = point.z + towardZ * step;
-      const [insetNormalX, insetNormalY, insetNormalZ] = interiorNormal(
-        insetX,
-        insetY,
-        insetZ,
-      );
-      emitVertex(
-        insetX,
-        insetY,
-        insetZ,
-        cornerTone(insetY),
-        0,
-        insetNormalX,
-        insetNormalY,
-        insetNormalZ,
-      );
-    }
-    const [centreNormalX, centreNormalY, centreNormalZ] = interiorNormal(
-      centroidX,
-      centroidY,
-      centroidZ,
-    );
     const centroidIndex = emitVertex(
       centroidX,
       centroidY,
       centroidZ,
       cornerTone(centroidY),
       0,
-      centreNormalX,
-      centreNormalY,
-      centreNormalZ,
     );
-
     for (let corner = 0; corner < corners; corner += 1) {
-      const next = (corner + 1) % corners;
-      const rimA = baseVertex + corner;
-      const rimB = baseVertex + next;
-      const insetA = baseVertex + corners + corner;
-      const insetB = baseVertex + corners + next;
-      indices[indexCursor] = rimA;
-      indices[indexCursor + 1] = rimB;
-      indices[indexCursor + 2] = insetB;
-      indices[indexCursor + 3] = rimA;
-      indices[indexCursor + 4] = insetB;
-      indices[indexCursor + 5] = insetA;
-      indices[indexCursor + 6] = insetA;
-      indices[indexCursor + 7] = insetB;
-      indices[indexCursor + 8] = centroidIndex;
-      indexCursor += 9;
+      indices[indexCursor] = baseVertex + corner;
+      indices[indexCursor + 1] = baseVertex + ((corner + 1) % corners);
+      indices[indexCursor + 2] = centroidIndex;
+      indexCursor += 3;
     }
   }
 
@@ -508,13 +417,6 @@ export function generateStoneMesh(
  * Whether a face is big enough to carry the inset highlight band. Undersides
  * never band — nothing down there is ever lit.
  */
-function faceBandLayout(face: WorkingFace): "plain" | "banded" {
-  if (face.role === "bottom" || face.points.length < 3) {
-    return "plain";
-  }
-  return face.area >= 0.02 ? "banded" : "plain";
-}
-
 function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
   const sharedIndex = new Map<string, number>();
   let nextShared = 0;

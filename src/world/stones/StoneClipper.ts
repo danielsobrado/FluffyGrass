@@ -21,6 +21,7 @@ export type StonePlaneRole =
   | "side"
   | "top-bevel"
   | "contact-bevel"
+  | "edge-bevel"
   | "cut";
 
 export interface StonePlane {
@@ -65,6 +66,11 @@ const CUT_MINIMUM_EFFECTIVE_DEPTH = 0.015;
  * floor — the cut minimum would reject every one of them.
  */
 const CHIP_MINIMUM_EFFECTIVE_DEPTH = 0.004;
+/** Broad cuts below this share of the exposed surface are visual noise. */
+const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.055;
+/** Normalized chamfer depth: deliberately tiny, but real geometry. */
+const EDGE_CHAMFER_DEPTH = 0.01;
+const EDGE_CHAMFER_MIN_LENGTH = 0.14;
 
 function normalizePlane(
   nx: number,
@@ -569,10 +575,98 @@ export function resolveCutPlanes(
       id: isChip ? `chip:${index - firstChip}` : `cut:${index}`,
       role: "cut",
     };
+    // Shard cuts are silhouette-defining wedge planes; rejecting a small one
+    // can restore the tall parent mass and make that family broader, not
+    // cleaner. The area hierarchy gate targets the grounded families whose
+    // cuts are surface articulation.
+    if (!isChip && recipe.archetype !== "shard") {
+      const candidateFaces = facesFromPlanes([...planes, plane]);
+      const exposed = candidateFaces.filter(
+        (face) => face.role !== "bottom" && face.role !== "contact-bevel",
+      );
+      const totalArea = exposed.reduce(
+        (sum, face) => sum + polygonArea(face.points),
+        0,
+      );
+      const cutArea = exposed
+        .filter((face) => face.planeId === plane.id)
+        .reduce((sum, face) => sum + polygonArea(face.points), 0);
+      if (
+        !(totalArea > 0) ||
+        cutArea / totalArea < MINIMUM_MAJOR_CUT_AREA_SHARE
+      ) {
+        continue;
+      }
+    }
     planes.push(plane);
     accepted.push(plane);
   }
   return accepted;
+}
+
+function addEdgeChamferPlanes(planes: StonePlane[]): StonePlane[] {
+  const faces = facesFromPlanes(planes);
+  const planeById = new Map(planes.map((plane) => [plane.id, plane]));
+  const edges = new Map<
+    string,
+    { a: StoneVec3; b: StoneVec3; faces: StonePolygon[] }
+  >();
+  for (const face of faces) {
+    for (let index = 0; index < face.points.length; index += 1) {
+      const a = face.points[index];
+      const b = face.points[(index + 1) % face.points.length];
+      const key = edgeKey(a, b);
+      const edge = edges.get(key);
+      if (edge) edge.faces.push(face);
+      else edges.set(key, { a, b, faces: [face] });
+    }
+  }
+
+  const chamfers: StonePlane[] = [];
+  for (const edge of edges.values()) {
+    if (edge.faces.length !== 2) continue;
+    const [faceA, faceB] = edge.faces;
+    if (
+      faceA.role === "bottom" ||
+      faceB.role === "bottom" ||
+      faceA.role === "contact-bevel" ||
+      faceB.role === "contact-bevel"
+    ) {
+      continue;
+    }
+    if (
+      Math.hypot(
+        edge.a.x - edge.b.x,
+        edge.a.y - edge.b.y,
+        edge.a.z - edge.b.z,
+      ) < EDGE_CHAMFER_MIN_LENGTH
+    ) {
+      continue;
+    }
+    const a = planeById.get(faceA.planeId);
+    const b = planeById.get(faceB.planeId);
+    if (!a || !b) continue;
+    const dot = a.nx * b.nx + a.ny * b.ny + a.nz * b.nz;
+    if (dot > 0.88) continue;
+    const nx = a.nx + b.nx;
+    const ny = a.ny + b.ny;
+    const nz = a.nz + b.nz;
+    const length = Math.hypot(nx, ny, nz);
+    if (!(length > 1e-6)) continue;
+    const unitX = nx / length;
+    const unitY = ny / length;
+    const unitZ = nz / length;
+    const edgeConstant = unitX * edge.a.x + unitY * edge.a.y + unitZ * edge.a.z;
+    chamfers.push({
+      nx: unitX,
+      ny: unitY,
+      nz: unitZ,
+      constant: edgeConstant - EDGE_CHAMFER_DEPTH,
+      id: `edge-bevel:${chamfers.length}`,
+      role: "edge-bevel",
+    });
+  }
+  return chamfers;
 }
 
 /**
@@ -589,5 +683,13 @@ export function buildStonePolyhedron(
 ): StonePolygon[] {
   const bodyPlanes = buildStonePlanes(recipe);
   const cutPlanes = resolveCutPlanes(bodyPlanes, recipe, includeChips);
-  return facesFromPlanes([...bodyPlanes, ...cutPlanes]);
+  const structuralPlanes = [...bodyPlanes, ...cutPlanes];
+  // Shards already carry a narrow crown/contact bevel and depend on long cuts
+  // for their wedge silhouette; extra all-body chamfer planes can intersect a
+  // distant side of such a thin form. Keep their deliberately sharp fracture.
+  const chamfers =
+    recipe.archetype === "shard"
+      ? []
+      : addEdgeChamferPlanes(structuralPlanes);
+  return facesFromPlanes([...structuralPlanes, ...chamfers]);
 }

@@ -241,6 +241,7 @@ const impostorMaterial = read(
 const impostorTuning = read(
   "src/world/grass/WorldGrassImpostorTuning.ts",
 );
+const impostorLimits = read("src/grass/GrassImpostorLimits.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const interactionField = read(
   "src/grass/interaction/GrassInteractionField.ts",
@@ -306,8 +307,8 @@ const compactUltraMultiplier = readYamlNumber(
 const midBladeFraction = readYamlNumber(worldConfig, "grassMidBladeFraction");
 const farCards = readYamlNumber(worldConfig, "grassFarImpostorsPerPatch");
 const farSubpatchesPerAxis = readSourceNumber(
-  impostorTuning,
-  "IMPOSTOR_SUBPATCHES_PER_AXIS",
+  impostorLimits,
+  "GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS",
 );
 const farSubpatches = farSubpatchesPerAxis ** 2;
 const batchesPerAxis = readYamlNumber(

@@ -31,7 +31,7 @@ const worldConfigLoader = read("src/world/WorldConfigLoader.ts");
 
 assert(
   main.includes('params.get("diagnostics") === "1"') &&
-    main.includes('await import(\n          "./runtime/WorldDiagnosticsController"') &&
+    /await import\(\s*"\.\/runtime\/WorldDiagnosticsController"\s*\)/.test(main) &&
     !main.includes('import { WorldDiagnosticsController }'),
   "Deep world diagnostics must remain opt-in and outside the default bundle path.",
 );
@@ -46,12 +46,12 @@ assert(
   world.includes("private disposed = false") &&
     world.includes("Number.isFinite(rawDeltaSeconds)") &&
     world.includes("Optional stats panel unavailable") &&
-    world.includes('await import(\n            "../world/grass/WorldDetailFoliageAtlasFactory"') &&
+    /await import\(\s*"\.\.\/world\/grass\/WorldDetailFoliageAtlasFactory"\s*\)/.test(world) &&
     !world.includes('import { appendDetailFoliageAtlasDebugCanvas }'),
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
 );
 assert(
-  island.includes('await import(\n      "../dev/GrassDevelopmentController"') &&
+  /await import\(\s*"\.\.\/dev\/GrassDevelopmentController"\s*\)/.test(island) &&
     !island.includes('import { GrassDevelopmentController }') &&
     island.includes("private disposed = false") &&
     island.includes("disposeObjectGeometry") &&
