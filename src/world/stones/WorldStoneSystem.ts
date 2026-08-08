@@ -2,7 +2,10 @@ import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
 import { setStoneClearanceField } from "./StoneClearance";
 import type { StoneField } from "./StoneField";
-import { applyStoneSurfaceShader } from "./StoneGrowthShader";
+import {
+  applyStoneCoarseSurfaceShader,
+  applyStoneSurfaceShader,
+} from "./StoneGrowthShader";
 import {
   StoneRenderBatchBuilder,
   type StoneRenderBatchBuildJob,
@@ -48,7 +51,10 @@ export class WorldStoneSystem {
   private readonly desired = new Map<string, StoneBatchRequest>();
   /** Negative cache prevents deterministic empty batches rebuilding on every move. */
   private readonly emptySignatures = new Map<string, string>();
-  private readonly material = new THREE.MeshLambertMaterial({
+  private readonly detailMaterial = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+  });
+  private readonly coarseMaterial = new THREE.MeshLambertMaterial({
     vertexColors: true,
   });
   private readonly mossExposureDirection = new THREE.Vector3();
@@ -69,8 +75,10 @@ export class WorldStoneSystem {
     private readonly receiveShadows: boolean,
   ) {
     this.enabled = config.stonesEnabled >= 1;
-    this.material.name = "world-stone-material";
-    this.material.dithering = true;
+    this.detailMaterial.name = "world-stone-detail-material";
+    this.detailMaterial.dithering = true;
+    this.coarseMaterial.name = "world-stone-coarse-material";
+    this.coarseMaterial.dithering = true;
 
     const azimuth = THREE.MathUtils.degToRad(
       config.stoneMossExposureAzimuthDegrees,
@@ -97,7 +105,12 @@ export class WorldStoneSystem {
       this.grainTexture = this.createGrainTexture();
     }
     if (this.enabled) {
-      applyStoneSurfaceShader(this.material, config, this.grainTexture);
+      applyStoneSurfaceShader(
+        this.detailMaterial,
+        config,
+        this.grainTexture,
+      );
+      applyStoneCoarseSurfaceShader(this.coarseMaterial);
     }
   }
 
@@ -141,7 +154,8 @@ export class WorldStoneSystem {
     this.queue.length = 0;
     this.desired.clear();
     this.emptySignatures.clear();
-    this.material.dispose();
+    this.detailMaterial.dispose();
+    this.coarseMaterial.dispose();
     this.grainTexture?.dispose();
   }
 
@@ -317,10 +331,14 @@ export class WorldStoneSystem {
     }
 
     this.emptySignatures.delete(request.key);
-    const mesh = new THREE.Mesh(result.geometry, this.material);
+    const detailed = result.hasDetailedGeometry;
+    const mesh = new THREE.Mesh(
+      result.geometry,
+      detailed ? this.detailMaterial : this.coarseMaterial,
+    );
     mesh.name = `world-stones-${request.key}`;
     mesh.position.set(result.originX, result.originY, result.originZ);
-    const localShadowDetail = this.receiveShadows && result.hasDetailedGeometry;
+    const localShadowDetail = this.receiveShadows && detailed;
     mesh.castShadow = localShadowDetail;
     mesh.receiveShadow = localShadowDetail;
     mesh.matrixAutoUpdate = false;
