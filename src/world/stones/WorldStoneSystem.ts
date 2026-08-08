@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
 import type { StoneField, StoneInstance } from "./StoneField";
+import { resolveStoneGrowthWeights } from "./StoneGrowthField";
 import { applyStoneSurfaceShader } from "./StoneGrowthShader";
 import {
   STONE_PALETTES,
   colorizeStoneVertices,
   resolveStoneGrowthColors,
-  type StonePaletteKey,
 } from "./StonePalette";
 import { hashStoneCell } from "./StoneRandom";
 
@@ -38,18 +38,6 @@ export interface StoneDiagnostics {
 const UP = new THREE.Vector3(0, 1, 0);
 const HASH_UNIT = 1 / 4294967296;
 const GROWTH_SEED_SALT = 0x43b0d7;
-const UPPER_LEDGE_MOSS_STRENGTH = 0.3;
-const LICHEN_HEIGHT_FLOOR = 0.55;
-const LICHEN_ENVIRONMENT: Record<StonePaletteKey, number> = {
-  meadowSage: 0.24,
-  steppeTan: 0.72,
-  graniteGrey: 0.86,
-  mossy: 0.16,
-};
-
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
 
 export class WorldStoneSystem {
   private readonly chunks = new Map<string, StoneChunk>();
@@ -300,7 +288,6 @@ export class WorldStoneSystem {
         secondaryBlend: instance.graniteBlend,
       };
       const growthColors = resolveStoneGrowthColors(palette, tint);
-      const lichenAmount = this.resolveLichenAmount(instance);
       const growthSeed =
         hashStoneCell(
           Math.round(instance.x * 8),
@@ -358,35 +345,25 @@ export class WorldStoneSystem {
         normals[target + 1] = normalY;
         normals[target + 2] = normalZ;
 
-        const heightFraction = clamp01(py / variant.metrics.height);
-        const upperLedgeMoss =
-          Math.pow(Math.max(0, normalY), 1.5) *
-          UPPER_LEDGE_MOSS_STRENGTH *
-          heightFraction;
-        const mossSusceptibility = Math.max(
-          variant.mosses[index],
-          upperLedgeMoss,
-        );
+        const heightFraction = py / variant.metrics.height;
         const exposure = Math.max(
           0,
           normalX * this.mossExposureDirection.x +
             normalY * this.mossExposureDirection.y +
             normalZ * this.mossExposureDirection.z,
         );
-        const shadeRetention =
-          1 - exposure * this.config.stoneMossExposureStrength;
-        mosses[vertex] = clamp01(
-          mossSusceptibility * instance.moss * shadeRetention,
-        );
-
-        const lichenExposure = 0.38 + exposure * 0.62;
-        const mossCompetition = 1 - mossSusceptibility * 0.5;
-        const lichenHeight =
-          LICHEN_HEIGHT_FLOOR +
-          (1 - LICHEN_HEIGHT_FLOOR) * heightFraction;
-        lichens[vertex] = clamp01(
-          lichenAmount * lichenExposure * mossCompetition * lichenHeight,
-        );
+        const growth = resolveStoneGrowthWeights({
+          baseMossSusceptibility: variant.mosses[index],
+          normalY,
+          heightFraction,
+          exposure,
+          exposureStrength: this.config.stoneMossExposureStrength,
+          environmentMoss: instance.moss,
+          paletteKey: instance.paletteKey,
+          graniteBlend: instance.graniteBlend,
+        });
+        mosses[vertex] = growth.moss;
+        lichens[vertex] = growth.lichen;
         growthSeeds[vertex] = growthSeed;
         growthCenters[target] = elements[12];
         growthCenters[target + 1] = elements[13];
@@ -457,13 +434,6 @@ export class WorldStoneSystem {
       triangles,
       stones: instances.length,
     };
-  }
-
-  private resolveLichenAmount(instance: StoneInstance): number {
-    const biomeAmount = LICHEN_ENVIRONMENT[instance.paletteKey];
-    const altitudeBoost = instance.graniteBlend * 0.34;
-    const dampSuppression = 1 - instance.moss * 0.42;
-    return clamp01((biomeAmount + altitudeBoost) * dampSuppression);
   }
 
   private removeChunk(chunk: StoneChunk): void {
