@@ -24,6 +24,9 @@ export interface StoneRenderBatchGeometry {
   readonly triangles: number;
   readonly stones: number;
   readonly hasDetailedGeometry: boolean;
+  readonly originX: number;
+  readonly originY: number;
+  readonly originZ: number;
 }
 
 type BuildStage = "collect" | "resolve" | "allocate" | "fill" | "finalize";
@@ -40,6 +43,8 @@ export interface StoneRenderBatchBuildJob {
   readonly instances: StoneInstance[];
   readonly detailed: boolean[];
   readonly variants: StoneMeshData[];
+  readonly originX: number;
+  readonly originZ: number;
   stage: BuildStage;
   sourceIndex: number;
   resolveIndex: number;
@@ -50,6 +55,8 @@ export interface StoneRenderBatchBuildJob {
   vertexCursor: number;
   indexCursor: number;
   hasDetailedGeometry: boolean;
+  heightSum: number;
+  originY: number;
   minimumX: number;
   minimumY: number;
   minimumZ: number;
@@ -112,11 +119,22 @@ export class StoneRenderBatchBuilder {
   ) {}
 
   begin(sources: readonly StoneRenderBatchSource[]): StoneRenderBatchBuildJob {
+    let sourceCenterX = 0;
+    let sourceCenterZ = 0;
+    for (const source of sources) {
+      sourceCenterX += source.chunkX + 0.5;
+      sourceCenterZ += source.chunkZ + 0.5;
+    }
+    const inverseSourceCount = sources.length > 0 ? 1 / sources.length : 0;
     return {
       sources,
       instances: [],
       detailed: [],
       variants: [],
+      originX:
+        sourceCenterX * inverseSourceCount * this.config.chunkSize,
+      originZ:
+        sourceCenterZ * inverseSourceCount * this.config.chunkSize,
       stage: "collect",
       sourceIndex: 0,
       resolveIndex: 0,
@@ -127,6 +145,8 @@ export class StoneRenderBatchBuilder {
       vertexCursor: 0,
       indexCursor: 0,
       hasDetailedGeometry: false,
+      heightSum: 0,
+      originY: 0,
       minimumX: Number.POSITIVE_INFINITY,
       minimumY: Number.POSITIVE_INFINITY,
       minimumZ: Number.POSITIVE_INFINITY,
@@ -163,6 +183,7 @@ export class StoneRenderBatchBuilder {
           if (job.instances.length === 0) {
             return { complete: true, empty: true };
           }
+          job.originY = job.heightSum / job.instances.length;
           job.stage = "resolve";
           continue;
 
@@ -210,6 +231,7 @@ export class StoneRenderBatchBuilder {
       job.instances.push(instance);
       job.detailed.push(source.detailed);
       job.hasDetailedGeometry ||= source.detailed;
+      job.heightSum += instance.height - instance.sink;
     }
   }
 
@@ -315,15 +337,18 @@ export class StoneRenderBatchBuilder {
         elements[1] * px + elements[5] * py + elements[9] * pz + elements[13];
       const worldZ =
         elements[2] * px + elements[6] * py + elements[10] * pz + elements[14];
-      buffers.positions[positionTarget] = worldX;
-      buffers.positions[positionTarget + 1] = worldY;
-      buffers.positions[positionTarget + 2] = worldZ;
-      job.minimumX = Math.min(job.minimumX, worldX);
-      job.minimumY = Math.min(job.minimumY, worldY);
-      job.minimumZ = Math.min(job.minimumZ, worldZ);
-      job.maximumX = Math.max(job.maximumX, worldX);
-      job.maximumY = Math.max(job.maximumY, worldY);
-      job.maximumZ = Math.max(job.maximumZ, worldZ);
+      const localX = worldX - job.originX;
+      const localY = worldY - job.originY;
+      const localZ = worldZ - job.originZ;
+      buffers.positions[positionTarget] = localX;
+      buffers.positions[positionTarget + 1] = localY;
+      buffers.positions[positionTarget + 2] = localZ;
+      job.minimumX = Math.min(job.minimumX, localX);
+      job.minimumY = Math.min(job.minimumY, localY);
+      job.minimumZ = Math.min(job.minimumZ, localZ);
+      job.maximumX = Math.max(job.maximumX, localX);
+      job.maximumY = Math.max(job.maximumY, localY);
+      job.maximumZ = Math.max(job.maximumZ, localZ);
 
       const nx = sourceNormals[source];
       const ny = sourceNormals[source + 1];
@@ -494,6 +519,9 @@ export class StoneRenderBatchBuilder {
       triangles: job.triangles,
       stones: job.instances.length,
       hasDetailedGeometry: job.hasDetailedGeometry,
+      originX: job.originX,
+      originY: job.originY,
+      originZ: job.originZ,
     };
   }
 }
