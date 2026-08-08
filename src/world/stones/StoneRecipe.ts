@@ -1,17 +1,12 @@
+import { resolveStoneProfile, type StoneProfileRing } from "./StoneProfile";
 import { StoneRandom } from "./StoneRandom";
 
 /**
  * Shape grammar for the stylized stone set.
  *
- * Every stone is one convex mass: a ring of side planes with taper, a tilted
- * top, bevel rings at the crown and the ground contact, and a few broad
- * diagonal cuts. Archetypes are curated parameter families over that grammar,
- * not separate generators — which keeps the whole population reading as one
- * asset set.
- *
- * The profile deliberately uses few, large planes. Variation comes from
- * coherent silhouette lobes, uneven plane spacing, broad cuts, and controlled
- * lean rather than from adding sides or high-frequency noise.
+ * Each stone starts from an irregular radial footprint, then grows through a
+ * contact, belly, shoulder, crown, and top profile. Broad fracture planes and
+ * sparse chips articulate that macro mass without replacing it with noise.
  */
 
 export type StoneArchetypeId =
@@ -43,15 +38,15 @@ export interface StoneArchetypeSpec {
   readonly radiusJitter: Band;
   /** Coherent low-frequency silhouette bias, independent of per-side jitter. */
   readonly silhouetteAsymmetry: Band;
-  /** How much narrower the profile gets per unit height. */
+  /** How much narrower the baseline profile gets per unit height. */
   readonly taper: Band;
-  /** Crown footprint as a fraction of the body profile. */
+  /** Top footprint as a fraction of the baseline upper profile. */
   readonly topScale: Band;
-  /** Height of the crown bevel ring, as a fraction of the body. */
+  /** Height reserved for the final crown transition. */
   readonly topBevelHeight: Band;
   /** Maximum top-plane slope magnitude. */
   readonly topTiltMax: number;
-  /** Ground-contact inset and bevel ring height. */
+  /** Ground-contact inset and transition height. */
   readonly contactInset: Band;
   readonly contactBevelHeight: Band;
   /** Horizontal shear per unit height; shard leans are deliberate. */
@@ -79,8 +74,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     radiusJitter: { min: 0.1, max: 0.2 },
     silhouetteAsymmetry: { min: 0.03, max: 0.08 },
     taper: { min: 0.08, max: 0.16 },
-    topScale: { min: 0.58, max: 0.78 },
-    topBevelHeight: { min: 0.24, max: 0.36 },
+    topScale: { min: 0.64, max: 0.82 },
+    topBevelHeight: { min: 0.18, max: 0.28 },
     topTiltMax: 0.1,
     contactInset: { min: 0.06, max: 0.11 },
     contactBevelHeight: { min: 0.12, max: 0.18 },
@@ -101,9 +96,9 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     radiusJitter: { min: 0.14, max: 0.28 },
     silhouetteAsymmetry: { min: 0.08, max: 0.17 },
     taper: { min: 0.12, max: 0.22 },
-    topScale: { min: 0.44, max: 0.64 },
-    topBevelHeight: { min: 0.28, max: 0.44 },
-    topTiltMax: 0.16,
+    topScale: { min: 0.56, max: 0.76 },
+    topBevelHeight: { min: 0.18, max: 0.29 },
+    topTiltMax: 0.18,
     contactInset: { min: 0.05, max: 0.11 },
     contactBevelHeight: { min: 0.09, max: 0.15 },
     lean: { min: 0.04, max: 0.14 },
@@ -123,9 +118,9 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     radiusJitter: { min: 0.12, max: 0.24 },
     silhouetteAsymmetry: { min: 0.06, max: 0.14 },
     taper: { min: 0.06, max: 0.12 },
-    topScale: { min: 0.7, max: 0.88 },
-    topBevelHeight: { min: 0.18, max: 0.28 },
-    topTiltMax: 0.2,
+    topScale: { min: 0.72, max: 0.9 },
+    topBevelHeight: { min: 0.14, max: 0.23 },
+    topTiltMax: 0.22,
     contactInset: { min: 0.05, max: 0.1 },
     contactBevelHeight: { min: 0.1, max: 0.15 },
     lean: { min: 0.01, max: 0.08 },
@@ -145,9 +140,9 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     radiusJitter: { min: 0.05, max: 0.12 },
     silhouetteAsymmetry: { min: 0.04, max: 0.1 },
     taper: { min: 0.06, max: 0.13 },
-    topScale: { min: 0.62, max: 0.8 },
-    topBevelHeight: { min: 0.17, max: 0.27 },
-    topTiltMax: 0.13,
+    topScale: { min: 0.66, max: 0.84 },
+    topBevelHeight: { min: 0.15, max: 0.24 },
+    topTiltMax: 0.14,
     contactInset: { min: 0.04, max: 0.09 },
     contactBevelHeight: { min: 0.08, max: 0.13 },
     lean: { min: 0.03, max: 0.1 },
@@ -167,8 +162,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     radiusJitter: { min: 0.13, max: 0.26 },
     silhouetteAsymmetry: { min: 0.12, max: 0.22 },
     taper: { min: 0.16, max: 0.28 },
-    topScale: { min: 0.22, max: 0.38 },
-    topBevelHeight: { min: 0.15, max: 0.24 },
+    topScale: { min: 0.26, max: 0.44 },
+    topBevelHeight: { min: 0.14, max: 0.22 },
     topTiltMax: 0.46,
     contactInset: { min: 0.03, max: 0.06 },
     contactBevelHeight: { min: 0.06, max: 0.1 },
@@ -189,9 +184,9 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     radiusJitter: { min: 0.16, max: 0.3 },
     silhouetteAsymmetry: { min: 0.12, max: 0.24 },
     taper: { min: 0.1, max: 0.18 },
-    topScale: { min: 0.52, max: 0.72 },
-    topBevelHeight: { min: 0.18, max: 0.28 },
-    topTiltMax: 0.18,
+    topScale: { min: 0.6, max: 0.82 },
+    topBevelHeight: { min: 0.15, max: 0.24 },
+    topTiltMax: 0.2,
     contactInset: { min: 0.04, max: 0.08 },
     contactBevelHeight: { min: 0.08, max: 0.13 },
     lean: { min: 0.03, max: 0.14 },
@@ -225,6 +220,8 @@ export interface StoneRecipe {
   readonly depth: number;
   readonly sideAngles: readonly number[];
   readonly sideRadii: readonly number[];
+  /** Layered contact/belly/shoulder/crown/top macro silhouette. */
+  readonly profileRings: readonly StoneProfileRing[];
   readonly taper: number;
   readonly topScale: number;
   readonly topBevelHeight: number;
@@ -243,9 +240,7 @@ export interface StoneRecipe {
 
 const TWO_PI = Math.PI * 2;
 const BASE_RADIUS = 0.5;
-/** Keeps side-plane gaps irregular without allowing near-concurrent planes. */
 const SIDE_GAP_JITTER = 0.4;
-/** Cuts closer in direction than this are rotated apart or dropped. */
 const CUT_SIMILARITY_LIMIT = 0.96;
 const GOLDEN_ANGLE = 2.399963229728653;
 const SILHOUETTE_RADIUS_MIN = BASE_RADIUS * 0.55;
@@ -276,9 +271,6 @@ export function resolveStoneRecipe(
   const angleOffset = profile.range(0, TWO_PI / sideCount);
   const jitterAmplitude = rangeOf(profile, spec.radiusJitter);
 
-  // Build angles from normalized jittered gaps. Jittering positions and sorting
-  // them can put two side planes almost on top of each other, producing thin
-  // flutes and unstable facets.
   const angles = root.fork("side-angles");
   const gaps: number[] = [];
   let gapTotal = 0;
@@ -300,10 +292,6 @@ export function resolveStoneRecipe(
     rawRadii.push(BASE_RADIUS * (1 + radii.signed(jitterAmplitude)));
   }
 
-  // Per-side randomness provides facets, but it does not provide a readable
-  // silhouette. A low-frequency lobe makes one shoulder dominant and the
-  // opposite side recede, which breaks the rotational "low-poly sphere" look
-  // without adding geometry or noise-displacing the surface.
   const silhouette = root.fork("silhouette");
   const primaryAngle = silhouette.range(0, TWO_PI);
   const secondaryAngle = primaryAngle + silhouette.range(0.9, 1.8);
@@ -331,10 +319,6 @@ export function resolveStoneRecipe(
   const taper = rangeOf(shape, spec.taper);
   const topScale = rangeOf(shape, spec.topScale);
   const topBevelHeight = rangeOf(shape, spec.topBevelHeight);
-
-  // Resolve the top slope as a vector magnitude plus direction. Sampling X and
-  // Z independently lets the diagonal exceed the documented maximum by sqrt(2)
-  // and produces accidental tent-like crowns.
   const topTiltAngle = shape.range(0, TWO_PI);
   const topTiltStrength = shape.range(0.3, 1) * spec.topTiltMax;
   const topTiltX = Math.cos(topTiltAngle) * topTiltStrength;
@@ -348,9 +332,21 @@ export function resolveStoneRecipe(
   const leanX = Math.cos(leanAngle) * leanStrength;
   const leanZ = Math.sin(leanAngle) * leanStrength;
 
-  // Cuts share a loose axis and then walk around it by the golden angle. This
-  // gives deliberate broad facets instead of unrelated random bites while the
-  // similarity guard still prevents near-duplicate planes.
+  const profileRings = resolveStoneProfile(
+    {
+      archetype: archetypeId,
+      seed,
+      sideAngles,
+      sideRadii,
+      taper,
+      topScale,
+      topBevelHeight,
+      contactInset,
+      contactBevelHeight,
+    },
+    root.fork("macro-profile"),
+  );
+
   const cutAxis = root.fork("cut-axis").range(0, TWO_PI);
   const cutsStream = root.fork("cuts");
   const cutCount = cutsStream.integer(spec.cutCount[0], spec.cutCount[1]);
@@ -386,8 +382,6 @@ export function resolveStoneRecipe(
     }
   }
 
-  // Chips are resolved for every stone whether or not they are used, so near
-  // and far forms differ by exactly these shallow planes and nothing else.
   const chipStream = root.fork("chips");
   const chipCount = chipStream.integer(spec.chipCount[0], spec.chipCount[1]);
   const chipAxis = root.fork("chip-axis").range(0, TWO_PI);
@@ -417,6 +411,7 @@ export function resolveStoneRecipe(
     depth,
     sideAngles,
     sideRadii,
+    profileRings,
     taper,
     topScale,
     topBevelHeight,
