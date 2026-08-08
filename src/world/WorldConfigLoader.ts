@@ -93,6 +93,7 @@ const CONFIG_SCHEMA: ConfigSchema = {
   stoneRadiusDesktop: POSITIVE_INTEGER,
   stoneRadiusCompact: POSITIVE_INTEGER,
   stoneDetailRadius: POSITIVE_INTEGER,
+  stoneRenderBatchChunksPerAxis: { minimum: 1, maximum: 4, integer: true },
   stoneChunksPerFrame: POSITIVE_INTEGER,
   stoneVergeChance: { minimum: 0, maximum: 1 },
   stoneGrainStrength: { minimum: 0, maximum: 0.5 },
@@ -193,9 +194,6 @@ export class WorldConfigLoader {
     if (config.grassClumpAspectMin > config.grassClumpAspectMax) {
       throw new Error("grassClumpAspect range is reversed.");
     }
-    // The remainder of the heading is independent per-blade randomness. Letting
-    // the two structured weights reach 1 would put every blade of a tuft back
-    // on one axis, which is the alignment this configuration exists to remove.
     if (
       config.grassClumpDominantDirectionWeight +
         config.grassClumpRadialDirectionWeight >
@@ -253,11 +251,8 @@ export class WorldConfigLoader {
       config.stoneRadiusDesktop > config.terrainRadiusDesktop ||
       config.stoneRadiusCompact > config.terrainRadiusCompact
     ) {
-      // A stone chunk without terrain under it would visibly float.
       throw new Error("Stone streaming radius must not exceed terrain radius.");
     }
-    // A way whose cleared band approaches the spacing between neighbouring ways
-    // stops reading as a path through the grass and starts erasing the field.
     if (config.pathWidth >= config.pathSpacing * 0.05) {
       throw new Error("pathWidth must stay far below pathSpacing.");
     }
@@ -368,19 +363,11 @@ export class WorldConfigLoader {
         "Grass interaction radii must be lower than grassNearDistance.",
       );
     }
-    // The trail square is centred on the character, so anything it must record
-    // has to fit inside half of it.
     if (config.grassLandingPulseRadius >= config.grassTrailCoverage * 0.5) {
       throw new Error(
         "grassLandingPulseRadius must fit inside half of grassTrailCoverage.",
       );
     }
-    // Only the near single-blade layers sample the trail; the mid layer compiles
-    // the bend out entirely. Mid blades start grassNearDistance from the CAMERA
-    // and the trail square is centred on the CHARACTER, so the nearest mid blade
-    // sits (grassNearDistance - characterCameraMaxDistance) from the trail
-    // centre. Once half the coverage reaches that far, crushed grass springs
-    // upright across the near/mid handoff instead of continuing into it.
     if (
       config.grassTrailCoverage * 0.5 >=
       config.grassNearDistance - config.characterCameraMaxDistance
@@ -390,9 +377,6 @@ export class WorldConfigLoader {
           "(grassNearDistance minus characterCameraMaxDistance).",
       );
     }
-    // A footprint has to survive rasterization into the trail texture. Below
-    // roughly two texels across it aliases into a flickering speck instead of a
-    // print, and no amount of shader tuning recovers it.
     const trailTexelSize = config.grassTrailCoverage / config.grassTrailResolution;
     if (config.grassFootContactRadius < trailTexelSize) {
       throw new Error(
