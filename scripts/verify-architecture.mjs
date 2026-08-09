@@ -64,8 +64,11 @@ assert(
 assert(
   worldApp.includes('runFrameSubsystem("stones"') &&
     worldApp.includes('subsystem === "stones"') &&
+    worldApp.includes(
+      "this.stonesEnabled = false;\n        this.stones.dispose();",
+    ) &&
     !worldApp.includes("setStoneClearanceField"),
-  "Stone streaming must have an independent failure domain and must own its clearance registration outside WorldApp.",
+  "Stone streaming must have an independent failure domain and atomically release rendering plus clearance when it degrades.",
 );
 assert(
   worldAppTuning.includes("WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS = 2.5") &&
