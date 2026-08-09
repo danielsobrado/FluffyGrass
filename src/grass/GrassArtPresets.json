@@ -63,10 +63,10 @@
     "densityScale": 0.94,
     "windStrengthScale": 0.7,
     "flutterStrengthScale": 0.8,
-    "nearDistance": 26,
+    "nearDistance": 27,
     "midDistance": 46,
     "farDistance": 240,
-    "transitionDistance": 8
+    "transitionDistance": 7
   },
   "cool-highland": {
     "key": "cool-highland",
@@ -109,10 +109,10 @@
     "densityScale": 1,
     "windStrengthScale": 0.8,
     "flutterStrengthScale": 0.9,
-    "nearDistance": 28,
+    "nearDistance": 29,
     "midDistance": 62,
     "farDistance": 280,
-    "transitionDistance": 10
+    "transitionDistance": 9
   },
   "zelda-field": {
     "key": "zelda-field",
@@ -157,9 +157,9 @@
     "densityScale": 0.92,
     "windStrengthScale": 1.65,
     "flutterStrengthScale": 1.5,
-    "nearDistance": 26,
+    "nearDistance": 28,
     "midDistance": 52,
     "farDistance": 260,
-    "transitionDistance": 10
+    "transitionDistance": 8
   }
 }
