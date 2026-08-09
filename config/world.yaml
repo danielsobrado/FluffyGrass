@@ -28,15 +28,16 @@ grassNearTileSize: 8
 grassNearBladesPerSquareMeterDesktop: 72
 grassNearBladesPerSquareMeterCompact: 40
 
-# An additional single-blade layer doubles density at camera distance <= 4 m.
-grassUltraNearDistance: 4
+# An additional single-blade layer doubles density, and the segmented blade
+# geometry replaces the one-triangle silhouette, inside this radius. 6 m is what
+# the desktop near-field triangle ceiling affords: 7 m measures 1,004,544
+# against the 1,000,000 bound.
+grassUltraNearDistance: 6
 grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
 
-# Natural near-grass tuft distribution. Every tuft hashes its own radius,
-# ellipse, and dominant growth direction from its global coordinates, so the
-# field stops repeating one circular starburst grammar across every clump.
+# Natural near-grass tuft distribution.
 grassClumpRadiusScaleMin: 0.32
 grassClumpRadiusScaleMax: 0.48
 grassClumpAspectMin: 0.76
@@ -57,8 +58,7 @@ grassLandingPulseRadius: 2.4
 grassLandingPulseStrength: 1.05
 grassLandingPulseDecay: 5.2
 
-# Persistent crush map. 256 texels over 24 m resolves ~9.4 cm per texel, finer
-# than a footprint. The recovery rate is what sets how long a trail lasts.
+# Persistent crush map.
 grassTrailResolution: 256
 grassTrailCoverage: 24
 grassTrailRecoveryRate: 0.5
@@ -83,8 +83,7 @@ mountainHeight: 210
 mountainScale: 0.00115
 detailScale: 0.0055
 
-# Bare walking ways worn through the grass. Ways follow the contours of two
-# procedural fields; the branch field is the finer of the two.
+# Bare walking ways worn through the grass.
 pathWidth: 3
 pathBranchWidth: 1.7
 pathSpacing: 640
@@ -95,44 +94,40 @@ grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
 
-# Procedural stones. Placement is a pure world-space field: rocky regions
-# gather clusters, biomes and altitude shift family and palette, walking ways
-# stay clear but get lined verges, and grass clears itself around footprints.
-# stonesEnabled: 0 rolls the whole system back.
+# Procedural stones.
 stonesEnabled: 1
 stoneCellSize: 16
-stoneDensity: 0.2
-stoneVariantsPerArchetype: 6
-stoneClusterChance: 0.7
-stoneGrassClearanceFeather: 0.55
+stoneDensity: 0.17
+stoneVariantsPerArchetype: 10
+stoneClusterChance: 0.82
+stoneGrassClearanceFeather: 0.4
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
-stoneDetailRadius: 3
+# Chipped geometry is only useful in the near field; compact keeps it to one
+# 64 m ring because the extra facets are sub-pixel earlier on smaller screens.
+stoneDetailRadius: 2
+stoneDetailRadiusCompact: 1
+# Merge a stable 2x2 terrain-chunk block into one stone draw.
+stoneRenderBatchChunksPerAxis: 2
 stoneChunksPerFrame: 1
-# Stones lining the walking ways, as if cleared aside when the way was cut.
-# Scaled by rockiness, so a way through clean meadow stays clean.
-stoneVergeChance: 0.75
-# Close-range surface grain, available but off by design.
-#
-# It works — triplanar, world space, faded before it can alias, reusing the
-# terrain's own noise texture, and at 0 the shader is never injected so it
-# costs nothing. It was tried and it does not earn its place: the useful range
-# is narrow and unhelpful. Fine enough to see (feature size under ~0.6 m) and
-# the stones read as dirty concrete, which fights the flat-value art the
-# reference boards are built on; coarse enough to stay tasteful (~1.8 m) and
-# the value is near-constant across a one-metre stone, so nothing is visible.
-#
-# Raise stoneGrainStrength towards 0.2 with stoneGrainSize near 0.6 to judge it
-# for yourself. The close-range flatness it targets is better answered by the
-# chamfered rims, which cost nothing per fragment.
+# Paths keep occasional kicked-aside stones without becoming decorative kerbs.
+stoneVergeChance: 0.62
+# Close-range surface grain remains off.
 stoneGrainStrength: 0
 stoneGrainSize: 0.6
 stoneGrainFadeDistance: 18
 
+# Biological growth.
+stoneGrowthDetailStrength: 0.82
+stoneGrowthDetailSize: 0.32
+stoneGrowthDetailFadeDistance: 24
+stoneMossExposureStrength: 0.68
+stoneMossExposureAzimuthDegrees: 32
+stoneMossExposureElevationDegrees: 49
+stoneMossStreakStrength: 0.32
+
 grassNearDistance: 24
 grassMidDistance: 80
-# Cheap subpatch impostors carry the matched blade palette almost to the
-# streamed terrain horizon, keeping the terrain handoff unobtrusive.
 grassFarDistance: 280
 grassTransitionDistance: 8
 grassHysteresisDistance: 3

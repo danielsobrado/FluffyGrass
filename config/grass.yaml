@@ -7,10 +7,13 @@ bladeSegments: 3
 clumpRadius: 0.72
 bladeHeightMin: 0.50
 bladeHeightMax: 0.95
-bladeWidthMin: 0.026
-bladeWidthMax: 0.058
+bladeWidthMin: 0.045
+bladeWidthMax: 0.090
 bladeLeanMin: 0.025
 bladeLeanMax: 0.30
+# Total turn of the blade's rest arc, root to tip, in radians. The height above
+# is spent as arc length, so a curved blade stands lower than a straight one.
+bladeCurve: 0.8
 midBladesPerClump: 12
 midBladeSegments: 1
 midRadiusScale: 1
