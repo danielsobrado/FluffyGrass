@@ -6,6 +6,9 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const MAX_DESKTOP_BRIDGE_EXTRA_TRIANGLES = 180_000;
 const MAX_COMPACT_BRIDGE_EXTRA_TRIANGLES = 100_000;
+const MAX_DESKTOP_TOTAL_NEAR_TRIANGLES = 1_200_000;
+const MAX_COMPACT_TOTAL_NEAR_TRIANGLES = 600_000;
+const PHASE_SAMPLES = 64;
 
 function read(relativePath) {
   return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
@@ -72,18 +75,19 @@ function countTiles(radius, tileSize, focusX, focusZ) {
   return count;
 }
 
-function maximumResidentTiles(radius, tileSize) {
-  const phaseSamples = 64;
+function requestedBladesPerTile(tileSize, density, multiplier = 1) {
+  return Math.max(1, Math.round(tileSize ** 2 * density * multiplier));
+}
+
+function sampleMaximum(radiusEvaluator, tileSize) {
   let maximum = 0;
-  for (let z = 0; z < phaseSamples; z += 1) {
-    for (let x = 0; x < phaseSamples; x += 1) {
+  for (let z = 0; z < PHASE_SAMPLES; z += 1) {
+    for (let x = 0; x < PHASE_SAMPLES; x += 1) {
       maximum = Math.max(
         maximum,
-        countTiles(
-          radius,
-          tileSize,
-          (x * tileSize) / phaseSamples,
-          (z * tileSize) / phaseSamples,
+        radiusEvaluator(
+          (x * tileSize) / PHASE_SAMPLES,
+          (z * tileSize) / PHASE_SAMPLES,
         ),
       );
     }
@@ -91,7 +95,54 @@ function maximumResidentTiles(radius, tileSize) {
   return maximum;
 }
 
+function maximumResidentTiles(radius, tileSize) {
+  return sampleMaximum(
+    (focusX, focusZ) => countTiles(radius, tileSize, focusX, focusZ),
+    tileSize,
+  );
+}
+
+function maximumTotalNearTriangles({
+  density,
+  ultraMultiplier,
+  tileSize,
+  bladeSegments,
+  baseRadius,
+  detailRadius,
+  ultraRadius,
+  bridgeRadius,
+}) {
+  const baseBlades = requestedBladesPerTile(tileSize, density);
+  const ultraBlades = requestedBladesPerTile(
+    tileSize,
+    density,
+    ultraMultiplier - 1,
+  );
+  const segmentedTriangles = bladeSegments * 2;
+  return sampleMaximum((focusX, focusZ) => {
+    const baseTriangles =
+      countTiles(baseRadius, tileSize, focusX, focusZ) * baseBlades;
+    const detailTriangles =
+      countTiles(detailRadius, tileSize, focusX, focusZ) *
+      baseBlades *
+      segmentedTriangles;
+    const ultraTriangles =
+      countTiles(ultraRadius, tileSize, focusX, focusZ) *
+      ultraBlades *
+      segmentedTriangles;
+    const bridgeExtraTriangles =
+      countTiles(bridgeRadius, tileSize, focusX, focusZ) * baseBlades;
+    return (
+      baseTriangles +
+      detailTriangles +
+      ultraTriangles +
+      bridgeExtraTriangles
+    );
+  }, tileSize);
+}
+
 const worldConfig = read("public/config/world.yaml");
+const grassConfig = read("public/config/grass.yaml");
 const presets = JSON.parse(read("src/grass/GrassArtPresets.json"));
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
@@ -107,6 +158,14 @@ const ultraTransition = readYamlNumber(
   worldConfig,
   "grassUltraNearTransitionDistance",
 );
+const ultraMultiplier = readYamlNumber(
+  worldConfig,
+  "grassUltraNearDensityMultiplier",
+);
+const compactUltraMultiplier = readYamlNumber(
+  worldConfig,
+  "grassUltraNearDensityMultiplierCompact",
+);
 const nearDistance = readYamlNumber(worldConfig, "grassNearDistance");
 const nearTransition = readYamlNumber(worldConfig, "grassTransitionDistance");
 const tileSize = readYamlNumber(worldConfig, "grassNearTileSize");
@@ -118,6 +177,7 @@ const compactDensity = readYamlNumber(
   worldConfig,
   "grassNearBladesPerSquareMeterCompact",
 );
+const bladeSegments = readYamlNumber(grassConfig, "bladeSegments");
 const boundsMargin = readSourceNumber(nearField, "SINGLE_BLADE_BOUNDS_MARGIN");
 
 const bridgeFadeStart = bridgeDistance - bridgeTransition;
@@ -143,12 +203,51 @@ for (const [profile, density, ceiling] of [
   ["desktop", desktopDensity, MAX_DESKTOP_BRIDGE_EXTRA_TRIANGLES],
   ["compact", compactDensity, MAX_COMPACT_BRIDGE_EXTRA_TRIANGLES],
 ]) {
-  const bladesPerTile = Math.round(tileSize ** 2 * density);
+  const bladesPerTile = requestedBladesPerTile(tileSize, density);
   const conservativeExtraTriangles = maximumBridgeTiles * bladesPerTile;
   assert(
     conservativeExtraTriangles <= ceiling,
     `${profile} bridge shell adds ${conservativeExtraTriangles} conservative ` +
       `near triangles, above the ${ceiling} ceiling.`,
+  );
+}
+
+const maximumPresetNearFade = Math.max(
+  ...Object.values(presets).map(
+    (direction) => direction.nearDistance + direction.transitionDistance,
+  ),
+);
+const totalNearParameters = {
+  tileSize,
+  bladeSegments,
+  baseRadius: maximumPresetNearFade + boundsMargin,
+  detailRadius: ultraFadeEnd + boundsMargin,
+  ultraRadius: ultraFadeEnd,
+  bridgeRadius: bridgeResidencyRadius,
+};
+for (const [profile, density, profileUltraMultiplier, ceiling] of [
+  [
+    "desktop",
+    desktopDensity,
+    ultraMultiplier,
+    MAX_DESKTOP_TOTAL_NEAR_TRIANGLES,
+  ],
+  [
+    "compact",
+    compactDensity,
+    compactUltraMultiplier,
+    MAX_COMPACT_TOTAL_NEAR_TRIANGLES,
+  ],
+]) {
+  const maximumTriangles = maximumTotalNearTriangles({
+    ...totalNearParameters,
+    density,
+    ultraMultiplier: profileUltraMultiplier,
+  });
+  assert(
+    maximumTriangles <= ceiling,
+    `${profile} combined near + bridge budget is ${maximumTriangles} triangles, ` +
+      `above the ${ceiling} ceiling.`,
   );
 }
 
@@ -218,5 +317,5 @@ assert(
 );
 
 console.log(
-  "[grass-bridge-lod] Placement, staging, quality, and submission checks passed.",
+  "[grass-bridge-lod] Placement, staging, quality, total-budget, and submission checks passed.",
 );
