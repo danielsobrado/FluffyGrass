@@ -1,4 +1,8 @@
 import { FlatConfig } from "../config/FlatConfig";
+import {
+  FlatConfigValueReader,
+  POSITIVE_NUMBER_RULE,
+} from "../config/FlatConfigValueReader";
 import type { RuntimeConfig, RuntimeTierConfig } from "./RuntimeConfig";
 
 const CONFIG_URL = "./config/runtime.yaml";
@@ -17,100 +21,42 @@ export class RuntimeConfigLoader {
 
   private parse(source: string): RuntimeConfig {
     const values = FlatConfig.parse(source, "runtime");
+    const reader = new FlatConfigValueReader(values, "Runtime");
     const config = Object.freeze({
-      compactMaxWidth: this.readPositiveNumber(values, "compactMaxWidth"),
-      desktop: Object.freeze(this.readTier(values, "desktop")),
-      compact: Object.freeze(this.readTier(values, "compact")),
+      compactMaxWidth: reader.number("compactMaxWidth", POSITIVE_NUMBER_RULE),
+      desktop: Object.freeze(this.readTier(reader, "desktop")),
+      compact: Object.freeze(this.readTier(reader, "compact")),
     });
     values.assertFullyConsumed();
     return config;
   }
 
   private readTier(
-    values: FlatConfig,
+    reader: FlatConfigValueReader,
     prefix: "desktop" | "compact",
   ): RuntimeTierConfig {
     return {
-      cameraFov: this.readRange(values, `${prefix}CameraFov`, 30, 90),
-      cameraMargin: this.readRange(values, `${prefix}CameraMargin`, 1, 3),
-      cameraElevation: this.readRange(
-        values,
-        `${prefix}CameraElevation`,
-        0.1,
-        3,
-      ),
-      maxPixelRatio: this.readRange(
-        values,
-        `${prefix}MaxPixelRatio`,
-        0.5,
-        3,
-      ),
-      autoRotate: this.readBoolean(values, `${prefix}AutoRotate`),
-      shadows: this.readBoolean(values, `${prefix}Shadows`),
-      shadowMapSize: this.readPowerOfTwo(values, `${prefix}ShadowMapSize`),
-      showGui: this.readBoolean(values, `${prefix}ShowGui`),
-      showDecorativeText: this.readBoolean(
-        values,
-        `${prefix}ShowDecorativeText`,
-      ),
+      cameraFov: reader.number(`${prefix}CameraFov`, {
+        minimum: 30,
+        maximum: 90,
+      }),
+      cameraMargin: reader.number(`${prefix}CameraMargin`, {
+        minimum: 1,
+        maximum: 3,
+      }),
+      cameraElevation: reader.number(`${prefix}CameraElevation`, {
+        minimum: 0.1,
+        maximum: 3,
+      }),
+      maxPixelRatio: reader.number(`${prefix}MaxPixelRatio`, {
+        minimum: 0.5,
+        maximum: 3,
+      }),
+      autoRotate: reader.boolean(`${prefix}AutoRotate`),
+      shadows: reader.boolean(`${prefix}Shadows`),
+      shadowMapSize: reader.powerOfTwo(`${prefix}ShadowMapSize`),
+      showGui: reader.boolean(`${prefix}ShowGui`),
+      showDecorativeText: reader.boolean(`${prefix}ShowDecorativeText`),
     };
-  }
-
-  private readBoolean(values: FlatConfig, key: string): boolean {
-    const value = values.read(key).toLowerCase();
-    if (value === "true") {
-      return true;
-    }
-    if (value === "false") {
-      return false;
-    }
-    throw new Error(`Runtime config value ${key} must be true or false.`);
-  }
-
-  private readPowerOfTwo(values: FlatConfig, key: string): number {
-    const value = this.readPositiveInteger(values, key);
-    if ((value & (value - 1)) !== 0) {
-      throw new Error(`Runtime config value ${key} must be a power of two.`);
-    }
-    return value;
-  }
-
-  private readPositiveInteger(values: FlatConfig, key: string): number {
-    const value = this.readPositiveNumber(values, key);
-    if (!Number.isInteger(value)) {
-      throw new Error(`Runtime config value ${key} must be an integer.`);
-    }
-    return value;
-  }
-
-  private readPositiveNumber(values: FlatConfig, key: string): number {
-    const value = this.readNumber(values, key);
-    if (value <= 0) {
-      throw new Error(`Runtime config value ${key} must be positive.`);
-    }
-    return value;
-  }
-
-  private readRange(
-    values: FlatConfig,
-    key: string,
-    minimum: number,
-    maximum: number,
-  ): number {
-    const value = this.readNumber(values, key);
-    if (value < minimum || value > maximum) {
-      throw new Error(
-        `Runtime config value ${key} must be between ${minimum} and ${maximum}.`,
-      );
-    }
-    return value;
-  }
-
-  private readNumber(values: FlatConfig, key: string): number {
-    const value = Number(values.read(key));
-    if (!Number.isFinite(value)) {
-      throw new Error(`Runtime config value ${key} must be a number.`);
-    }
-    return value;
   }
 }
