@@ -48,6 +48,10 @@ const DETAIL_FOLIAGE_TILES_PER_FRAME = 1;
 /** Compact devices carry the layer at a lower share of the same budget. */
 const COMPACT_DETAIL_FOLIAGE_SCALE = 0.6;
 
+interface NearFieldBuilder {
+  update(focus: THREE.Vector3, buildDeadline?: number): void;
+}
+
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
   // The ultra-near detail layer, regular near layer, and bridge are separate
@@ -78,6 +82,7 @@ export class WorldNearGrassField {
   private nearDistanceScale = 1;
   private initialized = false;
   private disposed = false;
+  private buildCursor = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -183,14 +188,33 @@ export class WorldNearGrassField {
       buildDeadline,
       performance.now() + nearBuildBudget,
     );
-    // Detail tiles reuse LOD0 placement buffers. The bridge is updated after
-    // LOD0 so overlap tiles are cache hits; beyond LOD0 residency it becomes
-    // the placement owner, replacing the work the old near field did there.
-    this.baseDetailedField?.update(focus, nearBuildDeadline);
-    this.ultraNearField?.update(focus, nearBuildDeadline);
-    this.baseField?.update(focus, nearBuildDeadline);
-    this.bridgeField?.update(focus, nearBuildDeadline);
-    this.detailFoliageField?.update(focus, nearBuildDeadline);
+    // Rotate the first builder and divide the remaining time between fields.
+    // A fixed order let an expensive detail ring consume the whole deadline
+    // every frame, leaving the base/bridge tiles visibly empty until later.
+    const nearBuildStartedAt = performance.now();
+    const baseDeadline = Math.min(
+      nearBuildDeadline,
+      nearBuildStartedAt + (nearBuildDeadline - nearBuildStartedAt) * 0.5,
+    );
+    this.baseField?.update(focus, baseDeadline);
+    const builders: NearFieldBuilder[] = [];
+    if (this.bridgeField) builders.push(this.bridgeField);
+    if (this.baseDetailedField) builders.push(this.baseDetailedField);
+    if (this.ultraNearField) builders.push(this.ultraNearField);
+    if (this.detailFoliageField) builders.push(this.detailFoliageField);
+    for (let offset = 0; offset < builders.length; offset += 1) {
+      const index = (this.buildCursor + offset) % builders.length;
+      const remainingBuilders = builders.length - offset;
+      const remainingMs = Math.max(0, nearBuildDeadline - performance.now());
+      const fieldDeadline = Math.min(
+        nearBuildDeadline,
+        performance.now() + remainingMs / remainingBuilders,
+      );
+      builders[index].update(focus, fieldDeadline);
+    }
+    if (builders.length > 0) {
+      this.buildCursor = (this.buildCursor + 1) % builders.length;
+    }
   }
 
   getDetailFoliageAtlas(): WorldDetailFoliageAtlas | undefined {

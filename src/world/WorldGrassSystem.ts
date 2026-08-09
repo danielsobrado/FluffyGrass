@@ -221,6 +221,8 @@ const CHUNK_BUILD_WARNING_MS = 24;
 const DESKTOP_BUILD_BUDGET_MS = 4;
 const COMPACT_BUILD_BUDGET_MS = 2.5;
 const CENTER_BUILD_BUDGET_MS = 6;
+const DESKTOP_STREAM_BUILD_RESERVE_MS = 1.25;
+const COMPACT_STREAM_BUILD_RESERVE_MS = 0.75;
 const STREAM_LOOKAHEAD_CHUNKS = 2;
 const STREAM_FADE_SECONDS = 0.35;
 const RETIREMENTS_PER_FRAME = 2;
@@ -389,12 +391,6 @@ export class WorldGrassSystem {
     }
 
     camera.getWorldPosition(this.cameraPosition);
-    this.nearField.update(
-      elapsedSeconds,
-      this.cameraPosition,
-      focusGroundHeight,
-      buildDeadline,
-    );
     const chunkX = Math.floor(this.cameraPosition.x / this.worldConfig.chunkSize);
     const chunkZ = Math.floor(this.cameraPosition.z / this.worldConfig.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -404,7 +400,20 @@ export class WorldGrassSystem {
     }
 
     this.processRetirementQueue();
-    this.processBuildQueue(buildDeadline);
+    const streamBuildReserveMs = this.profile.compact
+      ? COMPACT_STREAM_BUILD_RESERVE_MS
+      : DESKTOP_STREAM_BUILD_RESERVE_MS;
+    const streamBuildDeadline = Math.min(
+      buildDeadline,
+      performance.now() + streamBuildReserveMs,
+    );
+    this.processBuildQueue(streamBuildDeadline);
+    this.nearField.update(
+      elapsedSeconds,
+      this.cameraPosition,
+      focusGroundHeight,
+      buildDeadline,
+    );
     this.updateStreamCoverage(deltaSeconds);
     this.lodController.update(camera, this.patches.values());
     this.lodController.updateFarGroups(this.farGroups.values());

@@ -6,7 +6,10 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function fail(message) {
@@ -802,6 +805,20 @@ assert(
 assert(
   compactDensity <= 48 && patchCompactDensity <= 48,
   `Compact density may only be lowered from the reviewed 48 blades/m²: ${compactDensity}.`,
+);
+assert(
+  worldGrassSystem.indexOf("this.processBuildQueue(streamBuildDeadline)") <
+    worldGrassSystem.indexOf("this.nearField.update(") &&
+    worldGrassSystem.includes("DESKTOP_STREAM_BUILD_RESERVE_MS") &&
+    worldApp.includes("performance.now() + grassBuildReserveMs"),
+  "Mid/far grass streaming must receive bounded progress before near-field detail work.",
+);
+assert(
+  nearField.includes("this.baseField?.update(focus, baseDeadline)") &&
+    nearField.includes("this.buildCursor + offset") &&
+    nearField.includes("remainingMs / remainingBuilders") &&
+    nearField.includes("this.buildCursor = (this.buildCursor + 1)"),
+  "Near grass builders must rotate and share their deadline instead of starving later layers.",
 );
 // Placement shape is configuration, validated at load, and versioned into the
 // cache key — a cached tile built against the previous tuft rule must not

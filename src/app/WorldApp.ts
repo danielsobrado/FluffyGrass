@@ -362,11 +362,10 @@ export class WorldApp {
   };
 
   private readonly updateStones = (): void => {
-    const grassBuildReserveMs = this.profile.compact
-      ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS
-      : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
+    const grassBuildReserveMs = this.profile.compact ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
+    const stoneBuildReserveMs = this.profile.compact ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
     const stoneBuildDeadline = Math.max(
-      performance.now(),
+      performance.now() + stoneBuildReserveMs,
       this.streamingBuildDeadline - grassBuildReserveMs,
     );
     this.stones.update(this.controls.getStreamingPosition(), stoneBuildDeadline);
@@ -374,14 +373,14 @@ export class WorldApp {
 
   private readonly updateGrass = (deltaSeconds: number): void => {
     grassTrailField.render(deltaSeconds);
-    const cameraGroundHeight = this.flyMode
-      ? this.sampleGroundHeight(this.camera.position)
-      : undefined;
+    const cameraGroundHeight = this.flyMode ? this.sampleGroundHeight(this.camera.position) : undefined;
+    const grassBuildReserveMs = this.profile.compact ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
+    const grassBuildDeadline = Math.max(performance.now() + grassBuildReserveMs, this.streamingBuildDeadline);
     this.grass.update(
       deltaSeconds,
       this.camera,
       cameraGroundHeight,
-      this.streamingBuildDeadline,
+      grassBuildDeadline,
     );
   };
 
