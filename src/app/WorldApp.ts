@@ -30,6 +30,8 @@ const FRAME_STALL_THRESHOLD_MS = 1500;
 const CONTEXT_LOST_ERROR = "renderer: WebGL context lost";
 const DESKTOP_STREAMING_BUILD_BUDGET_MS = 8;
 const COMPACT_STREAMING_BUILD_BUDGET_MS = 5;
+const DESKTOP_STONE_BUILD_RESERVE_MS = 2;
+const COMPACT_STONE_BUILD_RESERVE_MS = 1.25;
 const MAX_RUNTIME_DELTA_SECONDS = 0.25;
 const SUN_DIRECTION = new THREE.Vector3(350, 500, 220).normalize();
 const SUN_SHADOW_DISTANCE = 200;
@@ -400,9 +402,19 @@ export class WorldApp {
   };
 
   private readonly updateTerrain = (): void => {
+    // Terrain streaming previously consumed the shared deadline before stones
+    // ran. Reserve a bounded tail of the frame budget so stone batches make
+    // progress even during the long initial terrain fill on slower devices.
+    const stoneBuildReserveMs = this.profile.compact
+      ? COMPACT_STONE_BUILD_RESERVE_MS
+      : DESKTOP_STONE_BUILD_RESERVE_MS;
+    const terrainBuildDeadline = Math.max(
+      performance.now(),
+      this.streamingBuildDeadline - stoneBuildReserveMs,
+    );
     this.terrain.update(
       this.controls.getStreamingPosition(),
-      this.streamingBuildDeadline,
+      terrainBuildDeadline,
     );
     this.stones.update(
       this.controls.getStreamingPosition(),

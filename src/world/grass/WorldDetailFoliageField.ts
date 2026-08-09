@@ -125,7 +125,7 @@ export interface WorldDetailFoliageTile {
   tileZ: number;
   mesh: THREE.InstancedMesh;
   instanceCount: number;
-  /** Every card's LOD dither, ascending, matching the instance buffer order. */
+  /** Every card's density dither, ascending, matching the instance buffer order. */
   sortedDithers: Float32Array;
 }
 
@@ -703,13 +703,11 @@ export class WorldDetailFoliageField {
   }
 
   /**
-   * Trims each tile's draw to the cards that can survive the vertex stage's
-   * keep test. Coverage is evaluated at the tile's nearest point — the maximum
-   * over the tile — and the instances are dither-sorted, so the cut can only
-   * ever include cards the shader would drop, never exclude one it keeps.
+   * Trims each tile to the stable density subset. Distance visibility is a
+   * continuous per-card alpha fade in the material; only tiles wholly beyond
+   * that fade are hidden here to avoid empty draw submissions.
    */
   private updateInstanceCounts(focus: THREE.Vector3): void {
-    const fadeStart = DETAIL_FOLIAGE_FADE_DISTANCE - DETAIL_FOLIAGE_FADE_TRANSITION;
     const fadeEnd = DETAIL_FOLIAGE_FADE_DISTANCE + DETAIL_FOLIAGE_FADE_TRANSITION;
     for (const tile of this.tiles.values()) {
       const distance =
@@ -719,21 +717,13 @@ export class WorldDetailFoliageField {
           tile.tileX * DETAIL_FOLIAGE_TILE_SIZE,
           tile.tileZ * DETAIL_FOLIAGE_TILE_SIZE,
         ) - COUNT_MOVEMENT_EPSILON;
-      let count: number;
-      if (distance <= fadeStart) {
-        count = upperBound(
-          tile.sortedDithers,
-          this.densityScale + DITHER_SAFETY_MARGIN,
-        );
-      } else if (distance >= fadeEnd) {
-        count = 0;
-      } else {
-        const coverage = 1 - smoothstep(distance, fadeStart, fadeEnd);
-        count = upperBound(
-          tile.sortedDithers,
-          coverage * this.densityScale + DITHER_SAFETY_MARGIN,
-        );
-      }
+      const count =
+        distance >= fadeEnd
+          ? 0
+          : upperBound(
+              tile.sortedDithers,
+              this.densityScale + DITHER_SAFETY_MARGIN,
+            );
       tile.mesh.count = count;
       // A count of zero would still cost a draw submission and a bind, and past
       // the fade every resident tile behind the camera is in that state.

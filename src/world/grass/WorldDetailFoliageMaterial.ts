@@ -83,6 +83,7 @@ flat varying float vBiome;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
+varying float vDistanceFade;
 varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
 #include <fog_pars_vertex>
@@ -98,13 +99,15 @@ void main() {
   vec3 center = root + cardUp * scaleY * 0.5;
   float cameraDistance = distance(cameraPosition, center);
 
-  // Coverage is per instance, and the CPU trims each tile's draw to the same
-  // prefix, so this test only ever removes cards the trim could not reach yet.
-  float coverage = (1.0 - smoothstep(
+  // Density remains a stable per-instance dither. Distance is deliberately
+  // not folded into this threshold: doing so made whole flowers blink on and
+  // off as the camera moved. The fragment stage fades their alpha instead.
+  float coverage = min(instanceCoverage * uDensityScale, 1.0);
+  vDistanceFade = 1.0 - smoothstep(
     uFadeDistance - uFadeTransition,
     uFadeDistance + uFadeTransition,
     cameraDistance
-  )) * min(instanceCoverage * uDensityScale, 1.0);
+  );
   if (instanceVariation.x > coverage) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -225,6 +228,7 @@ flat varying float vBiome;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
+varying float vDistanceFade;
 varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
 #include <common>
@@ -284,7 +288,7 @@ void main() {
   vec3 outgoingLight =
     mix(color, lambertLight, ${GRASS_LIGHT_MIX_GLSL}) +
     color * vGrassBackLight * uBacklightStrength * 0.2;
-  gl_FragColor = vec4(outgoingLight, 1.0);
+  gl_FragColor = vec4(outgoingLight, atlasColor.a * vDistanceFade);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   #include <fog_fragment>
@@ -382,8 +386,8 @@ export class WorldDetailFoliageMaterial {
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
       side: THREE.DoubleSide,
-      transparent: false,
-      depthWrite: true,
+      transparent: true,
+      depthWrite: false,
       depthTest: true,
       fog: true,
       lights: true,

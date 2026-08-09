@@ -92,7 +92,10 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   boulder: {
     id: "boulder",
-    sideCount: [7, 9],
+    // Boulder silhouettes need enough short facets to imply a weathered curve.
+    // With 7–9 sectors the gallery's broad side-on spans read as straight,
+    // manufactured cuts rather than stylized natural stone.
+    sideCount: [10, 12],
     radiusJitter: { min: 0.14, max: 0.28 },
     silhouetteAsymmetry: { min: 0.08, max: 0.17 },
     taper: { min: 0.12, max: 0.22 },

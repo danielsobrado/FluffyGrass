@@ -17,7 +17,7 @@
     "densityScale": 1,
     "windStrengthScale": 1,
     "flutterStrengthScale": 1.1,
-    "nearDistance": 24,
+    "nearDistance": 26,
     "midDistance": 54,
     "farDistance": 280,
     "transitionDistance": 10
@@ -40,7 +40,7 @@
     "densityScale": 0.9,
     "windStrengthScale": 0.85,
     "flutterStrengthScale": 0.9,
-    "nearDistance": 22,
+    "nearDistance": 26,
     "midDistance": 48,
     "farDistance": 250,
     "transitionDistance": 10
@@ -63,7 +63,7 @@
     "densityScale": 0.94,
     "windStrengthScale": 0.7,
     "flutterStrengthScale": 0.8,
-    "nearDistance": 20,
+    "nearDistance": 24,
     "midDistance": 46,
     "farDistance": 240,
     "transitionDistance": 10
@@ -86,7 +86,7 @@
     "densityScale": 0.88,
     "windStrengthScale": 1.25,
     "flutterStrengthScale": 1.2,
-    "nearDistance": 22,
+    "nearDistance": 26,
     "midDistance": 58,
     "farDistance": 270,
     "transitionDistance": 10
@@ -109,7 +109,7 @@
     "densityScale": 1,
     "windStrengthScale": 0.8,
     "flutterStrengthScale": 0.9,
-    "nearDistance": 24,
+    "nearDistance": 26,
     "midDistance": 62,
     "farDistance": 280,
     "transitionDistance": 12
@@ -134,7 +134,7 @@
     "flutterStrengthScale": 1.15,
     "gustDepth": 0.6,
     "gustTipBoost": 0.12,
-    "nearDistance": 24,
+    "nearDistance": 26,
     "midDistance": 56,
     "farDistance": 280,
     "transitionDistance": 10
@@ -157,7 +157,7 @@
     "densityScale": 0.92,
     "windStrengthScale": 1.65,
     "flutterStrengthScale": 1.5,
-    "nearDistance": 20,
+    "nearDistance": 24,
     "midDistance": 52,
     "farDistance": 260,
     "transitionDistance": 12
