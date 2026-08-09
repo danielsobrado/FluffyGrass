@@ -13,6 +13,16 @@ interface TerrainSnapshot {
   maxBuildMs: number;
 }
 
+interface StoneSnapshot {
+  activeChunks: number;
+  queuedChunks: number;
+  stones: number;
+  triangles: number;
+  drawCalls: number;
+  lastBuildMs: number;
+  maxBuildMs: number;
+}
+
 interface GrassSnapshot {
   ready: boolean;
   status: string;
@@ -39,6 +49,7 @@ interface RenderSnapshot {
 interface FrameTimingSnapshot {
   controls: number;
   terrain: number;
+  stones: number;
   grass: number;
   renderer: number;
 }
@@ -54,6 +65,7 @@ export interface WorldStatusSnapshot {
   speed: number;
   inputDiagnostics: string;
   terrain: TerrainSnapshot;
+  stones: StoneSnapshot;
   grass: GrassSnapshot;
   grassInitializationError?: string;
   render: RenderSnapshot;
@@ -93,12 +105,13 @@ export class WorldStatusHud {
       `AGL ${(snapshot.focus.y - snapshot.groundHeight).toFixed(1)} m · Speed ${snapshot.speed.toFixed(1)} m/s`,
       `Input ${snapshot.inputDiagnostics}`,
       `Terrain ${snapshot.terrain.activeChunks} +${snapshot.terrain.queuedChunks} · Build ${snapshot.terrain.lastBuildMs.toFixed(1)} / peak ${snapshot.terrain.maxBuildMs.toFixed(1)} ms`,
+      `Stones ${snapshot.stones.stones.toLocaleString()} · ${snapshot.stones.activeChunks} +${snapshot.stones.queuedChunks} batches · ${snapshot.stones.triangles.toLocaleString()} tris · Build ${snapshot.stones.lastBuildMs.toFixed(1)} / peak ${snapshot.stones.maxBuildMs.toFixed(1)} ms`,
       snapshot.grass.ready
         ? `Grass ${snapshot.grass.clumps.toLocaleString()} patches · ${snapshot.grass.blades.toLocaleString()} blades · ${snapshot.grass.impostors.toLocaleString()} impostors`
         : grassStatus,
       `Draws ${snapshot.render.calls} · Triangles ${snapshot.render.triangles.toLocaleString()} · Scale ${snapshot.pixelRatio.toFixed(2)} · Build ${snapshot.grass.lastBuildMs.toFixed(1)} / peak ${snapshot.grass.maxBuildMs.toFixed(1)} ms`,
       `Grass submit mid ${snapshot.grass.submittedMidVertices.toLocaleString()} verts · far ${snapshot.grass.submittedFarInstances.toLocaleString()} inst · quality T${snapshot.grass.qualityTier} ${snapshot.grass.qualityTierSeconds.toFixed(1)}s (${snapshot.grass.qualityDensityScale.toFixed(2)})`,
-      `Frame ctrl ${snapshot.frameTimings.controls.toFixed(2)} · terr ${snapshot.frameTimings.terrain.toFixed(2)} · grass ${snapshot.frameTimings.grass.toFixed(2)} · draw ${snapshot.frameTimings.renderer.toFixed(2)} ms`,
+      `Frame ctrl ${snapshot.frameTimings.controls.toFixed(2)} · terr ${snapshot.frameTimings.terrain.toFixed(2)} · stone ${snapshot.frameTimings.stones.toFixed(2)} · grass ${snapshot.frameTimings.grass.toFixed(2)} · draw ${snapshot.frameTimings.renderer.toFixed(2)} ms`,
       `Near tiles ${snapshot.grass.nearTiles.toLocaleString()} · Tile build ${snapshot.grass.nearTileBuildMs.toFixed(1)} / peak ${snapshot.grass.maxNearTileBuildMs.toFixed(1)} ms`,
       snapshot.runtimeError ? `Error ${snapshot.runtimeError}` : "",
     ]
