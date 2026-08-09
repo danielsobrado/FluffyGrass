@@ -474,10 +474,13 @@ export class WorldApp {
   }
 
   private readonly updateHud = (deltaSeconds: number): void => {
+    if (!this.statusHud.shouldUpdate(deltaSeconds)) {
+      return;
+    }
     const terrain = this.terrain.getDiagnostics();
     const grass = this.grass.getDiagnostics();
     const focus = this.controls.getStreamingPosition();
-    this.statusHud.update(deltaSeconds, {
+    this.statusHud.render({
       frameCount: this.frameMetrics.getFrameCount(),
       averageFps: this.frameMetrics.getAverageFps(),
       runtimeError: this.runtimeGuard.error,
