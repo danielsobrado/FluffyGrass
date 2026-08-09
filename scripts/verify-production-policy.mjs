@@ -7,6 +7,8 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORKFLOW_DIRECTORY = resolve(REPOSITORY_ROOT, ".github", "workflows");
 const DEPLOY_SCRIPT = resolve(REPOSITORY_ROOT, "scripts", "deploy-github-pages.mjs");
 const VITE_CONFIG = resolve(REPOSITORY_ROOT, "vite.config.ts");
+const PACKAGE_FILE = resolve(REPOSITORY_ROOT, "package.json");
+const NODE_VERSION_FILE = resolve(REPOSITORY_ROOT, ".nvmrc");
 const WORKFLOW_EXTENSIONS = new Set([".yml", ".yaml"]);
 
 function fail(message) {
@@ -63,4 +65,17 @@ if (
   );
 }
 
-console.log("[production-policy] Deployment and runtime cache policies verified.");
+const packageMetadata = JSON.parse(readFileSync(PACKAGE_FILE, "utf8"));
+const nodeEngine = String(packageMetadata.engines?.node ?? "");
+if (
+  nodeEngine.length === 0 ||
+  /(?:\^|>=)20(?:\.|\b)/.test(nodeEngine)
+) {
+  fail("Production tooling must not advertise the end-of-life Node 20 line.");
+}
+const pinnedNodeMajor = readFileSync(NODE_VERSION_FILE, "utf8").trim();
+if (pinnedNodeMajor !== "24") {
+  fail("Local production tooling must pin the current Node 24 LTS line in .nvmrc.");
+}
+
+console.log("[production-policy] Deployment, cache, and runtime policies verified.");
