@@ -384,7 +384,10 @@ export class WorldDetailFoliageFactory {
           0,
           1,
         ),
-        coverage: resolveGrassBiomeDensity(biomeSample),
+        // Accents share the blade layer's verge feather so flowers cannot pop
+        // into a full-density strip beside the path as their tiles approach.
+        coverage:
+          resolveGrassBiomeDensity(biomeSample) * pathMask * stoneMask,
         biome: biomeIndex,
         accent: packGrassAccent(
           pick.speciesIndex,

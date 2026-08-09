@@ -738,7 +738,12 @@ export class WorldSingleBladeTileFactory {
         0,
         1,
       );
-      job.coverages[job.bladeCount] = resolveGrassBiomeDensity(biomeSample);
+      // Preserve the path/stone feather as density coverage instead of using
+      // it only as a placement gate. Otherwise every surviving verge blade
+      // becomes fully dense when the near LOD arrives and the path edge grows
+      // visibly around the moving camera.
+      job.coverages[job.bladeCount] =
+        resolveGrassBiomeDensity(biomeSample) * pathMask * stoneMask;
       job.biomes[job.bladeCount] = biomeIndex;
       job.bladeCount += 1;
     }
