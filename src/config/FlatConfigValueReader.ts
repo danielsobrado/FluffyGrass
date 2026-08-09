@@ -2,12 +2,13 @@ import type { FlatConfig } from "./FlatConfig";
 
 export interface ConfigNumberRule {
   minimum?: number;
+  exclusiveMinimum?: number;
   maximum?: number;
   integer?: boolean;
 }
 
 export const POSITIVE_NUMBER_RULE: Readonly<ConfigNumberRule> = Object.freeze({
-  minimum: Number.EPSILON,
+  exclusiveMinimum: 0,
 });
 export const NON_NEGATIVE_NUMBER_RULE: Readonly<ConfigNumberRule> =
   Object.freeze({ minimum: 0 });
@@ -46,6 +47,14 @@ export class FlatConfigValueReader {
     }
     if (rule.integer && !Number.isInteger(value)) {
       throw new Error(`${this.configName} config value ${key} must be an integer.`);
+    }
+    if (
+      rule.exclusiveMinimum !== undefined &&
+      value <= rule.exclusiveMinimum
+    ) {
+      throw new Error(
+        `${this.configName} config value ${key} must be greater than ${rule.exclusiveMinimum}.`,
+      );
     }
     if (rule.minimum !== undefined && value < rule.minimum) {
       throw new Error(
