@@ -10,6 +10,7 @@ const HUD_UPDATE_INTERVAL_MS = 250;
 
 export interface WorldDiagnosticsOptions {
   gpuTiming: boolean;
+  statsPanelEnabled: boolean;
 }
 
 export class WorldDiagnosticsController {
@@ -28,7 +29,10 @@ export class WorldDiagnosticsController {
     this.renderer = runtime.renderer;
     this.originalRender = this.renderer.render;
     this.probe = new GrassWorkloadProbe(runtime.grass);
-    this.gpuTimer = new GpuFrameTimer(this.renderer, options.gpuTiming);
+    this.gpuTimer = new GpuFrameTimer(
+      this.renderer,
+      options.gpuTiming && !options.statsPanelEnabled,
+    );
     this.renderer.render = this.renderWithDiagnostics;
   }
 
