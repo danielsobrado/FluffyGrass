@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
-import { setStoneClearanceField } from "./StoneClearance";
+import {
+  registerStoneClearanceField,
+  type StoneClearanceRegistration,
+} from "./StoneClearance";
 import type { StoneField } from "./StoneField";
 import {
   applyStoneCoarseSurfaceShader,
@@ -59,6 +62,7 @@ export class WorldStoneSystem {
   });
   private readonly mossExposureDirection = new THREE.Vector3();
   private readonly builder: StoneRenderBatchBuilder;
+  private readonly clearanceRegistration: StoneClearanceRegistration;
   private readonly coarseShaderMinimumDistance: number;
   private readonly enabled: boolean;
   private readonly grainTexture?: THREE.Texture;
@@ -106,7 +110,7 @@ export class WorldStoneSystem {
       config,
       this.mossExposureDirection,
     );
-    setStoneClearanceField(
+    this.clearanceRegistration = registerStoneClearanceField(
       this.enabled ? stoneField : undefined,
       this.enabled ? config : undefined,
     );
@@ -164,7 +168,7 @@ export class WorldStoneSystem {
     this.queue.length = 0;
     this.desired.clear();
     this.emptySignatures.clear();
-    setStoneClearanceField(undefined);
+    this.clearanceRegistration.dispose();
     this.detailMaterial.dispose();
     this.coarseMaterial.dispose();
     this.grainTexture?.dispose();
