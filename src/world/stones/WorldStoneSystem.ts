@@ -71,6 +71,7 @@ export class WorldStoneSystem {
   private centerChunkZ = Number.NaN;
   private lastBuildMs = 0;
   private maxBuildMs = 0;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -129,7 +130,7 @@ export class WorldStoneSystem {
   }
 
   update(position: THREE.Vector3, buildDeadline: number): void {
-    if (!this.enabled) return;
+    if (this.disposed || !this.enabled) return;
 
     const chunkX = Math.floor(position.x / this.config.chunkSize);
     const chunkZ = Math.floor(position.z / this.config.chunkSize);
@@ -160,6 +161,10 @@ export class WorldStoneSystem {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.activeBuild = undefined;
     for (const batch of this.batches.values()) {
       this.removeBatch(batch);
