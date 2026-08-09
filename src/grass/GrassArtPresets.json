@@ -17,10 +17,10 @@
     "densityScale": 1,
     "windStrengthScale": 1,
     "flutterStrengthScale": 1.1,
-    "nearDistance": 30,
+    "nearDistance": 28,
     "midDistance": 54,
     "farDistance": 280,
-    "transitionDistance": 10
+    "transitionDistance": 8
   },
   "natural-meadow": {
     "key": "natural-meadow",
@@ -40,10 +40,10 @@
     "densityScale": 0.9,
     "windStrengthScale": 0.85,
     "flutterStrengthScale": 0.9,
-    "nearDistance": 30,
+    "nearDistance": 28,
     "midDistance": 48,
     "farDistance": 250,
-    "transitionDistance": 10
+    "transitionDistance": 8
   },
   "golden-hour": {
     "key": "golden-hour",
@@ -63,10 +63,10 @@
     "densityScale": 0.94,
     "windStrengthScale": 0.7,
     "flutterStrengthScale": 0.8,
-    "nearDistance": 28,
+    "nearDistance": 26,
     "midDistance": 46,
     "farDistance": 240,
-    "transitionDistance": 10
+    "transitionDistance": 8
   },
   "cool-highland": {
     "key": "cool-highland",
@@ -86,10 +86,10 @@
     "densityScale": 0.88,
     "windStrengthScale": 1.25,
     "flutterStrengthScale": 1.2,
-    "nearDistance": 30,
+    "nearDistance": 28,
     "midDistance": 58,
     "farDistance": 270,
-    "transitionDistance": 10
+    "transitionDistance": 8
   },
   "dense-emerald": {
     "key": "dense-emerald",
@@ -109,10 +109,10 @@
     "densityScale": 1,
     "windStrengthScale": 0.8,
     "flutterStrengthScale": 0.9,
-    "nearDistance": 30,
+    "nearDistance": 28,
     "midDistance": 62,
     "farDistance": 280,
-    "transitionDistance": 12
+    "transitionDistance": 10
   },
   "zelda-field": {
     "key": "zelda-field",
@@ -134,10 +134,10 @@
     "flutterStrengthScale": 1.15,
     "gustDepth": 0.6,
     "gustTipBoost": 0.12,
-    "nearDistance": 30,
+    "nearDistance": 28,
     "midDistance": 56,
     "farDistance": 280,
-    "transitionDistance": 10
+    "transitionDistance": 8
   },
   "windswept": {
     "key": "windswept",
@@ -157,9 +157,9 @@
     "densityScale": 0.92,
     "windStrengthScale": 1.65,
     "flutterStrengthScale": 1.5,
-    "nearDistance": 28,
+    "nearDistance": 26,
     "midDistance": 52,
     "farDistance": 260,
-    "transitionDistance": 12
+    "transitionDistance": 10
   }
 }
