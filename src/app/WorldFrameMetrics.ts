@@ -6,6 +6,7 @@ import {
 export type WorldFrameSubsystem =
   | "controls"
   | "terrain"
+  | "stones"
   | "grass"
   | "renderer"
   | "hud";
@@ -13,6 +14,7 @@ export type WorldFrameSubsystem =
 export interface WorldFrameTimings {
   controls: number;
   terrain: number;
+  stones: number;
   grass: number;
   renderer: number;
   hud: number;
@@ -26,6 +28,7 @@ export class WorldFrameMetrics {
   private readonly timings: WorldFrameTimings = {
     controls: 0,
     terrain: 0,
+    stones: 0,
     grass: 0,
     renderer: 0,
     hud: 0,
