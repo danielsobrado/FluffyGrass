@@ -1,18 +1,25 @@
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
-import type {
-  StonePolygon,
-  StonePlaneRole,
-  StoneVec3,
-} from "./StoneClipper";
+import type { StoneVec3 } from "./StoneClipper";
 import { buildStonePolyhedron } from "./StoneClipper";
+import {
+  STONE_CONTACT_SHADE_FLOOR,
+  STONE_CONTACT_SHADE_HEIGHT,
+  STONE_MESH_QUANTIZE,
+  STONE_MOSS_CLIMB,
+  STONE_MOSS_PATCH_SIZE,
+  STONE_ROLE_TONE,
+  STONE_SNAP_EPSILON,
+} from "./StoneGeometryTuning";
+import { addStoneIndentation } from "./StoneIndentation";
+import {
+  buildStoneEdgeSharpness,
+  buildWorkingStoneFaces,
+  chooseStoneFanRoot,
+  countSharedStoneFacePairs,
+  type WorkingStoneFace,
+} from "./StoneMeshTopology";
 
-/**
- * Builds render-ready flat-shaded mesh data from a stone recipe.
- *
- * Geometry carries palette position, wear, and moss susceptibility rather than
- * final colours so one cached variant can be reused across biome tints.
- */
 export interface StoneMeshData {
   readonly positions: Float32Array;
   readonly normals: Float32Array;
@@ -33,38 +40,6 @@ export interface StoneMeshMetrics {
   readonly fingerprint: number;
 }
 
-const SNAP_EPSILON = 1e-3;
-const QUANTIZE = 5e-4;
-const DEGENERATE_NORMAL_LENGTH = 1e-12;
-const CONTACT_SHADE_FLOOR = 0.62;
-const CONTACT_SHADE_HEIGHT = 0.22;
-const MOSS_CLIMB = 0.42;
-const MOSS_PATCH_SIZE = 0.26;
-const WEAR_ANGLE_START = 0.32;
-const WEAR_ANGLE_FULL = 0.85;
-const INDENTATION_MINIMUM_AREA = 0.035;
-
-const ROLE_TONE: Record<StonePlaneRole, number> = {
-  top: 0.95,
-  "top-bevel": 0.78,
-  side: 0.46,
-  cut: 0.6,
-  "contact-bevel": 0.26,
-  "edge-bevel": 0.7,
-  bottom: 0.06,
-};
-
-interface WorkingFace {
-  role: StonePlaneRole;
-  planeId: string;
-  points: { x: number; y: number; z: number }[];
-  shared: number[];
-  normalX: number;
-  normalY: number;
-  normalZ: number;
-  area: number;
-}
-
 function smoothstep(value: number, minimum: number, maximum: number): number {
   if (value <= minimum) return 0;
   if (value >= maximum) return 1;
@@ -74,142 +49,6 @@ function smoothstep(value: number, minimum: number, maximum: number): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
-}
-
-function polygonAreaAndNormal(
-  polygon: StonePolygon,
-): readonly [number, number, number, number] {
-  let nx = 0;
-  let ny = 0;
-  let nz = 0;
-  for (let corner = 0; corner < polygon.points.length; corner += 1) {
-    const current = polygon.points[corner];
-    const next = polygon.points[(corner + 1) % polygon.points.length];
-    nx += (current.y - next.y) * (current.z + next.z);
-    ny += (current.z - next.z) * (current.x + next.x);
-    nz += (current.x - next.x) * (current.y + next.y);
-  }
-  const length = Math.hypot(nx, ny, nz);
-  if (!(length > DEGENERATE_NORMAL_LENGTH)) {
-    return [0, 0, 1, 0];
-  }
-  return [length * 0.5, nx / length, ny / length, nz / length];
-}
-
-/**
- * Replace a broad face with sparse faceted recesses. Every emitted polygon is
- * a triangle, so irregular corner depths cannot create twisted quads with one
- * synthetic normal.
- */
-function addStoneIndentation(
-  polygons: StonePolygon[],
-  recipe: StoneRecipe,
-): StonePolygon[] {
-  if (recipe.archetype === "pebble" || recipe.archetype === "shard") {
-    return polygons;
-  }
-  const roll =
-    hashStoneCell(recipe.seed, hashStoneLabel(recipe.archetype), 0x4e6f7463) /
-    4294967296;
-  const indentationCount = roll < 0.02 ? 3 : roll < 0.1 ? 2 : roll < 0.35 ? 1 : 0;
-  let result = polygons;
-  for (let indentation = 0; indentation < indentationCount; indentation += 1) {
-    result = addSingleStoneIndentation(result, recipe, indentation);
-  }
-  return result;
-}
-
-function addSingleStoneIndentation(
-  polygons: StonePolygon[],
-  recipe: StoneRecipe,
-  indentation: number,
-): StonePolygon[] {
-  const candidates = polygons
-    .map((polygon, index) => ({
-      polygon,
-      index,
-      area: polygonAreaAndNormal(polygon)[0],
-    }))
-    .filter(
-      ({ polygon, area }) =>
-        (polygon.role === "side" || polygon.role === "top") &&
-        polygon.points.length >= 4 &&
-        area >= INDENTATION_MINIMUM_AREA,
-    )
-    .sort((left, right) => right.area - left.area)
-    .slice(0, 4);
-  if (candidates.length === 0) return polygons;
-
-  const choice =
-    hashStoneCell(recipe.seed, indentation, 0x496e6465) % candidates.length;
-  const selected = candidates[choice];
-  const face = selected.polygon;
-  let centerX = 0;
-  let centerY = 0;
-  let centerZ = 0;
-  for (const point of face.points) {
-    centerX += point.x;
-    centerY += point.y;
-    centerZ += point.z;
-  }
-  centerX /= face.points.length;
-  centerY /= face.points.length;
-  centerZ /= face.points.length;
-
-  const [, normalX, normalY, normalZ] = polygonAreaAndNormal(face);
-  const detailRoll =
-    hashStoneCell(recipe.seed, indentation, 0x44657074) / 4294967296;
-  const insetScale = 0.62 + detailRoll * 0.14;
-  const depth = 0.025 + detailRoll * 0.035;
-  const inner = face.points.map((point, corner) => {
-    const variation =
-      hashStoneCell(recipe.seed, indentation * 17 + corner, 0x496e7365) /
-      4294967296;
-    const scale = insetScale * (0.86 + variation * 0.24);
-    const cornerDepth = depth * (0.82 + variation * 0.28);
-    return {
-      x: centerX + (point.x - centerX) * scale - normalX * cornerDepth,
-      y: centerY + (point.y - centerY) * scale - normalY * cornerDepth,
-      z: centerZ + (point.z - centerZ) * scale - normalZ * cornerDepth,
-    };
-  });
-  const floorCenter: StoneVec3 = {
-    x: centerX - normalX * depth,
-    y: centerY - normalY * depth,
-    z: centerZ - normalZ * depth,
-  };
-
-  const replacement: StonePolygon[] = [];
-  for (let index = 0; index < face.points.length; index += 1) {
-    const next = (index + 1) % face.points.length;
-    const outerA = face.points[index];
-    const outerB = face.points[next];
-    const innerA = inner[index];
-    const innerB = inner[next];
-    replacement.push(
-      {
-        planeId: `notch-wall:${indentation}:${face.planeId}:${index}:0`,
-        role: "cut",
-        points: [outerA, outerB, innerB],
-      },
-      {
-        planeId: `notch-wall:${indentation}:${face.planeId}:${index}:1`,
-        role: "cut",
-        points: [outerA, innerB, innerA],
-      },
-      {
-        planeId: `notch-floor:${indentation}:${face.planeId}:${index}`,
-        role: "cut",
-        points: [innerA, innerB, floorCenter],
-      },
-    );
-  }
-
-  return [
-    ...polygons.slice(0, selected.index),
-    ...replacement,
-    ...polygons.slice(selected.index + 1),
-  ];
 }
 
 export function generateStoneMesh(
@@ -234,49 +73,18 @@ export function generateStoneMesh(
     point.x = recipe.width * shearedX;
     point.y = recipe.height * point.y;
     point.z = recipe.depth * shearedZ;
-    if (Math.abs(point.y) <= SNAP_EPSILON) {
+    if (Math.abs(point.y) <= STONE_SNAP_EPSILON) {
       point.y = 0;
     }
   }
 
-  let contactX = 0;
-  let contactZ = 0;
-  let contactCount = 0;
-  for (const polygon of polygons) {
-    if (polygon.role !== "bottom") continue;
-    for (const point of polygon.points) {
-      contactX += point.x;
-      contactZ += point.z;
-      contactCount += 1;
-    }
-  }
-  if (contactCount > 0) {
-    contactX /= contactCount;
-    contactZ /= contactCount;
-    for (const point of uniquePoints) {
-      point.x -= contactX;
-      point.z -= contactZ;
-    }
-  }
+  centerStoneContact(polygons, uniquePoints);
 
-  const faces = buildWorkingFaces(polygons);
-  const edgeSharpness = buildEdgeSharpness(faces);
-  const sharedFacePairs = countSharedFacePairs(faces);
-
-  let maxY = 0;
-  for (const face of faces) {
-    for (const point of face.points) {
-      maxY = Math.max(maxY, point.y);
-    }
-  }
-  const heightMetres = Math.max(maxY, 1e-3);
-
-  let vertexCount = 0;
-  let triangleCount = 0;
-  for (const face of faces) {
-    vertexCount += face.points.length;
-    triangleCount += face.points.length - 2;
-  }
+  const faces = buildWorkingStoneFaces(polygons);
+  const edgeSharpness = buildStoneEdgeSharpness(faces);
+  const sharedFacePairs = countSharedStoneFacePairs(faces);
+  const heightMetres = resolveStoneHeight(faces);
+  const { vertexCount, triangleCount } = resolveMeshCounts(faces);
 
   const positions = new Float32Array(vertexCount * 3);
   const normals = new Float32Array(vertexCount * 3);
@@ -295,15 +103,6 @@ export function generateStoneMesh(
     const faceTone = resolveFaceTone(face, recipe);
     const baseVertex = vertexCursor;
 
-    const cornerTone = (y: number): number => {
-      const heightShade = 0.74 + 0.26 * smoothstep(y, 0, heightMetres * 0.6);
-      const contactShade =
-        CONTACT_SHADE_FLOOR +
-        (1 - CONTACT_SHADE_FLOOR) *
-          smoothstep(y, 0, heightMetres * CONTACT_SHADE_HEIGHT);
-      return clamp01(faceTone * heightShade * contactShade);
-    };
-
     for (let corner = 0; corner < corners; corner += 1) {
       const point = face.points[corner];
       const offset = vertexCursor * 3;
@@ -313,7 +112,7 @@ export function generateStoneMesh(
       normals[offset] = face.normalX;
       normals[offset + 1] = face.normalY;
       normals[offset + 2] = face.normalZ;
-      tones[vertexCursor] = cornerTone(point.y);
+      tones[vertexCursor] = resolveCornerTone(faceTone, point.y, heightMetres);
       wears[vertexCursor] = resolveCornerWear(
         face,
         corner,
@@ -341,7 +140,7 @@ export function generateStoneMesh(
       vertexCursor += 1;
     }
 
-    const fanRoot = chooseFanRoot(face, sharedFacePairs);
+    const fanRoot = chooseStoneFanRoot(face, sharedFacePairs);
     for (let offset = 1; offset < corners - 1; offset += 1) {
       indices[indexCursor] = baseVertex + fanRoot;
       indices[indexCursor + 1] = baseVertex + ((fanRoot + offset) % corners);
@@ -364,185 +163,70 @@ export function generateStoneMesh(
   return { positions, normals, tones, wears, mosses, indices, metrics };
 }
 
-function sharedPairKey(a: number, b: number): string {
-  return a < b ? `${a}:${b}` : `${b}:${a}`;
-}
-
-function countSharedFacePairs(faces: readonly WorkingFace[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const face of faces) {
-    for (let a = 0; a < face.shared.length; a += 1) {
-      for (let b = a + 1; b < face.shared.length; b += 1) {
-        const key = sharedPairKey(face.shared[a], face.shared[b]);
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-    }
-  }
-  return counts;
-}
-
-/**
- * Near-concurrent clipping planes can make two faces share a multi-edge chain.
- * A fan diagonal spanning that chain would fill the same sliver on both faces.
- * Prefer a root whose internal diagonals are unique to this face.
- */
-function chooseFanRoot(
-  face: WorkingFace,
-  sharedFacePairs: ReadonlyMap<string, number>,
-): number {
-  const corners = face.shared.length;
-  for (let root = 0; root < corners; root += 1) {
-    let safe = true;
-    for (let offset = 2; offset < corners - 1; offset += 1) {
-      const other = (root + offset) % corners;
-      if (
-        (sharedFacePairs.get(
-          sharedPairKey(face.shared[root], face.shared[other]),
-        ) ?? 0) > 1
-      ) {
-        safe = false;
-        break;
-      }
-    }
-    if (safe) return root;
-  }
-  return 0;
-}
-
-function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
-  const sharedIndex = new Map<string, number>();
-  let nextShared = 0;
-  const faces: WorkingFace[] = [];
-
+function centerStoneContact(
+  polygons: ReturnType<typeof buildStonePolyhedron>,
+  uniquePoints: ReadonlySet<StoneVec3>,
+): void {
+  let contactX = 0;
+  let contactZ = 0;
+  let contactCount = 0;
   for (const polygon of polygons) {
-    const points = removeCollinearCorners(polygon.points);
-    if (points.length < 3) continue;
-    let newellX = 0;
-    let newellY = 0;
-    let newellZ = 0;
-    for (let index = 0; index < points.length; index += 1) {
-      const current = points[index];
-      const next = points[(index + 1) % points.length];
-      newellX += (current.y - next.y) * (current.z + next.z);
-      newellY += (current.z - next.z) * (current.x + next.x);
-      newellZ += (current.x - next.x) * (current.y + next.y);
+    if (polygon.role !== "bottom") continue;
+    for (const point of polygon.points) {
+      contactX += point.x;
+      contactZ += point.z;
+      contactCount += 1;
     }
-    const length = Math.hypot(newellX, newellY, newellZ);
-    if (!(length > DEGENERATE_NORMAL_LENGTH)) continue;
-
-    const shared: number[] = [];
-    for (const point of points) {
-      const key = `${Math.round(point.x / QUANTIZE)}:${Math.round(
-        point.y / QUANTIZE,
-      )}:${Math.round(point.z / QUANTIZE)}`;
-      let index = sharedIndex.get(key);
-      if (index === undefined) {
-        index = nextShared;
-        sharedIndex.set(key, index);
-        nextShared += 1;
-      }
-      shared.push(index);
-    }
-
-    faces.push({
-      role: polygon.role,
-      planeId: polygon.planeId,
-      points,
-      shared,
-      normalX: newellX / length,
-      normalY: newellY / length,
-      normalZ: newellZ / length,
-      area: length * 0.5,
-    });
   }
-  return faces;
+  if (contactCount === 0) {
+    return;
+  }
+
+  contactX /= contactCount;
+  contactZ /= contactCount;
+  for (const point of uniquePoints) {
+    point.x -= contactX;
+    point.z -= contactZ;
+  }
 }
 
-/**
- * Clipping can leave a shared intersection point in the middle of a straight
- * edge. Fan-triangulating both adjacent faces would then emit the same long
- * diagonal inside both faces, producing overlapping edges and zero-area
- * slivers. Removing only corners that lie between their neighbours preserves
- * the polygon while giving both faces the same manifold boundary.
- */
-function removeCollinearCorners(
-  source: readonly StoneVec3[],
-): StoneVec3[] {
-  if (source.length <= 3) return [...source];
-  const points = [...source];
-  let changed = true;
-  while (changed && points.length > 3) {
-    changed = false;
-    for (let index = 0; index < points.length; index += 1) {
-      const previous = points[(index + points.length - 1) % points.length];
-      const current = points[index];
-      const next = points[(index + 1) % points.length];
-      const ax = current.x - previous.x;
-      const ay = current.y - previous.y;
-      const az = current.z - previous.z;
-      const bx = next.x - current.x;
-      const by = next.y - current.y;
-      const bz = next.z - current.z;
-      const lengthProduct = Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz);
-      const crossLength = Math.hypot(
-        ay * bz - az * by,
-        az * bx - ax * bz,
-        ax * by - ay * bx,
-      );
-      if (
-        lengthProduct > DEGENERATE_NORMAL_LENGTH &&
-        ax * bx + ay * by + az * bz >= 0 &&
-        crossLength <= lengthProduct * 1e-8
-      ) {
-        points.splice(index, 1);
-        changed = true;
-        break;
-      }
-    }
-  }
-  return points;
-}
-
-function buildEdgeSharpness(faces: WorkingFace[]): Map<string, number> {
-  interface EdgeFace {
-    normalX: number;
-    normalY: number;
-    normalZ: number;
-  }
-  const firstFace = new Map<string, EdgeFace>();
-  const sharpness = new Map<string, number>();
-
+function resolveStoneHeight(faces: readonly WorkingStoneFace[]): number {
+  let maxY = 0;
   for (const face of faces) {
-    const count = face.shared.length;
-    for (let index = 0; index < count; index += 1) {
-      const a = face.shared[index];
-      const b = face.shared[(index + 1) % count];
-      if (a === b) continue;
-      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-      const existing = firstFace.get(key);
-      if (!existing) {
-        firstFace.set(key, {
-          normalX: face.normalX,
-          normalY: face.normalY,
-          normalZ: face.normalZ,
-        });
-        continue;
-      }
-      const dot =
-        existing.normalX * face.normalX +
-        existing.normalY * face.normalY +
-        existing.normalZ * face.normalZ;
-      const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-      sharpness.set(
-        key,
-        smoothstep(angle, WEAR_ANGLE_START, WEAR_ANGLE_FULL),
-      );
+    for (const point of face.points) {
+      maxY = Math.max(maxY, point.y);
     }
   }
-  return sharpness;
+  return Math.max(maxY, 1e-3);
 }
 
-function resolveFaceTone(face: WorkingFace, recipe: StoneRecipe): number {
+function resolveMeshCounts(faces: readonly WorkingStoneFace[]): {
+  vertexCount: number;
+  triangleCount: number;
+} {
+  let vertexCount = 0;
+  let triangleCount = 0;
+  for (const face of faces) {
+    vertexCount += face.points.length;
+    triangleCount += face.points.length - 2;
+  }
+  return { vertexCount, triangleCount };
+}
+
+function resolveCornerTone(
+  faceTone: number,
+  y: number,
+  heightMetres: number,
+): number {
+  const heightShade = 0.74 + 0.26 * smoothstep(y, 0, heightMetres * 0.6);
+  const contactShade =
+    STONE_CONTACT_SHADE_FLOOR +
+    (1 - STONE_CONTACT_SHADE_FLOOR) *
+      smoothstep(y, 0, heightMetres * STONE_CONTACT_SHADE_HEIGHT);
+  return clamp01(faceTone * heightShade * contactShade);
+}
+
+function resolveFaceTone(face: WorkingStoneFace, recipe: StoneRecipe): number {
   const jitter =
     (hashStoneCell(
       recipe.seed,
@@ -553,7 +237,7 @@ function resolveFaceTone(face: WorkingFace, recipe: StoneRecipe): number {
       0.5) *
     0.16;
   const upBias = Math.max(0, face.normalY) * 0.12;
-  return clamp01(ROLE_TONE[face.role] + jitter + upBias);
+  return clamp01(STONE_ROLE_TONE[face.role] + jitter + upBias);
 }
 
 function resolveMoss(
@@ -564,13 +248,15 @@ function resolveMoss(
   heightMetres: number,
   recipe: StoneRecipe,
 ): number {
-  const climb = 1 - smoothstep(y, 0, heightMetres * MOSS_CLIMB);
+  const climb = 1 - smoothstep(y, 0, heightMetres * STONE_MOSS_CLIMB);
   if (climb <= 0) return 0;
   const facing = normalY >= 0 ? 0.45 + 0.55 * normalY : 0.45 + 0.3 * -normalY;
   const blotch =
     hashStoneCell(
-      Math.round(x / MOSS_PATCH_SIZE) * 31 + Math.round(y / MOSS_PATCH_SIZE),
-      Math.round(z / MOSS_PATCH_SIZE) * 17 - Math.round(y / MOSS_PATCH_SIZE),
+      Math.round(x / STONE_MOSS_PATCH_SIZE) * 31 +
+        Math.round(y / STONE_MOSS_PATCH_SIZE),
+      Math.round(z / STONE_MOSS_PATCH_SIZE) * 17 -
+        Math.round(y / STONE_MOSS_PATCH_SIZE),
       recipe.seed ^ 0x6d055,
     ) / 4294967296;
   const patch = smoothstep(climb * 1.35, blotch * 0.85, blotch * 0.85 + 0.3);
@@ -578,9 +264,9 @@ function resolveMoss(
 }
 
 function resolveCornerWear(
-  face: WorkingFace,
+  face: WorkingStoneFace,
   corner: number,
-  edgeSharpness: Map<string, number>,
+  edgeSharpness: ReadonlyMap<string, number>,
   recipe: StoneRecipe,
 ): number {
   const count = face.shared.length;
@@ -618,7 +304,7 @@ function fingerprintMesh(
     hash = Math.imul(hash ^ ((value >>> 16) & 0xffff), 0x01000193) >>> 0;
   };
   for (let index = 0; index < positions.length; index += 1) {
-    mix(Math.round(positions[index] / QUANTIZE) | 0);
+    mix(Math.round(positions[index] / STONE_MESH_QUANTIZE) | 0);
   }
   for (let index = 0; index < tones.length; index += 1) {
     mix(Math.round(tones[index] * 1024) | 0);
