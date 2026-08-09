@@ -37,6 +37,12 @@ grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
 
+# Bridge LOD keeps the near field's exact blade placements before the repeated
+# patch LOD begins. The handoff is deliberately short because both sides use
+# the same instances, so there is no root-position pop during this transition.
+grassNearBridgeDistance: 18
+grassNearBridgeTransitionDistance: 2
+
 # Natural near-grass tuft distribution.
 grassClumpRadiusScaleMin: 0.32
 grassClumpRadiusScaleMax: 0.48
