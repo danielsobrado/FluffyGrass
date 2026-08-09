@@ -23,6 +23,7 @@ const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
+const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
@@ -97,6 +98,14 @@ assert(
     qualityGovernor.includes("this.nearDistanceScale = pinned.nearDistanceScale") &&
     qualityGovernor.includes("return this.nearDistanceScale"),
   "Grass quality control must reject invalid samples and ramp near-distance changes without breaking pinned QA tiers.",
+);
+assert(
+  nearField.includes("private nearDistanceScale = 1") &&
+    nearField.includes("this.nearDistanceScale = nearDistanceScale") &&
+    nearField.includes("direction.nearDistance * nearDistanceScale") &&
+    nearField.includes("this.nearDistanceScale,") &&
+    nearField.includes("NEAR_FIELD_ALTITUDE_MARGIN"),
+  "Aerial near-field suspension must follow the applied quality-scaled near radius.",
 );
 assert(
   tileField.includes("tile.mesh.count = count") &&
