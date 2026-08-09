@@ -126,7 +126,7 @@ stoneMossExposureAzimuthDegrees: 32
 stoneMossExposureElevationDegrees: 49
 stoneMossStreakStrength: 0.32
 
-grassNearDistance: 24
+grassNearDistance: 26
 grassMidDistance: 80
 grassFarDistance: 280
 grassTransitionDistance: 8
