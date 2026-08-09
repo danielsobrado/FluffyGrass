@@ -266,7 +266,7 @@ Append `?control=fly` to the URL to disable the third-person controller and use 
 
 ## Diagnostics
 
-The normal HUD reports rolling FPS and high-level world state. Deeper workload instrumentation is opt-in so it does not wrap the production render path by default.
+The normal HUD reports rolling FPS and high-level world state, including separate terrain, stone, grass, and draw timings. Deeper workload instrumentation is opt-in so it does not wrap the production render path by default.
 
 Use query flags only when needed:
 
@@ -277,7 +277,7 @@ Use query flags only when needed:
 
 ## Configuration
 
-Main world tuning is stored in `public/config/world.yaml`. Grass geometry, material, wind, distribution, QA, and impostor-atlas settings are stored in `public/config/grass.yaml`.
+Main world tuning is stored in `public/config/world.yaml`. Grass geometry, material, wind, distribution, QA, and impostor-atlas settings are stored in `public/config/grass.yaml`. Responsive rendering settings are stored in `public/config/runtime.yaml`.
 
 Configuration loading is strict:
 
@@ -285,16 +285,20 @@ Configuration loading is strict:
 - Duplicate keys fail startup.
 - Missing values fail startup.
 - Invalid number ranges fail startup.
+- Grass material colors must be six-digit hex values.
 - Cross-field LOD, streaming, camera, movement, clump-shape, and density constraints are validated.
 - The far-impostor path requires exactly one instance per 4 m patch; that instance contains four subpatch cards.
 - The ultra-near transition must be shorter than the ultra-near distance.
 - The ultra-near band must end before the normal near-to-middle fade begins.
 
-When adding a world configuration value, update all three locations:
+When adding a world configuration value:
 
-1. `src/world/WorldConfig.ts`
-2. `src/world/WorldConfigLoader.ts`
-3. `public/config/world.yaml`
+1. Add the typed field to `src/world/WorldConfig.ts`.
+2. Add its primitive validation rule to `src/world/WorldConfigSchema.ts`.
+3. Add it to `public/config/world.yaml`.
+4. If it depends on another setting, add the cross-field invariant to `src/world/WorldConfigValidator.ts`.
+
+`WorldConfigLoader` is intentionally only the transport/parsing orchestrator and normally does not need to change when a numeric world setting is added.
 
 ## Local development
 
@@ -322,15 +326,17 @@ The build command runs:
 2. Stone-tool TypeScript compilation.
 3. Repository production-policy verification, including the no-GitHub-Actions rule.
 4. Runtime lifecycle and safety verification.
-5. Grass LOD continuity verification.
-6. Grass blade-shape continuity verification.
-7. Grass color-parity verification.
-8. Grass performance-envelope verification.
-9. Grass placement verification.
-10. Far-impostor subpatch verification.
-11. Character motion verification.
-12. Procedural stone verification.
-13. Vite production bundling.
+5. Architecture responsibility-boundary verification.
+6. Shipped world, grass, and runtime configuration contract verification.
+7. Grass LOD continuity verification.
+8. Grass blade-shape continuity verification.
+9. Grass color-parity verification.
+10. Grass performance-envelope verification.
+11. Grass placement verification.
+12. Far-impostor subpatch verification.
+13. Character motion verification.
+14. Procedural stone verification.
+15. Vite production bundling.
 
 Preview the generated build:
 
