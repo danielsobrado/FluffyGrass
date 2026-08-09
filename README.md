@@ -300,7 +300,7 @@ When adding a world configuration value, update all three locations:
 
 Requirements:
 
-- Node.js 20 or newer with npm.
+- Node.js 22.20+ LTS or Node.js 24 LTS with npm. `.nvmrc` pins Node.js 24 for local development and production builds.
 - A browser with WebGL support.
 
 Install and start the development server:
