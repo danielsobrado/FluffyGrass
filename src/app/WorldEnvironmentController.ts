@@ -24,12 +24,17 @@ import {
 
 const SUN_DIRECTION = new THREE.Vector3(...WORLD_SUN_DIRECTION).normalize();
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
+const SHADOW_AXIS_X = new THREE.Vector3()
+  .crossVectors(UP_AXIS, SUN_DIRECTION)
+  .normalize();
+const SHADOW_AXIS_Y = new THREE.Vector3()
+  .crossVectors(SUN_DIRECTION, SHADOW_AXIS_X)
+  .normalize();
 
 export class WorldEnvironmentController {
   private readonly sun: THREE.DirectionalLight;
   private readonly hemisphere: THREE.HemisphereLight;
-  private readonly shadowAxisX = new THREE.Vector3();
-  private readonly shadowAxisY = new THREE.Vector3();
+  private readonly shadowTexelSize: number;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -46,6 +51,9 @@ export class WorldEnvironmentController {
       WORLD_DEFAULT_SUN,
       WORLD_DEFAULT_SUN_INTENSITY,
     );
+    this.shadowTexelSize =
+      (2 * WORLD_SUN_SHADOW_HALF_EXTENT) /
+      Math.max(1, this.profile.shadowMapSize);
     this.sun.position
       .copy(SUN_DIRECTION)
       .multiplyScalar(WORLD_SUN_SHADOW_DISTANCE);
@@ -87,21 +95,18 @@ export class WorldEnvironmentController {
       return;
     }
 
-    const texelSize =
-      (2 * WORLD_SUN_SHADOW_HALF_EXTENT) /
-      Math.max(1, this.profile.shadowMapSize);
-    this.shadowAxisX.crossVectors(UP_AXIS, SUN_DIRECTION).normalize();
-    this.shadowAxisY.crossVectors(SUN_DIRECTION, this.shadowAxisX);
     const snappedX =
-      Math.round(focus.dot(this.shadowAxisX) / texelSize) * texelSize;
+      Math.round(focus.dot(SHADOW_AXIS_X) / this.shadowTexelSize) *
+      this.shadowTexelSize;
     const snappedY =
-      Math.round(focus.dot(this.shadowAxisY) / texelSize) * texelSize;
+      Math.round(focus.dot(SHADOW_AXIS_Y) / this.shadowTexelSize) *
+      this.shadowTexelSize;
     const alongLight = focus.dot(SUN_DIRECTION);
 
     this.sun.target.position
-      .copy(this.shadowAxisX)
+      .copy(SHADOW_AXIS_X)
       .multiplyScalar(snappedX)
-      .addScaledVector(this.shadowAxisY, snappedY)
+      .addScaledVector(SHADOW_AXIS_Y, snappedY)
       .addScaledVector(SUN_DIRECTION, alongLight);
     this.sun.position
       .copy(this.sun.target.position)
