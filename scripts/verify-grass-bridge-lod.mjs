@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
+const MAX_DESKTOP_BRIDGE_EXTRA_TRIANGLES = 180_000;
+const MAX_COMPACT_BRIDGE_EXTRA_TRIANGLES = 100_000;
 
 function read(relativePath) {
   return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
@@ -29,6 +31,66 @@ function readYamlNumber(source, key) {
   return value;
 }
 
+function readSourceNumber(source, key) {
+  const value = Number(
+    source.match(new RegExp(`const ${key}\\s*=\\s*([0-9.]+)`))?.[1],
+  );
+  if (!Number.isFinite(value)) {
+    fail(`Unable to read source constant ${key}.`);
+  }
+  return value;
+}
+
+function distanceToTile(x, z, originX, originZ, tileSize) {
+  const distanceX = Math.max(originX - x, 0, x - (originX + tileSize));
+  const distanceZ = Math.max(originZ - z, 0, z - (originZ + tileSize));
+  return Math.hypot(distanceX, distanceZ);
+}
+
+function countTiles(radius, tileSize, focusX, focusZ) {
+  const centerTileX = Math.floor(focusX / tileSize);
+  const centerTileZ = Math.floor(focusZ / tileSize);
+  const offset = Math.max(1, Math.ceil(radius / tileSize));
+  let count = 0;
+  for (let dz = -offset; dz <= offset; dz += 1) {
+    for (let dx = -offset; dx <= offset; dx += 1) {
+      const tileX = centerTileX + dx;
+      const tileZ = centerTileZ + dz;
+      if (
+        distanceToTile(
+          focusX,
+          focusZ,
+          tileX * tileSize,
+          tileZ * tileSize,
+          tileSize,
+        ) <= radius
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function maximumResidentTiles(radius, tileSize) {
+  const phaseSamples = 64;
+  let maximum = 0;
+  for (let z = 0; z < phaseSamples; z += 1) {
+    for (let x = 0; x < phaseSamples; x += 1) {
+      maximum = Math.max(
+        maximum,
+        countTiles(
+          radius,
+          tileSize,
+          (x * tileSize) / phaseSamples,
+          (z * tileSize) / phaseSamples,
+        ),
+      );
+    }
+  }
+  return maximum;
+}
+
 const worldConfig = read("public/config/world.yaml");
 const presets = JSON.parse(read("src/grass/GrassArtPresets.json"));
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
@@ -47,6 +109,16 @@ const ultraTransition = readYamlNumber(
 );
 const nearDistance = readYamlNumber(worldConfig, "grassNearDistance");
 const nearTransition = readYamlNumber(worldConfig, "grassTransitionDistance");
+const tileSize = readYamlNumber(worldConfig, "grassNearTileSize");
+const desktopDensity = readYamlNumber(
+  worldConfig,
+  "grassNearBladesPerSquareMeterDesktop",
+);
+const compactDensity = readYamlNumber(
+  worldConfig,
+  "grassNearBladesPerSquareMeterCompact",
+);
+const boundsMargin = readSourceNumber(nearField, "SINGLE_BLADE_BOUNDS_MARGIN");
 
 const bridgeFadeStart = bridgeDistance - bridgeTransition;
 const bridgeFadeEnd = bridgeDistance + bridgeTransition;
@@ -61,6 +133,24 @@ assert(
   bridgeFadeEnd <= configuredNearFadeStart,
   "Bridge entry must finish before the configured near-to-mid fade starts.",
 );
+
+const bridgeResidencyRadius = bridgeFadeEnd + boundsMargin;
+const maximumBridgeTiles = maximumResidentTiles(
+  bridgeResidencyRadius,
+  tileSize,
+);
+for (const [profile, density, ceiling] of [
+  ["desktop", desktopDensity, MAX_DESKTOP_BRIDGE_EXTRA_TRIANGLES],
+  ["compact", compactDensity, MAX_COMPACT_BRIDGE_EXTRA_TRIANGLES],
+]) {
+  const bladesPerTile = Math.round(tileSize ** 2 * density);
+  const conservativeExtraTriangles = maximumBridgeTiles * bladesPerTile;
+  assert(
+    conservativeExtraTriangles <= ceiling,
+    `${profile} bridge shell adds ${conservativeExtraTriangles} conservative ` +
+      `near triangles, above the ${ceiling} ceiling.`,
+  );
+}
 
 const qualityScales = [
   ...qualityGovernor.matchAll(/nearDistanceScale:\s*([0-9.]+)/g),
