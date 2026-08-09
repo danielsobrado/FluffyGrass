@@ -37,6 +37,9 @@ try {
   const performanceVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneRenderPerformanceVerification.ts",
   );
+  const systemPerformanceVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneSystemPerformanceVerification.ts",
+  );
 
   const summary = await verification.verifyStones(configSource);
   const profileSummary = profileVerification.verifyStoneProfiles();
@@ -46,9 +49,11 @@ try {
   const growthSummary = growthVerification.verifyStoneGrowthField();
   const performanceSummary =
     performanceVerification.verifyStoneRenderPerformance(configSource);
+  const systemPerformanceSummary =
+    systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${performanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
