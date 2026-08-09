@@ -122,6 +122,29 @@ export function validateWorldConfig(config: WorldConfig): void {
       "The complete ultra-near fade must end before the normal near-LOD fade begins.",
     );
   }
+  if (
+    config.grassNearBridgeTransitionDistance >= config.grassNearBridgeDistance
+  ) {
+    throw new Error(
+      "grassNearBridgeTransitionDistance must be lower than grassNearBridgeDistance.",
+    );
+  }
+  if (
+    config.grassNearBridgeDistance - config.grassNearBridgeTransitionDistance <
+    config.grassUltraNearDistance + config.grassUltraNearTransitionDistance
+  ) {
+    throw new Error(
+      "The bridge LOD must start after the ultra-near detail fade has completed.",
+    );
+  }
+  if (
+    config.grassNearBridgeDistance + config.grassNearBridgeTransitionDistance >=
+    config.grassNearDistance
+  ) {
+    throw new Error(
+      "The bridge LOD handoff must complete before the configured near LOD boundary.",
+    );
+  }
 
   validateGrassStreamRadius("desktop", config.grassRadiusDesktop, config);
   validateGrassStreamRadius("compact", config.grassRadiusCompact, config);
