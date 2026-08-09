@@ -82,6 +82,12 @@ assert(
     !statusHud.includes("TerrainStreamer"),
   "Status HUD must remain a presenter over snapshots rather than depend on world services.",
 );
+assert(
+  statusHud.includes("shouldUpdate(deltaSeconds") &&
+    worldApp.indexOf("statusHud.shouldUpdate") <
+      worldApp.indexOf("this.terrain.getDiagnostics()"),
+  "HUD throttling must run before diagnostic snapshots are collected on the render path.",
+);
 
 assert(
   lineCount(stoneGeometry) <= STONE_GEOMETRY_MAX_LINES,
