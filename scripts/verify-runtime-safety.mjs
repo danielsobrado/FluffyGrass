@@ -22,6 +22,7 @@ const islandGrass = read("src/grass/GrassSystem.ts");
 const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
+const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
@@ -34,6 +35,13 @@ assert(
     /await import\(\s*"\.\/runtime\/WorldDiagnosticsController"\s*\)/.test(main) &&
     !main.includes('import { WorldDiagnosticsController }'),
   "Deep world diagnostics must remain opt-in and outside the default bundle path.",
+);
+assert(
+  main.includes('statsPanelEnabled: params.get("stats") === "1"') &&
+    world.includes('await import("stats-gl")') &&
+    world.includes("this.stats?.update()") &&
+    diagnosticsController.includes("options.gpuTiming && !options.statsPanelEnabled"),
+  "The lazy stats-gl panel and custom GPU timer must not issue overlapping GPU timing queries.",
 );
 assert(
   main.includes("app?.dispose()") &&
