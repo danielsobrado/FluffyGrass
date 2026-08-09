@@ -12,7 +12,6 @@ import type { WorldController } from "../controls/WorldController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
-import { setStoneClearanceField } from "../world/stones/StoneClearance";
 import { StoneField } from "../world/stones/StoneField";
 import { WorldStoneSystem } from "../world/stones/WorldStoneSystem";
 import { TerrainField } from "../world/TerrainField";
@@ -44,7 +43,6 @@ export class WorldApp {
   private artMenu?: GrassArtMenu;
   private readonly field: TerrainField;
   private readonly terrain: TerrainStreamer;
-  private readonly stoneField: StoneField;
   private readonly stones: WorldStoneSystem;
   private readonly grass: WorldGrassSystem;
   private readonly controls: WorldController;
@@ -68,6 +66,7 @@ export class WorldApp {
   private disposed = false;
   private controlsEnabled = true;
   private terrainEnabled = true;
+  private stonesEnabled = true;
   private grassEnabled = true;
   private rendererEnabled = true;
   private hudEnabled = true;
@@ -124,11 +123,10 @@ export class WorldApp {
       profile.compact,
       profile.shadows && !useFlyControls,
     );
-    this.stoneField = new StoneField(this.field, config);
-    setStoneClearanceField(this.stoneField);
+    const stoneField = new StoneField(this.field, config);
     this.stones = new WorldStoneSystem(
       this.scene,
-      this.stoneField,
+      stoneField,
       config,
       profile.compact,
       profile.shadows && !useFlyControls,
@@ -238,7 +236,6 @@ export class WorldApp {
     this.controls.dispose();
     this.terrain.dispose();
     this.stones.dispose();
-    setStoneClearanceField(undefined);
     this.grass.dispose();
     grassTrailField.dispose();
     this.stats?.dom.remove();
@@ -319,6 +316,10 @@ export class WorldApp {
       this.runFrameSubsystem("terrain", this.updateTerrain, deltaSeconds);
     }
 
+    if (this.stonesEnabled) {
+      this.runFrameSubsystem("stones", this.updateStones, deltaSeconds);
+    }
+
     if (this.grassEnabled) {
       this.runFrameSubsystem("grass", this.updateGrass, deltaSeconds);
     }
@@ -352,6 +353,9 @@ export class WorldApp {
       this.controls.getStreamingPosition(),
       terrainBuildDeadline,
     );
+  };
+
+  private readonly updateStones = (): void => {
     this.stones.update(
       this.controls.getStreamingPosition(),
       this.streamingBuildDeadline,
@@ -410,6 +414,8 @@ export class WorldApp {
         this.controlsEnabled = false;
       } else if (subsystem === "terrain") {
         this.terrainEnabled = false;
+      } else if (subsystem === "stones") {
+        this.stonesEnabled = false;
       } else if (subsystem === "grass") {
         this.grassEnabled = false;
       } else if (subsystem === "renderer") {
@@ -478,6 +484,7 @@ export class WorldApp {
       return;
     }
     const terrain = this.terrain.getDiagnostics();
+    const stones = this.stones.getDiagnostics();
     const grass = this.grass.getDiagnostics();
     const focus = this.controls.getStreamingPosition();
     this.statusHud.render({
@@ -491,6 +498,7 @@ export class WorldApp {
       speed: this.controls.getSpeed(),
       inputDiagnostics: this.controls.getInputDiagnostics(),
       terrain,
+      stones,
       grass,
       grassInitializationError: this.grassInitializationError,
       render: this.renderer.info.render,
