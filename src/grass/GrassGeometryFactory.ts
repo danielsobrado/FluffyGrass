@@ -4,6 +4,7 @@ import { SeededRandom } from "./internal/SeededRandom";
 
 const TWO_PI = Math.PI * 2;
 const GEOMETRY_SEED_OFFSET = 0x9e3779b9;
+const MIN_BLADE_CURVE = 1e-4;
 
 interface ClumpShapeConfig {
   bladesPerClump: number;
@@ -15,6 +16,29 @@ interface ClumpShapeConfig {
   bladeWidthMax: number;
   bladeLeanMin: number;
   bladeLeanMax: number;
+  bladeCurve: number;
+}
+
+interface BladeArcPoint {
+  y: number;
+  z: number;
+}
+
+function resolveGrassBladeArcPoint(
+  bladeLength: number,
+  bladeCurve: number,
+  progress: number,
+): BladeArcPoint {
+  const amount = THREE.MathUtils.clamp(progress, 0, 1);
+  if (!(bladeCurve > MIN_BLADE_CURVE)) {
+    return { y: bladeLength * amount, z: 0 };
+  }
+  const angle = bladeCurve * amount;
+  const radius = bladeLength / bladeCurve;
+  return {
+    y: radius * Math.sin(angle),
+    z: radius * (1 - Math.cos(angle)),
+  };
 }
 
 export interface GrassGeometryVariants {
@@ -37,6 +61,7 @@ export class GrassGeometryFactory {
       bladeWidthMax: config.bladeWidthMax * config.midWidthScale,
       bladeLeanMin: config.bladeLeanMin * config.midLeanScale,
       bladeLeanMax: config.bladeLeanMax * config.midLeanScale,
+      bladeCurve: config.bladeCurve,
     };
 
     return {
@@ -84,9 +109,7 @@ export class GrassGeometryFactory {
     );
     // One float per instance selects the palette row. Layers that predate
     // biomes, and the island regression scene, get a zero-filled buffer rather
-    // than an unbound attribute: an unbound attribute reads whatever generic
-    // value was last set, which is exactly the class of bug per-instance data
-    // exists to avoid.
+    // than an unbound attribute.
     geometry.setAttribute(
       "instanceBiome",
       sharedAttributes?.biome ??
@@ -107,8 +130,8 @@ export class GrassGeometryFactory {
     const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
 
     // Base attributes and the index are borrowed from a shared LOD variant.
-    // Detach them before disposal so streaming one chunk out cannot
-    // invalidate the GPU buffers used by every other chunk.
+    // Detach them before disposal so streaming one chunk out cannot invalidate
+    // the GPU buffers used by every other chunk.
     for (const name of Object.keys(geometry.attributes)) {
       if (
         preserveSharedInstanceData ||
@@ -121,9 +144,6 @@ export class GrassGeometryFactory {
     }
     geometry.setIndex(null);
     geometry.dispose();
-    // A complementary mesh may still own these same instance attributes. Its
-    // final disposal releases the shared GPU buffers; disposing this object now
-    // would evict instanceMatrix and force the survivor to upload it again.
     if (!preserveSharedInstanceData) {
       mesh.dispose();
     }
@@ -159,6 +179,8 @@ export class GrassGeometryFactory {
       const facingAngle = rootAngle + random.range(-0.85, 0.85);
       const widthX = Math.cos(facingAngle) * 0.5;
       const widthZ = Math.sin(facingAngle) * 0.5;
+      const curveX = -Math.sin(facingAngle);
+      const curveZ = Math.cos(facingAngle);
       const leanAngle = rootAngle + random.range(-0.65, 0.65);
       const lean = random.range(config.bladeLeanMin, config.bladeLeanMax);
       const leanX = Math.cos(leanAngle) * lean;
@@ -172,21 +194,25 @@ export class GrassGeometryFactory {
       const shade = random.next();
       const bladeVertexOffset = positions.length / 3;
 
-      for (let segment = 0; segment <= config.bladeSegments; segment += 1) {
+      for (let segment = 0; segment < config.bladeSegments; segment += 1) {
         const progress = segment / config.bladeSegments;
-        const curve = progress * progress * (3 - 2 * progress);
+        const leanProgress = progress * progress * (3 - 2 * progress);
         const taper = Math.pow(1 - progress, 0.72);
         const halfWidth = width * taper;
-        const centerX = rootX + leanX * curve;
-        const centerZ = rootZ + leanZ * curve;
-        const centerY = height * progress;
+        const arc = resolveGrassBladeArcPoint(
+          height,
+          config.bladeCurve,
+          progress,
+        );
+        const centerX = rootX + leanX * leanProgress + curveX * arc.z;
+        const centerZ = rootZ + leanZ * leanProgress + curveZ * arc.z;
 
         positions.push(
           centerX - widthX * halfWidth,
-          centerY,
+          arc.y,
           centerZ - widthZ * halfWidth,
           centerX + widthX * halfWidth,
-          centerY,
+          arc.y,
           centerZ + widthZ * halfWidth,
         );
         uvs.push(0, progress, 1, progress);
@@ -195,10 +221,22 @@ export class GrassGeometryFactory {
         shadeValues.push(shade, shade);
       }
 
-      for (let segment = 0; segment < config.bladeSegments; segment += 1) {
+      const tip = resolveGrassBladeArcPoint(height, config.bladeCurve, 1);
+      const tipX = rootX + leanX + curveX * tip.z;
+      const tipZ = rootZ + leanZ + curveZ * tip.z;
+      const tipVertex = positions.length / 3;
+      positions.push(tipX, tip.y, tipZ);
+      uvs.push(0.5, 1);
+      progressValues.push(1);
+      phaseValues.push(phase);
+      shadeValues.push(shade);
+
+      for (let segment = 0; segment < config.bladeSegments - 1; segment += 1) {
         const row = bladeVertexOffset + segment * 2;
         indices.push(row, row + 2, row + 1, row + 2, row + 3, row + 1);
       }
+      const finalRow = bladeVertexOffset + (config.bladeSegments - 1) * 2;
+      indices.push(finalRow, tipVertex, finalRow + 1);
     }
 
     const geometry = new THREE.BufferGeometry();
