@@ -13,11 +13,12 @@ The default experience places an articulated Drow ranger inside a very dense int
 ## Current feature set
 
 - Extra individually instanced grass in the ultra-near camera band: 2× total density on desktop and 1.5× on compact devices.
+- Curved segmented blades in the ultra-near band and curved one-triangle silhouettes throughout the wider near field.
 - Dense individually instanced grass throughout the normal near LOD.
 - Multi-blade patch geometry for the middle LOD.
 - Hemi-octahedral atlas impostors for the far LOD.
 - Dithered cross-fades between grass representations.
-- Streamed terrain and grass chunks.
+- Streamed terrain, grass, and procedural stones.
 - Procedural walking ways: bare dirt paths worn through the grass field.
 - Persistent character footfalls, body contact, and grass recovery.
 - Landing shockwave that briefly pushes and flattens nearby grass.
@@ -30,26 +31,23 @@ The default experience places an articulated Drow ranger inside a very dense int
 
 The grass system deliberately uses a different representation for each distance band. Dense individual blades are reserved for the closest LODs. Multi-blade patches and impostors are used only when individual blades become too expensive.
 
-The default transition distances come from the `lush-hero` art preset.
+The default transition distances come from the `lush-hero` art preset. The ultra-near detail radius comes from the world configuration.
 
 | Distance from camera | Representation | Purpose |
 | --- | --- | --- |
-| `0–4 m` | Normal single-blade field plus ultra-near detail layer | Maximum close-range density and bend detail. |
-| `4–5 m` | Extra density and segmented detail dithering out | Removes close detail without a visible ring. |
-| `5–14 m` | Dense one-triangle individual blades | Maintains normal close-range density and interaction at lower cost. |
-| `14–34 m` | Individual blades crossfading to full-density patch geometry | Preserves density through the near/mid transition. |
-| `34–44 m` | Full-density patch geometry | Avoids redundant impostor overdraw in the middle band. |
+| `0–6 m` | Normal single-blade field plus segmented base detail and extra ultra-near density | Maximum close-range density, curvature, and bend detail. |
+| `6–7 m` | Extra density and segmented detail dithering out | Removes close detail without a visible ring. |
+| `7–16 m` | Dense curved one-triangle individual blades | Maintains close-range density and interaction at lower cost. |
+| `16–36 m` | Individual blades crossfading to full-density patch geometry | Preserves density through the near/mid transition. |
+| `36–44 m` | Full-density patch geometry | Avoids redundant impostor overdraw in the middle band. |
 | `44–64 m` | Patch geometry crossfading to impostors | Smoothly enters the far representation. |
 | `64–270 m` | Hemi-octahedral impostors | Maintains view-dependent silhouettes near the streamed horizon. |
 | `270–290 m` | Impostors fading into terrain | Avoids a hard grass cutoff at the world edge. |
 
-The table shows the default `lush-hero` preset. Runtime preset values in
-`src/grass/GrassArtPresets.json` select the active near, mid, far, and transition
-distances. The values in `public/config/world.yaml` provide validated world and
-streaming limits:
+The table shows the default `lush-hero` preset. Runtime preset values in `src/grass/GrassArtPresets.json` select the active near, mid, far, and transition distances. The values in `public/config/world.yaml` provide validated world and streaming limits:
 
 ```yaml
-grassNearDistance: 24
+grassNearDistance: 26
 grassMidDistance: 80
 grassFarDistance: 280
 grassTransitionDistance: 8
@@ -57,16 +55,16 @@ grassTransitionDistance: 8
 
 ### Ultra-near LOD
 
-The first 4 m uses an additional independently seeded single-blade layer. The normal near field remains visible while the extra layer contributes additional density without duplicating blades at identical positions.
+The first 6 m uses the segmented form of the normal blade set plus an independently seeded single-blade layer. The normal near field remains present, but inside the detail radius its matching one-triangle blades are partitioned out while the segmented representation carries them. The additional layer contributes extra density without duplicating blades at identical positions.
 
 ```yaml
-grassUltraNearDistance: 4
+grassUltraNearDistance: 6
 grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
 ```
 
-The extra layer is fully visible through 4 m and uses a stochastic fade from 4–5 m. It is streamed only around the camera and is built before the wider near field after spawn or a tile crossing.
+The extra density and segmented detail are fully visible through 6 m and use a stochastic fade from 6–7 m. The very close layers are streamed only around the camera and are prioritized after spawn and tile crossings.
 
 ### Normal near LOD: individual blades
 
@@ -81,27 +79,22 @@ grassNearBladesPerSquareMeterCompact: 40
 
 The production `WorldGrassSystem` initializes and updates `WorldNearGrassField` directly. `ThirdPersonController` only drives character motion and the shared interaction field, preventing a duplicate grass allocation. The older streamed multi-blade near mesh remains disabled, so close grass is not represented by patches.
 
-Both close single-blade layers receive the full character interaction deformation. Roots remain planted while blade tips bend and flatten around the character.
+Both close single-blade layers receive the full character interaction deformation. Roots remain planted while blade tips bend and flatten around the character. All near blade forms use the configured rest arc, so switching between segmented and one-triangle geometry does not change the blade tip model.
 
 ### Middle LOD: full-density patches
 
-The middle LOD uses procedural multi-blade patch geometry and retains every
-source blade. Because that geometry now provides full density, far impostors
-remain out of the middle band and enter only during the mid-to-far crossfade.
-The production impostor footprint is widened by 12% to overlap neighboring
-patch cells and hide exposed terrain seams.
+The middle LOD uses procedural multi-blade patch geometry and retains every source blade. The patch blades use the same configured rest-curve model as the near blades. Because that geometry provides full density, far impostors remain out of the middle band and enter only during the mid-to-far crossfade. The production impostor footprint is widened by 12% to overlap neighboring patch cells and hide exposed terrain seams.
 
 ```ts
 export const GRASS_MID_IMPOSTOR_UNDERFILL = 0;
 export const GRASS_IMPOSTOR_FOOTPRINT_SCALE = 1.12;
 ```
 
-This removes redundant middle-distance overdraw while patch geometry provides
-the full blade density, local volume, and parallax.
+This removes redundant middle-distance overdraw while patch geometry provides the full blade density, local volume, and parallax.
 
 ### Far LOD: hemi-octahedral impostors
 
-The production renderer bakes a multi-view grass atlas and selects a view through hemi-octahedral direction encoding. One far instance represents four 2×2 m subpatch cards, and the atlas allocation is capped at 2048 pixels per axis.
+The production renderer bakes a multi-view grass atlas and selects a view through hemi-octahedral direction encoding. One far instance represents four 2×2 m subpatch cards, and the atlas allocation is capped at 2048 pixels per axis. The bake uses the same curved blade-tip model as the real geometry, and its conservative bounds include the curve's horizontal reach.
 
 The impostor shader includes:
 
@@ -117,30 +110,26 @@ The impostor shader includes:
 
 The grass LOD system follows these rules:
 
-1. The additional ultra-near layer only adds density; it does not replace the normal near layer.
+1. The additional ultra-near layer only adds density; it does not replace the normal blade population.
 2. Individual blades never remain as a world-wide distant representation.
 3. Multi-blade patches do not render as the closest character-level grass.
 4. Full-density patches carry the middle band without a redundant impostor layer.
 5. Every transition overlaps through stochastic coverage rather than switching meshes abruptly.
-6. Color, wind response, height, and root placement should remain visually compatible across all representations.
+6. Color, wind response, blade rest shape, height, and root placement must remain visually compatible across representations.
 7. Terrain and grass streaming radii must be large enough to contain the configured LOD fades.
 
-Run the continuity verification with:
+Run the LOD and blade-shape continuity verification with:
 
 ```bash
 npm run test:lod
+npm run test:grass-shape
 ```
 
 ## Walking ways
 
-Bare dirt paths are worn through the grassland. A way is the zero contour of a
-domain-warped value-noise field. Two fields at different scales — a main way and
-a finer branch — give a network whose ways cross each other. Ways fade out as
-the ground climbs out of the rolling grassland onto a mountain flank.
+Bare dirt paths are worn through the grassland. A way is the zero contour of a domain-warped value-noise field. Two fields at different scales — a main way and a finer branch — give a network whose ways cross each other. Ways fade out as the ground climbs out of the rolling grassland onto a mountain flank.
 
-`TerrainField.samplePathDistances` reports the signed distance in metres to each
-way's centreline. The terrain uses that distance for shading and grass placement
-uses the same field to keep blades off the tread.
+`TerrainField.samplePathDistances` reports the signed distance in metres to each way's centreline. The terrain uses that distance for shading and grass placement uses the same field to keep blades off the tread. Near blades and accent foliage preserve the same path and stone feather as density coverage so the verge does not grow when a closer LOD streams in.
 
 ```yaml
 pathWidth: 3
@@ -180,6 +169,12 @@ grassLandingPulseRadius: 2.4
 grassLandingPulseStrength: 1.05
 grassLandingPulseDecay: 5.2
 ```
+
+## Procedural stones
+
+Stone placement and geometry are deterministic and configuration-driven. The current stone set includes pebbles, boulders, slabs, blocks, shards, and outcrops. Close variants add sparse chips and larger archetypes can receive shallow faceted recesses without changing the underlying watertight polyhedron contract.
+
+World configuration controls density, clustering, grass clearance, streaming radius, close-detail radius, batching, and biological surface growth. Stone verification checks deterministic generation, topology, metrics, and configured runtime limits as part of every production build.
 
 ## Drow character
 
@@ -290,7 +285,7 @@ Configuration loading is strict:
 - Duplicate keys fail startup.
 - Missing values fail startup.
 - Invalid number ranges fail startup.
-- Cross-field LOD, streaming, camera, movement, and density constraints are validated.
+- Cross-field LOD, streaming, camera, movement, clump-shape, and density constraints are validated.
 - The far-impostor path requires exactly one instance per 4 m patch; that instance contains four subpatch cards.
 - The ultra-near transition must be shorter than the ultra-near distance.
 - The ultra-near band must end before the normal near-to-middle fade begins.
@@ -323,16 +318,19 @@ npm run build
 
 The build command runs:
 
-1. TypeScript compilation.
-2. Repository production-policy verification, including the no-GitHub-Actions rule.
-3. Runtime lifecycle and safety verification.
-4. Grass LOD continuity verification.
-5. Grass color-parity verification.
-6. Grass performance-envelope verification.
-7. Grass placement verification.
-8. Far-impostor subpatch verification.
-9. Character motion verification.
-10. Vite production bundling.
+1. Application TypeScript compilation.
+2. Stone-tool TypeScript compilation.
+3. Repository production-policy verification, including the no-GitHub-Actions rule.
+4. Runtime lifecycle and safety verification.
+5. Grass LOD continuity verification.
+6. Grass blade-shape continuity verification.
+7. Grass color-parity verification.
+8. Grass performance-envelope verification.
+9. Grass placement verification.
+10. Far-impostor subpatch verification.
+11. Character motion verification.
+12. Procedural stone verification.
+13. Vite production bundling.
 
 Preview the generated build:
 
