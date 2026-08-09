@@ -47,19 +47,20 @@ const COMPACT_NEAR_BUILD_BUDGET_MS = 1.5;
 const DETAIL_FOLIAGE_TILES_PER_FRAME = 1;
 /** Compact devices carry the layer at a lower share of the same budget. */
 const COMPACT_DETAIL_FOLIAGE_SCALE = 0.6;
+
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
-  // The base and detail layers are complementary halves of the same near band
-  // and must run with different detailMode values. They used to share one
-  // material, which three cannot express: a shared material uploads its custom
-  // uniforms once per contiguous run of draws, so whichever layer happened to
-  // draw first silently decided the mode for both. Separate materials make the
-  // split real.
+  // The ultra-near detail layer, regular near layer, and bridge are separate
+  // materials because their keep masks are different layer-level constants.
+  // They intentionally reuse one placement set wherever their residency rings
+  // overlap, so changing representation never moves a blade root.
   private readonly baseMaterial: GrassNearMaterial;
+  private readonly bridgeMaterial: GrassNearMaterial;
   private readonly baseDetailMaterial: GrassNearMaterial;
   private readonly ultraNearMaterial: GrassNearMaterial;
   private factory?: WorldSingleBladeTileFactory;
   private baseField?: WorldSingleBladeTileField;
+  private bridgeField?: WorldSingleBladeTileField;
   private baseDetailedField?: WorldSingleBladeTileField;
   private ultraNearField?: WorldSingleBladeTileField;
   // The accent layer: one atlas, one material, every species and tint resolved
@@ -86,7 +87,7 @@ export class WorldNearGrassField {
     const windMode = profile.compact ? "sine" : "noise";
     this.baseMaterial = new GrassNearMaterial({
       name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v20-base-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v21-base-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
@@ -94,9 +95,22 @@ export class WorldNearGrassField {
       subPixelWidth: true,
       noiseWind: !profile.compact,
     });
+    this.bridgeMaterial = new GrassNearMaterial({
+      name: "world-grass-near-bridge-material",
+      cacheKey: `grass-near-material-v21-bridge-vertex-palette-${windMode}`,
+      // Outside the bridge-entry radius, using the same dither as LOD0. This
+      // makes LOD0 -> bridge a strict partition of one placement set.
+      detailMode: 1,
+      ditherSeed: BASE_SEED_SALT,
+      vertexPalette: true,
+      interactive: true,
+      subPixelWidth: true,
+      sheen: false,
+      noiseWind: !profile.compact,
+    });
     this.baseDetailMaterial = new GrassNearMaterial({
       name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v20-detail-${windMode}`,
+      cacheKey: `grass-near-material-v21-detail-${windMode}`,
       detailMode: 2,
       ditherSeed: BASE_SEED_SALT,
       interactive: true,
@@ -104,7 +118,7 @@ export class WorldNearGrassField {
     });
     this.ultraNearMaterial = new GrassNearMaterial({
       name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v20-ultra-${windMode}`,
+      cacheKey: `grass-near-material-v21-ultra-${windMode}`,
       detailMode: 0,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       interactive: true,
@@ -133,6 +147,7 @@ export class WorldNearGrassField {
     }
 
     this.baseMaterial.update(elapsedSeconds);
+    this.bridgeMaterial.update(elapsedSeconds);
     this.baseDetailMaterial.update(elapsedSeconds);
     this.ultraNearMaterial.update(elapsedSeconds);
     this.detailFoliageMaterial?.update(elapsedSeconds);
@@ -146,6 +161,7 @@ export class WorldNearGrassField {
         this.resolveBaseVisibilityRadius(this.artDirection) +
           NEAR_FIELD_ALTITUDE_MARGIN;
     this.baseField?.setEnabled(nearFieldsEnabled);
+    this.bridgeField?.setEnabled(nearFieldsEnabled);
     this.baseDetailedField?.setEnabled(nearFieldsEnabled);
     this.ultraNearField?.setEnabled(nearFieldsEnabled);
     this.detailFoliageField?.setEnabled(
@@ -164,12 +180,13 @@ export class WorldNearGrassField {
       buildDeadline,
       performance.now() + nearBuildBudget,
     );
-    // The detail layer reuses the wider base layer's placement buffers. Let it
-    // claim any cache hits first, then spend the remaining slice on unique
-    // ultra-near density and new base placements.
+    // Detail tiles reuse LOD0 placement buffers. The bridge is updated after
+    // LOD0 so overlap tiles are cache hits; beyond LOD0 residency it becomes
+    // the placement owner, replacing the work the old near field did there.
     this.baseDetailedField?.update(focus, nearBuildDeadline);
     this.ultraNearField?.update(focus, nearBuildDeadline);
     this.baseField?.update(focus, nearBuildDeadline);
+    this.bridgeField?.update(focus, nearBuildDeadline);
     // Accents last: they are the layer whose absence for one more frame is
     // least visible, so they spend whatever the blade layers left.
     this.detailFoliageField?.update(focus, nearBuildDeadline);
@@ -190,8 +207,11 @@ export class WorldNearGrassField {
   }
 
   getBladeCount(): number {
+    // LOD0 and bridge are complementary views of the same base placement set.
+    // Count the wider owner once, then add only the independently seeded extra
+    // ultra-near density.
     return (
-      (this.baseField?.getBladeCount() ?? 0) +
+      (this.bridgeField?.getBladeCount() ?? this.baseField?.getBladeCount() ?? 0) +
       (this.ultraNearField?.getBladeCount() ?? 0)
     );
   }
@@ -204,6 +224,7 @@ export class WorldNearGrassField {
   } {
     const fields = [
       this.baseField,
+      this.bridgeField,
       this.baseDetailedField,
       this.ultraNearField,
     ];
@@ -223,37 +244,44 @@ export class WorldNearGrassField {
 
   setArtDirection(direction: GrassArtDirection): void {
     this.artDirection = direction;
+    const bridgeEntryLod = this.resolveBridgeEntryLodConfig(direction);
+    const bridgeExitLod = this.resolveBridgeExitLodConfig(direction);
+    const ultraNearLod = this.resolveUltraNearLodConfig();
+
     this.ultraNearMaterial.applyArtDirection(direction);
+    this.bridgeMaterial.applyArtDirection(direction);
     this.detailFoliageMaterial?.applyArtDirection(direction);
-    const lodConfig: GrassLodConfig = {
-      nearMaxDistance: direction.nearDistance,
-      midMaxDistance: direction.midDistance,
-      farMaxDistance: direction.farDistance,
-      transitionDistance: direction.transitionDistance,
-      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-    };
     for (const material of [this.baseMaterial, this.baseDetailMaterial]) {
       material.applyArtDirection(direction);
-      material.configureLod(lodConfig);
+      material.configureLod(bridgeEntryLod);
+      material.configureDetailLod(ultraNearLod);
     }
-    // Tiles past the active preset's near fade contribute no blades at all, so
-    // there is no reason to build, stream, or draw them. The radius used to be
-    // fixed at the maximum across every preset.
+    this.bridgeMaterial.configureLod(bridgeExitLod);
+    this.bridgeMaterial.configureDetailLod(bridgeEntryLod);
+
     this.baseField?.setVisibilityRadius(
-      this.resolveBaseVisibilityRadius(direction),
+      this.resolveBridgeEntryVisibilityRadius(),
     );
     this.baseField?.setLodFade(
-      direction.nearDistance,
-      direction.transitionDistance,
+      bridgeEntryLod.nearMaxDistance,
+      bridgeEntryLod.transitionDistance,
+    );
+    this.bridgeField?.setVisibilityRadius(
+      this.resolveBaseVisibilityRadius(direction),
+    );
+    this.bridgeField?.setLodFade(
+      bridgeExitLod.nearMaxDistance,
+      bridgeExitLod.transitionDistance,
     );
   }
 
   /**
-   * World size of one device pixel per metre of camera distance. Only the base
-   * layer compiles the sub-pixel width clamp that reads it.
+   * World size of one device pixel per metre of camera distance. LOD0 and the
+   * bridge both use the same sub-pixel width rule through the handoff.
    */
   setViewportPixelScale(pixelWorldScale: number): void {
     this.baseMaterial.setViewportPixelScale(pixelWorldScale);
+    this.bridgeMaterial.setViewportPixelScale(pixelWorldScale);
   }
 
   setQuality(
@@ -272,30 +300,44 @@ export class WorldNearGrassField {
         (this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1),
     );
     this.baseMaterial.setLodDensityScale(densityScale);
+    this.bridgeMaterial.setLodDensityScale(densityScale);
     this.baseDetailMaterial.setLodDensityScale(densityScale);
     this.ultraNearMaterial.setLodDensityScale(
       densityScale * ultraDensityScale,
     );
     this.baseMaterial.setSheenEnabled(sheenEnabled);
     this.baseField?.setDensityScale(densityScale);
+    this.bridgeField?.setDensityScale(densityScale);
     this.baseDetailedField?.setDensityScale(densityScale);
     this.ultraNearField?.setDensityScale(densityScale * ultraDensityScale);
-    const nearDistance = this.artDirection.nearDistance * nearDistanceScale;
-    const lodConfig: GrassLodConfig = {
-      nearMaxDistance: nearDistance,
-      midMaxDistance: this.artDirection.midDistance,
-      farMaxDistance: this.artDirection.farDistance,
-      transitionDistance: this.artDirection.transitionDistance,
-      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-    };
-    this.baseMaterial.configureLod(lodConfig);
-    this.baseDetailMaterial.configureLod(lodConfig);
+
+    const bridgeEntryLod = this.resolveBridgeEntryLodConfig(
+      this.artDirection,
+      nearDistanceScale,
+    );
+    const bridgeExitLod = this.resolveBridgeExitLodConfig(
+      this.artDirection,
+      nearDistanceScale,
+    );
+    this.baseMaterial.configureLod(bridgeEntryLod);
+    this.baseDetailMaterial.configureLod(bridgeEntryLod);
+    this.bridgeMaterial.configureDetailLod(bridgeEntryLod);
+    this.bridgeMaterial.configureLod(bridgeExitLod);
     this.baseField?.setVisibilityRadius(
-      nearDistance + this.artDirection.transitionDistance + SINGLE_BLADE_BOUNDS_MARGIN,
+      this.resolveBridgeEntryVisibilityRadius(nearDistanceScale),
     );
     this.baseField?.setLodFade(
-      nearDistance,
-      this.artDirection.transitionDistance,
+      bridgeEntryLod.nearMaxDistance,
+      bridgeEntryLod.transitionDistance,
+    );
+    this.bridgeField?.setVisibilityRadius(
+      bridgeExitLod.nearMaxDistance +
+        bridgeExitLod.transitionDistance +
+        SINGLE_BLADE_BOUNDS_MARGIN,
+    );
+    this.bridgeField?.setLodFade(
+      bridgeExitLod.nearMaxDistance,
+      bridgeExitLod.transitionDistance,
     );
   }
 
@@ -355,6 +397,55 @@ export class WorldNearGrassField {
     );
   }
 
+  private resolveBridgeEntryVisibilityRadius(nearDistanceScale = 1): number {
+    return (
+      this.worldConfig.grassNearBridgeDistance * nearDistanceScale +
+      this.worldConfig.grassNearBridgeTransitionDistance * nearDistanceScale +
+      SINGLE_BLADE_BOUNDS_MARGIN
+    );
+  }
+
+  private resolveBridgeEntryLodConfig(
+    direction: GrassArtDirection,
+    nearDistanceScale = 1,
+  ): GrassLodConfig {
+    return {
+      nearMaxDistance:
+        this.worldConfig.grassNearBridgeDistance * nearDistanceScale,
+      midMaxDistance: direction.midDistance,
+      farMaxDistance: direction.farDistance,
+      transitionDistance:
+        this.worldConfig.grassNearBridgeTransitionDistance * nearDistanceScale,
+      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+    };
+  }
+
+  private resolveBridgeExitLodConfig(
+    direction: GrassArtDirection,
+    nearDistanceScale = 1,
+  ): GrassLodConfig {
+    return {
+      nearMaxDistance: direction.nearDistance * nearDistanceScale,
+      midMaxDistance: direction.midDistance,
+      farMaxDistance: direction.farDistance,
+      transitionDistance: direction.transitionDistance,
+      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
+    };
+  }
+
+  private resolveUltraNearLodConfig(): GrassLodConfig {
+    const ultraTransitionHalf =
+      this.worldConfig.grassUltraNearTransitionDistance * 0.5;
+    return {
+      nearMaxDistance:
+        this.worldConfig.grassUltraNearDistance + ultraTransitionHalf,
+      midMaxDistance: this.worldConfig.grassMidDistance,
+      farMaxDistance: this.worldConfig.grassFarDistance,
+      transitionDistance: ultraTransitionHalf,
+      hysteresisDistance: 0,
+    };
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -362,10 +453,12 @@ export class WorldNearGrassField {
     this.disposed = true;
     this.initialized = false;
     this.baseField?.dispose();
+    this.bridgeField?.dispose();
     this.baseDetailedField?.dispose();
     this.ultraNearField?.dispose();
     this.detailFoliageField?.dispose();
     this.baseField = undefined;
+    this.bridgeField = undefined;
     this.baseDetailedField = undefined;
     this.ultraNearField = undefined;
     this.detailFoliageField = undefined;
@@ -374,6 +467,7 @@ export class WorldNearGrassField {
     this.detailFoliageFactory?.dispose();
     this.detailFoliageFactory = undefined;
     this.baseMaterial.material.dispose();
+    this.bridgeMaterial.material.dispose();
     this.baseDetailMaterial.material.dispose();
     this.ultraNearMaterial.material.dispose();
     this.detailFoliageMaterial?.dispose();
@@ -393,32 +487,27 @@ export class WorldNearGrassField {
       return;
     }
 
-    const baseLodConfig: GrassLodConfig = {
-      nearMaxDistance: this.artDirection.nearDistance,
-      midMaxDistance: this.artDirection.midDistance,
-      farMaxDistance: this.artDirection.farDistance,
-      transitionDistance: this.artDirection.transitionDistance,
-      hysteresisDistance: this.worldConfig.grassHysteresisDistance,
-    };
-    const ultraTransitionHalf =
-      this.worldConfig.grassUltraNearTransitionDistance * 0.5;
-    const ultraNearLodConfig: GrassLodConfig = {
-      nearMaxDistance:
-        this.worldConfig.grassUltraNearDistance + ultraTransitionHalf,
-      midMaxDistance: this.worldConfig.grassMidDistance,
-      farMaxDistance: this.worldConfig.grassFarDistance,
-      transitionDistance: ultraTransitionHalf,
-      hysteresisDistance: 0,
-    };
+    const bridgeEntryLodConfig = this.resolveBridgeEntryLodConfig(
+      this.artDirection,
+    );
+    const bridgeExitLodConfig = this.resolveBridgeExitLodConfig(
+      this.artDirection,
+    );
+    const ultraNearLodConfig = this.resolveUltraNearLodConfig();
 
-    // The base and detail layers partition the same blade set against the same
-    // detail radius, so they must agree on every LOD input.
+    // LOD0 and the segmented detail layer partition the same blade set against
+    // the ultra-near radius. LOD0 then partitions into the bridge using the
+    // bridge entry radius, while the bridge owns the old outer near residency.
     for (const material of [this.baseMaterial, this.baseDetailMaterial]) {
       material.configure(grassConfig.material, grassConfig.wind);
       material.applyArtDirection(this.artDirection);
-      material.configureLod(baseLodConfig);
+      material.configureLod(bridgeEntryLodConfig);
       material.configureDetailLod(ultraNearLodConfig);
     }
+    this.bridgeMaterial.configure(grassConfig.material, grassConfig.wind);
+    this.bridgeMaterial.applyArtDirection(this.artDirection);
+    this.bridgeMaterial.configureLod(bridgeExitLodConfig);
+    this.bridgeMaterial.configureDetailLod(bridgeEntryLodConfig);
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
@@ -426,6 +515,7 @@ export class WorldNearGrassField {
       const texture = getGrassWindNoiseTexture();
       for (const material of [
         this.baseMaterial,
+        this.bridgeMaterial,
         this.baseDetailMaterial,
         this.ultraNearMaterial,
       ]) {
@@ -438,10 +528,11 @@ export class WorldNearGrassField {
     }
     // Matches the half-width `createSingleBladeGeometry` builds from the mean
     // configured blade width, which is what the sub-pixel clamp widens from.
-    this.baseMaterial.setBladeHalfWidth(
+    const sourceBladeHalfWidth =
       (grassConfig.geometry.bladeWidthMin + grassConfig.geometry.bladeWidthMax) *
-        0.25,
-    );
+      0.25;
+    this.baseMaterial.setBladeHalfWidth(sourceBladeHalfWidth);
+    this.bridgeMaterial.setBladeHalfWidth(sourceBladeHalfWidth);
 
     const trailBend = {
       maxAngleRadians: THREE.MathUtils.degToRad(
@@ -452,6 +543,7 @@ export class WorldNearGrassField {
     };
     for (const material of [
       this.baseMaterial,
+      this.bridgeMaterial,
       this.baseDetailMaterial,
       this.ultraNearMaterial,
     ]) {
@@ -472,28 +564,48 @@ export class WorldNearGrassField {
       tileSize,
       {
         namePrefix: "world-grass-single-blades",
-        visibilityRadius: this.resolveBaseVisibilityRadius(this.artDirection),
+        visibilityRadius: this.resolveBridgeEntryVisibilityRadius(),
         densityMultiplier: 1,
-        // The base layer keeps every blade but uses the same one-triangle
-        // silhouette as the mid LOD. The segmented ultra-near layer supplies
-        // the bend detail that is visible while walking through the grass.
+        // LOD0 and bridge use the same one-triangle silhouette. The bridge is
+        // a representation boundary, not a new placement population.
         bladeSegments: 1,
         receiveShadows: false,
         seedSalt: BASE_SEED_SALT,
         material: this.baseMaterial,
         tilesPerFrame: BASE_TILES_PER_FRAME,
-        // The shader follows the camera continuously; reconcile the small
-        // 8 m tile set as well so moving inside a tile cannot omit the outer
-        // near-fade ring.
         reconcileEveryFrame: true,
-        lodNearDistance: baseLodConfig.nearMaxDistance,
-        lodTransitionDistance: baseLodConfig.transitionDistance,
-        // detailMode 1 drops blades inside the detail radius, which is not a
-        // prefix of the dither order, so tiles that reach it draw in full.
-        // Coverage is 1 that close anyway, so nothing is lost.
+        lodNearDistance: bridgeEntryLodConfig.nearMaxDistance,
+        lodTransitionDistance: bridgeEntryLodConfig.transitionDistance,
+        // detailMode 1 also removes the one-triangle copy inside ultra-near.
+        // That second keep test is not a prefix until its own fade is finished.
         lodGuardDistance:
           ultraNearLodConfig.nearMaxDistance +
           ultraNearLodConfig.transitionDistance,
+      },
+    );
+
+    this.bridgeField = new WorldSingleBladeTileField(
+      this.scene,
+      factory,
+      tileSize,
+      {
+        namePrefix: "world-grass-near-bridge",
+        visibilityRadius: this.resolveBaseVisibilityRadius(this.artDirection),
+        densityMultiplier: 1,
+        bladeSegments: 1,
+        receiveShadows: false,
+        seedSalt: BASE_SEED_SALT,
+        material: this.bridgeMaterial,
+        tilesPerFrame: BASE_TILES_PER_FRAME,
+        reconcileEveryFrame: true,
+        lodNearDistance: bridgeExitLodConfig.nearMaxDistance,
+        lodTransitionDistance: bridgeExitLodConfig.transitionDistance,
+        // During the bridge-entry fade the keep set is an interval in dither
+        // space rather than a prefix, so CPU count trimming starts only after
+        // that exact-placement handoff is complete.
+        lodGuardDistance:
+          bridgeEntryLodConfig.nearMaxDistance +
+          bridgeEntryLodConfig.transitionDistance,
       },
     );
 
