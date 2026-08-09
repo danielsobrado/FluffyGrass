@@ -86,9 +86,8 @@ const DROP_FRACTION = 0.9;
 const RAISE_FRACTION = 1.05;
 const MAX_SAMPLE_DELTA_SECONDS = 0.25;
 /**
- * Seconds the density scale takes to travel between tiers. A step change would
- * dither a visible fraction of the field out in one frame; ramping turns the
- * same change into the dissolve the LOD fades already use.
+ * Maximum scalar ramp rate. A full-scale change would take this many seconds;
+ * ordinary adjacent tier changes are smaller and therefore complete sooner.
  */
 const RAMP_SECONDS = 0.75;
 /**
@@ -106,6 +105,7 @@ export class GrassQualityGovernor {
   private densityScale = 1;
   private midFloorScale = 1;
   private ultraDensityScale = 1;
+  private nearDistanceScale = 1;
   private accentDensityScale = 1;
   private windowElapsed = 0;
   private windowFrames = 0;
@@ -141,6 +141,7 @@ export class GrassQualityGovernor {
       this.densityScale = pinned.densityScale;
       this.midFloorScale = pinned.midFloorScale;
       this.ultraDensityScale = pinned.ultraDensityScale;
+      this.nearDistanceScale = pinned.nearDistanceScale;
       this.accentDensityScale = pinned.accentDensityScale;
       this.resetSamplingWindow();
     }
@@ -216,6 +217,11 @@ export class GrassQualityGovernor {
       target.ultraDensityScale,
       step,
     );
+    const nearDistance = approach(
+      this.nearDistanceScale,
+      target.nearDistanceScale,
+      step,
+    );
     const accent = approach(
       this.accentDensityScale,
       target.accentDensityScale,
@@ -225,10 +231,12 @@ export class GrassQualityGovernor {
       density !== this.densityScale ||
       midFloor !== this.midFloorScale ||
       ultra !== this.ultraDensityScale ||
+      nearDistance !== this.nearDistanceScale ||
       accent !== this.accentDensityScale;
     this.densityScale = density;
     this.midFloorScale = midFloor;
     this.ultraDensityScale = ultra;
+    this.nearDistanceScale = nearDistance;
     this.accentDensityScale = accent;
     return changed;
   }
@@ -276,7 +284,7 @@ export class GrassQualityGovernor {
   }
 
   getNearDistanceScale(): number {
-    return GRASS_QUALITY_TIERS[this.tier].nearDistanceScale;
+    return this.nearDistanceScale;
   }
 }
 
