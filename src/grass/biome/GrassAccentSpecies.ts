@@ -137,21 +137,22 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
 /**
  * Tint rows for the atlas's B channel, which marks petals and seed clusters.
  *
- * The colour is per instance rather than per material, so one atlas yields
- * white, red, yellow, and pink flowers with no extra draw and no second
- * texture. Accents are deliberately outside the LOD colour-parity budget for
- * the same reason the backlight tint is: they are not grass colour.
+ * The colour is per instance rather than per material, so one atlas yields a
+ * broad natural wildflower mix with no extra draw and no second texture. The
+ * palette stays deliberately muted so flowers sit inside the grass field rather
+ * than reading as saturated markers. Accents are outside the LOD colour-parity
+ * budget because they are not grass colour.
  */
 export const GRASS_ACCENT_TINTS: readonly { key: string; color: string }[] =
   Object.freeze([
-    { key: "white", color: "#f4f1e6" },
-    { key: "cream", color: "#f0e3bd" },
-    { key: "buttercup", color: "#f2c53d" },
-    { key: "poppy-red", color: "#c8402f" },
-    { key: "pink", color: "#e39ab4" },
-    { key: "lavender", color: "#a894cf" },
-    { key: "straw", color: "#d8c48a" },
-    { key: "sky-blue", color: "#8fb6d9" },
+    { key: "white", color: "#ddd8c6" },
+    { key: "cream", color: "#d4c7a3" },
+    { key: "buttercup", color: "#c9ac62" },
+    { key: "poppy-red", color: "#a56a5d" },
+    { key: "pink", color: "#bf939e" },
+    { key: "lavender", color: "#9f96ae" },
+    { key: "straw", color: "#b9ad86" },
+    { key: "sky-blue", color: "#8fa5ad" },
   ]);
 
 /** The tint every untinted species uses. Their B channel is zero, so the row
