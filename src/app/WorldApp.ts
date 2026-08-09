@@ -283,6 +283,7 @@ export class WorldApp {
       console.error("[Drusniel World] Grass initialization failed.", error);
       this.grassInitializationError = this.runtimeGuard.formatError(error);
       this.grassEnabled = false;
+      this.grass.dispose();
     } finally {
       if (!this.disposed) {
         this.grassInitializing = false;
