@@ -138,11 +138,11 @@ export function validateWorldConfig(config: WorldConfig): void {
     );
   }
   if (
-    config.grassNearBridgeDistance + config.grassNearBridgeTransitionDistance >=
-    config.grassNearDistance
+    config.grassNearBridgeDistance + config.grassNearBridgeTransitionDistance >
+    config.grassNearDistance - config.grassTransitionDistance
   ) {
     throw new Error(
-      "The bridge LOD handoff must complete before the configured near LOD boundary.",
+      "The bridge LOD handoff must complete before the near-to-mid fade starts.",
     );
   }
 
@@ -241,9 +241,9 @@ export function validateWorldConfig(config: WorldConfig): void {
   }
   if (
     config.characterCameraMinElevationDegrees >=
-      config.characterCameraElevationDegrees ||
+    config.characterCameraElevationDegrees ||
     config.characterCameraElevationDegrees >=
-      config.characterCameraMaxElevationDegrees
+    config.characterCameraMaxElevationDegrees
   ) {
     throw new Error(
       "Character camera elevation must be between its minimum and maximum.",
