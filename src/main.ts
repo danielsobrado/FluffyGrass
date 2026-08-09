@@ -75,17 +75,17 @@ async function bootstrap(): Promise<void> {
       const { WorldApp } = await import("./app/WorldApp");
       const world = await WorldApp.create(canvas, profile);
       app = world;
-      const statsAliasEnabled = params.get("stats") === "1";
-      const gpuTimingEnabled =
-        params.get("gpuTiming") === "1" || statsAliasEnabled;
       const diagnosticsEnabled =
-        params.get("diagnostics") === "1" || gpuTimingEnabled;
+        params.get("diagnostics") === "1" ||
+        params.get("gpuTiming") === "1" ||
+        params.get("stats") === "1";
       if (diagnosticsEnabled) {
         const { WorldDiagnosticsController } = await import(
           "./runtime/WorldDiagnosticsController"
         );
         diagnostics = WorldDiagnosticsController.attach(world, {
-          gpuTiming: gpuTimingEnabled,
+          gpuTiming: params.get("gpuTiming") === "1",
+          statsPanelEnabled: params.get("stats") === "1",
         });
       }
     }
