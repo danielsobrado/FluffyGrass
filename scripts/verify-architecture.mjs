@@ -29,6 +29,8 @@ const environment = read("src/app/WorldEnvironmentController.ts");
 const frameMetrics = read("src/app/WorldFrameMetrics.ts");
 const runtimeGuard = read("src/app/WorldRuntimeGuard.ts");
 const statusHud = read("src/app/WorldStatusHud.ts");
+const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
+const stoneClearance = read("src/world/stones/StoneClearance.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
 const stoneIndentation = read("src/world/stones/StoneIndentation.ts");
 const stoneTopology = read("src/world/stones/StoneMeshTopology.ts");
@@ -58,6 +60,12 @@ assert(
     !worldApp.includes(".textContent = ["),
   "WorldApp must remain an orchestrator rather than absorbing environment, browser-fault, or presentation logic.",
 );
+assert(
+  worldApp.includes('runFrameSubsystem("stones"') &&
+    worldApp.includes('subsystem === "stones"') &&
+    !worldApp.includes("setStoneClearanceField"),
+  "Stone streaming must have an independent failure domain and must own its clearance registration outside WorldApp.",
+);
 
 for (const [name, source] of [
   ["WorldEnvironmentController", environment],
@@ -82,20 +90,31 @@ assert(
   "Runtime guard must own browser and WebGL fault lifecycle.",
 );
 assert(
-  frameMetrics.includes("beginFrame") && frameMetrics.includes("measure("),
-  "Frame metrics must own FPS and subsystem timing.",
+  frameMetrics.includes(' | "stones"') &&
+    frameMetrics.includes("stones: 0") &&
+    frameMetrics.includes("beginFrame") &&
+    frameMetrics.includes("measure("),
+  "Frame metrics must independently own stone, terrain, grass, and render timing.",
 );
 assert(
   statusHud.includes("this.element.textContent") &&
+    statusHud.includes("snapshot.stones") &&
     !statusHud.includes("WorldGrassSystem") &&
     !statusHud.includes("TerrainStreamer"),
-  "Status HUD must remain a presenter over snapshots rather than depend on world services.",
+  "Status HUD must remain a presenter over snapshots and expose stone diagnostics.",
 );
 assert(
   statusHud.includes("shouldUpdate(deltaSeconds") &&
     worldApp.indexOf("statusHud.shouldUpdate") <
       worldApp.indexOf("this.terrain.getDiagnostics()"),
   "HUD throttling must run before diagnostic snapshots are collected on the render path.",
+);
+assert(
+  stoneSystem.includes("registerStoneClearanceField") &&
+    stoneSystem.includes("clearanceRegistration.dispose()") &&
+    stoneClearance.includes("activeOwner") &&
+    stoneClearance.includes("activeOwner !== owner"),
+  "Stone clearance lifecycle must be registration-owned so stale systems cannot clear a newer field.",
 );
 
 assert(
