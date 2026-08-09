@@ -9,6 +9,7 @@ const DEPLOY_SCRIPT = resolve(REPOSITORY_ROOT, "scripts", "deploy-github-pages.m
 const VITE_CONFIG = resolve(REPOSITORY_ROOT, "vite.config.ts");
 const PACKAGE_FILE = resolve(REPOSITORY_ROOT, "package.json");
 const NODE_VERSION_FILE = resolve(REPOSITORY_ROOT, ".nvmrc");
+const NPM_CONFIG_FILE = resolve(REPOSITORY_ROOT, ".npmrc");
 const WORKFLOW_EXTENSIONS = new Set([".yml", ".yaml"]);
 
 function fail(message) {
@@ -76,6 +77,10 @@ if (
 const pinnedNodeMajor = readFileSync(NODE_VERSION_FILE, "utf8").trim();
 if (pinnedNodeMajor !== "24") {
   fail("Local production tooling must pin the current Node 24 LTS line in .nvmrc.");
+}
+const npmConfig = readFileSync(NPM_CONFIG_FILE, "utf8");
+if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
+  fail("npm must enforce package.json engine constraints during install.");
 }
 
 console.log("[production-policy] Deployment, cache, and runtime policies verified.");
