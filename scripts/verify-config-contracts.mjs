@@ -87,6 +87,18 @@ try {
       "Unknown world keys must fail closed.",
     );
     await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "grassNearBridgeDistance: 18",
+            "grassNearBridgeDistance: 22",
+          ),
+        ),
+      /bridge LOD handoff must complete before the near-to-mid fade starts/i,
+      "Bridge entry must not overlap the patch LOD fade.",
+    );
+    await expectReject(
       () => load(grassLoader, grassSource.replace('#2f7c35', 'green')),
       /baseColor must be a six-digit hex color/,
       "Invalid grass colors must fail before rendering.",
