@@ -11,7 +11,11 @@ import {
   GRASS_IMPOSTOR_MAX_WIND_DISPLACEMENT,
 } from "../../grass/GrassLodTuning";
 import type { WorldGrassBladeSpec } from "./WorldGrassPatchGeometryFactory";
-import { calculateGrassImpostorRootBoundsRadius } from "./GrassRuntimeMath";
+import {
+  calculateGrassBladeCurveReach,
+  calculateGrassImpostorRootBoundsRadius,
+  resolveGrassBladeArcPoint,
+} from "./GrassRuntimeMath";
 import {
   IMPOSTOR_MAX_ATLAS_SIZE,
   IMPOSTOR_SUBPATCHES_PER_AXIS,
@@ -79,17 +83,23 @@ export class WorldGrassImpostorAtlasFactory {
       );
     }
 
-    let maximumHeight = grass.bladeHeightMax;
+    let maximumBladeLength = grass.bladeHeightMax;
     for (const blade of blades) {
-      maximumHeight = Math.max(maximumHeight, blade.height);
+      maximumBladeLength = Math.max(maximumBladeLength, blade.height);
     }
-    const centerHeight = maximumHeight * 0.5;
+    const maximumTip = resolveGrassBladeArcPoint(
+      maximumBladeLength,
+      grass.bladeCurve,
+      1,
+    );
+    const centerHeight = maximumTip.y * 0.5;
     const subpatchSize = patchSize / IMPOSTOR_SUBPATCHES_PER_AXIS;
     const halfSubpatch = subpatchSize * 0.5;
     const horizontalExtent =
       Math.SQRT2 * halfSubpatch +
       grass.bladeLeanMax +
-      grass.bladeWidthMax;
+      grass.bladeWidthMax +
+      calculateGrassBladeCurveReach(maximumBladeLength, grass.bladeCurve);
     const cardRadius =
       Math.hypot(horizontalExtent, centerHeight) * config.cameraMargin;
     const subpatchOffsetRadius = Math.SQRT2 * halfSubpatch;
@@ -141,6 +151,7 @@ export class WorldGrassImpostorAtlasFactory {
             config.padding,
             new THREE.Vector3(center.x, centerHeight, center.y),
             cardRadius,
+            grass.bladeCurve,
           );
         }
       }
@@ -215,6 +226,7 @@ export class WorldGrassImpostorAtlasFactory {
     padding: number,
     center: THREE.Vector3,
     radius: number,
+    bladeCurve: number,
   ): void {
     const right = new THREE.Vector3().crossVectors(WORLD_UP, viewDirection);
     if (right.lengthSq() < 1e-6) {
@@ -236,6 +248,7 @@ export class WorldGrassImpostorAtlasFactory {
         offsetY + padding,
         frameResolution,
         radius,
+        bladeCurve,
       ),
     );
     projected.sort((left, rightBlade) => left.depth - rightBlade.depth);
@@ -314,12 +327,18 @@ export class WorldGrassImpostorAtlasFactory {
     frameY: number,
     frameResolution: number,
     radius: number,
+    bladeCurve: number,
   ): ProjectedBlade {
     const halfWidth = blade.width * 0.5;
     const widthX = Math.cos(blade.facingAngle) * halfWidth;
     const widthZ = Math.sin(blade.facingAngle) * halfWidth;
-    const tipX = blade.rootX + Math.cos(blade.leanAngle) * blade.lean;
-    const tipZ = blade.rootZ + Math.sin(blade.leanAngle) * blade.lean;
+    const tip = resolveGrassBladeArcPoint(blade.height, bladeCurve, 1);
+    const curveX = -Math.sin(blade.facingAngle) * tip.z;
+    const curveZ = Math.cos(blade.facingAngle) * tip.z;
+    const tipX =
+      blade.rootX + Math.cos(blade.leanAngle) * blade.lean + curveX;
+    const tipZ =
+      blade.rootZ + Math.sin(blade.leanAngle) * blade.lean + curveZ;
     const leftX = blade.rootX - widthX;
     const leftZ = blade.rootZ - widthZ;
     const rightRootX = blade.rootX + widthX;
@@ -354,7 +373,7 @@ export class WorldGrassImpostorAtlasFactory {
     let projectedRightY = this.projectedPoint[1];
     this.projectPoint(
       tipX,
-      blade.height,
+      tip.y,
       tipZ,
       right,
       up,
@@ -383,7 +402,7 @@ export class WorldGrassImpostorAtlasFactory {
     }
 
     const averageX = (leftX + rightRootX + tipX) / 3 - center.x;
-    const averageY = blade.height / 3 - center.y;
+    const averageY = tip.y / 3 - center.y;
     const averageZ = (leftZ + rightRootZ + tipZ) / 3 - center.z;
     return {
       depth:
