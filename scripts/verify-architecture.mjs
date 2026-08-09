@@ -12,7 +12,10 @@ const CONFIG_LOADER_MAX_LINES = 220;
 const CONFIG_READER_MAX_LINES = 120;
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function lineCount(source) {
@@ -80,7 +83,9 @@ assert(
     worldApp.includes(
       "this.streamingBuildDeadline - grassBuildReserveMs - stoneBuildReserveMs",
     ) &&
-    worldApp.includes("this.streamingBuildDeadline - grassBuildReserveMs"),
+    worldApp.includes("this.streamingBuildDeadline - grassBuildReserveMs") &&
+    worldApp.includes("performance.now() + stoneBuildReserveMs") &&
+    worldApp.includes("performance.now() + grassBuildReserveMs"),
   "The shared streaming budget must reserve bounded progress for terrain, stones, and grass instead of allowing an earlier subsystem to starve grass.",
 );
 assert(
