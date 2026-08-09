@@ -426,6 +426,7 @@ export class WorldApp {
         this.terrainEnabled = false;
       } else if (subsystem === "stones") {
         this.stonesEnabled = false;
+        this.stones.dispose();
       } else if (subsystem === "grass") {
         this.grassEnabled = false;
       } else if (subsystem === "renderer") {
