@@ -35,6 +35,8 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassUltraNearTransitionDistance: POSITIVE_NUMBER_RULE,
   grassUltraNearDensityMultiplier: { minimum: 1, maximum: 3 },
   grassUltraNearDensityMultiplierCompact: { minimum: 1, maximum: 3 },
+  grassNearBridgeDistance: POSITIVE_NUMBER_RULE,
+  grassNearBridgeTransitionDistance: POSITIVE_NUMBER_RULE,
   grassClumpRadiusScaleMin: { minimum: 0.2, maximum: 0.5 },
   grassClumpRadiusScaleMax: { minimum: 0.2, maximum: 0.5 },
   grassClumpAspectMin: { minimum: 0.6, maximum: 1 },
