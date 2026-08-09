@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORLD_APP_MAX_LINES = 540;
+const TERRAIN_STREAMER_MAX_LINES = 300;
 const STONE_GEOMETRY_MAX_LINES = 340;
 const EXTRACTED_MODULE_MAX_LINES = 260;
 const CONFIG_LOADER_MAX_LINES = 220;
@@ -30,6 +31,9 @@ const environment = read("src/app/WorldEnvironmentController.ts");
 const frameMetrics = read("src/app/WorldFrameMetrics.ts");
 const runtimeGuard = read("src/app/WorldRuntimeGuard.ts");
 const statusHud = read("src/app/WorldStatusHud.ts");
+const terrainStreamer = read("src/world/TerrainStreamer.ts");
+const terrainMaterial = read("src/world/TerrainMaterialController.ts");
+const terrainShader = read("src/world/TerrainMaterialShader.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
 const stoneClearance = read("src/world/stones/StoneClearance.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
@@ -128,6 +132,24 @@ assert(
       worldApp.indexOf("this.terrain.getDiagnostics()"),
   "HUD throttling must run before diagnostic snapshots are collected on the render path.",
 );
+
+assert(
+  lineCount(terrainStreamer) <= TERRAIN_STREAMER_MAX_LINES &&
+    terrainStreamer.includes("TerrainMaterialController") &&
+    terrainStreamer.includes("private disposed = false") &&
+    !terrainStreamer.includes("onBeforeCompile") &&
+    !terrainStreamer.includes("TERRAIN_DETAIL_COLOR"),
+  "TerrainStreamer must own residency/build scheduling, not shader or texture construction, and must be disposal-safe.",
+);
+assert(
+  lineCount(terrainMaterial) <= EXTRACTED_MODULE_MAX_LINES &&
+    terrainMaterial.includes("onBeforeCompile") &&
+    terrainMaterial.includes("setGrassArtDirection") &&
+    terrainMaterial.includes("grassDetailTexture.dispose()") &&
+    terrainShader.includes("TERRAIN_DETAIL_COLOR"),
+  "Terrain material and shader modules must own terrain rendering concerns outside the streamer.",
+);
+
 assert(
   stoneSystem.includes("private disposed = false") &&
     stoneSystem.includes("if (this.disposed || !this.enabled) return") &&
@@ -138,7 +160,6 @@ assert(
     stoneClearance.includes("activeOwner !== owner"),
   "Stone lifecycle must be idempotent and registration-owned so stale systems cannot update or clear a newer field.",
 );
-
 assert(
   lineCount(stoneGeometry) <= STONE_GEOMETRY_MAX_LINES,
   `StoneGeometry grew beyond ${STONE_GEOMETRY_MAX_LINES} lines; keep topology and feature generation in dedicated modules.`,
@@ -198,5 +219,5 @@ assert(
 );
 
 console.log(
-  "[architecture] Runtime, config, and stone responsibility boundaries verified.",
+  "[architecture] Runtime, terrain, config, and stone responsibility boundaries verified.",
 );
