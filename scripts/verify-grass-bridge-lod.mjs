@@ -251,12 +251,20 @@ for (const [profile, density, profileUltraMultiplier, ceiling] of [
   );
 }
 
-const qualityScales = [
+const qualityScaleTargets = [
   ...qualityGovernor.matchAll(/nearDistanceScale:\s*([0-9.]+)/g),
 ].map((match) => Number(match[1]));
 assert(
-  qualityScales.length > 0 && qualityScales.every(Number.isFinite),
+  qualityScaleTargets.length > 0 && qualityScaleTargets.every(Number.isFinite),
   "Unable to read grass quality near-distance scales.",
+);
+const minimumQualityScale = Math.min(...qualityScaleTargets);
+const maximumQualityScale = Math.max(...qualityScaleTargets);
+const qualityScales = Array.from(
+  { length: PHASE_SAMPLES + 1 },
+  (_, index) =>
+    minimumQualityScale +
+    ((maximumQualityScale - minimumQualityScale) * index) / PHASE_SAMPLES,
 );
 
 for (const direction of Object.values(presets)) {
