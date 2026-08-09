@@ -75,6 +75,7 @@ export class WorldNearGrassField {
   private initialization?: Promise<void>;
   private artDirection: GrassArtDirection =
     GRASS_ART_DIRECTIONS[DEFAULT_GRASS_ART_DIRECTION_KEY];
+  private nearDistanceScale = 1;
   private initialized = false;
   private disposed = false;
 
@@ -160,8 +161,10 @@ export class WorldNearGrassField {
     const nearFieldsEnabled =
       focusGroundHeight === undefined ||
       focus.y - focusGroundHeight <=
-        this.resolveBaseVisibilityRadius(this.artDirection) +
-          NEAR_FIELD_ALTITUDE_MARGIN;
+        this.resolveBaseVisibilityRadius(
+          this.artDirection,
+          this.nearDistanceScale,
+        ) + NEAR_FIELD_ALTITUDE_MARGIN;
     this.baseField?.setEnabled(nearFieldsEnabled);
     this.bridgeField?.setEnabled(nearFieldsEnabled);
     this.baseDetailedField?.setEnabled(nearFieldsEnabled);
@@ -290,6 +293,7 @@ export class WorldNearGrassField {
     nearDistanceScale = 1,
     accentDensityScale = 1,
   ): void {
+    this.nearDistanceScale = nearDistanceScale;
     this.detailFoliageEnabled = accentDensityScale > 0;
     this.detailFoliageField?.setDensityScale(
       accentDensityScale *
@@ -391,9 +395,12 @@ export class WorldNearGrassField {
     );
   }
 
-  private resolveBaseVisibilityRadius(direction: GrassArtDirection): number {
+  private resolveBaseVisibilityRadius(
+    direction: GrassArtDirection,
+    nearDistanceScale = 1,
+  ): number {
     return (
-      direction.nearDistance +
+      direction.nearDistance * nearDistanceScale +
       direction.transitionDistance +
       SINGLE_BLADE_BOUNDS_MARGIN
     );
