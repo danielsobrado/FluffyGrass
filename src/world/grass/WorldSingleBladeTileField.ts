@@ -22,6 +22,12 @@ export interface WorldSingleBladeTileFieldOptions {
   lodNearDistance: number;
   lodTransitionDistance: number;
   /**
+   * Optional distance inside which this layer is guaranteed to have zero
+   * coverage. Tiles whose complete conservative bound fits inside it can skip
+   * submission instead of relying on the vertex shader to reject every blade.
+   */
+  lodInnerCullDistance?: number;
+  /**
    * Inside this distance the material's detail-mode test can keep blades the
    * plain near-coverage prefix would exclude, so the draw is never truncated
    * there. Zero for fields whose keep set is a prefix at every distance.
@@ -75,6 +81,7 @@ function upperBound(values: Float32Array, value: number): number {
   }
   return low;
 }
+
 /**
  * Cantor-pairs two zig-zag encoded integers into one allocation-free key.
  * Unlike fixed-width bit packing, this stays collision-free when a configured
@@ -104,6 +111,7 @@ export class WorldSingleBladeTileField {
     Number.POSITIVE_INFINITY,
     Number.POSITIVE_INFINITY,
   );
+  private readonly innerCullCenter = new THREE.Vector3();
   /** Set whenever the tile set or the fade changes under a stationary focus. */
   private countsDirty = true;
   private activeBuild?: WorldSingleBladeTileBuildJob;
@@ -114,6 +122,7 @@ export class WorldSingleBladeTileField {
   private visibilityRadius: number;
   private lodNearDistance: number;
   private lodTransitionDistance: number;
+  private lodInnerCullDistance: number;
   private lastBuildMs = 0;
   private maxBuildMs = 0;
   private densityScale = 1;
@@ -127,6 +136,7 @@ export class WorldSingleBladeTileField {
     this.visibilityRadius = options.visibilityRadius;
     this.lodNearDistance = options.lodNearDistance;
     this.lodTransitionDistance = options.lodTransitionDistance;
+    this.lodInnerCullDistance = Math.max(0, options.lodInnerCullDistance ?? 0);
   }
 
   /** Art directions with a shorter near fade need fewer resident tiles. */
@@ -145,6 +155,14 @@ export class WorldSingleBladeTileField {
     this.lodNearDistance = nearDistance;
     this.lodTransitionDistance = transitionDistance;
     this.countsDirty = true;
+  }
+
+  setInnerCullDistance(distance: number): void {
+    const resolved = Math.max(0, distance);
+    if (resolved !== this.lodInnerCullDistance) {
+      this.lodInnerCullDistance = resolved;
+      this.countsDirty = true;
+    }
   }
 
   setDensityScale(scale: number): void {
@@ -245,6 +263,12 @@ export class WorldSingleBladeTileField {
     const fadeStart = this.lodNearDistance - this.lodTransitionDistance;
     const fadeEnd = this.lodNearDistance + this.lodTransitionDistance;
     for (const tile of this.tiles.values()) {
+      if (this.isInsideInnerCull(focus, tile)) {
+        tile.mesh.count = 0;
+        tile.mesh.visible = false;
+        continue;
+      }
+
       // Charge the tile as if the focus had already closed the full drift this
       // count is allowed to survive, so approaching between recomputes can
       // never leave the draw short.
@@ -483,6 +507,23 @@ export class WorldSingleBladeTileField {
     this.centerTileX = Number.NaN;
     this.centerTileZ = Number.NaN;
     this.countsDirty = true;
+  }
+
+  private isInsideInnerCull(
+    focus: THREE.Vector3,
+    tile: WorldSingleBladeTile,
+  ): boolean {
+    const sphere = tile.mesh.boundingSphere;
+    if (this.lodInnerCullDistance <= 0 || !sphere) {
+      return false;
+    }
+    this.innerCullCenter.copy(sphere.center).add(tile.mesh.position);
+    return (
+      focus.distanceTo(this.innerCullCenter) +
+        sphere.radius +
+        COUNT_MOVEMENT_EPSILON <=
+      this.lodInnerCullDistance
+    );
   }
 
   private distanceToTile(
