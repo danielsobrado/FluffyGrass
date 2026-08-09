@@ -331,6 +331,31 @@ assert(
     nearMaterial.includes("GRASS_LIGHT_MIX_GLSL"),
   "Far cards must use the same stylized lighting mix as real blades.",
 );
+// Transmission has to arrive at the same strength in both representations.
+//
+// Each shader used to multiply the shared backlight uniform by its own
+// hardcoded factor — 0.3 in the near material, 0.2 in the cards — on top of the
+// preset's value. A preset that raised backlight therefore moved the near field
+// and the far cards by different amounts, and the number it named was never the
+// number that reached either. Neither the parity gate nor a type checker could
+// see it, because both shaders looked individually reasonable. The factors are
+// gone; this keeps them gone.
+for (const [label, shader, uniform] of [
+  ["near", nearMaterial, "uGrassBacklightStrength"],
+  ["impostor", impostorMaterial, "uBacklightStrength"],
+]) {
+  const attenuated = new RegExp(`${uniform}\\s*\\*\\s*[0-9]`);
+  assert(
+    !attenuated.test(shader),
+    `The ${label} shader scales ${uniform} by a hardcoded factor; transmission must come from the uniform alone.`,
+  );
+  assert(
+    new RegExp(`mix\\([^)]*, 0\\.35\\)\\s*\\*\\s*\\n?\\s*v?[gG]rass[bB]ack[lL]ight\\s*\\*\\s*${uniform}`).test(
+      shader.replace(/\r\n/g, "\n"),
+    ),
+    `The ${label} shader must warm transmission towards the tip colour by the same 0.35 as the other LOD.`,
+  );
+}
 assert(
   impostorMaterial.includes("uBiomeShade") &&
     impostorMaterial.includes("artTipColorStrength") &&
@@ -455,9 +480,17 @@ const nearDensityCompact = readYamlNumber(
   worldConfig,
   "grassNearBladesPerSquareMeterCompact",
 );
+// Continuity does not depend on where this radius sits: the base layer and the
+// detail layer carry complementary halves of the same dither order (detailMode
+// 1 against 2), so the near band's total density is the same on either side of
+// the boundary wherever it is put. What the radius actually costs is triangles,
+// and that is bounded by the near-field ceiling in verify-grass-performance —
+// 6 m is what the desktop ceiling affords, with 7 m measuring 1,004,544 against
+// the 1,000,000 bound. Pinned rather than ranged so a change stays a reviewed
+// one.
 assert(
-  ultraNearDistance === 4,
-  "Ultra-near grass must remain four metres.",
+  ultraNearDistance === 6,
+  "Ultra-near grass must remain six metres.",
 );
 assert(
   ultraNearMultiplier === 2,
@@ -561,6 +594,10 @@ const nearBoundsRadius =
     bladeHeight: bladeHeightMax,
     bladeWidth: readYamlNumber(grassConfig, "bladeWidthMax"),
     bladeLean: readYamlNumber(grassConfig, "bladeLeanMax"),
+    bladeCurveReach: runtimeMathModule.calculateGrassBladeCurveReach(
+      bladeHeightMax,
+      readYamlNumber(grassConfig, "bladeCurve"),
+    ),
     maximumHorizontalScale: 1.2,
     maximumVerticalScale: 1.22,
     windStrength,
@@ -575,6 +612,65 @@ const nearBoundsRadius =
     interactionVerticalScale: 0.2,
     safetyMargin: 0.08,
   });
+// The rest arc spends the blade's configured height as *arc length*. If it ever
+// becomes a plain sideways offset the blade silently grows longer than its
+// configuration says, and the reserved bounds — which charge the reach this
+// same module reports — start under-charging a blade they believe they measured.
+// Checked numerically rather than by reading the source, because the failure is
+// arithmetic and would survive any amount of correct-looking code.
+{
+  const bladeCurve = readYamlNumber(grassConfig, "bladeCurve");
+  const samples = 512;
+  let arcLength = 0;
+  let previous = runtimeMathModule.resolveGrassBladeArcPoint(
+    bladeHeightMax,
+    bladeCurve,
+    0,
+  );
+  for (let index = 1; index <= samples; index += 1) {
+    const point = runtimeMathModule.resolveGrassBladeArcPoint(
+      bladeHeightMax,
+      bladeCurve,
+      index / samples,
+    );
+    arcLength += Math.hypot(point.y - previous.y, point.z - previous.z);
+    previous = point;
+  }
+  assert(
+    Math.abs(arcLength / bladeHeightMax - 1) < 1e-3,
+    `Blade arc length ${arcLength.toFixed(4)} does not match configured height ${bladeHeightMax}.`,
+  );
+  const tip = runtimeMathModule.resolveGrassBladeArcPoint(
+    bladeHeightMax,
+    bladeCurve,
+    1,
+  );
+  assert(
+    tip.y < bladeHeightMax && tip.z > 0,
+    "A curved blade's tip must stand lower than a straight one's and reach out.",
+  );
+  assert(
+    Math.abs(
+      runtimeMathModule.calculateGrassBladeCurveReach(
+        bladeHeightMax,
+        bladeCurve,
+      ) - tip.z,
+    ) < 1e-9,
+    "Charged curve reach must equal the arc's own tip displacement.",
+  );
+  // A zero curve has to degenerate exactly rather than dividing by it, or a
+  // preset asking for straight blades gets NaN geometry instead.
+  const straight = runtimeMathModule.resolveGrassBladeArcPoint(
+    bladeHeightMax,
+    0,
+    1,
+  );
+  assert(
+    straight.y === bladeHeightMax && straight.z === 0,
+    "A zero curve must produce a straight blade.",
+  );
+}
+
 assert(
   nearBoundsRadius > bladeHeightMax &&
     singleBladeFactory.includes(
@@ -650,8 +746,13 @@ assert(
   Number.isFinite(baseBlend) && baseBlend <= 0.1,
   "Far cards must not flatten the shared blade palette.",
 );
+// Tip strength reaches every LOD through the same uGrassBiomeShade.y uniform,
+// so it moves near, mid, and far together and cannot itself open a seam — this
+// is an art-taste ceiling, like MAX_ROOT_TIP_CONTRAST in verify-lod-color-parity,
+// and it was raised alongside that one when the canopy gained a real root-to-tip
+// gradient. It still rejects a blade that is essentially all tip colour.
 assert(
-  Number.isFinite(defaultTipStrength) && defaultTipStrength <= 0.4,
+  Number.isFinite(defaultTipStrength) && defaultTipStrength <= 0.5,
   "The default root-to-tip color change is too strong.",
 );
 

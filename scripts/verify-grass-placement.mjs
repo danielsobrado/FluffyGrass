@@ -378,3 +378,69 @@ console.log(
     `${maximumOffset.toFixed(3)} m of their tuft centre, deterministic and ` +
     "consistent across the tile boundary.",
 );
+
+// --- Blade height tiers ---------------------------------------------------
+//
+// A canopy reads as a volume because it is several populations at once: a short
+// understory filling the gaps, a main tier, and occasional long blades breaking
+// the top line. Collapsing that back to one distribution is an easy and
+// invisible regression — the blade count does not change, so nothing else here
+// would notice. These reproduce the tier arithmetic against the shipped source.
+
+function readFactoryNumber(key) {
+  const value = Number(
+    factorySource.match(new RegExp(`${key}\\s*=\\s*([0-9.]+)`))?.[1],
+  );
+  if (!Number.isFinite(value)) {
+    fail(`WorldSingleBladeTileFactory has no numeric ${key}.`);
+  }
+  return value;
+}
+
+const understoryShare = readFactoryNumber("BLADE_TIER_UNDERSTORY_SHARE");
+const accentShare = readFactoryNumber("BLADE_TIER_ACCENT_SHARE");
+const understoryScale = readFactoryNumber("BLADE_TIER_UNDERSTORY_SCALE");
+const mainScale = readFactoryNumber("BLADE_TIER_MAIN_SCALE");
+const accentScale = readFactoryNumber("BLADE_TIER_ACCENT_SCALE");
+const verticalScaleMax = readFactoryNumber("INSTANCE_VERTICAL_SCALE_MAX");
+const verticalScaleMin = readFactoryNumber("INSTANCE_VERTICAL_SCALE_MIN");
+
+assert(
+  understoryShare > 0 && accentShare > 0 && understoryShare + accentShare < 1,
+  `Blade tier shares must leave a main tier: ${understoryShare} + ${accentShare}.`,
+);
+assert(
+  understoryScale < mainScale && mainScale < accentScale,
+  "Blade tiers must be ordered understory < main < accent.",
+);
+// The whole point of the understory is that it is short enough to sit *under*
+// the main tier rather than beside it. Two tiers a few percent apart would cost
+// the same and produce one visual population.
+assert(
+  mainScale / understoryScale >= 1.5 && accentScale / mainScale >= 1.15,
+  `Blade tiers are too close to separate: ${understoryScale}/${mainScale}/${accentScale}.`,
+);
+// The reserved bounds charge INSTANCE_VERTICAL_SCALE_MAX. An accent tier above
+// it would not overrun the box — the clamp catches it — but every tall tuft
+// would saturate to exactly the ceiling and the tier would stop varying.
+assert(
+  accentScale <= verticalScaleMax,
+  `Accent tier ${accentScale} exceeds the charged vertical ceiling ${verticalScaleMax}.`,
+);
+// The floor has to admit the understory or the tier is silently clamped away.
+const smallestBiomeHeightBand = 0.7;
+assert(
+  verticalScaleMin <= smallestBiomeHeightBand * understoryScale,
+  `Vertical floor ${verticalScaleMin} clamps the understory tier away.`,
+);
+assert(
+  factorySource.includes("const bladeTier = job.random.next()") &&
+    /clumpHeightScale\s*\*\s*tierScale\s*\*/.test(factorySource),
+  "Blade tiers must be drawn per blade and applied to the vertical scale.",
+);
+
+console.log(
+  `[grass-placement] blade tiers ${understoryScale}/${mainScale}/${accentScale} ` +
+    `at ${understoryShare}/${(1 - understoryShare - accentShare).toFixed(2)}/${accentShare} ` +
+    `shares, inside vertical scale [${verticalScaleMin}, ${verticalScaleMax}].`,
+);

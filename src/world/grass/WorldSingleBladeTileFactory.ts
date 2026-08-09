@@ -18,7 +18,11 @@ import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import { TERRAIN_NORMAL_STEP, type TerrainField } from "../TerrainField";
 import { TerrainHeightLattice } from "../TerrainHeightLattice";
 import type { WorldConfig } from "../WorldConfig";
-import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
+import {
+  calculateGrassBladeCurveReach,
+  calculateGrassSingleBladeRootBoundsRadius,
+  resolveGrassBladeArcPoint,
+} from "./GrassRuntimeMath";
 import {
   pickGrassBiomeIndex,
   resolveGrassBiomeDensity,
@@ -138,6 +142,34 @@ const CLUMP_DIRECTION_SALT = 0x91;
 const BLADE_HEIGHT_JITTER_MIN = 0.94;
 const BLADE_HEIGHT_JITTER_MAX = 1.06;
 /**
+ * A field is not one population. Real grass carries a short understory filling
+ * the gaps between ordinary blades and an occasional long blade breaking the
+ * top line, and it is the *ratio* between those tiers rather than the blade
+ * count that makes a canopy read as a volume instead of a lawn. One height
+ * distribution centred on a single mean cannot produce either.
+ *
+ * This is a distribution over the blades already being placed, not a new layer.
+ * A separate understory pass would spend a large share of the near-field
+ * triangle ceiling drawing grass that is mostly occluded by the main tier
+ * standing over it; re-weighting costs nothing and reaches every layer that
+ * shares this placement, including the mid patches.
+ *
+ * The accent scale sits at the vertical ceiling the reserved bounds already
+ * charge, so the tallest tufts saturate against it rather than growing out of
+ * the box that culls them.
+ */
+const BLADE_TIER_UNDERSTORY_SHARE = 0.3;
+const BLADE_TIER_ACCENT_SHARE = 0.1;
+const BLADE_TIER_UNDERSTORY_SCALE = 0.46;
+const BLADE_TIER_MAIN_SCALE = 0.92;
+const BLADE_TIER_ACCENT_SCALE = 1.18;
+/**
+ * Low enough to let the understory tier through. Only maxima feed the reserved
+ * bounds, so lowering the floor cannot invalidate them; the sub-pixel width
+ * clamp is what keeps a short blade from sparkling at distance.
+ */
+const INSTANCE_VERTICAL_SCALE_MIN = 0.3;
+/**
  * Furthest a blade can end up from the cell that enumerated it, in cells: half
  * the block it belongs to, plus the tuft centre's own wander, plus the tuft's
  * own reach. The cached height lattice is grown by this so a tufted blade still
@@ -207,7 +239,7 @@ const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
  * against the previous rule would otherwise survive in the LRU and draw beside
  * freshly built neighbours.
  */
-const GRASS_PLACEMENT_VERSION = 2;
+const GRASS_PLACEMENT_VERSION = 3;
 /** Bound negative-placement memory while retaining far more than one view. */
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
@@ -645,10 +677,23 @@ export class WorldSingleBladeTileFactory {
         biomeProfile.heightBand[0] +
         (biomeProfile.heightBand[1] - biomeProfile.heightBand[0]) *
           (this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.45 + vigor * 0.55);
+      // Drawn per blade rather than per tuft: a tuft whose blades were all
+      // understory would read as a bald patch, and one that was all accent as a
+      // shrub. The tiers have to interleave inside a tuft for the short blades
+      // to fill the gaps between the tall ones, which is the whole point of
+      // having them.
+      const bladeTier = job.random.next();
+      const tierScale =
+        bladeTier < BLADE_TIER_UNDERSTORY_SHARE
+          ? BLADE_TIER_UNDERSTORY_SCALE
+          : bladeTier < 1 - BLADE_TIER_ACCENT_SHARE
+            ? BLADE_TIER_MAIN_SCALE
+            : BLADE_TIER_ACCENT_SCALE;
       const verticalScale = THREE.MathUtils.clamp(
         clumpHeightScale *
+          tierScale *
           job.random.range(BLADE_HEIGHT_JITTER_MIN, BLADE_HEIGHT_JITTER_MAX),
-        0.78,
+        INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
       );
       const horizontalScale = THREE.MathUtils.clamp(
@@ -1222,6 +1267,12 @@ export class WorldSingleBladeTileFactory {
       bladeHeight: this.grassConfig.geometry.bladeHeightMax,
       bladeWidth: this.grassConfig.geometry.bladeWidthMax,
       bladeLean: this.grassConfig.geometry.bladeLeanMax,
+      // Charged against the tallest configured blade, not the mean the source
+      // geometry is actually built at, so the bound stays above every instance.
+      bladeCurveReach: calculateGrassBladeCurveReach(
+        this.grassConfig.geometry.bladeHeightMax,
+        this.grassConfig.geometry.bladeCurve,
+      ),
       maximumHorizontalScale: INSTANCE_HORIZONTAL_SCALE_MAX,
       maximumVerticalScale: INSTANCE_VERTICAL_SCALE_MAX,
       windStrength: this.grassConfig.wind.strength,
@@ -1239,7 +1290,7 @@ export class WorldSingleBladeTileFactory {
   }
 
   /**
-   * The near source blade is straight.
+   * The near source blade arcs along its own depth axis.
    *
    * Lean used to be baked into these vertices, which tied a blade's lean
    * direction to its plane azimuth: one instance yaw rotated both, so a blade
@@ -1247,6 +1298,17 @@ export class WorldSingleBladeTileFactory {
    * is now a rotation in the instance transform (see the sampling loop), which
    * lets the two be chosen independently without a new attribute, a second
    * geometry, or a second material.
+   *
+   * The rest curve went out with it, and should not have: it is a different
+   * quantity. Lean is *which way the blade grew*, and belongs to the instance;
+   * curve is *the shape of the leaf itself*, and rotates with the blade's own
+   * plane, so baking it here re-couples nothing. Without it every blade is a
+   * rigid tilted plank, which is what makes a dense field read as spikes.
+   *
+   * The one-segment blade gets the curve too, by placing its single tip vertex
+   * on the same arc. That costs no extra vertices, and it is the layer that
+   * covers everything out to the near fade — so the silhouette change lands
+   * across the whole visible field, not only inside the segmented radius.
    */
   private createSingleBladeGeometry(
     config: GrassConfig,
@@ -1263,8 +1325,21 @@ export class WorldSingleBladeTileFactory {
     const shades: number[] = [];
     const indices: number[] = [];
 
+    const curve = config.geometry.bladeCurve;
+
     if (segments === 1) {
-      positions.push(-width * 0.5, 0, 0, width * 0.5, 0, 0, 0, height, 0);
+      const tip = resolveGrassBladeArcPoint(height, curve, 1);
+      positions.push(
+        -width * 0.5,
+        0,
+        0,
+        width * 0.5,
+        0,
+        0,
+        0,
+        tip.y,
+        tip.z,
+      );
       uvs.push(0, 0, 1, 0, 0.5, 1);
       progress.push(0, 0, 1);
       phases.push(0.5, 0.5, 0.5);
@@ -1276,16 +1351,18 @@ export class WorldSingleBladeTileFactory {
       const amount = segment / segments;
       const taper = Math.pow(1 - amount, 0.72);
       const halfWidth = width * taper;
-      // Straight in Z: the blade's lean is a rotation in the instance
-      // transform, which is what frees its plane azimuth from its lean
-      // direction. The curve term that used to shape this axis went with it.
+      // Arc length, not height, is what `amount` walks along, so each row sits
+      // lower and further out than a straight blade's would. computeVertexNormals
+      // then gives every row its own facing, which is the shading gradient down
+      // a blade that a flat strip cannot produce at any normal-bias setting.
+      const point = resolveGrassBladeArcPoint(height, curve, amount);
       positions.push(
         -halfWidth,
-        height * amount,
-        0,
+        point.y,
+        point.z,
         halfWidth,
-        height * amount,
-        0,
+        point.y,
+        point.z,
       );
       uvs.push(0, amount, 1, amount);
       progress.push(amount, amount);

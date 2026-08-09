@@ -239,6 +239,8 @@ export class WorldDetailFoliageFactory {
       bladeHeight: ACCENT_CANOPY_HEIGHT_MAX * this.canopyHeight,
       bladeWidth: ACCENT_CANOPY_WIDTH_MAX * this.canopyHeight,
       bladeLean: 0,
+      // Accent cards are flat crossed quads; only real blades carry a rest arc.
+      bladeCurveReach: 0,
       maximumHorizontalScale: 1,
       maximumVerticalScale: 1,
       // The card's sway is the shear factor times the configured wind strength,

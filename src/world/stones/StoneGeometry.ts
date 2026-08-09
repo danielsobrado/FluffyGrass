@@ -261,6 +261,7 @@ export function generateStoneMesh(
 
   const faces = buildWorkingFaces(polygons);
   const edgeSharpness = buildEdgeSharpness(faces);
+  const sharedFacePairs = countSharedFacePairs(faces);
 
   let maxY = 0;
   for (const face of faces) {
@@ -340,10 +341,12 @@ export function generateStoneMesh(
       vertexCursor += 1;
     }
 
-    for (let corner = 1; corner < corners - 1; corner += 1) {
-      indices[indexCursor] = baseVertex;
-      indices[indexCursor + 1] = baseVertex + corner;
-      indices[indexCursor + 2] = baseVertex + corner + 1;
+    const fanRoot = chooseFanRoot(face, sharedFacePairs);
+    for (let offset = 1; offset < corners - 1; offset += 1) {
+      indices[indexCursor] = baseVertex + fanRoot;
+      indices[indexCursor + 1] = baseVertex + ((fanRoot + offset) % corners);
+      indices[indexCursor + 2] =
+        baseVertex + ((fanRoot + offset + 1) % corners);
       indexCursor += 3;
     }
   }
@@ -361,19 +364,65 @@ export function generateStoneMesh(
   return { positions, normals, tones, wears, mosses, indices, metrics };
 }
 
+function sharedPairKey(a: number, b: number): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function countSharedFacePairs(faces: readonly WorkingFace[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const face of faces) {
+    for (let a = 0; a < face.shared.length; a += 1) {
+      for (let b = a + 1; b < face.shared.length; b += 1) {
+        const key = sharedPairKey(face.shared[a], face.shared[b]);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
+/**
+ * Near-concurrent clipping planes can make two faces share a multi-edge chain.
+ * A fan diagonal spanning that chain would fill the same sliver on both faces.
+ * Prefer a root whose internal diagonals are unique to this face.
+ */
+function chooseFanRoot(
+  face: WorkingFace,
+  sharedFacePairs: ReadonlyMap<string, number>,
+): number {
+  const corners = face.shared.length;
+  for (let root = 0; root < corners; root += 1) {
+    let safe = true;
+    for (let offset = 2; offset < corners - 1; offset += 1) {
+      const other = (root + offset) % corners;
+      if (
+        (sharedFacePairs.get(
+          sharedPairKey(face.shared[root], face.shared[other]),
+        ) ?? 0) > 1
+      ) {
+        safe = false;
+        break;
+      }
+    }
+    if (safe) return root;
+  }
+  return 0;
+}
+
 function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
   const sharedIndex = new Map<string, number>();
   let nextShared = 0;
   const faces: WorkingFace[] = [];
 
   for (const polygon of polygons) {
-    if (polygon.points.length < 3) continue;
+    const points = removeCollinearCorners(polygon.points);
+    if (points.length < 3) continue;
     let newellX = 0;
     let newellY = 0;
     let newellZ = 0;
-    for (let index = 0; index < polygon.points.length; index += 1) {
-      const current = polygon.points[index];
-      const next = polygon.points[(index + 1) % polygon.points.length];
+    for (let index = 0; index < points.length; index += 1) {
+      const current = points[index];
+      const next = points[(index + 1) % points.length];
       newellX += (current.y - next.y) * (current.z + next.z);
       newellY += (current.z - next.z) * (current.x + next.x);
       newellZ += (current.x - next.x) * (current.y + next.y);
@@ -382,7 +431,7 @@ function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
     if (!(length > DEGENERATE_NORMAL_LENGTH)) continue;
 
     const shared: number[] = [];
-    for (const point of polygon.points) {
+    for (const point of points) {
       const key = `${Math.round(point.x / QUANTIZE)}:${Math.round(
         point.y / QUANTIZE,
       )}:${Math.round(point.z / QUANTIZE)}`;
@@ -398,7 +447,7 @@ function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
     faces.push({
       role: polygon.role,
       planeId: polygon.planeId,
-      points: polygon.points,
+      points,
       shared,
       normalX: newellX / length,
       normalY: newellY / length,
@@ -407,6 +456,51 @@ function buildWorkingFaces(polygons: StonePolygon[]): WorkingFace[] {
     });
   }
   return faces;
+}
+
+/**
+ * Clipping can leave a shared intersection point in the middle of a straight
+ * edge. Fan-triangulating both adjacent faces would then emit the same long
+ * diagonal inside both faces, producing overlapping edges and zero-area
+ * slivers. Removing only corners that lie between their neighbours preserves
+ * the polygon while giving both faces the same manifold boundary.
+ */
+function removeCollinearCorners(
+  source: readonly StoneVec3[],
+): StoneVec3[] {
+  if (source.length <= 3) return [...source];
+  const points = [...source];
+  let changed = true;
+  while (changed && points.length > 3) {
+    changed = false;
+    for (let index = 0; index < points.length; index += 1) {
+      const previous = points[(index + points.length - 1) % points.length];
+      const current = points[index];
+      const next = points[(index + 1) % points.length];
+      const ax = current.x - previous.x;
+      const ay = current.y - previous.y;
+      const az = current.z - previous.z;
+      const bx = next.x - current.x;
+      const by = next.y - current.y;
+      const bz = next.z - current.z;
+      const lengthProduct = Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz);
+      const crossLength = Math.hypot(
+        ay * bz - az * by,
+        az * bx - ax * bz,
+        ax * by - ay * bx,
+      );
+      if (
+        lengthProduct > DEGENERATE_NORMAL_LENGTH &&
+        ax * bx + ay * by + az * bz >= 0 &&
+        crossLength <= lengthProduct * 1e-8
+      ) {
+        points.splice(index, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return points;
 }
 
 function buildEdgeSharpness(faces: WorkingFace[]): Map<string, number> {

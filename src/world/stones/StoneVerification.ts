@@ -39,8 +39,12 @@ function renderEdgeKey(
   a: number,
   b: number,
 ): string {
-  const keyA = `${Math.round(positions[a * 3] / EDGE_QUANTIZE)}:${Math.round(positions[a * 3 + 1] / EDGE_QUANTIZE)}:${Math.round(positions[a * 3 + 2] / EDGE_QUANTIZE)}`;
-  const keyB = `${Math.round(positions[b * 3] / EDGE_QUANTIZE)}:${Math.round(positions[b * 3 + 1] / EDGE_QUANTIZE)}:${Math.round(positions[b * 3 + 2] / EDGE_QUANTIZE)}`;
+  // Render vertices copied from the same welded source point have identical
+  // Float32 coordinates. Keep that exact identity here: quantizing after the
+  // recipe's non-uniform scale can collapse two legitimately distinct points
+  // on a thin stone and make a manifold edge appear four times.
+  const keyA = `${positions[a * 3]}:${positions[a * 3 + 1]}:${positions[a * 3 + 2]}`;
+  const keyB = `${positions[b * 3]}:${positions[b * 3 + 1]}:${positions[b * 3 + 2]}`;
   return keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
 }
 

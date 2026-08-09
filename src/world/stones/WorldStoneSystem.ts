@@ -70,7 +70,7 @@ export class WorldStoneSystem {
 
   constructor(
     private readonly scene: THREE.Scene,
-    private readonly stoneField: StoneField,
+    stoneField: StoneField,
     private readonly config: WorldConfig,
     private readonly compact: boolean,
     private readonly receiveShadows: boolean,

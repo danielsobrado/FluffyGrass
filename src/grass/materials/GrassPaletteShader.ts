@@ -47,7 +47,12 @@ export function setBalancedGrassPaletteColors(
  * It used to be typed as a literal in each shader; it now lives here once and
  * `verify-lod-continuity` reads it from this file.
  */
-export const GRASS_LIGHT_MIX = 0.38;
+// Raised from 0.38, where nearly two thirds of a blade's final colour was flat
+// unlit albedo. That is what kept shaded grass bright: a blade facing away from
+// the sun still returned most of its albedo, so the field had no dark mass for
+// sunlit blades to stand against. Depth in a canopy comes from the shadowed
+// blades being genuinely dark, not from the lit ones being brighter.
+export const GRASS_LIGHT_MIX = 0.62;
 export const GRASS_LIGHT_MIX_GLSL = toGlslFloat(GRASS_LIGHT_MIX);
 
 // One palette function is injected into both the real-blade and impostor

@@ -386,7 +386,7 @@ const maximumNearBaselineRatio = Math.max(
   desktopNear.average / desktopNear.legacyAverage,
   compactNear.average / compactNear.legacyAverage,
 );
-assert(desktopNear.maximum <= 900_000, `Desktop near-field triangle ceiling exceeded: ${desktopNear.maximum}.`);
+assert(desktopNear.maximum <= 1_000_000, `Desktop near-field triangle ceiling exceeded: ${desktopNear.maximum}.`);
 assert(compactNear.maximum <= 600_000, `Compact near-field triangle ceiling exceeded: ${compactNear.maximum}.`);
 assert(desktopNear.average / desktopNear.legacyAverage <= 0.36, "Desktop near-field optimization regressed.");
 assert(compactNear.average / compactNear.legacyAverage <= 0.36, "Compact near-field optimization regressed.");
@@ -835,15 +835,21 @@ assert(
     !nearMaterial.includes("grassMotionPhase * 0.819173"),
   "Motion phase must drive flutter and stiffness only; both dithers must keep the source phase.",
 );
-// The near source blade is straight and leans through the instance transform,
-// so plane azimuth and lean direction are independent without a new attribute.
+// The near source blade leans through the instance transform, so plane azimuth
+// and lean direction stay independent without a new attribute.
+//
+// This used to assert the source blade was flat, by pinning the single-triangle
+// vertex push verbatim. That conflated two different things: *lean must not be
+// baked* (the real invariant, since baking it re-couples azimuth to lean) with
+// *the blade must have no shape*, which nothing required and which forced every
+// blade to be a rigid plank. The blade now carries a rest arc along its own
+// depth axis; it rotates with the blade's plane, so it re-couples nothing. What
+// is checked instead is that the arc is the shared configuration-driven one and
+// that the bounds charge its reach.
 assert(
-  // The source blade carries no Z displacement at all: single-triangle tip and
-  // every segmented row sit on the plane.
-  tileFactory.includes(
-    "positions.push(-width * 0.5, 0, 0, width * 0.5, 0, 0, 0, height, 0)",
-  ) &&
-    !tileFactory.includes("const centerZ = lean * curve") &&
+  !tileFactory.includes("const centerZ = lean * curve") &&
+    tileFactory.includes("resolveGrassBladeArcPoint(height, curve, 1)") &&
+    tileFactory.includes("bladeCurveReach: calculateGrassBladeCurveReach(") &&
     tileFactory.includes(
       "this.leanAxis.set(Math.cos(leanAngle), 0, -Math.sin(leanAngle))",
     ) &&

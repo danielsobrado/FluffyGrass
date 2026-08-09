@@ -464,9 +464,15 @@ void main() {
   vec3 grassLambertLight =
     color * vGrassIrradiance * RECIPROCAL_PI +
     color * uAmbientBoost;
+  // Transmission is warmed towards the tip colour and scaled by the same
+  // uniform as the near blades, with no extra per-LOD attenuation. The two used
+  // to carry divergent hardcoded factors (0.2 here against 0.3 there) on top of
+  // a shared strength, so a preset that tuned backlight moved the near field and
+  // the cards by different amounts and the 54 m handoff shifted hue under it.
   vec3 outgoingLight =
     mix(color, grassLambertLight, ${GRASS_LIGHT_MIX_GLSL}) +
-    color * vGrassBackLight * uBacklightStrength * 0.2;
+    mix(color, uBiomeTip[biomeRow], 0.35) *
+      vGrassBackLight * uBacklightStrength;
   gl_FragColor = vec4(outgoingLight, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>

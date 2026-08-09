@@ -35,6 +35,10 @@ export class GrassConfigLoader {
         bladeWidthMax: this.readPositiveNumber(values, "bladeWidthMax"),
         bladeLeanMin: this.readNonNegativeNumber(values, "bladeLeanMin"),
         bladeLeanMax: this.readNonNegativeNumber(values, "bladeLeanMax"),
+        // Capped well under a right angle: the shader recovers a blade's width
+        // axis from `cross(up, faceNormal)`, which collapses as the tip turns
+        // past horizontal.
+        bladeCurve: this.readRange(values, "bladeCurve", 0, 1.2),
         midBladesPerClump: this.readPositiveInteger(
           values,
           "midBladesPerClump",

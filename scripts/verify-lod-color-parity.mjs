@@ -39,14 +39,30 @@ const MAX_P95_SAMPLE_DELTA = 0.03;
 // every value in this range. The bound sat at 8% while the presets all shipped
 // root darkening around 0.97, which is a two percent effect and left the field
 // with no canopy depth at all.
-const MAX_ROOT_TIP_CONTRAST = 0.3;
+//
+// Raised again from 30% once the palette stopped flattening itself: the tip
+// balancer had been renormalizing tip luminance to 1.035x the base, so a preset
+// could name any tip colour it liked and still get a tip the same brightness as
+// its root. With that scale at 1.7 and root darkening near 0.4, the presets
+// measure 96-115% and the field has a dark canopy floor under lit tips. The LOD
+// spread across that range is at most 0.7 points, well inside the one percent
+// MAX_ROOT_TIP_LOD_DELTA that actually protects the handoff.
+const MAX_ROOT_TIP_CONTRAST = 1.25;
 const MAX_ROOT_TIP_LOD_DELTA = 0.01;
 // The far light offset is a deliberate art control rather than LOD drift, so it
 // is bounded to the art menu range instead of the parity tolerances above.
 const MIN_FAR_LIGHT = 0.7;
 const MAX_FAR_LIGHT = 1.15;
 const MIN_FAR_SPATIAL_LUMINANCE_RANGE = 0.08;
-const MAX_BACKLIGHT_STRENGTH = 0.12;
+// Raised from 0.12 when the shaders stopped attenuating this uniform behind its
+// back. Both fragment shaders used to scale it by a further hardcoded factor —
+// 0.3 in the near material, 0.2 in the impostor — so the number a preset named
+// here was never the number that reached the frame, and the two LODs scaled it
+// differently. The factors are gone and this is now the whole transmission
+// control, so the range it is bounded to has to be the range the art actually
+// uses. Both shaders read the same uniform through the same formula, which is
+// what keeps the 54 m handoff from shifting hue.
+const MAX_BACKLIGHT_STRENGTH = 0.5;
 const LOD_DISTRIBUTION_SAMPLE_COUNT = 16384;
 const SAMPLE_DRYNESS = [0, 0.05, 0.15, 0.3];
 // Spans the canopy-occlusion range GrassFieldVariation can produce, not just

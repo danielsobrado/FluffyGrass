@@ -17,6 +17,8 @@ export interface GrassGeometryConfig {
   bladeWidthMax: number;
   bladeLeanMin: number;
   bladeLeanMax: number;
+  /** Total turn of the blade's rest arc, in radians, from root to tip. */
+  bladeCurve: number;
   midBladesPerClump: number;
   midBladeSegments: number;
   midRadiusScale: number;

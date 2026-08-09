@@ -1,7 +1,7 @@
 {
   "tipStart": 0.28,
   "tipEnd": 1,
-  "tipLuminanceScale": 1.035,
+  "tipLuminanceScale": 1.7,
   "dryLuminanceScale": 1.02,
   "shadeDrynessPivot": 0.18,
   "shadeDrynessScale": 0.2,
@@ -9,7 +9,7 @@
   "instanceDrynessBase": 0.18,
   "instanceDrynessTip": 0.02,
   "drynessMaximum": 0.12,
-  "rootFadeEnd": 0.32,
-  "shadeLightMinimum": 0.97,
-  "shadeLightMaximum": 1.03
+  "rootFadeEnd": 0.55,
+  "shadeLightMinimum": 0.82,
+  "shadeLightMaximum": 1.15
 }

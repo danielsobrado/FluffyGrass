@@ -713,7 +713,7 @@ vec3 grassLambertLight =
 vec3 outgoingLight =
   mix(diffuseColor.rgb, grassLambertLight, ${GRASS_LIGHT_MIX_GLSL}) +
   mix(diffuseColor.rgb, uGrassTipColor, 0.35) *
-    grassBackLight * uGrassBacklightStrength * 0.3 +
+    grassBackLight * uGrassBacklightStrength +
   grassSheen;
 `;
 

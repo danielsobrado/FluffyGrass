@@ -300,7 +300,7 @@ export class WorldApp {
     if (this.hemisphere) {
       this.hemisphere.color.set(zelda ? "#bfd9f2" : "#dceeff");
       this.hemisphere.groundColor.set(zelda ? "#7d8f5a" : "#3f3a2d");
-      this.hemisphere.intensity = zelda ? 0.55 : 1.45;
+      this.hemisphere.intensity = zelda ? 0.55 : 0.6;
     }
   }
 
@@ -509,7 +509,11 @@ export class WorldApp {
   }
 
   private addLights(): void {
-    this.hemisphere = new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45);
+    // Low enough that the sun, not the sky dome, decides a blade's brightness.
+    // At the 1.45 this used to sit at, every blade in the field was lit almost
+    // identically regardless of which way it faced, which is what made a canopy
+    // of eight million blades read as one flat green sheet.
+    this.hemisphere = new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 0.6);
     this.scene.add(this.hemisphere);
     const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
     sun.position.copy(SUN_DIRECTION).multiplyScalar(SUN_SHADOW_DISTANCE);

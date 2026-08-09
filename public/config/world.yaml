@@ -28,8 +28,11 @@ grassNearTileSize: 8
 grassNearBladesPerSquareMeterDesktop: 72
 grassNearBladesPerSquareMeterCompact: 40
 
-# An additional single-blade layer doubles density at camera distance <= 4 m.
-grassUltraNearDistance: 4
+# An additional single-blade layer doubles density, and the segmented blade
+# geometry replaces the one-triangle silhouette, inside this radius. 6 m is what
+# the desktop near-field triangle ceiling affords: 7 m measures 1,004,544
+# against the 1,000,000 bound.
+grassUltraNearDistance: 6
 grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
