@@ -24,6 +24,10 @@ export interface WorldConfig {
   grassUltraNearDensityMultiplier: number;
   /** Compact devices carry their own ultra-near multiplier. */
   grassUltraNearDensityMultiplierCompact: number;
+  /** Center of the exact-placement near-to-bridge handoff. */
+  grassNearBridgeDistance: number;
+  /** Half-width of the near-to-bridge handoff. */
+  grassNearBridgeTransitionDistance: number;
   grassClumpRadiusScaleMin: number;
   grassClumpRadiusScaleMax: number;
   grassClumpAspectMin: number;
