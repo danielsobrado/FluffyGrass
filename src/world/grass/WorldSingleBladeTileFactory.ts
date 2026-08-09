@@ -1310,10 +1310,9 @@ export class WorldSingleBladeTileFactory {
    * plane, so baking it here re-couples nothing. Without it every blade is a
    * rigid tilted plank, which is what makes a dense field read as spikes.
    *
-   * The one-segment blade gets the curve too, by placing its single tip vertex
-   * on the same arc. That costs no extra vertices, and it is the layer that
-   * covers everything out to the near fade — so the silhouette change lands
-   * across the whole visible field, not only inside the segmented radius.
+   * Every segment count uses the same strip topology: paired tapered rows and
+   * one apex vertex. This keeps width, winding, normals, and triangle counts
+   * consistent across the near LOD layers.
    */
   private createSingleBladeGeometry(
     config: GrassConfig,
@@ -1329,37 +1328,12 @@ export class WorldSingleBladeTileFactory {
     const phases: number[] = [];
     const shades: number[] = [];
     const indices: number[] = [];
-
     const curve = config.geometry.bladeCurve;
 
-    if (segments === 1) {
-      const tip = resolveGrassBladeArcPoint(height, curve, 1);
-      positions.push(
-        -width * 0.5,
-        0,
-        0,
-        width * 0.5,
-        0,
-        0,
-        0,
-        tip.y,
-        tip.z,
-      );
-      uvs.push(0, 0, 1, 0, 0.5, 1);
-      progress.push(0, 0, 1);
-      phases.push(0.5, 0.5, 0.5);
-      shades.push(0.5, 0.5, 0.5);
-      indices.push(0, 1, 2);
-    }
-
-    for (let segment = 0; segments > 1 && segment <= segments; segment += 1) {
+    for (let segment = 0; segment < segments; segment += 1) {
       const amount = segment / segments;
       const taper = Math.pow(1 - amount, 0.72);
-      const halfWidth = width * taper;
-      // Arc length, not height, is what `amount` walks along, so each row sits
-      // lower and further out than a straight blade's would. computeVertexNormals
-      // then gives every row its own facing, which is the shading gradient down
-      // a blade that a flat strip cannot produce at any normal-bias setting.
+      const halfWidth = width * 0.5 * taper;
       const point = resolveGrassBladeArcPoint(height, curve, amount);
       positions.push(
         -halfWidth,
@@ -1375,10 +1349,20 @@ export class WorldSingleBladeTileFactory {
       shades.push(0.5, 0.5);
     }
 
-    for (let segment = 0; segments > 1 && segment < segments; segment += 1) {
+    const tip = resolveGrassBladeArcPoint(height, curve, 1);
+    const tipVertex = positions.length / 3;
+    positions.push(0, tip.y, tip.z);
+    uvs.push(0.5, 1);
+    progress.push(1);
+    phases.push(0.5);
+    shades.push(0.5);
+
+    for (let segment = 0; segment < segments - 1; segment += 1) {
       const row = segment * 2;
       indices.push(row, row + 2, row + 1, row + 2, row + 3, row + 1);
     }
+    const finalRow = (segments - 1) * 2;
+    indices.push(finalRow, tipVertex, finalRow + 1);
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
