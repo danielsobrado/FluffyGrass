@@ -91,8 +91,12 @@ assert(
 assert(
   qualityGovernor.includes("Number.isFinite(deltaSeconds)") &&
     qualityGovernor.includes("MAX_SAMPLE_DELTA_SECONDS") &&
-    qualityGovernor.includes("this.resetSamplingWindow()"),
-  "Grass quality control must reject invalid or suspended-tab frame samples.",
+    qualityGovernor.includes("this.resetSamplingWindow()") &&
+    qualityGovernor.includes("private nearDistanceScale = 1") &&
+    qualityGovernor.includes("nearDistance !== this.nearDistanceScale") &&
+    qualityGovernor.includes("this.nearDistanceScale = pinned.nearDistanceScale") &&
+    qualityGovernor.includes("return this.nearDistanceScale"),
+  "Grass quality control must reject invalid samples and ramp near-distance changes without breaking pinned QA tiers.",
 );
 assert(
   tileField.includes("tile.mesh.count = count") &&
