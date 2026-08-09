@@ -28,7 +28,7 @@ const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
 const flyController = read("src/controls/FlyController.ts");
 const uiController = read("src/runtime/UiVisibilityController.ts");
-const worldConfigLoader = read("src/world/WorldConfigLoader.ts");
+const worldConfigSchema = read("src/world/WorldConfigSchema.ts");
 
 assert(
   main.includes('params.get("diagnostics") === "1"') &&
@@ -124,7 +124,7 @@ assert(
   "UI visibility controls must be disposable and initialization-idempotent.",
 );
 assert(
-  worldConfigLoader.includes(
+  worldConfigSchema.includes(
     "grassFarImpostorsPerPatch: { minimum: 1, maximum: 1, integer: true }",
   ),
   "World config must enforce the one-instance/four-card far-impostor contract.",
