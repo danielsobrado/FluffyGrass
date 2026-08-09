@@ -7,6 +7,8 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORLD_APP_MAX_LINES = 540;
 const STONE_GEOMETRY_MAX_LINES = 340;
 const EXTRACTED_MODULE_MAX_LINES = 260;
+const CONFIG_LOADER_MAX_LINES = 220;
+const CONFIG_READER_MAX_LINES = 120;
 
 function read(relativePath) {
   return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
@@ -30,6 +32,13 @@ const statusHud = read("src/app/WorldStatusHud.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
 const stoneIndentation = read("src/world/stones/StoneIndentation.ts");
 const stoneTopology = read("src/world/stones/StoneMeshTopology.ts");
+const configReader = read("src/config/FlatConfigValueReader.ts");
+const worldConfigLoader = read("src/world/WorldConfigLoader.ts");
+const worldConfigSchema = read("src/world/WorldConfigSchema.ts");
+const worldConfigValidator = read("src/world/WorldConfigValidator.ts");
+const grassConfigLoader = read("src/grass/internal/GrassConfigLoader.ts");
+const grassConfigValidator = read("src/grass/internal/GrassConfigValidator.ts");
+const runtimeConfigLoader = read("src/runtime/RuntimeConfigLoader.ts");
 
 assert(
   lineCount(worldApp) <= WORLD_APP_MAX_LINES,
@@ -113,4 +122,40 @@ assert(
   "Stone topology must stay independent from render packing.",
 );
 
-console.log("[architecture] Runtime and stone responsibility boundaries verified.");
+assert(
+  lineCount(configReader) <= CONFIG_READER_MAX_LINES &&
+    configReader.includes("class FlatConfigValueReader") &&
+    configReader.includes("number(key") &&
+    configReader.includes("boolean(key"),
+  "Primitive flat-config reads must stay centralized and small.",
+);
+for (const [name, source] of [
+  ["WorldConfigLoader", worldConfigLoader],
+  ["GrassConfigLoader", grassConfigLoader],
+  ["RuntimeConfigLoader", runtimeConfigLoader],
+]) {
+  assert(
+    lineCount(source) <= CONFIG_LOADER_MAX_LINES,
+    `${name} grew beyond ${CONFIG_LOADER_MAX_LINES} lines; move schema or domain validation out of the transport/parser layer.`,
+  );
+  assert(
+    source.includes("FlatConfigValueReader"),
+    `${name} must use the shared typed flat-config reader.`,
+  );
+}
+assert(
+  worldConfigLoader.includes("WORLD_CONFIG_SCHEMA") &&
+    worldConfigLoader.includes("validateWorldConfig") &&
+    !worldConfigLoader.includes("grassClumpRadiusScale range is reversed"),
+  "WorldConfigLoader must orchestrate parsing rather than own schema or cross-field rules.",
+);
+assert(
+  worldConfigSchema.includes("grassFarImpostorsPerPatch") &&
+    worldConfigValidator.includes("validateWorldConfig") &&
+    grassConfigValidator.includes("validateGrassConfig"),
+  "World and grass domain invariants must remain explicit outside their loaders.",
+);
+
+console.log(
+  "[architecture] Runtime, config, and stone responsibility boundaries verified.",
+);
