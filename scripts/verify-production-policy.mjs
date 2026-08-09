@@ -6,6 +6,7 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORKFLOW_DIRECTORY = resolve(REPOSITORY_ROOT, ".github", "workflows");
 const DEPLOY_SCRIPT = resolve(REPOSITORY_ROOT, "scripts", "deploy-github-pages.mjs");
+const VITE_CONFIG = resolve(REPOSITORY_ROOT, "vite.config.ts");
 const WORKFLOW_EXTENSIONS = new Set([".yml", ".yaml"]);
 
 function fail(message) {
@@ -52,4 +53,14 @@ if (
   );
 }
 
-console.log("[production-policy] No-Actions and manual deployment policies verified.");
+const viteConfig = readFileSync(VITE_CONFIG, "utf8");
+if (
+  !viteConfig.includes('execFileSync("git", ["rev-parse", "--short=12", "HEAD"]') ||
+  !viteConfig.includes("`v${packageMetadata.version}+${SOURCE_REVISION}`")
+) {
+  fail(
+    "Runtime config cache keys must include the source revision so a deployment cannot reuse stale YAML under an unchanged package version.",
+  );
+}
+
+console.log("[production-policy] Deployment and runtime cache policies verified.");
