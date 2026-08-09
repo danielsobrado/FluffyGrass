@@ -17,8 +17,13 @@
     "shapeFamily": "blade",
     "accentDensity": 1,
     "accentSpecies": [
-      { "species": "daisy", "tint": "white", "weight": 3 },
-      { "species": "round-bloom", "tint": "poppy-red", "weight": 1 },
+      { "species": "daisy", "tint": "white", "weight": 1.2 },
+      { "species": "daisy", "tint": "cream", "weight": 0.7 },
+      { "species": "daisy", "tint": "sky-blue", "weight": 0.25 },
+      { "species": "round-bloom", "tint": "pink", "weight": 0.35 },
+      { "species": "round-bloom", "tint": "lavender", "weight": 0.25 },
+      { "species": "round-bloom", "tint": "buttercup", "weight": 0.15 },
+      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.1 },
       { "species": "fern", "tint": "none", "weight": 2 },
       { "species": "small-fern", "tint": "none", "weight": 1 },
       { "species": "grass-tuft", "tint": "none", "weight": 4 },
@@ -46,7 +51,9 @@
       { "species": "seed-head", "tint": "straw", "weight": 4 },
       { "species": "tall-tuft", "tint": "none", "weight": 3 },
       { "species": "grass-tuft", "tint": "none", "weight": 2 },
-      { "species": "round-bloom", "tint": "buttercup", "weight": 1 }
+      { "species": "round-bloom", "tint": "buttercup", "weight": 0.55 },
+      { "species": "round-bloom", "tint": "cream", "weight": 0.25 },
+      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.1 }
     ]
   },
   "alpine": {
@@ -68,8 +75,11 @@
     "accentDensity": 0.5,
     "accentSpecies": [
       { "species": "grass-tuft", "tint": "none", "weight": 4 },
-      { "species": "daisy", "tint": "white", "weight": 2 },
-      { "species": "round-bloom", "tint": "lavender", "weight": 2 },
+      { "species": "daisy", "tint": "white", "weight": 0.75 },
+      { "species": "daisy", "tint": "cream", "weight": 0.35 },
+      { "species": "daisy", "tint": "sky-blue", "weight": 0.35 },
+      { "species": "round-bloom", "tint": "lavender", "weight": 0.75 },
+      { "species": "round-bloom", "tint": "pink", "weight": 0.35 },
       { "species": "small-fern", "tint": "none", "weight": 1 }
     ]
   }
