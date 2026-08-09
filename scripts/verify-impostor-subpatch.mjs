@@ -40,6 +40,16 @@ function readConstant(source, name) {
   return value;
 }
 
+function resolveBladeArcTip(height, bladeCurve) {
+  if (!(bladeCurve > 1e-4)) {
+    return { y: height, z: 0 };
+  }
+  return {
+    y: (height * Math.sin(bladeCurve)) / bladeCurve,
+    z: (height * (1 - Math.cos(bladeCurve))) / bladeCurve,
+  };
+}
+
 const worldConfig = read("public/config/world.yaml");
 const grassConfig = read("public/config/grass.yaml");
 const impostorLimits = read("src/grass/GrassImpostorLimits.ts");
@@ -67,6 +77,7 @@ const cameraMargin = readYamlNumber(grassConfig, "impostorCameraMargin");
 const bladeHeight = readYamlNumber(grassConfig, "bladeHeightMax");
 const bladeWidth = readYamlNumber(grassConfig, "bladeWidthMax");
 const bladeLean = readYamlNumber(grassConfig, "bladeLeanMax");
+const bladeCurve = readYamlNumber(grassConfig, "bladeCurve");
 const subpatchesPerAxis = readConstant(
   impostorLimits,
   "GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS",
@@ -117,9 +128,10 @@ assert(
 
 const subpatchSize = patchSize / subpatchesPerAxis;
 const halfSubpatch = subpatchSize * 0.5;
-const centerHeight = bladeHeight * 0.5;
+const bladeTip = resolveBladeArcTip(bladeHeight, bladeCurve);
+const centerHeight = bladeTip.y * 0.5;
 const sourceHorizontalExtent =
-  Math.SQRT2 * halfSubpatch + bladeLean + bladeWidth;
+  Math.SQRT2 * halfSubpatch + bladeLean + bladeWidth + bladeTip.z;
 const cardRadius =
   Math.hypot(sourceHorizontalExtent, centerHeight) * cameraMargin;
 const maximumCenterOffset =
@@ -152,6 +164,11 @@ assert(
     atlasFactory.includes("grassSubpatchIndex") &&
     atlasFactory.includes("subpatchOffsetRadius * GRASS_IMPOSTOR_MAX_HORIZONTAL_SCALE"),
   "Far atlas geometry must partition blades and include subpatch offsets in bounds.",
+);
+assert(
+  atlasFactory.includes("calculateGrassBladeCurveReach") &&
+    atlasFactory.includes("resolveGrassBladeArcPoint"),
+  "Far atlas geometry and bounds must use the configured blade rest arc.",
 );
 assert(
   atlasFactory.includes("IMPOSTOR_MAX_ATLAS_SIZE") &&
