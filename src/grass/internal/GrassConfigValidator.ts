@@ -4,6 +4,8 @@ import {
   GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS,
 } from "../GrassImpostorLimits";
 
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
 export function validateGrassConfig(config: GrassConfig): void {
   if (config.geometry.variantCount > config.instanceCount) {
     throw new Error("variantCount must not exceed instanceCount.");
@@ -57,6 +59,15 @@ export function validateGrassConfig(config: GrassConfig): void {
     Math.hypot(config.wind.directionX, config.wind.directionZ) < Number.EPSILON
   ) {
     throw new Error("Grass wind direction must not be zero.");
+  }
+  for (const [label, color] of [
+    ["baseColor", config.material.baseColor],
+    ["tipColor", config.material.tipColor],
+    ["dryColor", config.material.dryColor],
+  ] as const) {
+    if (!HEX_COLOR_PATTERN.test(color)) {
+      throw new Error(`Grass config value ${label} must be a six-digit hex color.`);
+    }
   }
   if (config.impostor.viewsPerAxis < 2) {
     throw new Error("impostorViewsPerAxis must be at least 2.");
