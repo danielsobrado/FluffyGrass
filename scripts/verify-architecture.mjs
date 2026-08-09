@@ -76,6 +76,12 @@ assert(
     worldApp.includes("this.streamingBuildDeadline - grassBuildReserveMs"),
   "The shared streaming budget must reserve bounded progress for terrain, stones, and grass instead of allowing an earlier subsystem to starve grass.",
 );
+assert(
+  worldApp.includes(
+    "this.grassEnabled = false;\n      this.grass.dispose();",
+  ),
+  "Failed asynchronous grass initialization must immediately release partial GPU resources.",
+);
 
 for (const [name, source] of [
   ["WorldEnvironmentController", environment],
@@ -120,11 +126,14 @@ assert(
   "HUD throttling must run before diagnostic snapshots are collected on the render path.",
 );
 assert(
-  stoneSystem.includes("registerStoneClearanceField") &&
+  stoneSystem.includes("private disposed = false") &&
+    stoneSystem.includes("if (this.disposed || !this.enabled) return") &&
+    stoneSystem.includes("if (this.disposed)") &&
+    stoneSystem.includes("registerStoneClearanceField") &&
     stoneSystem.includes("clearanceRegistration.dispose()") &&
     stoneClearance.includes("activeOwner") &&
     stoneClearance.includes("activeOwner !== owner"),
-  "Stone clearance lifecycle must be registration-owned so stale systems cannot clear a newer field.",
+  "Stone lifecycle must be idempotent and registration-owned so stale systems cannot update or clear a newer field.",
 );
 
 assert(
