@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { GrassGeometryConfig } from "../../grass/GrassConfig";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import type { WorldConfig } from "../WorldConfig";
+import { resolveGrassBladeArcPoint } from "./GrassRuntimeMath";
 
 export interface WorldGrassBladeSpec {
   rootX: number;
@@ -203,8 +204,17 @@ export class WorldGrassPatchGeometryFactory {
       const widthX = Math.cos(spec.facingAngle) * halfWidth;
       const widthZ = Math.sin(spec.facingAngle) * halfWidth;
       const lean = spec.lean * leanScale;
-      const tipX = spec.rootX + Math.cos(spec.leanAngle) * lean;
-      const tipZ = spec.rootZ + Math.sin(spec.leanAngle) * lean;
+      const tip = resolveGrassBladeArcPoint(
+        spec.height * heightScale,
+        grass.bladeCurve,
+        1,
+      );
+      const curveX = -Math.sin(spec.facingAngle) * tip.z;
+      const curveZ = Math.cos(spec.facingAngle) * tip.z;
+      const tipX =
+        spec.rootX + Math.cos(spec.leanAngle) * lean + curveX;
+      const tipZ =
+        spec.rootZ + Math.sin(spec.leanAngle) * lean + curveZ;
       const vertexOffset = positions.length / 3;
 
       positions.push(
@@ -215,7 +225,7 @@ export class WorldGrassPatchGeometryFactory {
         0,
         spec.rootZ + widthZ,
         tipX,
-        spec.height * heightScale,
+        tip.y,
         tipZ,
       );
       uvs.push(0, 0, 1, 0, 0.5, 1);
