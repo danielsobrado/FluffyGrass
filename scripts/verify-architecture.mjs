@@ -25,6 +25,7 @@ function assert(condition, message) {
 }
 
 const worldApp = read("src/app/WorldApp.ts");
+const worldAppTuning = read("src/app/WorldAppTuning.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const frameMetrics = read("src/app/WorldFrameMetrics.ts");
 const runtimeGuard = read("src/app/WorldRuntimeGuard.ts");
@@ -65,6 +66,15 @@ assert(
     worldApp.includes('subsystem === "stones"') &&
     !worldApp.includes("setStoneClearanceField"),
   "Stone streaming must have an independent failure domain and must own its clearance registration outside WorldApp.",
+);
+assert(
+  worldAppTuning.includes("WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS = 2.5") &&
+    worldAppTuning.includes("WORLD_COMPACT_GRASS_BUILD_RESERVE_MS = 1.5") &&
+    worldApp.includes(
+      "this.streamingBuildDeadline - grassBuildReserveMs - stoneBuildReserveMs",
+    ) &&
+    worldApp.includes("this.streamingBuildDeadline - grassBuildReserveMs"),
+  "The shared streaming budget must reserve bounded progress for terrain, stones, and grass instead of allowing an earlier subsystem to starve grass.",
 );
 
 for (const [name, source] of [
