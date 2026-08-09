@@ -77,5 +77,16 @@ assert(
     !legacyFactory.includes("segment <= config.bladeSegments"),
   "Legacy segmented blades must use one apex vertex without a degenerate final triangle.",
 );
+assert(
+  nearFactory.includes("const halfWidth = width * 0.5 * taper"),
+  "Near segmented blades must treat bladeWidth as full width.",
+);
+assert(
+  nearFactory.includes("const tipVertex = positions.length / 3") &&
+    nearFactory.includes("indices.push(finalRow, tipVertex, finalRow + 1)") &&
+    !nearFactory.includes("segment <= segments") &&
+    !nearFactory.includes("if (segments === 1)"),
+  "Near blades must use one apex topology for every segment count.",
+);
 
 console.log(`[grass-shape] LOD shape continuity verified (bladeCurve=${bladeCurve}).`);
