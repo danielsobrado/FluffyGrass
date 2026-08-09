@@ -38,8 +38,7 @@ grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
 
 # Bridge LOD keeps the near field's exact blade placements before the repeated
-# patch LOD begins. The handoff is deliberately short because both sides use
-# the same instances, so there is no root-position pop during this transition.
+# patch LOD begins. The first handoff completes before the patch crossfade starts.
 grassNearBridgeDistance: 18
 grassNearBridgeTransitionDistance: 2
 
@@ -132,7 +131,7 @@ stoneMossExposureAzimuthDegrees: 32
 stoneMossExposureElevationDegrees: 49
 stoneMossStreakStrength: 0.32
 
-grassNearDistance: 26
+grassNearDistance: 28
 grassMidDistance: 80
 grassFarDistance: 280
 grassTransitionDistance: 8
