@@ -66,15 +66,22 @@ export class WorldStatusHud {
 
   constructor(private readonly element: HTMLElement | null) {}
 
-  update(deltaSeconds: number, snapshot: WorldStatusSnapshot): void {
+  shouldUpdate(deltaSeconds: number): boolean {
     if (!this.element) {
-      return;
+      return false;
     }
     this.elapsedSeconds += deltaSeconds;
     if (this.elapsedSeconds < WORLD_HUD_UPDATE_INTERVAL_SECONDS) {
-      return;
+      return false;
     }
     this.elapsedSeconds = 0;
+    return true;
+  }
+
+  render(snapshot: WorldStatusSnapshot): void {
+    if (!this.element) {
+      return;
+    }
 
     const grassStatus = snapshot.grassInitializationError
       ? `Grass error: ${snapshot.grassInitializationError}`
