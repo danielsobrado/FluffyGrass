@@ -21,26 +21,19 @@ import type { WorldConfig } from "../world/WorldConfig";
 import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 import { GrassArtMenu } from "./GrassArtMenu";
-
-const HUD_UPDATE_INTERVAL_SECONDS = 0.25;
-const FPS_SAMPLE_INTERVAL_SECONDS = 1;
-const ERROR_MESSAGE_MAX_LENGTH = 180;
-const FRAME_WATCHDOG_INTERVAL_MS = 500;
-const FRAME_STALL_THRESHOLD_MS = 1500;
-const CONTEXT_LOST_ERROR = "renderer: WebGL context lost";
-const DESKTOP_STREAMING_BUILD_BUDGET_MS = 8;
-const COMPACT_STREAMING_BUILD_BUDGET_MS = 5;
-const DESKTOP_STONE_BUILD_RESERVE_MS = 2;
-const COMPACT_STONE_BUILD_RESERVE_MS = 1.25;
-const MAX_RUNTIME_DELTA_SECONDS = 0.25;
-const SUN_DIRECTION = new THREE.Vector3(350, 500, 220).normalize();
-const SUN_SHADOW_DISTANCE = 200;
-const SUN_SHADOW_HALF_EXTENT = 7;
-const UP_AXIS = new THREE.Vector3(0, 1, 0);
-
-type FrameSubsystem = "controls" | "terrain" | "grass" | "renderer" | "hud";
-
-const FRAME_TIMING_SMOOTHING = 0.1;
+import { WorldEnvironmentController } from "./WorldEnvironmentController";
+import { WorldFrameMetrics, type WorldFrameSubsystem } from "./WorldFrameMetrics";
+import { WorldRuntimeGuard } from "./WorldRuntimeGuard";
+import { WorldStatusHud } from "./WorldStatusHud";
+import {
+  WORLD_COMPACT_STONE_BUILD_RESERVE_MS,
+  WORLD_COMPACT_STREAMING_BUILD_BUDGET_MS,
+  WORLD_DESKTOP_STONE_BUILD_RESERVE_MS,
+  WORLD_DESKTOP_STREAMING_BUILD_BUDGET_MS,
+  WORLD_FRAME_STALL_THRESHOLD_MS,
+  WORLD_FRAME_WATCHDOG_INTERVAL_MS,
+  WORLD_MAX_RUNTIME_DELTA_SECONDS,
+} from "./WorldAppTuning";
 
 export class WorldApp {
   private readonly scene = new THREE.Scene();
@@ -55,31 +48,19 @@ export class WorldApp {
   private readonly stones: WorldStoneSystem;
   private readonly grass: WorldGrassSystem;
   private readonly controls: WorldController;
-  private readonly hud = document.querySelector<HTMLElement>("#world-stats");
-  private sun?: THREE.DirectionalLight;
-  private hemisphere?: THREE.HemisphereLight;
-  private currentArtDirection?: GrassArtDirection;
+  private readonly environment: WorldEnvironmentController;
+  private readonly frameMetrics = new WorldFrameMetrics();
+  private readonly runtimeGuard: WorldRuntimeGuard;
+  private readonly statusHud = new WorldStatusHud(
+    document.querySelector<HTMLElement>("#world-stats"),
+  );
   private readonly drawingBufferSize = new THREE.Vector2();
-  private readonly shadowAxisX = new THREE.Vector3();
-  private readonly shadowAxisY = new THREE.Vector3();
   private readonly pixelRatio: number;
   private readonly flyMode: boolean;
   private frameHandle = 0;
   private watchdogHandle = 0;
-  private frameCount = 0;
   private streamingBuildDeadline = Number.POSITIVE_INFINITY;
-  private fpsSampleFrames = 0;
-  private fpsSampleElapsed = 0;
-  private averageFps = 0;
   private lastFrameTimestamp = performance.now();
-  private readonly subsystemMs: Record<FrameSubsystem, number> = {
-    controls: 0,
-    terrain: 0,
-    grass: 0,
-    renderer: 0,
-    hud: 0,
-  };
-  private hudElapsed = 0;
   private sampledGroundX = Number.NaN;
   private sampledGroundZ = Number.NaN;
   private sampledGroundHeight = 0;
@@ -91,8 +72,6 @@ export class WorldApp {
   private rendererEnabled = true;
   private hudEnabled = true;
   private grassInitializing = true;
-  private runtimeError?: string;
-  private runtimeErrorBeforeContextLoss?: string;
   private grassInitializationError?: string;
 
   private constructor(
@@ -105,11 +84,6 @@ export class WorldApp {
       window.innerWidth / window.innerHeight,
       0.1,
       5000,
-    );
-    this.scene.background = new THREE.Color("#bfd4df");
-    this.scene.fog = new THREE.FogExp2(
-      "#bfd4df",
-      profile.compact ? 0.0016 : 0.00105,
     );
 
     this.renderer = new THREE.WebGLRenderer({
@@ -137,6 +111,12 @@ export class WorldApp {
       spawn.pitch = THREE.MathUtils.degToRad(-34);
     }
 
+    this.environment = new WorldEnvironmentController(
+      this.scene,
+      this.renderer,
+      profile,
+      profile.shadows && !useFlyControls,
+    );
     this.terrain = new TerrainStreamer(
       this.scene,
       this.field,
@@ -199,9 +179,14 @@ export class WorldApp {
     console.info(
       `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
     );
-    this.addLights();
-    this.applyEnvironmentPairing();
-    this.bindRuntimeEvents();
+    this.environment.updateShadow(this.controls.getStreamingPosition());
+    this.runtimeGuard = new WorldRuntimeGuard(
+      canvas,
+      this.handleResize,
+      (enabled) => {
+        this.rendererEnabled = enabled;
+      },
+    );
   }
 
   static async create(
@@ -236,7 +221,7 @@ export class WorldApp {
     this.frameHandle = requestAnimationFrame(this.render);
     this.watchdogHandle = window.setInterval(
       this.checkFrameHeartbeat,
-      FRAME_WATCHDOG_INTERVAL_MS,
+      WORLD_FRAME_WATCHDOG_INTERVAL_MS,
     );
   }
 
@@ -249,11 +234,7 @@ export class WorldApp {
     this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
     window.clearInterval(this.watchdogHandle);
-    window.removeEventListener("resize", this.handleResize);
-    window.removeEventListener("error", this.handleWindowError);
-    window.removeEventListener("unhandledrejection", this.handleUnhandledRejection);
-    this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
-    this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
+    this.runtimeGuard.dispose();
     this.controls.dispose();
     this.terrain.dispose();
     this.stones.dispose();
@@ -264,15 +245,8 @@ export class WorldApp {
     this.stats = undefined;
     this.artMenu?.dispose();
     this.artMenu = undefined;
+    this.environment.dispose();
     this.renderer.dispose();
-  }
-
-  private bindRuntimeEvents(): void {
-    window.addEventListener("resize", this.handleResize);
-    window.addEventListener("error", this.handleWindowError);
-    window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
-    this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
-    this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
   }
 
   private readonly applyGrassArtDirection = (
@@ -281,30 +255,10 @@ export class WorldApp {
     if (this.disposed) {
       return;
     }
-    this.currentArtDirection = direction;
     this.terrain.setGrassArtDirection(direction);
     this.grass.setArtDirection(direction);
-    this.applyEnvironmentPairing();
+    this.environment.applyArtDirection(direction);
   };
-
-  private applyEnvironmentPairing(): void {
-    const zelda = this.currentArtDirection?.key === "zelda-field";
-    this.scene.background = new THREE.Color(zelda ? "#bfd9f2" : "#bfd4df");
-    this.scene.fog = new THREE.FogExp2(
-      zelda ? "#c2d6b8" : "#bfd4df",
-      zelda ? 0.0035 : this.profile.compact ? 0.0016 : 0.00105,
-    );
-    this.renderer.toneMappingExposure = zelda ? 1.15 : 1;
-    if (this.sun) {
-      this.sun.color.set(zelda ? "#fff2d8" : "#fff3d7");
-      this.sun.intensity = 2.4;
-    }
-    if (this.hemisphere) {
-      this.hemisphere.color.set(zelda ? "#bfd9f2" : "#dceeff");
-      this.hemisphere.groundColor.set(zelda ? "#7d8f5a" : "#3f3a2d");
-      this.hemisphere.intensity = zelda ? 0.55 : 0.6;
-    }
-  }
 
   private async initializeGrass(): Promise<void> {
     try {
@@ -328,7 +282,7 @@ export class WorldApp {
         return;
       }
       console.error("[Drusniel World] Grass initialization failed.", error);
-      this.grassInitializationError = this.formatError(error);
+      this.grassInitializationError = this.runtimeGuard.formatError(error);
       this.grassEnabled = false;
     } finally {
       if (!this.disposed) {
@@ -345,18 +299,17 @@ export class WorldApp {
 
     this.frameHandle = requestAnimationFrame(this.render);
     this.lastFrameTimestamp = performance.now();
-    this.frameCount += 1;
     const rawDeltaSeconds = this.clock.getDelta();
     const deltaSeconds = THREE.MathUtils.clamp(
       Number.isFinite(rawDeltaSeconds) ? rawDeltaSeconds : 0,
       0,
-      MAX_RUNTIME_DELTA_SECONDS,
+      WORLD_MAX_RUNTIME_DELTA_SECONDS,
     );
     const streamingBudgetMs = this.profile.compact
-      ? COMPACT_STREAMING_BUILD_BUDGET_MS
-      : DESKTOP_STREAMING_BUILD_BUDGET_MS;
+      ? WORLD_COMPACT_STREAMING_BUILD_BUDGET_MS
+      : WORLD_DESKTOP_STREAMING_BUILD_BUDGET_MS;
     this.streamingBuildDeadline = performance.now() + streamingBudgetMs;
-    this.updateAverageFps(deltaSeconds);
+    this.frameMetrics.beginFrame(deltaSeconds);
 
     if (this.controlsEnabled) {
       this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
@@ -379,35 +332,18 @@ export class WorldApp {
     }
   };
 
-  private updateAverageFps(deltaSeconds: number): void {
-    this.fpsSampleFrames += 1;
-    this.fpsSampleElapsed += deltaSeconds;
-    if (this.fpsSampleElapsed < FPS_SAMPLE_INTERVAL_SECONDS) {
-      if (this.averageFps === 0 && this.fpsSampleElapsed > 0) {
-        this.averageFps = this.fpsSampleFrames / this.fpsSampleElapsed;
-      }
-      return;
-    }
-    this.averageFps = this.fpsSampleFrames / this.fpsSampleElapsed;
-    this.fpsSampleFrames = 0;
-    this.fpsSampleElapsed = 0;
-  }
-
   private readonly updateControls = (deltaSeconds: number): void => {
     this.controls.update(deltaSeconds);
     if (this.controls.getMode() === "fly") {
       this.constrainCamera();
     }
-    this.updateSunShadow();
+    this.environment.updateShadow(this.controls.getStreamingPosition());
   };
 
   private readonly updateTerrain = (): void => {
-    // Terrain streaming previously consumed the shared deadline before stones
-    // ran. Reserve a bounded tail of the frame budget so stone batches make
-    // progress even during the long initial terrain fill on slower devices.
     const stoneBuildReserveMs = this.profile.compact
-      ? COMPACT_STONE_BUILD_RESERVE_MS
-      : DESKTOP_STONE_BUILD_RESERVE_MS;
+      ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS
+      : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
     const terrainBuildDeadline = Math.max(
       performance.now(),
       this.streamingBuildDeadline - stoneBuildReserveMs,
@@ -449,11 +385,11 @@ export class WorldApp {
       return;
     }
     const stalledForMs = performance.now() - this.lastFrameTimestamp;
-    if (stalledForMs < FRAME_STALL_THRESHOLD_MS) {
+    if (stalledForMs < WORLD_FRAME_STALL_THRESHOLD_MS) {
       return;
     }
 
-    this.runtimeError = `watchdog: restarted after ${Math.round(stalledForMs)} ms`;
+    this.runtimeGuard.recordWatchdogRestart(stalledForMs);
     this.lastFrameTimestamp = performance.now();
     this.clock.stop();
     this.clock.start();
@@ -462,18 +398,14 @@ export class WorldApp {
   };
 
   private runFrameSubsystem(
-    subsystem: FrameSubsystem,
+    subsystem: WorldFrameSubsystem,
     callback: (deltaSeconds: number) => void,
     deltaSeconds: number,
   ): void {
-    const startedAt = performance.now();
     try {
-      callback(deltaSeconds);
-      this.subsystemMs[subsystem] +=
-        (performance.now() - startedAt - this.subsystemMs[subsystem]) *
-        FRAME_TIMING_SMOOTHING;
+      this.frameMetrics.measure(subsystem, callback, deltaSeconds);
     } catch (error) {
-      this.recordRuntimeError(subsystem, error);
+      this.runtimeGuard.recordSubsystemFailure(subsystem, error);
       if (subsystem === "controls") {
         this.controlsEnabled = false;
       } else if (subsystem === "terrain") {
@@ -486,20 +418,6 @@ export class WorldApp {
         this.hudEnabled = false;
       }
     }
-  }
-
-  private recordRuntimeError(subsystem: FrameSubsystem, error: unknown): void {
-    const message = `${subsystem}: ${this.formatError(error)}`;
-    if (this.runtimeError === message) {
-      return;
-    }
-    this.runtimeError = message;
-    console.error(`[Drusniel World] ${subsystem} frame failure.`, error);
-  }
-
-  private formatError(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.replace(/\s+/g, " ").slice(0, ERROR_MESSAGE_MAX_LENGTH);
   }
 
   private applyRendererSize(): void {
@@ -518,64 +436,6 @@ export class WorldApp {
       THREE.MathUtils.degToRad(this.camera.fov) * 0.5,
     );
     this.grass.setViewportPixelScale((2 * halfFovTangent) / bufferHeight);
-  }
-
-  private addLights(): void {
-    // Low enough that the sun, not the sky dome, decides a blade's brightness.
-    // At the 1.45 this used to sit at, every blade in the field was lit almost
-    // identically regardless of which way it faced, which is what made a canopy
-    // of eight million blades read as one flat green sheet.
-    this.hemisphere = new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 0.6);
-    this.scene.add(this.hemisphere);
-    const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
-    sun.position.copy(SUN_DIRECTION).multiplyScalar(SUN_SHADOW_DISTANCE);
-    sun.castShadow = this.profile.shadows && !this.flyMode;
-    sun.shadow.camera.left = -SUN_SHADOW_HALF_EXTENT;
-    sun.shadow.camera.right = SUN_SHADOW_HALF_EXTENT;
-    sun.shadow.camera.top = SUN_SHADOW_HALF_EXTENT;
-    sun.shadow.camera.bottom = -SUN_SHADOW_HALF_EXTENT;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = SUN_SHADOW_DISTANCE * 2;
-    sun.shadow.camera.updateProjectionMatrix();
-    sun.shadow.normalBias = 0.02;
-    sun.shadow.mapSize.set(
-      this.profile.shadowMapSize,
-      this.profile.shadowMapSize,
-    );
-    this.scene.add(sun);
-    this.scene.add(sun.target);
-    this.sun = sun;
-    this.updateSunShadow();
-  }
-
-  private updateSunShadow(): void {
-    const sun = this.sun;
-    if (!sun || !sun.castShadow) {
-      return;
-    }
-
-    const focus = this.controls.getStreamingPosition();
-    const texelSize =
-      (2 * SUN_SHADOW_HALF_EXTENT) / Math.max(1, this.profile.shadowMapSize);
-    const zAxis = SUN_DIRECTION;
-    this.shadowAxisX.crossVectors(UP_AXIS, zAxis).normalize();
-    this.shadowAxisY.crossVectors(zAxis, this.shadowAxisX);
-    const snappedX =
-      Math.round(focus.dot(this.shadowAxisX) / texelSize) * texelSize;
-    const snappedY =
-      Math.round(focus.dot(this.shadowAxisY) / texelSize) * texelSize;
-    const alongLight = focus.dot(zAxis);
-
-    sun.target.position
-      .copy(this.shadowAxisX)
-      .multiplyScalar(snappedX)
-      .addScaledVector(this.shadowAxisY, snappedY)
-      .addScaledVector(zAxis, alongLight);
-    sun.position
-      .copy(sun.target.position)
-      .addScaledVector(zAxis, SUN_SHADOW_DISTANCE);
-    sun.target.updateMatrixWorld();
-    sun.updateMatrixWorld();
   }
 
   private async setupStats(): Promise<void> {
@@ -614,40 +474,26 @@ export class WorldApp {
   }
 
   private readonly updateHud = (deltaSeconds: number): void => {
-    if (!this.hud) {
-      return;
-    }
-    this.hudElapsed += deltaSeconds;
-    if (this.hudElapsed < HUD_UPDATE_INTERVAL_SECONDS) {
-      return;
-    }
-    this.hudElapsed = 0;
     const terrain = this.terrain.getDiagnostics();
     const grass = this.grass.getDiagnostics();
-    const render = this.renderer.info.render;
     const focus = this.controls.getStreamingPosition();
-    const groundHeight = this.sampleGroundHeight(focus);
-    const grassStatus = this.grassInitializationError
-      ? `Grass error: ${this.grassInitializationError}`
-      : grass.status;
-    this.hud.textContent = [
-      `Frame ${this.frameCount.toLocaleString()} · ${this.averageFps.toFixed(1)} FPS · ${this.runtimeError ? "DEGRADED" : "running"} · ${this.controls.getMode()}`,
-      `Focus ${focus.x.toFixed(0)} / ${focus.y.toFixed(0)} / ${focus.z.toFixed(0)}`,
-      `Camera ${this.camera.position.x.toFixed(0)} / ${this.camera.position.y.toFixed(0)} / ${this.camera.position.z.toFixed(0)}`,
-      `AGL ${(focus.y - groundHeight).toFixed(1)} m · Speed ${this.controls.getSpeed().toFixed(1)} m/s`,
-      `Input ${this.controls.getInputDiagnostics()}`,
-      `Terrain ${terrain.activeChunks} +${terrain.queuedChunks} · Build ${terrain.lastBuildMs.toFixed(1)} / peak ${terrain.maxBuildMs.toFixed(1)} ms`,
-      grass.ready
-        ? `Grass ${grass.clumps.toLocaleString()} patches · ${grass.blades.toLocaleString()} blades · ${grass.impostors.toLocaleString()} impostors`
-        : grassStatus,
-      `Draws ${render.calls} · Triangles ${render.triangles.toLocaleString()} · Scale ${this.pixelRatio.toFixed(2)} · Build ${grass.lastBuildMs.toFixed(1)} / peak ${grass.maxBuildMs.toFixed(1)} ms`,
-      `Grass submit mid ${grass.submittedMidVertices.toLocaleString()} verts · far ${grass.submittedFarInstances.toLocaleString()} inst · quality T${grass.qualityTier} ${grass.qualityTierSeconds.toFixed(1)}s (${grass.qualityDensityScale.toFixed(2)})`,
-      `Frame ctrl ${this.subsystemMs.controls.toFixed(2)} · terr ${this.subsystemMs.terrain.toFixed(2)} · grass ${this.subsystemMs.grass.toFixed(2)} · draw ${this.subsystemMs.renderer.toFixed(2)} ms`,
-      `Near tiles ${grass.nearTiles.toLocaleString()} · Tile build ${grass.nearTileBuildMs.toFixed(1)} / peak ${grass.maxNearTileBuildMs.toFixed(1)} ms`,
-      this.runtimeError ? `Error ${this.runtimeError}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    this.statusHud.update(deltaSeconds, {
+      frameCount: this.frameMetrics.getFrameCount(),
+      averageFps: this.frameMetrics.getAverageFps(),
+      runtimeError: this.runtimeGuard.error,
+      controlMode: this.controls.getMode(),
+      focus,
+      camera: this.camera.position,
+      groundHeight: this.sampleGroundHeight(focus),
+      speed: this.controls.getSpeed(),
+      inputDiagnostics: this.controls.getInputDiagnostics(),
+      terrain,
+      grass,
+      grassInitializationError: this.grassInitializationError,
+      render: this.renderer.info.render,
+      pixelRatio: this.pixelRatio,
+      frameTimings: this.frameMetrics.getTimings(),
+    });
   };
 
   private sampleGroundHeight(position: THREE.Vector3): number {
@@ -659,41 +505,6 @@ export class WorldApp {
     }
     return this.sampledGroundHeight;
   }
-
-  private readonly handleWindowError = (event: ErrorEvent): void => {
-    if (!this.disposed) {
-      this.runtimeError = `window: ${this.formatError(event.error ?? event.message)}`;
-    }
-  };
-
-  private readonly handleUnhandledRejection = (
-    event: PromiseRejectionEvent,
-  ): void => {
-    if (!this.disposed) {
-      this.runtimeError = `promise: ${this.formatError(event.reason)}`;
-    }
-  };
-
-  private readonly handleContextLost = (event: Event): void => {
-    event.preventDefault();
-    if (this.disposed) {
-      return;
-    }
-    this.rendererEnabled = false;
-    this.runtimeErrorBeforeContextLoss = this.runtimeError;
-    this.runtimeError = CONTEXT_LOST_ERROR;
-  };
-
-  private readonly handleContextRestored = (): void => {
-    if (this.disposed) {
-      return;
-    }
-    this.rendererEnabled = true;
-    if (this.runtimeError === CONTEXT_LOST_ERROR) {
-      this.runtimeError = this.runtimeErrorBeforeContextLoss;
-    }
-    this.runtimeErrorBeforeContextLoss = undefined;
-  };
 
   private readonly handleResize = (): void => {
     if (this.disposed) {
