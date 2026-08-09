@@ -30,6 +30,10 @@ function run(command, args, options = {}) {
     cwd: options.cwd ?? REPOSITORY_ROOT,
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
+    // Node cannot launch Windows command shims such as npm.cmd directly on
+    // every supported Windows runtime. Use cmd.exe for those shims only; native
+    // executables such as git continue to run without an intermediate shell.
+    shell: process.platform === "win32" && command.endsWith(".cmd"),
   });
 
   if (result.error) {
