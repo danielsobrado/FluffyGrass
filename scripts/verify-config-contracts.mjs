@@ -99,7 +99,7 @@ try {
       "Bridge entry must not overlap the patch LOD fade.",
     );
     await expectReject(
-      () => load(grassLoader, grassSource.replace('#2f7c35', 'green')),
+      () => load(grassLoader, grassSource.replace("#2f7c35", "green")),
       /baseColor must be a six-digit hex color/,
       "Invalid grass colors must fail before rendering.",
     );
@@ -114,6 +114,18 @@ try {
         ),
       /desktopShadowMapSize must be a power of two/,
       "Runtime shadow maps must remain power-of-two sized.",
+    );
+    await expectReject(
+      () =>
+        load(
+          runtimeLoader,
+          runtimeSource.replace(
+            "desktopShadowMapSize: 1024",
+            "desktopShadowMapSize: 4294967297",
+          ),
+        ),
+      /desktopShadowMapSize must be a power of two/,
+      "Power-of-two validation must not be bypassed by 32-bit integer truncation.",
     );
 
     console.log("[config] World, grass, and runtime configuration contracts verified.");
