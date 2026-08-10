@@ -20,6 +20,10 @@ type NumericSetting =
 type ColorSetting = "baseColor" | "tipColor" | "dryColor";
 
 const EXPORT_STATUS_MS = 1800;
+const ROOT_DARKENING_MIN = 0.2;
+const ROOT_DARKENING_MAX = 1;
+const NEAR_DISTANCE_MIN = 10;
+const NEAR_DISTANCE_MAX = 32;
 
 export class GrassArtMenu {
   private readonly root: HTMLDetailsElement;
@@ -61,13 +65,26 @@ export class GrassArtMenu {
     this.addRange("Wind", "windStrengthScale", 0, 2, 0.05);
     this.addRange("Flutter", "flutterStrengthScale", 0, 2, 0.05);
     this.addRange("Tip mix", "tipColorStrength", 0, 0.6, 0.01);
-    this.addRange("Root light", "rootDarkening", 0.88, 1, 0.01);
+    this.addRange(
+      "Root light",
+      "rootDarkening",
+      ROOT_DARKENING_MIN,
+      ROOT_DARKENING_MAX,
+      0.01,
+    );
     this.addRange("Far tint", "impostorBaseColorBlend", 0, 0.25, 0.01);
     this.addRange("Far light", "impostorColorScale", 0.7, 1.15, 0.01);
     this.addColor("Base", "baseColor");
     this.addColor("Tips", "tipColor");
     this.addColor("Dry", "dryColor");
-    this.addNumber("Near LOD", "nearDistance", 10, 26, 1, "m");
+    this.addNumber(
+      "Near LOD",
+      "nearDistance",
+      NEAR_DISTANCE_MIN,
+      NEAR_DISTANCE_MAX,
+      1,
+      "m",
+    );
     this.addNumber("Mid LOD", "midDistance", 40, 140, 2, "m");
     this.addNumber("Far LOD", "farDistance", 160, 280, 5, "m");
     this.addNumber("Blend", "transitionDistance", 2, 12, 1, "m");
@@ -172,7 +189,10 @@ export class GrassArtMenu {
   }
 
   private normalizeLodDistances(): void {
-    this.current.nearDistance = Math.min(26, Math.max(10, this.current.nearDistance));
+    this.current.nearDistance = Math.min(
+      NEAR_DISTANCE_MAX,
+      Math.max(NEAR_DISTANCE_MIN, this.current.nearDistance),
+    );
     this.current.transitionDistance = Math.min(
       12,
       Math.max(2, Math.min(this.current.nearDistance - 4, this.current.transitionDistance)),
