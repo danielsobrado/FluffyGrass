@@ -137,8 +137,10 @@ assert(
 assert(
   thirdPersonInput.includes("private disposed = false") &&
     thirdPersonInput.includes("this.clearTransientInput()") &&
-    thirdPersonInput.includes("this.canvas.style.touchAction = this.previousTouchAction"),
-  "Third-person input must clear transient state and restore canvas state on disposal.",
+    thirdPersonInput.includes("this.canvas.style.touchAction = this.previousTouchAction") &&
+    thirdPersonInput.includes("normalizeWheelDeltaPixels(event)") &&
+    thirdPersonInput.includes("event.deltaMode"),
+  "Third-person input must clear transient state, restore canvas state, and normalize browser wheel units.",
 );
 assert(
   uiController.includes("removeEventListener") &&
