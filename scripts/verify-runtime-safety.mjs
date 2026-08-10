@@ -24,6 +24,9 @@ const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
+const qaMetrics = read("src/qa/GrassQaMetrics.ts");
+const qaRunner = read("src/qa/GrassQaRunner.ts");
+const stoneField = read("src/world/stones/StoneField.ts");
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
@@ -89,6 +92,24 @@ assert(
     "this.state = (this.state + 0x6d2b79f5) >>> 0;",
   ),
   "Seeded procedural random state must wrap to uint32 every step instead of growing past JavaScript's exact integer range.",
+);
+assert(
+  qaMetrics.includes('document.addEventListener("visibilitychange"') &&
+    qaMetrics.includes('document.removeEventListener("visibilitychange"') &&
+    qaMetrics.includes("previousTime = undefined") &&
+    qaMetrics.includes("elapsedMs += frameDuration"),
+  "QA frame sampling must exclude hidden-tab suspension and release its visibility listener.",
+);
+assert(
+  qaRunner.includes("position: [camera.position.x") &&
+    qaRunner.includes("target: [controls.target.x"),
+  "QA reports must record the actual post-controls camera pose used for the capture.",
+);
+assert(
+  stoneField.includes("CHUNK_SOURCE_CELL_MARGIN = 1") &&
+    stoneField.includes("Math.floor(minX / this.cellSize) - CHUNK_SOURCE_CELL_MARGIN") &&
+    stoneField.includes("Math.floor((maxX - 1e-3) / this.cellSize) + CHUNK_SOURCE_CELL_MARGIN"),
+  "Stone chunk collection must inspect neighboring source cells for split, satellite, and verge roots displaced across chunk edges.",
 );
 assert(
   interactionField.includes("validateConfig(config)") &&
