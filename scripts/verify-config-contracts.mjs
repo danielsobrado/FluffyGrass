@@ -99,6 +99,15 @@ try {
       "Bridge entry must not overlap the patch LOD fade.",
     );
     await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("seed: 42017", "seed: 9007199254740992"),
+        ),
+      /seed must be a safe integer/,
+      "Integer configuration must reject values that cannot be represented exactly.",
+    );
+    await expectReject(
       () => load(grassLoader, grassSource.replace("#2f7c35", "green")),
       /baseColor must be a six-digit hex color/,
       "Invalid grass colors must fail before rendering.",
