@@ -1,5 +1,7 @@
 import type { WorldConfig } from "./WorldConfig";
 
+const MAX_SPAWN_SEARCH_STEPS_PER_RADIUS = 256;
+
 export function validateWorldConfig(config: WorldConfig): void {
   const worldChunks = config.worldSize / config.chunkSize;
   if (worldChunks < 8) {
@@ -7,6 +9,11 @@ export function validateWorldConfig(config: WorldConfig): void {
   }
   if (!Number.isInteger(worldChunks) || worldChunks % 2 !== 0) {
     throw new Error("worldSize must contain an even whole number of terrain chunks.");
+  }
+  if (config.terrainRadiusDesktop > worldChunks * 0.5) {
+    throw new Error(
+      "terrainRadiusDesktop must not exceed half of the world chunk count.",
+    );
   }
 
   const patchesPerChunk = config.chunkSize / config.grassPatchSize;
@@ -157,6 +164,14 @@ export function validateWorldConfig(config: WorldConfig): void {
   }
   if (config.spawnSearchStep > config.spawnSearchRadius) {
     throw new Error("spawnSearchStep must not exceed spawnSearchRadius.");
+  }
+  if (
+    config.spawnSearchRadius / config.spawnSearchStep >
+    MAX_SPAWN_SEARCH_STEPS_PER_RADIUS
+  ) {
+    throw new Error(
+      `spawnSearchRadius must not exceed ${MAX_SPAWN_SEARCH_STEPS_PER_RADIUS} spawnSearchStep intervals.`,
+    );
   }
   if (config.spawnNeighborhoodRadius >= config.chunkSize * 0.5) {
     throw new Error("spawnNeighborhoodRadius must be lower than half a chunk.");
