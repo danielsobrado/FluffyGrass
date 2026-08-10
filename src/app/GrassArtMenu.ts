@@ -222,14 +222,15 @@ export class GrassArtMenu {
     const yaml = this.serializeYaml(this.current);
     const button = event.currentTarget as HTMLButtonElement;
     button.dataset.yaml = yaml;
-    void navigator.clipboard?.writeText(yaml).catch(() => undefined);
-    button.textContent = "YAML copied + downloaded";
-    window.clearTimeout(this.exportResetHandle);
-    this.exportResetHandle = window.setTimeout(() => {
-      if (!this.disposed) {
-        button.textContent = "Export YAML";
-      }
-    }, EXPORT_STATUS_MS);
+    this.showExportStatus(button, "YAML downloaded");
+    const clipboard = navigator.clipboard;
+    if (clipboard) {
+      void clipboard
+        .writeText(yaml)
+        .then(() => this.showExportStatus(button, "YAML copied + downloaded"))
+        .catch(() => undefined);
+    }
+
     const url = URL.createObjectURL(
       new Blob([yaml], { type: "application/yaml;charset=utf-8" }),
     );
@@ -244,6 +245,19 @@ export class GrassArtMenu {
       URL.revokeObjectURL(url);
     });
   };
+
+  private showExportStatus(button: HTMLButtonElement, status: string): void {
+    if (this.disposed) {
+      return;
+    }
+    button.textContent = status;
+    window.clearTimeout(this.exportResetHandle);
+    this.exportResetHandle = window.setTimeout(() => {
+      if (!this.disposed) {
+        button.textContent = "Export YAML";
+      }
+    }, EXPORT_STATUS_MS);
+  }
 
   private serializeYaml(direction: GrassArtDirection): string {
     return [
