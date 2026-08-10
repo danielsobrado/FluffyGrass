@@ -2,25 +2,42 @@ import {
   NON_NEGATIVE_NUMBER_RULE,
   POSITIVE_INTEGER_RULE,
   POSITIVE_NUMBER_RULE,
+  UINT32_INTEGER_RULE,
   type ConfigNumberRule,
 } from "../config/FlatConfigValueReader";
 import type { WorldConfig } from "./WorldConfig";
+
+const MAX_TERRAIN_NEAR_RESOLUTION = 129;
+const MAX_TERRAIN_MID_RESOLUTION = 65;
+const MAX_TERRAIN_FAR_RESOLUTION = 33;
 
 export type WorldConfigSchema = {
   [Key in keyof WorldConfig]: Readonly<ConfigNumberRule>;
 };
 
 export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
-  seed: { integer: true },
+  seed: UINT32_INTEGER_RULE,
   worldSize: POSITIVE_NUMBER_RULE,
   chunkSize: POSITIVE_NUMBER_RULE,
   terrainRadiusDesktop: POSITIVE_INTEGER_RULE,
   terrainRadiusCompact: POSITIVE_INTEGER_RULE,
   grassRadiusDesktop: POSITIVE_INTEGER_RULE,
   grassRadiusCompact: POSITIVE_INTEGER_RULE,
-  terrainNearResolution: { minimum: 3, integer: true },
-  terrainMidResolution: { minimum: 3, integer: true },
-  terrainFarResolution: { minimum: 3, integer: true },
+  terrainNearResolution: {
+    minimum: 3,
+    maximum: MAX_TERRAIN_NEAR_RESOLUTION,
+    integer: true,
+  },
+  terrainMidResolution: {
+    minimum: 3,
+    maximum: MAX_TERRAIN_MID_RESOLUTION,
+    integer: true,
+  },
+  terrainFarResolution: {
+    minimum: 3,
+    maximum: MAX_TERRAIN_FAR_RESOLUTION,
+    integer: true,
+  },
   terrainChunksPerFrame: POSITIVE_INTEGER_RULE,
   grassChunksPerFrame: POSITIVE_INTEGER_RULE,
   grassPatchSize: POSITIVE_NUMBER_RULE,
