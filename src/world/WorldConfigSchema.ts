@@ -7,6 +7,7 @@ import {
 } from "../config/FlatConfigValueReader";
 import type { WorldConfig } from "./WorldConfig";
 
+const MAX_TERRAIN_STREAM_RADIUS = 16;
 const MAX_TERRAIN_NEAR_RESOLUTION = 129;
 const MAX_TERRAIN_MID_RESOLUTION = 65;
 const MAX_TERRAIN_FAR_RESOLUTION = 33;
@@ -19,8 +20,16 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   seed: UINT32_INTEGER_RULE,
   worldSize: POSITIVE_NUMBER_RULE,
   chunkSize: POSITIVE_NUMBER_RULE,
-  terrainRadiusDesktop: POSITIVE_INTEGER_RULE,
-  terrainRadiusCompact: POSITIVE_INTEGER_RULE,
+  terrainRadiusDesktop: {
+    minimum: 1,
+    maximum: MAX_TERRAIN_STREAM_RADIUS,
+    integer: true,
+  },
+  terrainRadiusCompact: {
+    minimum: 1,
+    maximum: MAX_TERRAIN_STREAM_RADIUS,
+    integer: true,
+  },
   grassRadiusDesktop: POSITIVE_INTEGER_RULE,
   grassRadiusCompact: POSITIVE_INTEGER_RULE,
   terrainNearResolution: {
