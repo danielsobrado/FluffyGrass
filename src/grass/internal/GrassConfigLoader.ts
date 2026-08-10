@@ -11,8 +11,14 @@ import { validateGrassConfig } from "./GrassConfigValidator";
 
 const CONFIG_URL = "./config/grass.yaml";
 
+function resolveDefaultConfigUrl(): string {
+  return typeof __APP_VERSION__ === "string" && __APP_VERSION__.length > 0
+    ? `${CONFIG_URL}?v=${encodeURIComponent(__APP_VERSION__)}`
+    : CONFIG_URL;
+}
+
 export class GrassConfigLoader {
-  async load(url: string = CONFIG_URL): Promise<GrassConfig> {
+  async load(url: string = resolveDefaultConfigUrl()): Promise<GrassConfig> {
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(
