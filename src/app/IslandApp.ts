@@ -163,9 +163,7 @@ export class IslandApp {
         terrain = child;
       }
     });
-    for (const material of replacedMaterials) {
-      material.dispose();
-    }
+    disposeMaterialResources(replacedMaterials);
 
     if (!terrain) {
       throw new Error("Island model does not contain a terrain mesh.");
@@ -204,9 +202,7 @@ export class IslandApp {
         child.castShadow = this.profile.shadows;
       }
     });
-    for (const original of originalMaterials) {
-      original.dispose();
-    }
+    disposeMaterialResources(originalMaterials);
     this.decorativeMaterial = material;
     this.decorativeRoot = gltf.scene;
     this.scene.add(gltf.scene);
@@ -268,8 +264,21 @@ function disposeObjectMaterials(root: THREE.Object3D): void {
       collectMaterials(child.material, materials);
     }
   });
+  disposeMaterialResources(materials);
+}
+
+function disposeMaterialResources(materials: Iterable<THREE.Material>): void {
+  const textures = new Set<THREE.Texture>();
   for (const material of materials) {
+    for (const value of Object.values(material)) {
+      if (value instanceof THREE.Texture) {
+        textures.add(value);
+      }
+    }
     material.dispose();
+  }
+  for (const texture of textures) {
+    texture.dispose();
   }
 }
 
