@@ -102,8 +102,11 @@ assert(
 );
 assert(
   qaRunner.includes("position: [camera.position.x") &&
-    qaRunner.includes("target: [controls.target.x"),
-  "QA reports must record the actual post-controls camera pose used for the capture.",
+    qaRunner.includes("target: [controls.target.x") &&
+    qaRunner.includes("const previousEnableDamping = controls.enableDamping") &&
+    qaRunner.includes("controls.enableDamping = false") &&
+    qaRunner.includes("controls.enableDamping = previousEnableDamping"),
+  "QA captures must report the actual camera pose and eliminate OrbitControls damping drift while sampling.",
 );
 assert(
   stoneField.includes("CHUNK_SOURCE_CELL_MARGIN = 1") &&
