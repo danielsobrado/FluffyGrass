@@ -84,10 +84,11 @@ export class SnowflowCharacter {
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
-    const delta = THREE.MathUtils.clamp(deltaSeconds, 0, 0.1);
-    if (deltaSeconds <= 0) {
-      this.resetSecondaryMotion();
-    }
+    const delta = THREE.MathUtils.clamp(
+      Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
+      0,
+      0.1,
+    );
     this.animationTime += delta;
     this.rig.root.position.copy(pose.position);
     this.rig.heading.rotation.y = pose.facing;
@@ -95,6 +96,24 @@ export class SnowflowCharacter {
     this.updateSlope(pose.grounded ? pose.groundNormal : UP, delta);
     this.updateBodyPose(pose);
     this.updateSecondaryMotion(delta, pose);
+  }
+
+  reset(pose: SnowflowCharacterPose): void {
+    this.state = "idle";
+    this.stateTime = 0;
+    this.animationTime = 0;
+    this.landingStrength = 0;
+    this.resetSecondaryMotion();
+    this.rig.root.position.copy(pose.position);
+    this.rig.heading.rotation.y = pose.facing;
+    this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true);
+    this.updateBodyPose(pose);
+    this.updateSecondaryMotion(0, {
+      ...pose,
+      jumpStarted: false,
+      landed: false,
+      landingImpact: 0,
+    });
   }
 
   dispose(): void {
@@ -151,7 +170,11 @@ export class SnowflowCharacter {
     }
   }
 
-  private updateSlope(normal: THREE.Vector3, deltaSeconds: number): void {
+  private updateSlope(
+    normal: THREE.Vector3,
+    deltaSeconds: number,
+    immediate = false,
+  ): void {
     this.limitedNormal.copy(normal);
     const slopeAngle = Math.acos(
       THREE.MathUtils.clamp(this.limitedNormal.dot(UP), -1, 1),
@@ -162,6 +185,10 @@ export class SnowflowCharacter {
         .normalize();
     }
     this.desiredSlope.setFromUnitVectors(UP, this.limitedNormal);
+    if (immediate) {
+      this.rig.slope.quaternion.copy(this.desiredSlope);
+      return;
+    }
     const blend = 1 - Math.exp(-9 * deltaSeconds);
     this.rig.slope.quaternion.slerp(this.desiredSlope, blend);
   }
