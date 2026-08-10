@@ -34,6 +34,7 @@ const motion = read("src/character/CapeMotion.ts");
 const geometry = read("src/character/CapeMotionGeometry.ts");
 const tuning = read("src/character/CapeMotionTuning.ts");
 const character = read("src/character/SnowflowCharacter.ts");
+const controller = read("src/controls/ThirdPersonController.ts");
 const spring = read("src/character/CharacterSpring.ts");
 
 const minimumBend = readConstant(tuning, "CAPE_MIN_FORWARD_BEND");
@@ -89,24 +90,27 @@ assert(
 );
 assert(
   character.includes("this.updateSecondaryMotion(delta, pose)") &&
-    character.includes("this.capeMotion.reset()"),
-  "Character animation must feed clamped frame time and reset cape state.",
+    character.includes("this.capeMotion.reset()") &&
+    character.includes("Number.isFinite(deltaSeconds) ? deltaSeconds : 0"),
+  "Character animation must feed sanitized frame time and reset cape state without treating zero-time frames as full resets.",
 );
 assert(
   character.includes("reset(pose: SnowflowCharacterPose)") &&
     character.includes('this.state = "idle"') &&
     character.includes("this.animationTime = 0") &&
     character.includes("this.landingStrength = 0") &&
-    character.includes("this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true)") &&
-    character.includes("this.reset(pose)"),
-  "Character reset must clear persistent motion state and immediately apply the spawn slope instead of preserving takeoff, landing, or old terrain tilt.",
+    character.includes(
+      "this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true)",
+    ) &&
+    controller.includes("this.character.reset({"),
+  "Controller reset must explicitly clear persistent character motion state and immediately apply the spawn slope.",
 );
 
 verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSideBend);
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Spring recovery, character reset, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Spring recovery, explicit character reset, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
 );
 
 function verifyBounds(
