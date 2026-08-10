@@ -6,6 +6,7 @@ import {
 import type { RuntimeConfig, RuntimeTierConfig } from "./RuntimeConfig";
 
 const CONFIG_URL = "./config/runtime.yaml";
+const MAX_SHADOW_MAP_SIZE = 16384;
 
 export class RuntimeConfigLoader {
   async load(url: string = CONFIG_URL): Promise<RuntimeConfig> {
@@ -54,9 +55,23 @@ export class RuntimeConfigLoader {
       }),
       autoRotate: reader.boolean(`${prefix}AutoRotate`),
       shadows: reader.boolean(`${prefix}Shadows`),
-      shadowMapSize: reader.powerOfTwo(`${prefix}ShadowMapSize`),
+      shadowMapSize: this.readShadowMapSize(reader, prefix),
       showGui: reader.boolean(`${prefix}ShowGui`),
       showDecorativeText: reader.boolean(`${prefix}ShowDecorativeText`),
     };
+  }
+
+  private readShadowMapSize(
+    reader: FlatConfigValueReader,
+    prefix: "desktop" | "compact",
+  ): number {
+    const key = `${prefix}ShadowMapSize`;
+    const size = reader.powerOfTwo(key);
+    if (size > MAX_SHADOW_MAP_SIZE) {
+      throw new Error(
+        `Runtime config value ${key} must be at most ${MAX_SHADOW_MAP_SIZE}.`,
+      );
+    }
+    return size;
   }
 }
