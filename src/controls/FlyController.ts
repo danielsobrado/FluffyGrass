@@ -25,6 +25,10 @@ const MAX_TOUCH_DISTANCE = 70;
 const MAX_FRAME_DELTA_SECONDS = 0.1;
 const POINTER_LOOK_SENSITIVITY = 0.004;
 const MOUSE_LOOK_SENSITIVITY = 0.0022;
+const WHEEL_DELTA_LINE = 1;
+const WHEEL_DELTA_PAGE = 2;
+const WHEEL_LINE_PIXELS = 16;
+const WHEEL_PIXELS_PER_SPEED_DOUBLING = 720;
 
 export class FlyController {
   private readonly keys = new Set<string>();
@@ -408,13 +412,19 @@ export class FlyController {
   };
 
   private readonly handleWheel = (event: WheelEvent): void => {
+    const deltaPixels = normalizeWheelDeltaPixels(event);
+    if (!Number.isFinite(deltaPixels) || deltaPixels === 0) {
+      return;
+    }
     event.preventDefault();
-    const factor = event.deltaY > 0 ? 0.9 : 1.1;
+    const factor = 2 ** (-deltaPixels / WHEEL_PIXELS_PER_SPEED_DOUBLING);
     this.speed = THREE.MathUtils.clamp(
       this.speed * factor,
       this.config.flyMinSpeed,
       this.config.flyMaxSpeed,
     );
+    this.inputEventCount += 1;
+    this.lastInputType = "wheel";
   };
 
   private readonly handleContextMenu = (event: MouseEvent): void => {
@@ -483,4 +493,14 @@ export class FlyController {
       Math.PI * 0.48,
     );
   }
+}
+
+function normalizeWheelDeltaPixels(event: WheelEvent): number {
+  if (event.deltaMode === WHEEL_DELTA_LINE) {
+    return event.deltaY * WHEEL_LINE_PIXELS;
+  }
+  if (event.deltaMode === WHEEL_DELTA_PAGE) {
+    return event.deltaY * Math.max(1, window.innerHeight);
+  }
+  return event.deltaY;
 }
