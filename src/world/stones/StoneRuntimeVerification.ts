@@ -1,6 +1,6 @@
 import { WorldConfigLoader } from "../WorldConfigLoader";
 import { TerrainField } from "../TerrainField";
-import { StoneField } from "./StoneField";
+import { StoneField, type StoneInstance } from "./StoneField";
 import type { StoneMeshData } from "./StoneGeometry";
 import { STONE_ARCHETYPE_IDS } from "./StoneRecipe";
 
@@ -8,6 +8,12 @@ const NORMAL_LENGTH_TOLERANCE = 0.025;
 const EDGE_QUANTIZE = 5e-4;
 const VERTEX_BUDGET = 1500;
 const TRIANGLE_BUDGET = 1000;
+const COLLECTION_MARGIN_CELLS = 1;
+const DISPLACEMENT_SAMPLE_RADIUS_CELLS = 16;
+
+interface StoneFieldVerificationAccess {
+  getCellInstances(cellX: number, cellZ: number): StoneInstance[];
+}
 
 function fail(message: string): never {
   throw new Error(`[stones-runtime] ${message}`);
@@ -130,6 +136,76 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
   verifyClosedMesh(mesh, label);
 }
 
+function verifyDisplacedStoneCollection(
+  stones: StoneField,
+  cellSize: number,
+  chunkSize: number,
+): number {
+  const runtime = stones as unknown as StoneFieldVerificationAccess;
+  const destinationChunks = new Map<string, StoneInstance[]>();
+  let displaced = 0;
+
+  for (
+    let cellZ = -DISPLACEMENT_SAMPLE_RADIUS_CELLS;
+    cellZ <= DISPLACEMENT_SAMPLE_RADIUS_CELLS;
+    cellZ += 1
+  ) {
+    for (
+      let cellX = -DISPLACEMENT_SAMPLE_RADIUS_CELLS;
+      cellX <= DISPLACEMENT_SAMPLE_RADIUS_CELLS;
+      cellX += 1
+    ) {
+      const sourceMinX = cellX * cellSize;
+      const sourceMinZ = cellZ * cellSize;
+      const sourceMaxX = sourceMinX + cellSize;
+      const sourceMaxZ = sourceMinZ + cellSize;
+      const allowedMinX = sourceMinX - cellSize * COLLECTION_MARGIN_CELLS;
+      const allowedMinZ = sourceMinZ - cellSize * COLLECTION_MARGIN_CELLS;
+      const allowedMaxX = sourceMaxX + cellSize * COLLECTION_MARGIN_CELLS;
+      const allowedMaxZ = sourceMaxZ + cellSize * COLLECTION_MARGIN_CELLS;
+
+      for (const instance of runtime.getCellInstances(cellX, cellZ)) {
+        assert(
+          instance.x >= allowedMinX &&
+            instance.x < allowedMaxX &&
+            instance.z >= allowedMinZ &&
+            instance.z < allowedMaxZ,
+          `Stone from cell ${cellX}:${cellZ} escaped the one-cell collection margin at ${instance.x.toFixed(2)}:${instance.z.toFixed(2)}.`,
+        );
+
+        if (
+          instance.x >= sourceMinX &&
+          instance.x < sourceMaxX &&
+          instance.z >= sourceMinZ &&
+          instance.z < sourceMaxZ
+        ) {
+          continue;
+        }
+        displaced += 1;
+        const chunkX = Math.floor(instance.x / chunkSize);
+        const chunkZ = Math.floor(instance.z / chunkSize);
+        const key = `${chunkX}:${chunkZ}`;
+        const list = destinationChunks.get(key) ?? [];
+        list.push(instance);
+        destinationChunks.set(key, list);
+      }
+    }
+  }
+
+  for (const [key, expected] of destinationChunks) {
+    const [chunkX, chunkZ] = key.split(":").map(Number);
+    const collected = stones.collectChunkInstances(chunkX, chunkZ, true, []);
+    for (const instance of expected) {
+      assert(
+        collected.includes(instance),
+        `Displaced stone at ${instance.x.toFixed(2)}:${instance.z.toFixed(2)} was not collected by destination chunk ${key}.`,
+      );
+    }
+  }
+
+  return displaced;
+}
+
 /** Exercises the exact variant path used by StoneField, including quality selection. */
 export function verifyRuntimeStoneVariants(configSource: string): string {
   const config = new WorldConfigLoader().parse(configSource);
@@ -185,5 +261,11 @@ export function verifyRuntimeStoneVariants(configSource: string): string {
     }
   }
 
-  return `${variantsChecked} runtime variants · max ${maximumVertices} verts / ${maximumTriangles} tris`;
+  const displaced = verifyDisplacedStoneCollection(
+    stones,
+    config.stoneCellSize,
+    config.chunkSize,
+  );
+
+  return `${variantsChecked} runtime variants · max ${maximumVertices} verts / ${maximumTriangles} tris · ${displaced} displaced roots checked`;
 }
