@@ -139,8 +139,11 @@ assert(
     thirdPersonInput.includes("this.clearTransientInput()") &&
     thirdPersonInput.includes("this.canvas.style.touchAction = this.previousTouchAction") &&
     thirdPersonInput.includes("normalizeWheelDeltaPixels(event)") &&
-    thirdPersonInput.includes("event.deltaMode"),
-  "Third-person input must clear transient state, restore canvas state, and normalize browser wheel units.",
+    thirdPersonInput.includes("event.deltaMode") &&
+    /private clearTransientInput\(\): void \{[\s\S]*?this\.resetRequested = false;[\s\S]*?this\.zoomDelta = 0;[\s\S]*?\}/.test(
+      thirdPersonInput,
+    ),
+  "Third-person input must clear queued state, restore canvas state, and normalize browser wheel units.",
 );
 assert(
   uiController.includes("removeEventListener") &&
