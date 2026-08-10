@@ -10,6 +10,10 @@ import { FlyWorldController } from "../controls/FlyWorldController";
 import { ThirdPersonController } from "../controls/ThirdPersonController";
 import type { WorldController } from "../controls/WorldController";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import {
+  resolvePixelRatio,
+  resolveViewportSize,
+} from "../runtime/ViewportSizing";
 import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
 import { StoneField } from "../world/stones/StoneField";
@@ -53,7 +57,7 @@ export class WorldApp {
   private readonly runtimeGuard: WorldRuntimeGuard;
   private readonly statusHud = new WorldStatusHud(document.querySelector<HTMLElement>("#world-stats"));
   private readonly drawingBufferSize = new THREE.Vector2();
-  private readonly pixelRatio: number;
+  private pixelRatio = 1;
   private readonly flyMode: boolean;
   private frameHandle = 0;
   private watchdogHandle = 0;
@@ -80,7 +84,7 @@ export class WorldApp {
   ) {
     this.camera = new THREE.PerspectiveCamera(
       profile.cameraFov,
-      window.innerWidth / window.innerHeight,
+      resolveViewportSize().aspect,
       0.1,
       5000,
     );
@@ -96,7 +100,6 @@ export class WorldApp {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.pixelRatio = Math.min(window.devicePixelRatio, profile.maxPixelRatio);
     this.applyRendererSize();
 
     this.field = new TerrainField(config);
@@ -433,8 +436,10 @@ export class WorldApp {
   }
 
   private applyRendererSize(): void {
+    const viewport = resolveViewportSize();
+    this.pixelRatio = resolvePixelRatio(this.profile.maxPixelRatio);
     this.renderer.setPixelRatio(this.pixelRatio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(viewport.width, viewport.height);
   }
 
   private applyGrassViewportScale(): void {
@@ -527,7 +532,7 @@ export class WorldApp {
     if (this.disposed) {
       return;
     }
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.aspect = resolveViewportSize().aspect;
     this.camera.updateProjectionMatrix();
     this.applyRendererSize();
     this.applyGrassViewportScale();
