@@ -92,12 +92,21 @@ assert(
     character.includes("this.capeMotion.reset()"),
   "Character animation must feed clamped frame time and reset cape state.",
 );
+assert(
+  character.includes("reset(pose: SnowflowCharacterPose)") &&
+    character.includes('this.state = "idle"') &&
+    character.includes("this.animationTime = 0") &&
+    character.includes("this.landingStrength = 0") &&
+    character.includes("this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true)") &&
+    character.includes("this.reset(pose)"),
+  "Character reset must clear persistent motion state and immediately apply the spawn slope instead of preserving takeoff, landing, or old terrain tilt.",
+);
 
 verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSideBend);
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Spring recovery, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Spring recovery, character reset, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
 );
 
 function verifyBounds(
