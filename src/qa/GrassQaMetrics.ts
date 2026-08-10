@@ -1,30 +1,58 @@
 import type * as THREE from "three";
 import type { GrassFrameStats, GrassRendererStats } from "./GrassQaTypes";
 
+const MILLISECONDS_PER_SECOND = 1_000;
+
 export class GrassQaMetrics {
   sampleFrames(durationSeconds: number, collect: boolean): Promise<number[]> {
     return new Promise((resolve) => {
-      const durationMs = durationSeconds * 1_000;
+      const durationMs =
+        Math.max(0, Number.isFinite(durationSeconds) ? durationSeconds : 0) *
+        MILLISECONDS_PER_SECOND;
       const samples: number[] = [];
-      let startTime = 0;
-      let previousTime = 0;
+      let elapsedMs = 0;
+      let previousTime: number | undefined;
 
+      const handleVisibilityChange = (): void => {
+        if (document.hidden) {
+          previousTime = undefined;
+        }
+      };
+      const finish = (): void => {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        resolve(samples);
+      };
       const step = (time: number): void => {
-        if (startTime === 0) {
-          startTime = time;
+        if (document.hidden) {
+          previousTime = undefined;
+          requestAnimationFrame(step);
+          return;
+        }
+        if (previousTime === undefined) {
           previousTime = time;
-        } else if (collect) {
-          samples.push(time - previousTime);
-          previousTime = time;
+          if (durationMs === 0) {
+            finish();
+            return;
+          }
+          requestAnimationFrame(step);
+          return;
         }
 
-        if (time - startTime >= durationMs) {
-          resolve(samples);
+        const frameDuration = Math.max(0, time - previousTime);
+        previousTime = time;
+        elapsedMs += frameDuration;
+        if (collect) {
+          samples.push(frameDuration);
+        }
+
+        if (elapsedMs >= durationMs) {
+          finish();
           return;
         }
         requestAnimationFrame(step);
       };
 
+      document.addEventListener("visibilitychange", handleVisibilityChange);
       requestAnimationFrame(step);
     });
   }
