@@ -45,8 +45,10 @@ export class FlatConfigValueReader {
     if (!Number.isFinite(value)) {
       throw new Error(`${this.configName} config value ${key} must be a number.`);
     }
-    if (rule.integer && !Number.isInteger(value)) {
-      throw new Error(`${this.configName} config value ${key} must be an integer.`);
+    if (rule.integer && !Number.isSafeInteger(value)) {
+      throw new Error(
+        `${this.configName} config value ${key} must be a safe integer.`,
+      );
     }
     if (
       rule.exclusiveMinimum !== undefined &&
@@ -72,7 +74,7 @@ export class FlatConfigValueReader {
   powerOfTwo(key: string): number {
     const value = this.number(key, POSITIVE_INTEGER_RULE);
     const nearestPower = 2 ** Math.round(Math.log2(value));
-    if (!Number.isSafeInteger(value) || nearestPower !== value) {
+    if (nearestPower !== value) {
       throw new Error(`${this.configName} config value ${key} must be a power of two.`);
     }
     return value;
