@@ -127,6 +127,18 @@ try {
       /desktopShadowMapSize must be a power of two/,
       "Power-of-two validation must not be bypassed by 32-bit integer truncation.",
     );
+    await expectReject(
+      () =>
+        load(
+          runtimeLoader,
+          runtimeSource.replace(
+            "desktopShadowMapSize: 1024",
+            "desktopShadowMapSize: 4503599627370495",
+          ),
+        ),
+      /desktopShadowMapSize must be a power of two/,
+      "Power-of-two validation must reject large integers whose logarithm rounds to an integer.",
+    );
 
     console.log("[config] World, grass, and runtime configuration contracts verified.");
   } finally {
