@@ -18,6 +18,11 @@ export const POSITIVE_INTEGER_RULE: Readonly<ConfigNumberRule> = Object.freeze({
 });
 export const NON_NEGATIVE_INTEGER_RULE: Readonly<ConfigNumberRule> =
   Object.freeze({ minimum: 0, integer: true });
+export const UINT32_INTEGER_RULE: Readonly<ConfigNumberRule> = Object.freeze({
+  minimum: 0,
+  maximum: 0xffff_ffff,
+  integer: true,
+});
 
 export class FlatConfigValueReader {
   constructor(
