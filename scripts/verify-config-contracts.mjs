@@ -115,6 +115,26 @@ try {
     await expectReject(
       () =>
         load(
+          grassLoader,
+          grassSource.replace("instanceCount: 1400", "instanceCount: 100001"),
+        ),
+      /instanceCount must not exceed 100000/,
+      "Standalone grass allocation must reject pathological instance counts.",
+    );
+    await expectReject(
+      () =>
+        load(
+          grassLoader,
+          grassSource
+            .replace("instanceCount: 1400", "instanceCount: 100000")
+            .replace("bladesPerClump: 12", "bladesPerClump: 20"),
+        ),
+      /Configured near-grass workload must not exceed 5000000/,
+      "Standalone grass allocation must cap the combined instance/topology workload.",
+    );
+    await expectReject(
+      () =>
+        load(
           runtimeLoader,
           runtimeSource.replace(
             "desktopShadowMapSize: 1024",
