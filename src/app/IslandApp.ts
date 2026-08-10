@@ -4,9 +4,14 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { GrassSystem } from "../grass/GrassSystem";
 import { frameCameraToBounds } from "../runtime/CameraFraming";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import {
+  resolvePixelRatio,
+  resolveViewportSize,
+} from "../runtime/ViewportSizing";
+import { APP_VERSION } from "../version";
 
-const ISLAND_MODEL_PATH = "./island.glb";
-const DECORATIVE_TEXT_MODEL_PATH = "./fluffy_grass_text.glb";
+const ISLAND_MODEL_PATH = revisionedAssetPath("./island.glb");
+const DECORATIVE_TEXT_MODEL_PATH = revisionedAssetPath("./fluffy_grass_text.glb");
 const MODEL_SCALE = 3;
 
 export class IslandApp {
@@ -33,7 +38,7 @@ export class IslandApp {
   ) {
     this.camera = new THREE.PerspectiveCamera(
       profile.cameraFov,
-      window.innerWidth / window.innerHeight,
+      resolveViewportSize().aspect,
       0.1,
       1000,
     );
@@ -45,10 +50,7 @@ export class IslandApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, profile.maxPixelRatio),
-    );
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.applyViewportSize();
 
     this.scene.background = new THREE.Color("#eeeeee");
     this.scene.fog = new THREE.FogExp2("#eeeeee", 0.02);
@@ -234,14 +236,23 @@ export class IslandApp {
     await controller.run();
   }
 
-  private readonly handleResize = (): void => {
-    if (this.disposed) {
-      return;
-    }
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+  private applyViewportSize(): void {
+    const viewport = resolveViewportSize();
+    this.camera.aspect = viewport.aspect;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(resolvePixelRatio(this.profile.maxPixelRatio));
+    this.renderer.setSize(viewport.width, viewport.height);
+  }
+
+  private readonly handleResize = (): void => {
+    if (!this.disposed) {
+      this.applyViewportSize();
+    }
   };
+}
+
+function revisionedAssetPath(path: string): string {
+  return `${path}?v=${encodeURIComponent(APP_VERSION)}`;
 }
 
 function collectMaterials(
