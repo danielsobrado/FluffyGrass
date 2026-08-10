@@ -136,8 +136,6 @@ export class ThirdPersonInput {
       document.exitPointerLock();
     }
     this.clearTransientInput();
-    this.resetRequested = false;
-    this.zoomDelta = 0;
     this.mobileControls?.remove();
     this.mobileControls = undefined;
     this.canvas.style.touchAction = this.previousTouchAction;
@@ -310,6 +308,8 @@ export class ThirdPersonInput {
     this.mobileSprint = false;
     this.mobileJumpHeld = false;
     this.jumpRequested = false;
+    this.resetRequested = false;
+    this.zoomDelta = 0;
     this.lookDelta.set(0, 0);
     this.keys.clear();
     this.lastInputType = "idle";
