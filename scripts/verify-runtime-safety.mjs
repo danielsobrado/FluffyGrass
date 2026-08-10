@@ -131,8 +131,9 @@ assert(
 assert(
   flyController.includes("Number.isFinite(deltaSeconds)") &&
     flyController.includes("private disposed = false") &&
-    flyController.includes("this.canvas.style.touchAction = this.previousTouchAction"),
-  "Flight input must reject invalid frame deltas and restore canvas state on disposal.",
+    flyController.includes("this.canvas.style.touchAction = this.previousTouchAction") &&
+    flyController.includes('event.code === "KeyF" && !event.repeat'),
+  "Flight input must reject invalid frame deltas, restore canvas state, and ignore repeated reset keys.",
 );
 assert(
   thirdPersonInput.includes("private disposed = false") &&
@@ -140,10 +141,11 @@ assert(
     thirdPersonInput.includes("this.canvas.style.touchAction = this.previousTouchAction") &&
     thirdPersonInput.includes("normalizeWheelDeltaPixels(event)") &&
     thirdPersonInput.includes("event.deltaMode") &&
+    thirdPersonInput.includes('event.code === "KeyF" && !event.repeat') &&
     /private clearTransientInput\(\): void \{[\s\S]*?this\.resetRequested = false;[\s\S]*?this\.zoomDelta = 0;[\s\S]*?\}/.test(
       thirdPersonInput,
     ),
-  "Third-person input must clear queued state, restore canvas state, and normalize browser wheel units.",
+  "Third-person input must clear queued state, restore canvas state, normalize wheel units, and ignore repeated reset keys.",
 );
 assert(
   uiController.includes("removeEventListener") &&
