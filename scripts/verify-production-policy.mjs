@@ -32,6 +32,11 @@ function findWorkflowFiles(directory) {
   return files;
 }
 
+function releaseLine(version) {
+  const match = String(version).match(/^(\d+)\.(\d+)\./);
+  return match ? `${match[1]}.${match[2]}` : undefined;
+}
+
 if (existsSync(WORKFLOW_DIRECTORY)) {
   const workflowFiles = findWorkflowFiles(WORKFLOW_DIRECTORY);
   if (workflowFiles.length > 0) {
@@ -74,6 +79,15 @@ if (
 ) {
   fail("Production tooling must not advertise the end-of-life Node 20 line.");
 }
+const threeVersion = packageMetadata.dependencies?.three;
+const threeTypesVersion = packageMetadata.devDependencies?.["@types/three"];
+if (
+  !threeVersion ||
+  !threeTypesVersion ||
+  releaseLine(threeVersion) !== releaseLine(threeTypesVersion)
+) {
+  fail("Three.js must declare @types/three from the same release line.");
+}
 const pinnedNodeMajor = readFileSync(NODE_VERSION_FILE, "utf8").trim();
 if (pinnedNodeMajor !== "24") {
   fail("Local production tooling must pin the current Node 24 LTS line in .nvmrc.");
@@ -83,4 +97,4 @@ if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
   fail("npm must enforce package.json engine constraints during install.");
 }
 
-console.log("[production-policy] Deployment, cache, and runtime policies verified.");
+console.log("[production-policy] Deployment, cache, dependency, and runtime policies verified.");
