@@ -328,7 +328,7 @@ export class ThirdPersonInput {
     this.keys.add(event.code);
     this.lastInputType = event.code === "Space" ? "jump" : "keyboard";
     this.inputEventCount += 1;
-    if (event.code === "KeyF") {
+    if (event.code === "KeyF" && !event.repeat) {
       this.resetRequested = true;
     }
   };
