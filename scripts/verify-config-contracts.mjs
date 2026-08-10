@@ -122,6 +122,17 @@ try {
           worldLoader,
           worldSource.replace("terrainRadiusDesktop: 6", "terrainRadiusDesktop: 17"),
         ),
+      /terrainRadiusDesktop must be at most 16/,
+      "Terrain streaming radius must stay inside the reviewed chunk budget.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource
+            .replace("worldSize: 2048", "worldSize: 1024")
+            .replace("terrainRadiusDesktop: 6", "terrainRadiusDesktop: 9"),
+        ),
       /terrainRadiusDesktop must not exceed half of the world chunk count/,
       "Terrain streaming radius must not iterate beyond the finite world grid.",
     );
@@ -138,9 +149,27 @@ try {
       () =>
         load(
           worldLoader,
+          worldSource.replace("grassPatchSize: 4", "grassPatchSize: 1"),
+        ),
+      /must not contain more than 32 grass patches per axis/,
+      "World grass patches must cap per-chunk grid cardinality.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("grassNearTileSize: 8", "grassNearTileSize: 1"),
+        ),
+      /must not contain more than 32 near-grass tiles per axis/,
+      "Near-grass streaming must cap per-chunk tile cardinality.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
           worldSource.replace("spawnSearchStep: 24", "spawnSearchStep: 1"),
         ),
-      /spawnSearchRadius must not exceed 256 spawnSearchStep intervals/,
+      /spawnSearchRadius must not exceed 64 spawnSearchStep intervals/,
       "Spawn discovery must cap synchronous search granularity.",
     );
     await expectReject(
