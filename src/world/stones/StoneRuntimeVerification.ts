@@ -43,6 +43,18 @@ function edgeKey(
     : `${secondKey}|${firstKey}`;
 }
 
+function stoneIdentity(instance: StoneInstance): string {
+  return [
+    instance.x.toPrecision(17),
+    instance.z.toPrecision(17),
+    instance.height.toPrecision(17),
+    instance.rotationY.toPrecision(17),
+    instance.scale.toPrecision(17),
+    instance.archetype,
+    instance.variantIndex,
+  ].join("|");
+}
+
 function verifyClosedMesh(mesh: StoneMeshData, label: string): void {
   const edgeCounts = new Map<string, number>();
   for (let index = 0; index < mesh.indices.length; index += 3) {
@@ -142,7 +154,7 @@ function verifyDisplacedStoneCollection(
   chunkSize: number,
 ): number {
   const runtime = stones as unknown as StoneFieldVerificationAccess;
-  const destinationChunks = new Map<string, StoneInstance[]>();
+  const destinationChunks = new Map<string, Set<string>>();
   let displaced = 0;
 
   for (
@@ -185,9 +197,9 @@ function verifyDisplacedStoneCollection(
         const chunkX = Math.floor(instance.x / chunkSize);
         const chunkZ = Math.floor(instance.z / chunkSize);
         const key = `${chunkX}:${chunkZ}`;
-        const list = destinationChunks.get(key) ?? [];
-        list.push(instance);
-        destinationChunks.set(key, list);
+        const identities = destinationChunks.get(key) ?? new Set<string>();
+        identities.add(stoneIdentity(instance));
+        destinationChunks.set(key, identities);
       }
     }
   }
@@ -195,10 +207,11 @@ function verifyDisplacedStoneCollection(
   for (const [key, expected] of destinationChunks) {
     const [chunkX, chunkZ] = key.split(":").map(Number);
     const collected = stones.collectChunkInstances(chunkX, chunkZ, true, []);
-    for (const instance of expected) {
+    const collectedIdentities = new Set(collected.map(stoneIdentity));
+    for (const identity of expected) {
       assert(
-        collected.includes(instance),
-        `Displaced stone at ${instance.x.toFixed(2)}:${instance.z.toFixed(2)} was not collected by destination chunk ${key}.`,
+        collectedIdentities.has(identity),
+        `A displaced stone was not collected by destination chunk ${key}.`,
       );
     }
   }
