@@ -214,7 +214,12 @@ export class OctahedralImpostorBaker {
     source: THREE.Object3D,
   ): SavedObjectState[] {
     const states: SavedObjectState[] = [];
+    const saved = new Set<THREE.Object3D>();
     const saveAndMove = (object: THREE.Object3D): void => {
+      if (saved.has(object)) {
+        return;
+      }
+      saved.add(object);
       states.push({
         object,
         layerMask: object.layers.mask,
