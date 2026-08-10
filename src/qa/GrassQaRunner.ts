@@ -59,8 +59,8 @@ export class GrassQaRunner {
         captures.push({
           name: pose.name,
           camera: {
-            position: [pose.position.x, pose.position.y, pose.position.z],
-            target: [pose.target.x, pose.target.y, pose.target.z],
+            position: [camera.position.x, camera.position.y, camera.position.z],
+            target: [controls.target.x, controls.target.y, controls.target.z],
           },
           frameStats: this.metrics.summarizeFrames(frameDurations),
           renderer: this.metrics.readRendererStats(this.dependencies.renderer),
