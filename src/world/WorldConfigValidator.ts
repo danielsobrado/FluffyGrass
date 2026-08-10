@@ -1,6 +1,8 @@
 import type { WorldConfig } from "./WorldConfig";
 
-const MAX_SPAWN_SEARCH_STEPS_PER_RADIUS = 256;
+const MAX_GRASS_PATCHES_PER_CHUNK_AXIS = 32;
+const MAX_NEAR_GRASS_TILES_PER_CHUNK_AXIS = 32;
+const MAX_SPAWN_SEARCH_STEPS_PER_RADIUS = 64;
 
 export function validateWorldConfig(config: WorldConfig): void {
   const worldChunks = config.worldSize / config.chunkSize;
@@ -20,8 +22,19 @@ export function validateWorldConfig(config: WorldConfig): void {
   if (!Number.isInteger(patchesPerChunk)) {
     throw new Error("chunkSize must be divisible by grassPatchSize.");
   }
-  if (!Number.isInteger(config.chunkSize / config.grassNearTileSize)) {
+  if (patchesPerChunk > MAX_GRASS_PATCHES_PER_CHUNK_AXIS) {
+    throw new Error(
+      `A chunk must not contain more than ${MAX_GRASS_PATCHES_PER_CHUNK_AXIS} grass patches per axis.`,
+    );
+  }
+  const nearTilesPerChunk = config.chunkSize / config.grassNearTileSize;
+  if (!Number.isInteger(nearTilesPerChunk)) {
     throw new Error("chunkSize must be divisible by grassNearTileSize.");
+  }
+  if (nearTilesPerChunk > MAX_NEAR_GRASS_TILES_PER_CHUNK_AXIS) {
+    throw new Error(
+      `A chunk must not contain more than ${MAX_NEAR_GRASS_TILES_PER_CHUNK_AXIS} near-grass tiles per axis.`,
+    );
   }
   if (config.grassClumpRadiusScaleMin > config.grassClumpRadiusScaleMax) {
     throw new Error("grassClumpRadiusScale range is reversed.");
