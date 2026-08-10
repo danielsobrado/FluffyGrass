@@ -34,10 +34,15 @@ export class GrassQaRunner {
     const previousTarget = controls.target.clone();
     const previousEnabled = controls.enabled;
     const previousAutoRotate = controls.autoRotate;
+    const previousEnableDamping = controls.enableDamping;
     const captures: GrassQaCapture[] = [];
 
     controls.enabled = false;
     controls.autoRotate = false;
+    controls.enableDamping = false;
+    // Flush any input inertia while the original view is still active. With
+    // damping disabled, OrbitControls consumes and clears its pending deltas.
+    controls.update();
 
     try {
       for (const pose of this.createPoses()) {
@@ -72,9 +77,12 @@ export class GrassQaRunner {
     } finally {
       camera.position.copy(previousPosition);
       controls.target.copy(previousTarget);
-      controls.enabled = previousEnabled;
-      controls.autoRotate = previousAutoRotate;
+      controls.autoRotate = false;
+      controls.enableDamping = false;
       controls.update();
+      controls.enableDamping = previousEnableDamping;
+      controls.autoRotate = previousAutoRotate;
+      controls.enabled = previousEnabled;
     }
 
     const report: GrassQaReport = {
