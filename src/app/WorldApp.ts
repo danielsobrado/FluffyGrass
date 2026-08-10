@@ -51,9 +51,7 @@ export class WorldApp {
   private readonly environment: WorldEnvironmentController;
   private readonly frameMetrics = new WorldFrameMetrics();
   private readonly runtimeGuard: WorldRuntimeGuard;
-  private readonly statusHud = new WorldStatusHud(
-    document.querySelector<HTMLElement>("#world-stats"),
-  );
+  private readonly statusHud = new WorldStatusHud(document.querySelector<HTMLElement>("#world-stats"));
   private readonly drawingBufferSize = new THREE.Vector2();
   private readonly pixelRatio: number;
   private readonly flyMode: boolean;
@@ -345,12 +343,8 @@ export class WorldApp {
   };
 
   private readonly updateTerrain = (): void => {
-    const grassBuildReserveMs = this.profile.compact
-      ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS
-      : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
-    const stoneBuildReserveMs = this.profile.compact
-      ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS
-      : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
+    const grassBuildReserveMs = this.profile.compact ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
+    const stoneBuildReserveMs = this.profile.compact ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
     const terrainBuildDeadline = Math.max(
       performance.now(),
       this.streamingBuildDeadline - grassBuildReserveMs - stoneBuildReserveMs,
@@ -362,12 +356,8 @@ export class WorldApp {
   };
 
   private readonly updateStones = (): void => {
-    const grassBuildReserveMs = this.profile.compact
-      ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS
-      : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
-    const stoneBuildReserveMs = this.profile.compact
-      ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS
-      : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
+    const grassBuildReserveMs = this.profile.compact ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
+    const stoneBuildReserveMs = this.profile.compact ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
     const stoneBuildDeadline = Math.max(
       performance.now() + stoneBuildReserveMs,
       this.streamingBuildDeadline - grassBuildReserveMs,
@@ -377,16 +367,9 @@ export class WorldApp {
 
   private readonly updateGrass = (deltaSeconds: number): void => {
     grassTrailField.render(deltaSeconds);
-    const cameraGroundHeight = this.flyMode
-      ? this.sampleGroundHeight(this.camera.position)
-      : undefined;
-    const grassBuildReserveMs = this.profile.compact
-      ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS
-      : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
-    const grassBuildDeadline = Math.max(
-      performance.now() + grassBuildReserveMs,
-      this.streamingBuildDeadline,
-    );
+    const cameraGroundHeight = this.flyMode ? this.sampleGroundHeight(this.camera.position) : undefined;
+    const grassBuildReserveMs = this.profile.compact ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
+    const grassBuildDeadline = Math.max(performance.now() + grassBuildReserveMs, this.streamingBuildDeadline);
     this.grass.update(
       deltaSeconds,
       this.camera,
