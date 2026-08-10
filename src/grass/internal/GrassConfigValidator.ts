@@ -5,10 +5,29 @@ import {
 } from "../GrassImpostorLimits";
 
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+const MAX_INSTANCE_COUNT = 100_000;
+const MAX_VARIANT_COUNT = 64;
+const MAX_NEAR_TOPOLOGY_WORK = 5_000_000;
 
 export function validateGrassConfig(config: GrassConfig): void {
+  if (config.instanceCount > MAX_INSTANCE_COUNT) {
+    throw new Error(`instanceCount must not exceed ${MAX_INSTANCE_COUNT}.`);
+  }
+  if (config.geometry.variantCount > MAX_VARIANT_COUNT) {
+    throw new Error(`variantCount must not exceed ${MAX_VARIANT_COUNT}.`);
+  }
   if (config.geometry.variantCount > config.instanceCount) {
     throw new Error("variantCount must not exceed instanceCount.");
+  }
+  if (
+    config.instanceCount *
+      config.geometry.bladesPerClump *
+      config.geometry.bladeSegments >
+    MAX_NEAR_TOPOLOGY_WORK
+  ) {
+    throw new Error(
+      `Configured near-grass workload must not exceed ${MAX_NEAR_TOPOLOGY_WORK}.`,
+    );
   }
   if (config.geometry.bladesPerClump < 3) {
     throw new Error("bladesPerClump must be at least 3.");
