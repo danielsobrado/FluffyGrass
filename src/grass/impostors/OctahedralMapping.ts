@@ -10,6 +10,9 @@ export interface OctahedralView {
 
 export class OctahedralMapping {
   static decodeHemisphere(u: number, v: number): THREE.Vector3 {
+    if (!Number.isFinite(u) || !Number.isFinite(v)) {
+      throw new Error("Hemi-octahedral decoding requires finite coordinates.");
+    }
     const x = (u + v) * 0.5;
     const z = (u - v) * 0.5;
     const y = Math.max(0, 1 - Math.abs(x) - Math.abs(z));
@@ -17,6 +20,17 @@ export class OctahedralMapping {
   }
 
   static encodeHemisphere(direction: THREE.Vector3): THREE.Vector2 {
+    if (
+      !Number.isFinite(direction.x) ||
+      !Number.isFinite(direction.y) ||
+      !Number.isFinite(direction.z) ||
+      direction.lengthSq() <= Number.EPSILON
+    ) {
+      throw new Error(
+        "Hemi-octahedral encoding requires a finite non-zero direction.",
+      );
+    }
+
     const normalized = direction.clone().normalize();
     if (normalized.y < 0) {
       throw new Error("Hemi-octahedral encoding requires an upper-hemisphere direction.");
