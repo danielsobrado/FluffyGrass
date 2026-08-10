@@ -84,11 +84,14 @@ export class SnowflowCharacter {
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
-    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
-      this.reset(pose);
-      return;
+    const delta = THREE.MathUtils.clamp(
+      Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
+      0,
+      0.1,
+    );
+    if (delta <= 0) {
+      this.resetSecondaryMotion();
     }
-    const delta = THREE.MathUtils.clamp(deltaSeconds, 0, 0.1);
     this.animationTime += delta;
     this.rig.root.position.copy(pose.position);
     this.rig.heading.rotation.y = pose.facing;
