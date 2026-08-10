@@ -51,7 +51,7 @@ const DEFAULT_CONFIG: GrassTrailConfig = {
  * of the exponential decay. See the decay comment in the update shader.
  *
  * On a half-float target this only needs to be large enough to retire crush
- * that has already faded past visibility. On the 8-bit fallback it has to clear
+ * that has already faded past visibility. On the 8-bit fallback target it has to clear
  * a whole quantisation step often enough that the texel keeps moving, which is
  * far more aggressive and visibly shortens how long a trail lasts — the reason
  * half float is the preferred path rather than a nicety.
@@ -226,6 +226,7 @@ class GrassTrailField {
       this.releaseTargets();
     }
     this.renderer = renderer;
+    const pendingTargets: THREE.WebGLRenderTarget[] = [];
     try {
       const size = this.targetSize();
       const type = resolveTargetType(renderer);
@@ -233,7 +234,12 @@ class GrassTrailField {
         type === THREE.HalfFloatType
           ? PRECISE_RECOVERY_FLOOR_RATIO
           : QUANTIZED_RECOVERY_FLOOR_RATIO;
-      this.targets = [createTarget(size, type), createTarget(size, type)];
+      const firstTarget = createTarget(size, type);
+      pendingTargets.push(firstTarget);
+      const secondTarget = createTarget(size, type);
+      pendingTargets.push(secondTarget);
+      this.targets = [firstTarget, secondTarget];
+      pendingTargets.length = 0;
 
       this.material = new THREE.ShaderMaterial({
         vertexShader: UPDATE_VERTEX_SHADER,
@@ -273,6 +279,9 @@ class GrassTrailField {
       this.enabled = true;
       this.primeTargets();
     } catch (error) {
+      for (const target of pendingTargets) {
+        target.dispose();
+      }
       this.releaseTargets();
       this.renderer = undefined;
       throw error;
