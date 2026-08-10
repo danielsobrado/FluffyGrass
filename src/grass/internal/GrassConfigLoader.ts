@@ -5,6 +5,7 @@ import {
   NON_NEGATIVE_NUMBER_RULE,
   POSITIVE_INTEGER_RULE,
   POSITIVE_NUMBER_RULE,
+  UINT32_INTEGER_RULE,
 } from "../../config/FlatConfigValueReader";
 import type { GrassConfig } from "../GrassConfig";
 import { validateGrassConfig } from "./GrassConfigValidator";
@@ -61,7 +62,7 @@ export class GrassConfigLoader {
         midLeanScale: reader.number("midLeanScale", NON_NEGATIVE_NUMBER_RULE),
       },
       distribution: {
-        seed: reader.number("seed", { integer: true }),
+        seed: reader.number("seed", UINT32_INTEGER_RULE),
         rootSink: reader.number("rootSink", NON_NEGATIVE_NUMBER_RULE),
         maxSlopeDegrees: reader.number("maxSlopeDegrees", {
           minimum: 0,
