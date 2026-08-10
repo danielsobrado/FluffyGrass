@@ -15,6 +15,9 @@ interface PointerState {
 }
 
 const MAX_TOUCH_DISTANCE = 70;
+const WHEEL_DELTA_LINE = 1;
+const WHEEL_DELTA_PAGE = 2;
+const WHEEL_LINE_PIXELS = 16;
 
 export class ThirdPersonInput {
   private readonly keys = new Set<string>();
@@ -362,7 +365,8 @@ export class ThirdPersonInput {
 
   private readonly handleWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    this.zoomDelta += event.deltaY * this.config.characterZoomSensitivity;
+    this.zoomDelta +=
+      normalizeWheelDeltaPixels(event) * this.config.characterZoomSensitivity;
     this.inputEventCount += 1;
     this.lastInputType = "wheel";
   };
@@ -390,4 +394,14 @@ export class ThirdPersonInput {
       event.preventDefault();
     }
   };
+}
+
+function normalizeWheelDeltaPixels(event: WheelEvent): number {
+  if (event.deltaMode === WHEEL_DELTA_LINE) {
+    return event.deltaY * WHEEL_LINE_PIXELS;
+  }
+  if (event.deltaMode === WHEEL_DELTA_PAGE) {
+    return event.deltaY * Math.max(1, window.innerHeight);
+  }
+  return event.deltaY;
 }
