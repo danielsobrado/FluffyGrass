@@ -130,6 +130,18 @@ try {
           runtimeLoader,
           runtimeSource.replace(
             "desktopShadowMapSize: 1024",
+            "desktopShadowMapSize: 32768",
+          ),
+        ),
+      /desktopShadowMapSize must be at most 16384/,
+      "Runtime shadow maps must stay within the product allocation ceiling.",
+    );
+    await expectReject(
+      () =>
+        load(
+          runtimeLoader,
+          runtimeSource.replace(
+            "desktopShadowMapSize: 1024",
             "desktopShadowMapSize: 4294967297",
           ),
         ),
