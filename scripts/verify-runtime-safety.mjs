@@ -60,12 +60,21 @@ assert(
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
 );
 assert(
+  /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.grass\.dispose\(\);[\s\S]*?grassTrailField\.dispose\(\);[\s\S]*?\}/.test(
+    world,
+  ),
+  "A failed grass frame must disable and release both grass rendering and trail resources.",
+);
+assert(
   /await import\(\s*"\.\.\/dev\/GrassDevelopmentController"\s*\)/.test(island) &&
     !island.includes('import { GrassDevelopmentController }') &&
     island.includes("private disposed = false") &&
     island.includes("disposeObjectGeometry") &&
-    island.includes("disposeObjectMaterials"),
-  "Island QA code must stay lazy and loaded assets must have an explicit disposal path.",
+    island.includes("disposeObjectMaterials") &&
+    island.includes("disposeMaterialResources") &&
+    island.includes("value instanceof THREE.Texture") &&
+    island.includes("texture.dispose()"),
+  "Island QA code must stay lazy and loaded assets must release geometry, materials, and textures.",
 );
 assert(
   islandGrass.includes("private disposed = false") &&
