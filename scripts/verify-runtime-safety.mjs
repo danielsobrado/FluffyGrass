@@ -19,6 +19,7 @@ const main = read("src/main.ts");
 const world = read("src/app/WorldApp.ts");
 const island = read("src/app/IslandApp.ts");
 const islandGrass = read("src/grass/GrassSystem.ts");
+const seededRandom = read("src/grass/internal/SeededRandom.ts");
 const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
@@ -82,6 +83,12 @@ assert(
     islandGrass.includes("if (this.disposed)") &&
     islandGrass.includes('throw new Error("GrassSystem has been disposed.")'),
   "Island grass initialization must not resurrect resources after disposal.",
+);
+assert(
+  seededRandom.includes(
+    "this.state = (this.state + 0x6d2b79f5) >>> 0;",
+  ),
+  "Seeded procedural random state must wrap to uint32 every step instead of growing past JavaScript's exact integer range.",
 );
 assert(
   interactionField.includes("validateConfig(config)") &&
