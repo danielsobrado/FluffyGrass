@@ -16,7 +16,7 @@ import { SeededRandom } from "../../grass/internal/SeededRandom";
  * | --- | --- |
  * | R | root-to-tip progress, fed to `grassResolvePalette` |
  * | G | per-shape shade, fed to the same palette |
- * | B | accent-tint mask: 1 on petals and seed clusters, 0 on stems and leaves |
+ * | B | accent-tint strength on petals and seed clusters |
  * | A | coverage; premultiplied, mipped, and cut with a distance-compensated test |
  *
  * Nothing here is derived from reference imagery: every cell is drawn from a
@@ -33,9 +33,10 @@ export const DETAIL_FOLIAGE_CELL_RESOLUTION = 112;
  */
 export const DETAIL_FOLIAGE_CELL_PADDING = 8;
 /**
- * Two rows of the same eight species, drawn from different seeds. The variant
- * is a per-instance row like the biome and the tint, so a second silhouette per
- * species costs one atlas row and no draw, program, or attribute.
+ * Two phenotype rows per species. Flower rows deliberately differ in petal
+ * count, stem proportion, bloom scale, and asymmetry rather than merely changing
+ * their random seed. That gives each species a recognizable family without
+ * cloning one silhouette across the field.
  */
 export const DETAIL_FOLIAGE_VARIANT_ROWS = 2;
 
@@ -165,10 +166,10 @@ export class WorldDetailFoliageAtlasFactory {
         this.drawFrond(context, random, 0.66, 0.44, 0.7);
         break;
       case "daisy":
-        this.drawDaisy(context, random);
+        this.drawDaisy(context, random, row);
         break;
       case "round-bloom":
-        this.drawRoundBloom(context, random);
+        this.drawRoundBloom(context, random, row);
         break;
       case "seed-head":
         this.drawSeedHead(context, random);
@@ -182,13 +183,12 @@ export class WorldDetailFoliageAtlasFactory {
         );
     }
 
-    // `restore` returns both the clip region and the card-space transform.
     context.restore();
   }
 
   /**
-   * A fan of tapered blades sharing a root. `spread` is the half-angle in
-   * radians and `width` the horizontal reach as a fraction of the card.
+   * A fan of tapered blades sharing a root. `width` is the horizontal reach as
+   * a fraction of the card.
    */
   private drawTuft(
     context: CanvasRenderingContext2D,
@@ -200,7 +200,8 @@ export class WorldDetailFoliageAtlasFactory {
     for (let index = 0; index < blades; index += 1) {
       const side = (index / Math.max(1, blades - 1)) * 2 - 1;
       const lean = side * width * 0.5 * random.range(0.6, 1.15);
-      const bladeHeight = height * random.range(0.6, 1) * (1 - Math.abs(side) * 0.22);
+      const bladeHeight =
+        height * random.range(0.6, 1) * (1 - Math.abs(side) * 0.22);
       const halfWidth = width * random.range(0.03, 0.05);
       const rootX = side * width * 0.06;
       const shade = random.range(0.4, 0.75);
@@ -232,8 +233,7 @@ export class WorldDetailFoliageAtlasFactory {
 
   /**
    * A fern frond: a curved central stem with pinnae pairs that shrink toward
-   * the tip. Ferns carry no tint mask and sit a shade darker than the tufts,
-   * which is what separates them from grass at a glance.
+   * the tip. Ferns carry no tint mask and sit a shade darker than the tufts.
    */
   private drawFrond(
     context: CanvasRenderingContext2D,
@@ -270,11 +270,9 @@ export class WorldDetailFoliageAtlasFactory {
       const along = 0.12 + (index / pairs) * 0.84;
       const stemX = baseX + tipLean * along * along;
       const stemY = height * along;
-      const length = (1 - along * 0.8) * 0.4 * scale * random.range(0.85, 1.1);
+      const length =
+        (1 - along * 0.8) * 0.4 * scale * random.range(0.85, 1.1);
       const thickness = length * 0.42;
-      // Pinnae reach outwards from the stem, drooping further towards the tip.
-      // They are drawn along the local +x axis, so the left side is the same
-      // rotation mirrored through π rather than a negated angle.
       const droop = 0.18 + along * 0.35;
       const progress = 0.3 + along * 0.7;
       for (const direction of [-1, 1]) {
@@ -287,7 +285,15 @@ export class WorldDetailFoliageAtlasFactory {
           0,
         );
         context.beginPath();
-        context.ellipse(length * 0.5, 0, length * 0.5, thickness * 0.5, 0, 0, Math.PI * 2);
+        context.ellipse(
+          length * 0.5,
+          0,
+          length * 0.5,
+          thickness * 0.5,
+          0,
+          0,
+          Math.PI * 2,
+        );
         context.fill();
         context.restore();
       }
@@ -302,7 +308,7 @@ export class WorldDetailFoliageAtlasFactory {
     lean: number,
     shade: number,
   ): void {
-    const halfWidth = 0.016;
+    const halfWidth = random.range(0.011, 0.019);
     context.fillStyle = encode(0.25, shade, 0);
     context.beginPath();
     context.moveTo(-halfWidth, 0);
@@ -314,18 +320,121 @@ export class WorldDetailFoliageAtlasFactory {
       height,
     );
     context.lineTo(lean - halfWidth * 0.4, height);
-    context.quadraticCurveTo(lean * 0.35 - halfWidth * 0.5, height * 0.6, -halfWidth, 0);
+    context.quadraticCurveTo(
+      lean * 0.35 - halfWidth * 0.5,
+      height * 0.6,
+      -halfWidth,
+      0,
+    );
     context.closePath();
     context.fill();
 
-    for (const direction of [-1, 1]) {
-      const along = random.range(0.22, 0.46);
+    const leafCount = random.next() < 0.28 ? 1 : 2;
+    for (let leaf = 0; leaf < leafCount; leaf += 1) {
+      const direction = leaf % 2 === 0 ? -1 : 1;
+      const along = random.range(0.2, 0.52);
+      const leafLength = random.range(0.07, 0.11);
       context.save();
       context.translate(lean * along * along, height * along);
-      context.rotate(direction * random.range(0.6, 1.1));
-      context.fillStyle = encode(0.4, shade * random.range(0.95, 1.15), 0);
+      context.rotate(direction * random.range(0.55, 1.15));
+      context.fillStyle = encode(
+        0.35 + along * 0.2,
+        shade * random.range(0.9, 1.12),
+        0,
+      );
       context.beginPath();
-      context.ellipse(direction * 0.07, 0, 0.09, 0.028, 0, 0, Math.PI * 2);
+      context.ellipse(
+        direction * leafLength * 0.55,
+        0,
+        leafLength * 0.55,
+        leafLength * random.range(0.18, 0.3),
+        0,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+      context.restore();
+    }
+  }
+
+  /**
+   * A tapered petal with a semantic shade and tint-strength gradient. Keeping
+   * the tint mask below one near the flower centre lets the palette underneath
+   * provide natural depth instead of replacing every petal with one flat RGB.
+   */
+  private fillPetal(
+    context: CanvasRenderingContext2D,
+    length: number,
+    halfWidth: number,
+    baseShade: number,
+    tipShade: number,
+    baseTint: number,
+    tipTint: number,
+  ): void {
+    const gradient = context.createLinearGradient(0, 0, length, 0);
+    gradient.addColorStop(0, encode(0.72, baseShade, baseTint));
+    gradient.addColorStop(
+      0.55,
+      encode(0.9, (baseShade + tipShade) * 0.5, (baseTint + tipTint) * 0.5),
+    );
+    gradient.addColorStop(1, encode(1, tipShade, tipTint));
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.bezierCurveTo(
+      length * 0.16,
+      -halfWidth * 0.9,
+      length * 0.68,
+      -halfWidth * 1.08,
+      length,
+      0,
+    );
+    context.bezierCurveTo(
+      length * 0.7,
+      halfWidth,
+      length * 0.18,
+      halfWidth * 0.82,
+      0,
+      0,
+    );
+    context.closePath();
+    context.fill();
+
+    context.strokeStyle = encode(
+      0.84,
+      baseShade * 0.72,
+      Math.max(0.65, baseTint - 0.08),
+      0.42,
+    );
+    context.lineWidth = Math.max(0.0022, halfWidth * 0.11);
+    context.beginPath();
+    context.moveTo(length * 0.08, 0);
+    context.quadraticCurveTo(length * 0.5, halfWidth * 0.08, length * 0.86, 0);
+    context.stroke();
+  }
+
+  private drawCalyx(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    shade: number,
+  ): void {
+    context.fillStyle = encode(0.6, shade, 0);
+    for (const offset of [-0.5, 0, 0.5]) {
+      context.save();
+      context.translate(x, y - radius * 0.04);
+      context.rotate(-Math.PI * 0.5 + offset);
+      context.beginPath();
+      context.ellipse(
+        radius * 0.2,
+        0,
+        radius * 0.24,
+        radius * 0.07,
+        0,
+        0,
+        Math.PI * 2,
+      );
       context.fill();
       context.restore();
     }
@@ -334,71 +443,178 @@ export class WorldDetailFoliageAtlasFactory {
   private drawDaisy(
     context: CanvasRenderingContext2D,
     random: SeededRandom,
+    variant: number,
   ): void {
-    const height = random.range(0.7, 0.8);
-    const lean = random.range(-0.08, 0.08);
-    this.drawStem(context, random, height, lean, random.range(0.34, 0.48));
+    const narrow = variant % 2 === 1;
+    const height = narrow
+      ? random.range(0.78, 0.93)
+      : random.range(0.62, 0.78);
+    const lean = random.range(narrow ? -0.08 : -0.14, narrow ? 0.08 : 0.14);
+    const stemShade = random.range(0.32, 0.5);
+    this.drawStem(context, random, height, lean, stemShade);
+
     const centerX = lean;
     const centerY = height;
-    const petals = 9;
-    // Bloom size is a fraction of the *plant*, and the plant is now a canopy
-    // multiple, so this reads directly as a real-world size: a 1 m daisy with a
-    // 0.2 m bloom. It was 0.15-0.19 here, which put a 0.4 m flower head on the
-    // same stem — eight times life size, and on screen it read as a white splat
-    // rather than as the scattered specks the reference look is made of.
-    const petalLength = random.range(0.085, 0.105);
+    const petals = Math.round(
+      narrow ? random.range(10, 14) : random.range(7, 10),
+    );
+    const petalLength = narrow
+      ? random.range(0.07, 0.095)
+      : random.range(0.09, 0.12);
+    this.drawCalyx(
+      context,
+      centerX,
+      centerY,
+      petalLength,
+      stemShade * random.range(0.8, 1.05),
+    );
+
     for (let index = 0; index < petals; index += 1) {
-      const angle = (index / petals) * Math.PI * 2 + random.range(-0.08, 0.08);
+      // An occasional shorter or missing petal breaks the perfect gear shape.
+      if (index > 0 && random.next() < 0.055) {
+        continue;
+      }
+      const angle =
+        (index / petals) * Math.PI * 2 + random.range(-0.11, 0.11);
+      const length = petalLength * random.range(0.76, 1.18);
+      const halfWidth =
+        length *
+        (narrow ? random.range(0.12, 0.17) : random.range(0.2, 0.28));
       context.save();
       context.translate(centerX, centerY);
       context.rotate(angle);
-      // Petals are the accent: B = 1 hands them entirely to the per-instance
-      // tint, so one atlas cell is a white, pink, or lavender daisy.
-      context.fillStyle = encode(0.9, 0.9, 1);
+      this.fillPetal(
+        context,
+        length,
+        halfWidth,
+        random.range(0.55, 0.72),
+        random.range(0.86, 1),
+        random.range(0.78, 0.88),
+        random.range(0.94, 1),
+      );
+      context.restore();
+    }
+
+    const centerRadius = petalLength * (narrow ? 0.25 : 0.31);
+    context.fillStyle = encode(0.68, 0.42, 0.18);
+    context.beginPath();
+    context.arc(centerX, centerY, centerRadius, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = encode(0.84, 0.7, 0.34);
+    context.beginPath();
+    context.arc(centerX, centerY, centerRadius * 0.68, 0, Math.PI * 2);
+    context.fill();
+
+    const centerDots = narrow ? 7 : 5;
+    for (let index = 0; index < centerDots; index += 1) {
+      const angle = (index / centerDots) * Math.PI * 2 + random.range(-0.2, 0.2);
+      context.fillStyle = encode(0.95, random.range(0.72, 0.95), 0.42);
       context.beginPath();
-      context.ellipse(
-        petalLength * 0.55,
-        0,
-        petalLength * 0.55,
-        petalLength * 0.24,
-        0,
+      context.arc(
+        centerX + Math.cos(angle) * centerRadius * 0.46,
+        centerY + Math.sin(angle) * centerRadius * 0.46,
+        centerRadius * random.range(0.08, 0.13),
         0,
         Math.PI * 2,
       );
       context.fill();
-      context.restore();
     }
-    context.fillStyle = encode(0.75, 0.8, 0.6);
-    context.beginPath();
-    context.arc(centerX, centerY, petalLength * 0.34, 0, Math.PI * 2);
-    context.fill();
   }
 
   private drawRoundBloom(
     context: CanvasRenderingContext2D,
     random: SeededRandom,
+    variant: number,
   ): void {
-    const height = random.range(0.66, 0.76);
-    const lean = random.range(-0.1, 0.1);
-    this.drawStem(context, random, height, lean, random.range(0.32, 0.46));
-    // Matched to the daisy above: a poppy head roughly a fifth of a metre.
-    const radius = random.range(0.075, 0.095);
-    for (let index = 0; index < 5; index += 1) {
-      const angle = (index / 5) * Math.PI * 2 + random.range(-0.12, 0.12);
-      context.fillStyle = encode(0.85 + index * 0.02, 0.82, 1);
+    const branched = variant % 2 === 1;
+    const height = branched
+      ? random.range(0.76, 0.92)
+      : random.range(0.6, 0.8);
+    const lean = random.range(-0.16, 0.16);
+    const stemShade = random.range(0.3, 0.47);
+    this.drawStem(context, random, height, lean, stemShade);
+
+    if (branched) {
+      const side = random.next() < 0.5 ? -1 : 1;
+      const branchStart = 0.58;
+      const budX = lean * branchStart * branchStart + side * random.range(0.09, 0.14);
+      const budY = height * random.range(0.62, 0.73);
+      context.fillStyle = encode(0.38, stemShade * 0.92, 0);
       context.beginPath();
-      context.arc(
-        lean + Math.cos(angle) * radius * 0.5,
-        height + Math.sin(angle) * radius * 0.5,
-        radius * 0.62,
-        0,
-        Math.PI * 2,
+      context.moveTo(
+        lean * branchStart * branchStart - 0.008,
+        height * branchStart,
       );
+      context.quadraticCurveTo(
+        budX - side * 0.035,
+        budY - 0.035,
+        budX,
+        budY,
+      );
+      context.lineTo(budX + side * 0.008, budY + 0.002);
+      context.quadraticCurveTo(
+        budX - side * 0.025,
+        budY - 0.025,
+        lean * branchStart * branchStart + 0.008,
+        height * branchStart,
+      );
+      context.closePath();
       context.fill();
+      context.save();
+      context.translate(budX, budY);
+      context.rotate(side * random.range(0.35, 0.7));
+      context.fillStyle = encode(0.86, random.range(0.48, 0.66), 0.82);
+      context.beginPath();
+      context.ellipse(0, 0, 0.025, 0.04, 0, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
     }
-    context.fillStyle = encode(0.7, 0.5, 0.35);
+
+    const centerX = lean;
+    const centerY = height;
+    const petalCount = Math.round(
+      branched ? random.range(5, 7) : random.range(4, 6),
+    );
+    const petalLength = branched
+      ? random.range(0.075, 0.1)
+      : random.range(0.095, 0.13);
+    this.drawCalyx(
+      context,
+      centerX,
+      centerY,
+      petalLength,
+      stemShade * random.range(0.82, 1.08),
+    );
+
+    for (let index = 0; index < petalCount; index += 1) {
+      const angle =
+        (index / petalCount) * Math.PI * 2 + random.range(-0.16, 0.16);
+      const length = petalLength * random.range(0.78, 1.16);
+      const halfWidth = length * random.range(0.28, 0.39);
+      context.save();
+      context.translate(centerX, centerY);
+      context.rotate(angle);
+      context.scale(1, random.range(0.88, 1.08));
+      this.fillPetal(
+        context,
+        length,
+        halfWidth,
+        random.range(0.4, 0.6),
+        random.range(0.72, 0.92),
+        random.range(0.76, 0.88),
+        random.range(0.9, 0.98),
+      );
+      context.restore();
+    }
+
+    const centerRadius = petalLength * random.range(0.2, 0.27);
+    context.fillStyle = encode(0.62, 0.28, 0.12);
     context.beginPath();
-    context.arc(lean, height, radius * 0.24, 0, Math.PI * 2);
+    context.arc(centerX, centerY, centerRadius, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = encode(0.78, 0.48, 0.24);
+    context.beginPath();
+    context.arc(centerX, centerY, centerRadius * 0.58, 0, Math.PI * 2);
     context.fill();
   }
 
@@ -422,8 +638,6 @@ export class WorldDetailFoliageAtlasFactory {
     for (let index = 0; index < seeds; index += 1) {
       const along = index / (seeds - 1);
       const seedY = height * (0.6 + along * 0.4);
-      // Two staggered files up the stem read as a cluster; one file with a wide
-      // jitter read as a zigzag.
       const seedX =
         lean * (0.6 + along * 0.4) +
         (index % 2 === 0 ? -1 : 1) * 0.022 +
@@ -431,8 +645,6 @@ export class WorldDetailFoliageAtlasFactory {
       context.save();
       context.translate(seedX, seedY);
       context.rotate((index % 2 === 0 ? -1 : 1) * random.range(0.3, 0.7));
-      // Seed clusters take the tint too, which is what turns the same cell into
-      // straw heads on the steppe and pale ones in the meadow.
       context.fillStyle = encode(0.95, 0.78, 1);
       context.beginPath();
       context.ellipse(0, 0, 0.038, 0.016, 0, 0, Math.PI * 2);
