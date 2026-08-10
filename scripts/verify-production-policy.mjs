@@ -7,6 +7,13 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORKFLOW_DIRECTORY = resolve(REPOSITORY_ROOT, ".github", "workflows");
 const DEPLOY_SCRIPT = resolve(REPOSITORY_ROOT, "scripts", "deploy-github-pages.mjs");
 const VITE_CONFIG = resolve(REPOSITORY_ROOT, "vite.config.ts");
+const GRASS_CONFIG_LOADER = resolve(
+  REPOSITORY_ROOT,
+  "src",
+  "grass",
+  "internal",
+  "GrassConfigLoader.ts",
+);
 const PACKAGE_FILE = resolve(REPOSITORY_ROOT, "package.json");
 const NODE_VERSION_FILE = resolve(REPOSITORY_ROOT, ".nvmrc");
 const NPM_CONFIG_FILE = resolve(REPOSITORY_ROOT, ".npmrc");
@@ -68,6 +75,16 @@ if (
 ) {
   fail(
     "Runtime config cache keys must include the source revision so a deployment cannot reuse stale YAML under an unchanged package version.",
+  );
+}
+const grassConfigLoader = readFileSync(GRASS_CONFIG_LOADER, "utf8");
+if (
+  !grassConfigLoader.includes('const CONFIG_URL = "./config/grass.yaml"') ||
+  !grassConfigLoader.includes("encodeURIComponent(__APP_VERSION__)") ||
+  !grassConfigLoader.includes("resolveDefaultConfigUrl()")
+) {
+  fail(
+    "Default grass config loads must include the build revision so island/QA routes cannot reuse stale YAML after deployment.",
   );
 }
 
