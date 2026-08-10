@@ -209,7 +209,7 @@ export class ThirdPersonController implements WorldController {
     );
     grassInteractionField.reset(this.position);
     this.updateCamera(1, true);
-    this.character.update(0, {
+    this.character.reset({
       position: this.position,
       velocity: this.animationVelocity,
       groundNormal: this.groundNormal,
