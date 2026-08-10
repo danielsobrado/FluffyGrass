@@ -80,6 +80,7 @@ varying vec2 vUv;
 flat varying vec2 vCell;
 flat varying float vTint;
 flat varying float vBiome;
+flat varying float vPhenotype;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
@@ -119,6 +120,11 @@ void main() {
   float variantRow = floor(packedRemainder / 8.0);
   vTint = packedRemainder - variantRow * 8.0;
   vCell = vec2(speciesIndex, variantRow);
+  // Reuse the stable density dither as a cheap phenotype seed. It never changes
+  // at runtime and costs no fifth instance attribute.
+  vPhenotype = fract(
+    instanceVariation.x * 7.317 + speciesIndex * 0.173 + variantRow * 0.347
+  );
 
   // Upright, yaw-only billboard. A card with a fixed facing vanishes edge-on,
   // which at this density reads as flowers blinking out as the camera turns;
@@ -225,6 +231,7 @@ varying vec2 vUv;
 flat varying vec2 vCell;
 flat varying float vTint;
 flat varying float vBiome;
+flat varying float vPhenotype;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
@@ -279,9 +286,31 @@ void main() {
     0.0,
     float(${GRASS_MAX_ACCENT_TINTS} - 1)
   ) + 0.5);
-  // The article's B mask, but the colour is per instance rather than per
-  // material: one atlas cell is a white daisy here and a lavender one uphill.
-  color = mix(color, uAccentTint[tintRow], accentData.b);
+
+  // Petal tint used to replace the semantic atlas colour completely whenever
+  // B reached one, flattening every flower into one RGB patch. Shade the tint
+  // with the atlas G channel, then add a small stable phenotype variation in
+  // value and saturation. The B channel remains the blend strength, so stems,
+  // sepals, centres, and petal bases keep their encoded depth.
+  vec3 tintColor = uAccentTint[tintRow];
+  float tintLuminance = dot(tintColor, vec3(0.2126, 0.7152, 0.0722));
+  float saturation = mix(0.82, 1.0, fract(vPhenotype * 5.173 + 0.21));
+  tintColor = mix(vec3(tintLuminance), tintColor, saturation);
+  float petalShade = mix(0.65, 1.12, accentData.g);
+  float phenotypeValue = mix(0.92, 1.06, vPhenotype);
+  float ageFade = clamp(
+    vDryness * 0.16 + fract(vPhenotype * 13.371 + 0.17) * 0.06,
+    0.0,
+    0.2
+  );
+  tintColor *= petalShade * phenotypeValue;
+  tintColor = mix(
+    tintColor,
+    vec3(dot(tintColor, vec3(0.2126, 0.7152, 0.0722))) * 0.96,
+    ageFade
+  );
+  color = mix(color, tintColor, accentData.b);
+
   vec3 lambertLight =
     color * vGrassIrradiance * RECIPROCAL_PI +
     color * uAmbientBoost;
