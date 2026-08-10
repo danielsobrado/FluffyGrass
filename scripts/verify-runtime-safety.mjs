@@ -182,8 +182,12 @@ assert(
   flyController.includes("Number.isFinite(deltaSeconds)") &&
     flyController.includes("private disposed = false") &&
     flyController.includes("this.canvas.style.touchAction = this.previousTouchAction") &&
-    flyController.includes('event.code === "KeyF" && !event.repeat'),
-  "Flight input must reject invalid frame deltas, restore canvas state, and ignore repeated reset keys.",
+    flyController.includes('event.code === "KeyF" && !event.repeat') &&
+    flyController.includes("normalizeWheelDeltaPixels(event)") &&
+    flyController.includes("event.deltaMode") &&
+    flyController.includes("WHEEL_PIXELS_PER_SPEED_DOUBLING") &&
+    flyController.includes("deltaPixels === 0"),
+  "Flight input must reject invalid frame deltas, restore canvas state, normalize wheel speed changes, ignore horizontal wheel events, and ignore repeated reset keys.",
 );
 assert(
   thirdPersonInput.includes("private disposed = false") &&
