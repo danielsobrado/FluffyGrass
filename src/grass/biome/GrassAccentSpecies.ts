@@ -103,16 +103,21 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
         {
           key: "daisy",
           category: "flower",
-          aspect: 0.75,
+          aspect: 0.72,
           windWeight: 0.7,
-          canopyHeightBand: [1.08, 1.38],
+          // Wild daisies should not form one mechanical horizon. The atlas
+          // phenotype also varies stem length, so this broad card band produces
+          // both blooms tucked into the canopy and occasional taller stems.
+          canopyHeightBand: [0.88, 1.58],
         },
         {
           key: "round-bloom",
           category: "flower",
-          aspect: 0.8,
+          aspect: 0.9,
           windWeight: 0.65,
-          canopyHeightBand: [1.05, 1.32],
+          // A different band and aspect keep this family visibly distinct from
+          // daisies even before petal shape and colour variation are applied.
+          canopyHeightBand: [0.82, 1.46],
         },
         {
           key: "seed-head",
