@@ -55,6 +55,8 @@ const grassConfig = read("public/config/grass.yaml");
 const impostorLimits = read("src/grass/GrassImpostorLimits.ts");
 const lodTuning = read("src/grass/GrassLodTuning.ts");
 const configLoader = read("src/grass/internal/GrassConfigLoader.ts");
+const mapping = read("src/grass/impostors/OctahedralMapping.ts");
+const baker = read("src/grass/impostors/OctahedralImpostorBaker.ts");
 const atlasFactory = read(
   "src/world/grass/WorldGrassImpostorAtlasFactory.ts",
 );
@@ -157,6 +159,19 @@ assert(
     configLoader.includes("config.impostor.viewsPerAxis *") &&
     configLoader.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS"),
   "Grass config validation must account for the complete subpatch atlas allocation.",
+);
+assert(
+  mapping.includes("direction.lengthSq() <= Number.EPSILON") &&
+    mapping.includes("Number.isFinite(direction.x)") &&
+    mapping.includes("Number.isFinite(u)") &&
+    mapping.includes("Number.isFinite(v)"),
+  "Octahedral mapping must reject non-finite coordinates and zero/non-finite direction vectors before they create NaN atlas coordinates.",
+);
+assert(
+  baker.includes("const saved = new Set<THREE.Object3D>()") &&
+    baker.includes("if (saved.has(object))") &&
+    baker.includes("saved.add(object)"),
+  "Impostor baking must save each scene object exactly once so source-contained lights restore their original layer and visibility state.",
 );
 assert(
   atlasFactory.includes("partitionBlades") &&
