@@ -108,9 +108,54 @@ try {
       "Integer configuration must reject values that cannot be represented exactly.",
     );
     await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("seed: 42017", "seed: 4294967296"),
+        ),
+      /seed must be at most 4294967295/,
+      "World procedural seeds must stay inside the uint32 generator domain.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("terrainRadiusDesktop: 6", "terrainRadiusDesktop: 17"),
+        ),
+      /terrainRadiusDesktop must not exceed half of the world chunk count/,
+      "Terrain streaming radius must not iterate beyond the finite world grid.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("terrainNearResolution: 25", "terrainNearResolution: 257"),
+        ),
+      /terrainNearResolution must be at most 129/,
+      "Terrain topology must reject pathological per-chunk allocations.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("spawnSearchStep: 24", "spawnSearchStep: 1"),
+        ),
+      /spawnSearchRadius must not exceed 256 spawnSearchStep intervals/,
+      "Spawn discovery must cap synchronous search granularity.",
+    );
+    await expectReject(
       () => load(grassLoader, grassSource.replace("#2f7c35", "green")),
       /baseColor must be a six-digit hex color/,
       "Invalid grass colors must fail before rendering.",
+    );
+    await expectReject(
+      () =>
+        load(
+          grassLoader,
+          grassSource.replace("seed: 1337", "seed: 4294967296"),
+        ),
+      /seed must be at most 4294967295/,
+      "Island grass seeds must stay inside the uint32 generator domain.",
     );
     await expectReject(
       () =>
