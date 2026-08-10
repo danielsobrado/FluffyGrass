@@ -24,6 +24,7 @@ const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
+const viewportSizing = read("src/runtime/ViewportSizing.ts");
 const qaMetrics = read("src/qa/GrassQaMetrics.ts");
 const qaRunner = read("src/qa/GrassQaRunner.ts");
 const stoneField = read("src/world/stones/StoneField.ts");
@@ -62,6 +63,22 @@ assert(
     /await import\(\s*"\.\.\/world\/grass\/WorldDetailFoliageAtlasFactory"\s*\)/.test(world) &&
     !world.includes('import { appendDetailFoliageAtlasDebugCanvas }'),
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
+);
+assert(
+  viewportSizing.includes("Math.max(1, window.innerWidth)") &&
+    viewportSizing.includes("Math.max(1, window.innerHeight)") &&
+    viewportSizing.includes("Number.isFinite(devicePixelRatio)") &&
+    world.includes("this.pixelRatio = resolvePixelRatio(this.profile.maxPixelRatio)") &&
+    world.includes("this.camera.aspect = resolveViewportSize().aspect") &&
+    island.includes("this.renderer.setPixelRatio(resolvePixelRatio(this.profile.maxPixelRatio))") &&
+    island.includes("this.applyViewportSize()"),
+  "World and island renderers must refresh safe viewport dimensions and the current device pixel ratio on resize.",
+);
+assert(
+  island.includes('revisionedAssetPath("./island.glb")') &&
+    island.includes('revisionedAssetPath("./fluffy_grass_text.glb")') &&
+    island.includes("encodeURIComponent(APP_VERSION)"),
+  "Island public GLB assets must be revision-busted with the deployed source version.",
 );
 assert(
   /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.grass\.dispose\(\);[\s\S]*?grassTrailField\.dispose\(\);[\s\S]*?\}/.test(
