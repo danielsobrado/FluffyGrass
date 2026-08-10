@@ -126,8 +126,10 @@ assert(
     trailField.includes("areFinite(") &&
     trailField.includes("Number.isFinite(deltaSeconds)") &&
     trailField.includes("renderer.setRenderTarget(previousRenderTarget)") &&
-    trailField.includes("this.resetPendingFrame()"),
-  "Grass trail feedback must reject invalid inputs and restore renderer state after failures.",
+    trailField.includes("this.resetPendingFrame()") &&
+    trailField.includes("const pendingTargets: THREE.WebGLRenderTarget[] = []") &&
+    trailField.includes("for (const target of pendingTargets)"),
+  "Grass trail feedback must reject invalid inputs, restore renderer state, and release partially allocated render targets after failures.",
 );
 assert(
   qualityGovernor.includes("Number.isFinite(deltaSeconds)") &&
