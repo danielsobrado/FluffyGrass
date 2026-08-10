@@ -142,6 +142,8 @@ const CLEAR_SCALE_CUTOFF = 0.5;
 const MAX_STONES_PER_CELL = 3;
 const CELL_CACHE_LIMIT = 640;
 const CELL_CACHE_TRIM = 384;
+/** Generated split, satellite, and verge stones may cross one source-cell edge. */
+const CHUNK_SOURCE_CELL_MARGIN = 1;
 /** Slope gates on the terrain normal's Y component. */
 const SLOPE_REJECT_NY = 0.62;
 const SLOPE_FAMILY_NY = 0.86;
@@ -224,10 +226,14 @@ export class StoneField {
     const minZ = chunkZ * chunkSize;
     const maxX = minX + chunkSize;
     const maxZ = minZ + chunkSize;
-    const firstCellX = Math.floor(minX / this.cellSize);
-    const firstCellZ = Math.floor(minZ / this.cellSize);
-    const lastCellX = Math.floor((maxX - 1e-3) / this.cellSize);
-    const lastCellZ = Math.floor((maxZ - 1e-3) / this.cellSize);
+    const firstCellX =
+      Math.floor(minX / this.cellSize) - CHUNK_SOURCE_CELL_MARGIN;
+    const firstCellZ =
+      Math.floor(minZ / this.cellSize) - CHUNK_SOURCE_CELL_MARGIN;
+    const lastCellX =
+      Math.floor((maxX - 1e-3) / this.cellSize) + CHUNK_SOURCE_CELL_MARGIN;
+    const lastCellZ =
+      Math.floor((maxZ - 1e-3) / this.cellSize) + CHUNK_SOURCE_CELL_MARGIN;
     for (let cellZ = firstCellZ; cellZ <= lastCellZ; cellZ += 1) {
       for (let cellX = firstCellX; cellX <= lastCellX; cellX += 1) {
         for (const instance of this.getCellInstances(cellX, cellZ)) {
