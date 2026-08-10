@@ -71,7 +71,8 @@ export class FlatConfigValueReader {
 
   powerOfTwo(key: string): number {
     const value = this.number(key, POSITIVE_INTEGER_RULE);
-    if (!Number.isSafeInteger(value) || !Number.isInteger(Math.log2(value))) {
+    const nearestPower = 2 ** Math.round(Math.log2(value));
+    if (!Number.isSafeInteger(value) || nearestPower !== value) {
       throw new Error(`${this.configName} config value ${key} must be a power of two.`);
     }
     return value;
