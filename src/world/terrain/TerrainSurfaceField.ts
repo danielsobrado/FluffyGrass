@@ -10,6 +10,7 @@ import {
   resolveGrassBiomeDensity,
   sampleGrassBiome,
 } from "../grass/WorldBiomeField";
+import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 
 /**
  * Optional world semantics that do not exist in the current generator yet.
@@ -25,7 +26,7 @@ export interface TerrainEnvironmentSampler {
 export interface TerrainSurfaceTargets {
   /** suitability, vigor, dryness, biome density */
   ecology: THREE.Vector4;
-  /** normalized altitude, humidity, water proximity, material scratch */
+  /** normalized altitude, humidity, water proximity, stone clearance */
   environment: THREE.Vector4;
   /** dominant biome, neighbor biome, neighbor blend */
   biome: THREE.Vector3;
@@ -74,6 +75,7 @@ export class TerrainSurfaceField {
     const waterProximity = this.environment
       ? clamp01(this.environment.sampleWaterProximity(x, z, height))
       : 0;
+    const stoneClearance = clamp01(sampleStoneGrassClearance(x, z));
 
     targets.ecology.set(
       clamp01(suitability),
@@ -81,7 +83,12 @@ export class TerrainSurfaceField {
       dryness,
       resolveGrassBiomeDensity(biome),
     );
-    targets.environment.set(altitude, humidity, waterProximity, 0);
+    targets.environment.set(
+      altitude,
+      humidity,
+      waterProximity,
+      stoneClearance,
+    );
     targets.biome.set(biome.indexA, biome.indexB, biome.blend);
   }
 }
