@@ -44,8 +44,12 @@ try {
   } = await server.ssrLoadModule(
     "/src/world/terrain/TerrainSurfaceNoiseTexture.ts",
   );
-  const { TERRAIN_DETAIL_COLOR, TERRAIN_DETAIL_NORMAL } =
-    await server.ssrLoadModule("/src/world/TerrainMaterialShader.ts");
+  const {
+    TERRAIN_DETAIL_COLOR,
+    TERRAIN_DETAIL_FRAGMENT,
+    TERRAIN_DETAIL_NORMAL,
+    TERRAIN_DETAIL_VERTEX,
+  } = await server.ssrLoadModule("/src/world/TerrainMaterialShader.ts");
   const { setStoneClearanceField } = await server.ssrLoadModule(
     "/src/world/stones/StoneClearance.ts",
   );
@@ -108,13 +112,12 @@ try {
   textureC.dispose();
 
   const terrain = new TerrainField(rawConfig);
-  const surface = new TerrainSurfaceField(rawConfig);
+  const surface = new TerrainSurfaceField();
   const normal = new THREE.Vector3();
   const pathDistance = new THREE.Vector2();
   const targets = {
     ecology: new THREE.Vector4(),
-    environment: new THREE.Vector4(),
-    biome: new THREE.Vector3(),
+    biome: new THREE.Vector4(),
   };
   let biomeMask = 0;
   for (let z = -720; z <= 720; z += 36) {
@@ -122,18 +125,15 @@ try {
       const height = terrain.sampleHeight(x, z);
       terrain.sampleNormal(x, z, normal);
       const suitability = terrain.sampleGrassSuitability(x, z, height, normal);
-      surface.sample(x, z, height, suitability, targets);
-      for (const value of [
-        ...targets.ecology.toArray(),
-        ...targets.environment.toArray(),
-      ]) {
+      surface.sample(x, z, suitability, targets);
+      for (const value of [...targets.ecology.toArray(), targets.biome.w]) {
         assert(
           Number.isFinite(value) && value >= 0 && value <= 1,
           `Surface semantic escaped [0,1]: ${value}.`,
         );
       }
       assert(
-        targets.environment.w === 1,
+        targets.biome.w === 1,
         "Terrain without a registered stone field must keep full stone clearance.",
       );
       assert(
@@ -161,9 +161,9 @@ try {
     const height = terrain.sampleHeight(x, z);
     terrain.sampleNormal(x, z, normal);
     const suitability = terrain.sampleGrassSuitability(x, z, height, normal);
-    surface.sample(x, z, height, suitability, targets);
+    surface.sample(x, z, suitability, targets);
     assert(
-      Math.abs(targets.environment.w - 0.37) < 1e-12,
+      Math.abs(targets.biome.w - 0.37) < 1e-12,
       "Terrain surface must carry the same stone clearance used by grass placement.",
     );
   } finally {
@@ -185,6 +185,11 @@ try {
   assert(
     TERRAIN_DETAIL_NORMAL.includes("terrainSurfaceNormalMask"),
     "Terrain micro normals must stay restricted to ecological ground and paths.",
+  );
+  assert(
+    TERRAIN_DETAIL_FRAGMENT.includes("uTerrainGrassAltitudeRange") &&
+      !TERRAIN_DETAIL_VERTEX.includes("terrainEnvironment"),
+    "Altitude must be derived in the shader without unused environment vertex channels.",
   );
   const microStart = rawConfig.grassUltraNearDistance;
   const microEnd = microStart + rawConfig.grassUltraNearTransitionDistance;
@@ -256,7 +261,7 @@ try {
   );
 
   console.log(
-    "[terrain-surface] Determinism, semantic ranges, LOD, stone, biome, and path parity verified.",
+    "[terrain-surface] Determinism, compact semantics, LOD, stone, biome, and path parity verified.",
   );
 } finally {
   await server.close();
