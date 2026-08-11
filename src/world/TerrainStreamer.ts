@@ -47,7 +47,7 @@ export class TerrainStreamer {
     shadows: boolean,
   ) {
     this.materialController = new TerrainMaterialController(config, shadows);
-    this.surfaceField = new TerrainSurfaceField(config);
+    this.surfaceField = new TerrainSurfaceField();
   }
 
   update(
