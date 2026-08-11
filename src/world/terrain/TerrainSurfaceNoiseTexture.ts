@@ -14,7 +14,7 @@ function wrap(value: number, period: number): number {
   return ((value % period) + period) % period;
 }
 
-/** Periodic value noise, so every generated channel tiles without a seam. */
+/** Periodic value noise for coordinates already wrapped to the texture domain. */
 function periodicValueNoise(
   x: number,
   y: number,
@@ -29,18 +29,16 @@ function periodicValueNoise(
   const fractionY = scaledY - cellY;
   const weightX = fractionX * fractionX * (3 - 2 * fractionX);
   const weightY = fractionY * fractionY * (3 - 2 * fractionY);
-  const x0 = wrap(cellX, cells);
-  const x1 = wrap(cellX + 1, cells);
-  const y0 = wrap(cellY, cells);
-  const y1 = wrap(cellY + 1, cells);
+  const nextX = cellX + 1 === cells ? 0 : cellX + 1;
+  const nextY = cellY + 1 === cells ? 0 : cellY + 1;
   const lower = THREE.MathUtils.lerp(
-    hash(x0, y0, seed),
-    hash(x1, y0, seed),
+    hash(cellX, cellY, seed),
+    hash(nextX, cellY, seed),
     weightX,
   );
   const upper = THREE.MathUtils.lerp(
-    hash(x0, y1, seed),
-    hash(x1, y1, seed),
+    hash(cellX, nextY, seed),
+    hash(nextX, nextY, seed),
     weightX,
   );
   return THREE.MathUtils.lerp(lower, upper, weightY);
@@ -57,24 +55,29 @@ export function sampleTerrainSurfaceNoisePixel(
   seed: number,
   target: Float64Array,
 ): void {
-  const broad =
-    periodicValueNoise(x, y, 2, seed + 11) * 0.68 +
-    periodicValueNoise(x, y, 5, seed + 13) * 0.32;
-  const meso =
-    periodicValueNoise(x, y, 12, seed + 17) * 0.72 +
-    periodicValueNoise(x, y, 27, seed + 19) * 0.28;
   const wrappedX = wrap(x, TERRAIN_SURFACE_NOISE_SIZE);
   const wrappedY = wrap(y, TERRAIN_SURFACE_NOISE_SIZE);
+  const broad =
+    periodicValueNoise(wrappedX, wrappedY, 2, seed + 11) * 0.68 +
+    periodicValueNoise(wrappedX, wrappedY, 5, seed + 13) * 0.32;
+  const meso =
+    periodicValueNoise(wrappedX, wrappedY, 12, seed + 17) * 0.72 +
+    periodicValueNoise(wrappedX, wrappedY, 27, seed + 19) * 0.28;
   const fine =
-    periodicValueNoise(x, y, 48, seed + 23) * 0.62 +
+    periodicValueNoise(wrappedX, wrappedY, 48, seed + 23) * 0.62 +
     hash(wrappedX, wrappedY, seed + 29) * 0.38;
-  const fibreCarrier = periodicValueNoise(x, y, 19, seed + 31);
+  const fibreCarrier = periodicValueNoise(
+    wrappedX,
+    wrappedY,
+    19,
+    seed + 31,
+  );
   // Integer cycle counts make the directional carrier exactly periodic at
   // both edges. Arbitrary coefficients here produce a visible repeat seam.
   const fibrePhase =
     TWO_PI *
-    ((x * 29) / TERRAIN_SURFACE_NOISE_SIZE +
-      (y * 7) / TERRAIN_SURFACE_NOISE_SIZE);
+    ((wrappedX * 29) / TERRAIN_SURFACE_NOISE_SIZE +
+      (wrappedY * 7) / TERRAIN_SURFACE_NOISE_SIZE);
   const fibre =
     0.5 +
     Math.sin(fibrePhase + fibreCarrier * 8.5) * 0.27 +
