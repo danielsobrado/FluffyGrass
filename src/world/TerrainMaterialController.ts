@@ -12,7 +12,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v1";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v2";
 
 export class TerrainMaterialController {
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -40,6 +40,12 @@ export class TerrainMaterialController {
           config.grassUltraNearTransitionDistance,
           config.grassNearDistance,
           config.grassMidDistance,
+        ),
+      },
+      uTerrainGrassAltitudeRange: {
+        value: new THREE.Vector2(
+          config.grassMinAltitude,
+          config.grassMaxAltitude,
         ),
       },
       uTerrainPathHalfWidth: {
