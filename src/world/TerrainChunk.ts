@@ -57,18 +57,15 @@ export class TerrainChunkBuilder {
   private readonly colors: Float32Array;
   private readonly paths: Float32Array;
   private readonly ecologies: Float32Array;
-  private readonly environments: Float32Array;
   private readonly biomes: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private readonly pathDistances = new THREE.Vector2();
   private readonly ecology = new THREE.Vector4();
-  private readonly environment = new THREE.Vector4();
-  private readonly biome = new THREE.Vector3();
+  private readonly biome = new THREE.Vector4();
   private readonly surfaceTargets: TerrainSurfaceTargets = {
     ecology: this.ecology,
-    environment: this.environment,
     biome: this.biome,
   };
   private stage = VERTEX_STAGE;
@@ -97,8 +94,7 @@ export class TerrainChunkBuilder {
     this.colors = new Float32Array(vertexCount * 3);
     this.paths = new Float32Array(vertexCount * 3);
     this.ecologies = new Float32Array(vertexCount * 4);
-    this.environments = new Float32Array(vertexCount * 4);
-    this.biomes = new Float32Array(vertexCount * 3);
+    this.biomes = new Float32Array(vertexCount * 4);
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
@@ -156,19 +152,12 @@ export class TerrainChunkBuilder {
       // close to linear across a cell, so interpolating it between vertices
       // metres apart still resolves a way barely wider than one of them.
       this.field.samplePathDistances(x, z, this.pathDistances);
-      this.surfaceField.sample(
-        x,
-        z,
-        height,
-        suitability,
-        this.surfaceTargets,
-      );
+      this.surfaceField.sample(x, z, suitability, this.surfaceTargets);
 
       const offset = this.nextVertex * 3;
-      const pathOffset = this.nextVertex * 3;
-      this.paths[pathOffset] = this.pathDistances.x;
-      this.paths[pathOffset + 1] = this.pathDistances.y;
-      this.paths[pathOffset + 2] = this.field.samplePathVisibility(height);
+      this.paths[offset] = this.pathDistances.x;
+      this.paths[offset + 1] = this.pathDistances.y;
+      this.paths[offset + 2] = this.field.samplePathVisibility(height);
       this.positions[offset] = x;
       this.positions[offset + 1] = height;
       this.positions[offset + 2] = z;
@@ -183,13 +172,10 @@ export class TerrainChunkBuilder {
       this.ecologies[ecologyOffset + 1] = this.ecology.y;
       this.ecologies[ecologyOffset + 2] = this.ecology.z;
       this.ecologies[ecologyOffset + 3] = this.ecology.w;
-      this.environments[ecologyOffset] = this.environment.x;
-      this.environments[ecologyOffset + 1] = this.environment.y;
-      this.environments[ecologyOffset + 2] = this.environment.z;
-      this.environments[ecologyOffset + 3] = this.environment.w;
-      this.biomes[pathOffset] = this.biome.x;
-      this.biomes[pathOffset + 1] = this.biome.y;
-      this.biomes[pathOffset + 2] = this.biome.z;
+      this.biomes[ecologyOffset] = this.biome.x;
+      this.biomes[ecologyOffset + 1] = this.biome.y;
+      this.biomes[ecologyOffset + 2] = this.biome.z;
+      this.biomes[ecologyOffset + 3] = this.biome.w;
       this.nextVertex += 1;
       processed += 1;
     }
@@ -248,12 +234,8 @@ export class TerrainChunkBuilder {
       new THREE.BufferAttribute(this.ecologies, 4),
     );
     geometry.setAttribute(
-      "terrainEnvironment",
-      new THREE.BufferAttribute(this.environments, 4),
-    );
-    geometry.setAttribute(
       "terrainBiome",
-      new THREE.BufferAttribute(this.biomes, 3),
+      new THREE.BufferAttribute(this.biomes, 4),
     );
     geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
     geometry.computeBoundingBox();
