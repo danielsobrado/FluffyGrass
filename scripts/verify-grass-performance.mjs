@@ -251,6 +251,7 @@ const interactionField = read(
 );
 const worldApp = read("src/app/WorldApp.ts");
 const terrainStreamer = read("src/world/TerrainStreamer.ts");
+const terrainMaterialShader = read("src/world/TerrainMaterialShader.ts");
 const terrainField = read("src/world/TerrainField.ts");
 const denseSpawnLocator = read("src/world/DenseSpawnLocator.ts");
 const terrainHeightLattice = read("src/world/TerrainHeightLattice.ts");
@@ -820,16 +821,21 @@ assert(
     nearField.includes("this.buildCursor = (this.buildCursor + 1)"),
   "Near grass builders must rotate and share their deadline instead of starving later layers.",
 );
-// Placement shape is configuration, validated at load, and versioned into the
-// cache key — a cached tile built against the previous tuft rule must not
-// survive in the LRU and draw beside freshly built neighbours.
+// Placement shape is configuration, schema-checked and cross-validated at
+// load, and versioned into the cache key — a cached tile built against the
+// previous tuft rule must not survive in the LRU and draw beside freshly built
+// neighbours.
 const configLoader = read("src/world/WorldConfigLoader.ts");
+const configSchema = read("src/world/WorldConfigSchema.ts");
+const configValidator = read("src/world/WorldConfigValidator.ts");
 assert(
-  configLoader.includes("grassClumpRadiusScaleMin") &&
-    configLoader.includes("grassClumpAspectMin") &&
-    configLoader.includes("grassClumpRadialExponent") &&
-    configLoader.includes("grassClumpRadiusScale range is reversed") &&
-    configLoader.includes("of a blade's heading to independent randomness"),
+  configLoader.includes("WORLD_CONFIG_SCHEMA") &&
+    configLoader.includes("validateWorldConfig(config)") &&
+    configSchema.includes("grassClumpRadiusScaleMin") &&
+    configSchema.includes("grassClumpAspectMin") &&
+    configSchema.includes("grassClumpRadialExponent") &&
+    configValidator.includes("grassClumpRadiusScale range is reversed") &&
+    configValidator.includes("of a blade's heading to independent randomness"),
   "Clump tuning must be schema-checked and cross-validated by the config loader.",
 );
 assert(
@@ -968,8 +974,8 @@ assert(
 assert(
   terrainField.includes("samplePathVisibility(height") &&
     terrainChunk.includes("new THREE.BufferAttribute(this.paths, 3)") &&
-    terrainStreamer.includes("terrainPathVisibility") &&
-    terrainStreamer.includes("abs(vTerrainPath.xy)"),
+    terrainMaterialShader.includes("terrainPathVisibility") &&
+    terrainMaterialShader.includes("abs(vTerrainPath.xy)"),
   "Terrain path altitude visibility must be interpolated separately from signed distances.",
 );
 assert(
@@ -978,7 +984,7 @@ assert(
   "Terrain and grass streaming must share the frame build deadline.",
 );
 assert(
-  worldApp.includes("profile.shadows && !this.flyMode") &&
+  worldApp.includes("profile.shadows && !useFlyControls") &&
     worldApp.includes("if (!useFlyControls)"),
   "Fly mode must not allocate character-only trail targets or render an empty shadow map.",
 );

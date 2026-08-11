@@ -55,6 +55,7 @@ const grassConfig = read("public/config/grass.yaml");
 const impostorLimits = read("src/grass/GrassImpostorLimits.ts");
 const lodTuning = read("src/grass/GrassLodTuning.ts");
 const configLoader = read("src/grass/internal/GrassConfigLoader.ts");
+const configValidator = read("src/grass/internal/GrassConfigValidator.ts");
 const mapping = read("src/grass/impostors/OctahedralMapping.ts");
 const baker = read("src/grass/impostors/OctahedralImpostorBaker.ts");
 const atlasFactory = read(
@@ -154,10 +155,11 @@ assert(
   "Derived far-impostor bounds are invalid.",
 );
 assert(
-  configLoader.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS") &&
-    configLoader.includes("GRASS_IMPOSTOR_MAX_ATLAS_SIZE") &&
-    configLoader.includes("config.impostor.viewsPerAxis *") &&
-    configLoader.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS"),
+  configLoader.includes("validateGrassConfig(config)") &&
+    configValidator.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS") &&
+    configValidator.includes("GRASS_IMPOSTOR_MAX_ATLAS_SIZE") &&
+    configValidator.includes("config.impostor.viewsPerAxis *") &&
+    configValidator.includes("GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS"),
   "Grass config validation must account for the complete subpatch atlas allocation.",
 );
 assert(

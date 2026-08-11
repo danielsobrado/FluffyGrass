@@ -406,7 +406,15 @@ assert(
   "Ultra-near must retain segmented base blades plus the independent density layer, at a profile-specific multiplier.",
 );
 assert(
-  singleBladeFactory.includes("segments === 1") &&
+  singleBladeFactory.includes(
+    "const segments = Math.max(1, Math.round(bladeSegments))",
+  ) &&
+    singleBladeFactory.includes(
+      "for (let segment = 0; segment < segments - 1; segment += 1)",
+    ) &&
+    singleBladeFactory.includes(
+      "indices.push(finalRow, tipVertex, finalRow + 1)",
+    ) &&
     singleBladeFactory.includes(
       "options.receiveShadows && this.profile.shadows",
     ) &&

@@ -78,7 +78,7 @@ export class WorldApp {
   private grassInitializationError?: string;
 
   private constructor(
-    private readonly canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
     private readonly config: WorldConfig,
   ) {
@@ -112,7 +112,6 @@ export class WorldApp {
       spawn.position.y += 48;
       spawn.pitch = THREE.MathUtils.degToRad(-34);
     }
-
     this.environment = new WorldEnvironmentController(
       this.scene,
       this.renderer,
