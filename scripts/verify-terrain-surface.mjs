@@ -4,7 +4,6 @@ import { createServer } from "vite";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
-const PATH_GRASS_FEATHER = 1.4;
 
 function assert(condition, message) {
   if (!condition) {
@@ -29,7 +28,7 @@ const server = await createServer({
 
 try {
   const THREE = await import("three");
-  const { TerrainField } = await server.ssrLoadModule(
+  const { PATH_GRASS_FEATHER, TerrainField } = await server.ssrLoadModule(
     "/src/world/TerrainField.ts",
   );
   const { TerrainSurfaceField } = await server.ssrLoadModule(
@@ -44,6 +43,11 @@ try {
     sampleTerrainSurfaceNoisePixel,
   } = await server.ssrLoadModule(
     "/src/world/terrain/TerrainSurfaceNoiseTexture.ts",
+  );
+  const { TERRAIN_DETAIL_COLOR, TERRAIN_DETAIL_NORMAL } =
+    await server.ssrLoadModule("/src/world/TerrainMaterialShader.ts");
+  const { setStoneClearanceField } = await server.ssrLoadModule(
+    "/src/world/stones/StoneClearance.ts",
   );
   const { WORLD_CONFIG_SCHEMA } = await server.ssrLoadModule(
     "/src/world/WorldConfigSchema.ts",
@@ -121,21 +125,74 @@ try {
       surface.sample(x, z, height, suitability, targets);
       for (const value of [
         ...targets.ecology.toArray(),
-        ...targets.environment.toArray().slice(0, 3),
+        ...targets.environment.toArray(),
       ]) {
-        assert(Number.isFinite(value) && value >= 0 && value <= 1,
-          `Surface semantic escaped [0,1]: ${value}.`);
+        assert(
+          Number.isFinite(value) && value >= 0 && value <= 1,
+          `Surface semantic escaped [0,1]: ${value}.`,
+        );
       }
+      assert(
+        targets.environment.w === 1,
+        "Terrain without a registered stone field must keep full stone clearance.",
+      );
       assert(
         Number.isInteger(targets.biome.x) && Number.isInteger(targets.biome.y),
         "Biome rows must remain integer attributes.",
       );
-      assert(targets.biome.z >= 0 && targets.biome.z <= 0.5,
-        "Biome blend must remain inside its dither border contract.");
+      assert(
+        targets.biome.z >= 0 && targets.biome.z <= 0.5,
+        "Biome blend must remain inside its dither border contract.",
+      );
       biomeMask |= 1 << targets.biome.x;
     }
   }
-  assert((biomeMask & 0b111) === 0b111, "Surface sampling must encounter every biome row.");
+  assert(
+    (biomeMask & 0b111) === 0b111,
+    "Surface sampling must encounter every biome row.",
+  );
+
+  setStoneClearanceField({
+    sampleGrassClearance: () => 0.37,
+  });
+  try {
+    const x = 73;
+    const z = -41;
+    const height = terrain.sampleHeight(x, z);
+    terrain.sampleNormal(x, z, normal);
+    const suitability = terrain.sampleGrassSuitability(x, z, height, normal);
+    surface.sample(x, z, height, suitability, targets);
+    assert(
+      Math.abs(targets.environment.w - 0.37) < 1e-12,
+      "Terrain surface must carry the same stone clearance used by grass placement.",
+    );
+  } finally {
+    setStoneClearanceField(undefined);
+  }
+
+  assert(
+    TERRAIN_DETAIL_COLOR.includes(
+      "uTerrainLodDistances.x + uTerrainLodDistances.y",
+    ),
+    "Ultra-near micro detail must stay full through its grass radius and fade afterward.",
+  );
+  assert(
+    TERRAIN_DETAIL_COLOR.includes(
+      "terrainBiomeDensity * terrainPathGrassMask * terrainStoneClearance",
+    ),
+    "Terrain vegetation coverage must include stone clearance.",
+  );
+  assert(
+    TERRAIN_DETAIL_NORMAL.includes("terrainSurfaceNormalMask"),
+    "Terrain micro normals must stay restricted to ecological ground and paths.",
+  );
+  const microStart = rawConfig.grassUltraNearDistance;
+  const microEnd = microStart + rawConfig.grassUltraNearTransitionDistance;
+  assert(
+    1 - smoothstep(microStart, microStart, microEnd) === 1 &&
+      1 - smoothstep(microEnd, microStart, microEnd) === 0,
+    "Ultra-near ground detail fade must match the grass 6-to-7 metre contract.",
+  );
 
   let pathCoreSamples = 0;
   let pathVergeSamples = 0;
@@ -145,19 +202,26 @@ try {
     terrain.samplePathDistances(x, z, pathDistance);
     const main = smoothstep(
       Math.abs(pathDistance.x),
-      rawConfig.pathWidth * 0.5 + rawConfig.pathEdgeRoughness +
+      rawConfig.pathWidth * 0.5 +
+        rawConfig.pathEdgeRoughness +
         rawConfig.pathGrassClearance,
-      rawConfig.pathWidth * 0.5 + rawConfig.pathEdgeRoughness +
-        rawConfig.pathGrassClearance + PATH_GRASS_FEATHER,
+      rawConfig.pathWidth * 0.5 +
+        rawConfig.pathEdgeRoughness +
+        rawConfig.pathGrassClearance +
+        PATH_GRASS_FEATHER,
     );
     const branch = smoothstep(
       Math.abs(pathDistance.y),
-      rawConfig.pathBranchWidth * 0.5 + rawConfig.pathEdgeRoughness +
+      rawConfig.pathBranchWidth * 0.5 +
+        rawConfig.pathEdgeRoughness +
         rawConfig.pathGrassClearance,
-      rawConfig.pathBranchWidth * 0.5 + rawConfig.pathEdgeRoughness +
-        rawConfig.pathGrassClearance + PATH_GRASS_FEATHER,
+      rawConfig.pathBranchWidth * 0.5 +
+        rawConfig.pathEdgeRoughness +
+        rawConfig.pathGrassClearance +
+        PATH_GRASS_FEATHER,
     );
-    const visualMask = 1 +
+    const visualMask =
+      1 +
       (Math.min(main, branch) - 1) * terrain.samplePathVisibility(height);
     const placementMask = terrain.samplePathGrassMask(x, z, height);
     assert(
@@ -179,11 +243,12 @@ try {
   assert(fieldSamples > 0, "Path parity must exercise unaffected field ground.");
 
   const palette = new TerrainSurfacePalette();
-  const colorDistance = (left, right) => Math.hypot(
-    left.r - right.r,
-    left.g - right.g,
-    left.b - right.b,
-  );
+  const colorDistance = (left, right) =>
+    Math.hypot(
+      left.r - right.r,
+      left.g - right.g,
+      left.b - right.b,
+    );
   assert(
     colorDistance(palette.base[0], palette.base[1]) > 0.02 &&
       colorDistance(palette.base[1], palette.base[2]) > 0.02,
@@ -191,7 +256,7 @@ try {
   );
 
   console.log(
-    "[terrain-surface] Determinism, semantic ranges, biome looks, and path parity verified.",
+    "[terrain-surface] Determinism, semantic ranges, LOD, stone, biome, and path parity verified.",
   );
 } finally {
   await server.close();
