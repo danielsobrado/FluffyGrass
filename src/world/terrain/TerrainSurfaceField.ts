@@ -5,48 +5,29 @@ import {
   sampleGrassMacroVigor,
 } from "../../grass/GrassFieldVariation";
 import { GRASS_BIOME_PROFILES } from "../../grass/biome/GrassBiomeProfile";
-import type { WorldConfig } from "../WorldConfig";
 import {
   resolveGrassBiomeDensity,
   sampleGrassBiome,
 } from "../grass/WorldBiomeField";
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 
-/**
- * Optional world semantics that do not exist in the current generator yet.
- * A water or climate field can implement this interface without changing the
- * terrain material or its packed vertex contract.
- */
-export interface TerrainEnvironmentSampler {
-  sampleHumidity(x: number, z: number, height: number): number;
-  sampleWaterProximity(x: number, z: number, height: number): number;
-}
-
 /** Packed semantic channels consumed by the terrain shader. */
 export interface TerrainSurfaceTargets {
   /** suitability, vigor, dryness, biome density */
   ecology: THREE.Vector4;
-  /** normalized altitude, humidity, water proximity, stone clearance */
-  environment: THREE.Vector4;
-  /** dominant biome, neighbor biome, neighbor blend */
-  biome: THREE.Vector3;
+  /** dominant biome, neighbor biome, neighbor blend, stone clearance */
+  biome: THREE.Vector4;
 }
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-/** Converts terrain/grass semantics into stable material inputs at build time. */
+/** Converts shared grass semantics into stable terrain material inputs. */
 export class TerrainSurfaceField {
-  constructor(
-    private readonly config: WorldConfig,
-    private readonly environment?: TerrainEnvironmentSampler,
-  ) {}
-
   sample(
     x: number,
     z: number,
-    height: number,
     suitability: number,
     targets: TerrainSurfaceTargets,
   ): void {
@@ -65,17 +46,6 @@ export class TerrainSurfaceField {
         macroDryness * GRASS_MACRO_DRYNESS_STRENGTH +
         drynessBias,
     );
-    const altitude = clamp01(
-      (height - this.config.grassMinAltitude) /
-        (this.config.grassMaxAltitude - this.config.grassMinAltitude),
-    );
-    const humidity = this.environment
-      ? clamp01(this.environment.sampleHumidity(x, z, height))
-      : clamp01((1 - dryness) * 0.68 + vigor * 0.32);
-    const waterProximity = this.environment
-      ? clamp01(this.environment.sampleWaterProximity(x, z, height))
-      : 0;
-    const stoneClearance = clamp01(sampleStoneGrassClearance(x, z));
 
     targets.ecology.set(
       clamp01(suitability),
@@ -83,12 +53,11 @@ export class TerrainSurfaceField {
       dryness,
       resolveGrassBiomeDensity(biome),
     );
-    targets.environment.set(
-      altitude,
-      humidity,
-      waterProximity,
-      stoneClearance,
+    targets.biome.set(
+      biome.indexA,
+      biome.indexB,
+      biome.blend,
+      clamp01(sampleStoneGrassClearance(x, z)),
     );
-    targets.biome.set(biome.indexA, biome.indexB, biome.blend);
   }
 }
