@@ -69,6 +69,14 @@ export interface WorldConfig {
   pathSpacing: number;
   pathEdgeRoughness: number;
   pathGrassClearance: number;
+  /** World metres covered by one repeat of the generated surface-noise map. */
+  terrainGroundNoiseWorldSize: number;
+  terrainGroundMesoStrength: number;
+  terrainGroundMicroStrength: number;
+  terrainGroundNormalStrength: number;
+  terrainGroundCanopyDarkening: number;
+  terrainPathCoreDarkening: number;
+  terrainPathVergeDryness: number;
   grassMinAltitude: number;
   grassMaxAltitude: number;
   grassMaxSlopeDegrees: number;

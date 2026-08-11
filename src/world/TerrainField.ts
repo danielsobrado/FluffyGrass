@@ -49,7 +49,7 @@ const PATH_MAX_DISTANCE = 24;
  */
 const PATH_MAX_CLEARANCE_RADIUS = 3;
 /** Metres over which grass thins out into the bare verge. */
-const PATH_GRASS_FEATHER = 1.4;
+export const PATH_GRASS_FEATHER = 1.4;
 /**
  * Value noise interpolated with a smoothstep changes by at most 1.5 per lattice
  * cell, and the two fbm octaves add their weighted slopes: 1.5 * (2/3 + 2.03/3).

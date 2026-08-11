@@ -4,6 +4,7 @@ import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
 import type { TerrainField } from "./TerrainField";
 import { TerrainMaterialController } from "./TerrainMaterialController";
 import type { WorldConfig } from "./WorldConfig";
+import { TerrainSurfaceField } from "./terrain/TerrainSurfaceField";
 
 interface ChunkRequest {
   key: string;
@@ -30,6 +31,7 @@ export class TerrainStreamer {
   private readonly queue: ChunkRequest[] = [];
   private readonly desired = new Map<string, ChunkRequest>();
   private readonly materialController: TerrainMaterialController;
+  private readonly surfaceField: TerrainSurfaceField;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private activeBuild?: TerrainChunkBuilder;
@@ -45,6 +47,7 @@ export class TerrainStreamer {
     shadows: boolean,
   ) {
     this.materialController = new TerrainMaterialController(config, shadows);
+    this.surfaceField = new TerrainSurfaceField(config);
   }
 
   update(
@@ -205,6 +208,7 @@ export class TerrainStreamer {
         this.config.chunkSize,
         request.resolution,
         this.field,
+        this.surfaceField,
         this.materialController.material,
         this.materialController.shadows,
       );

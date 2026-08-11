@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import type { TerrainField } from "./TerrainField";
+import type {
+  TerrainSurfaceField,
+  TerrainSurfaceTargets,
+} from "./terrain/TerrainSurfaceField";
 
 /** Every grass layer and the character stay at the default 0. */
 export const TERRAIN_RENDER_ORDER = 1;
@@ -52,10 +56,21 @@ export class TerrainChunkBuilder {
   private readonly normals: Float32Array;
   private readonly colors: Float32Array;
   private readonly paths: Float32Array;
+  private readonly ecologies: Float32Array;
+  private readonly environments: Float32Array;
+  private readonly biomes: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private readonly pathDistances = new THREE.Vector2();
+  private readonly ecology = new THREE.Vector4();
+  private readonly environment = new THREE.Vector4();
+  private readonly biome = new THREE.Vector3();
+  private readonly surfaceTargets: TerrainSurfaceTargets = {
+    ecology: this.ecology,
+    environment: this.environment,
+    biome: this.biome,
+  };
   private stage = VERTEX_STAGE;
   private nextVertex = 0;
   private nextCell = 0;
@@ -66,6 +81,7 @@ export class TerrainChunkBuilder {
     chunkSize: number,
     resolution: number,
     private readonly field: TerrainField,
+    private readonly surfaceField: TerrainSurfaceField,
     private readonly material: THREE.Material,
     private readonly receiveShadow: boolean,
   ) {
@@ -80,6 +96,9 @@ export class TerrainChunkBuilder {
     this.normals = new Float32Array(vertexCount * 3);
     this.colors = new Float32Array(vertexCount * 3);
     this.paths = new Float32Array(vertexCount * 3);
+    this.ecologies = new Float32Array(vertexCount * 4);
+    this.environments = new Float32Array(vertexCount * 4);
+    this.biomes = new Float32Array(vertexCount * 3);
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
@@ -137,6 +156,13 @@ export class TerrainChunkBuilder {
       // close to linear across a cell, so interpolating it between vertices
       // metres apart still resolves a way barely wider than one of them.
       this.field.samplePathDistances(x, z, this.pathDistances);
+      this.surfaceField.sample(
+        x,
+        z,
+        height,
+        suitability,
+        this.surfaceTargets,
+      );
 
       const offset = this.nextVertex * 3;
       const pathOffset = this.nextVertex * 3;
@@ -152,6 +178,18 @@ export class TerrainChunkBuilder {
       this.colors[offset] = this.color.r;
       this.colors[offset + 1] = this.color.g;
       this.colors[offset + 2] = this.color.b;
+      const ecologyOffset = this.nextVertex * 4;
+      this.ecologies[ecologyOffset] = this.ecology.x;
+      this.ecologies[ecologyOffset + 1] = this.ecology.y;
+      this.ecologies[ecologyOffset + 2] = this.ecology.z;
+      this.ecologies[ecologyOffset + 3] = this.ecology.w;
+      this.environments[ecologyOffset] = this.environment.x;
+      this.environments[ecologyOffset + 1] = this.environment.y;
+      this.environments[ecologyOffset + 2] = this.environment.z;
+      this.environments[ecologyOffset + 3] = this.environment.w;
+      this.biomes[pathOffset] = this.biome.x;
+      this.biomes[pathOffset + 1] = this.biome.y;
+      this.biomes[pathOffset + 2] = this.biome.z;
       this.nextVertex += 1;
       processed += 1;
     }
@@ -204,6 +242,18 @@ export class TerrainChunkBuilder {
     geometry.setAttribute(
       "terrainPath",
       new THREE.BufferAttribute(this.paths, 3),
+    );
+    geometry.setAttribute(
+      "terrainEcology",
+      new THREE.BufferAttribute(this.ecologies, 4),
+    );
+    geometry.setAttribute(
+      "terrainEnvironment",
+      new THREE.BufferAttribute(this.environments, 4),
+    );
+    geometry.setAttribute(
+      "terrainBiome",
+      new THREE.BufferAttribute(this.biomes, 3),
     );
     geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
     geometry.computeBoundingBox();

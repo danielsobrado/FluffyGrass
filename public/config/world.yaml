@@ -95,6 +95,15 @@ pathSpacing: 640
 pathEdgeRoughness: 0.5
 pathGrassClearance: 0.15
 
+# Shared ground/grass procedural surface. Detail fades reuse grass LOD ranges.
+terrainGroundNoiseWorldSize: 64
+terrainGroundMesoStrength: 0.14
+terrainGroundMicroStrength: 0.09
+terrainGroundNormalStrength: 0.24
+terrainGroundCanopyDarkening: 0.1
+terrainPathCoreDarkening: 0.13
+terrainPathVergeDryness: 0.32
+
 grassMinAltitude: -20
 grassMaxAltitude: 118
 grassMaxSlopeDegrees: 44
