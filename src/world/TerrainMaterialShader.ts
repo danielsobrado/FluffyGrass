@@ -15,7 +15,7 @@ varying vec3 vTerrainWorldPosition;
 varying vec3 vTerrainPath;
 varying vec4 vTerrainEcology;
 varying vec4 vTerrainEnvironment;
-varying vec3 vTerrainBiomeBase;
+varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
 
@@ -31,7 +31,7 @@ vTerrainEcology = terrainEcology;
 int terrainBiomeA = terrainResolveBiomeRow(terrainBiome.x);
 int terrainBiomeB = terrainResolveBiomeRow(terrainBiome.y);
 float terrainBiomeBlend = saturate(terrainBiome.z);
-vTerrainBiomeBase = mix(
+vec3 terrainBiomeBase = mix(
   uTerrainBiomeBase[terrainBiomeA],
   uTerrainBiomeBase[terrainBiomeB],
   terrainBiomeBlend
@@ -51,12 +51,13 @@ vec2 terrainBiomeShade = mix(
   uTerrainBiomeShade[terrainBiomeB],
   terrainBiomeBlend
 );
-vTerrainEnvironment = vec4(
-  terrainEnvironment.xyz,
+vTerrainEnvironment = terrainEnvironment;
+vTerrainBiomeBase = vec4(
+  terrainBiomeBase,
   mix(0.92, 0.78, saturate(terrainBiomeShade.x))
 );
 vTerrainBiomeCanopy = mix(
-  vTerrainBiomeBase,
+  terrainBiomeBase,
   terrainBiomeTip,
   saturate(terrainBiomeShade.y) * 0.42
 );
@@ -85,7 +86,7 @@ varying vec3 vTerrainWorldPosition;
 varying vec3 vTerrainPath;
 varying vec4 vTerrainEcology;
 varying vec4 vTerrainEnvironment;
-varying vec3 vTerrainBiomeBase;
+varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
 `;
@@ -93,7 +94,7 @@ varying vec3 vTerrainBiomeCanopy;
 export const TERRAIN_DETAIL_COLOR = `
 float terrainDistance = distance(cameraPosition, vTerrainWorldPosition);
 float terrainMicroWeight = 1.0 - smoothstep(
-  max(0.0, uTerrainLodDistances.x - uTerrainLodDistances.y),
+  uTerrainLodDistances.x,
   uTerrainLodDistances.x + uTerrainLodDistances.y,
   terrainDistance
 );
@@ -159,7 +160,8 @@ float terrainBiomeDensity = saturate(vTerrainEcology.w);
 float terrainAltitude = saturate(vTerrainEnvironment.x);
 float terrainHumidity = saturate(vTerrainEnvironment.y);
 float terrainWaterProximity = saturate(vTerrainEnvironment.z);
-float terrainRootScale = saturate(vTerrainEnvironment.w);
+float terrainStoneClearance = saturate(vTerrainEnvironment.w);
+float terrainRootScale = saturate(vTerrainBiomeBase.a);
 
 vec2 terrainPathGrassHalfWidth = uTerrainPathHalfWidth + vec2(
   uTerrainPathEdge + uTerrainPathClearance
@@ -210,14 +212,14 @@ vec3 terrainSoil = mix(uTerrainSoilDry, uTerrainSoilRich, terrainHumidity);
 terrainSoil *= 1.0 + terrainMacroVariation * 0.45 + terrainMesoVariation;
 
 vec3 terrainUnderlayer = mix(
-  vTerrainBiomeBase,
+  vTerrainBiomeBase.rgb,
   vTerrainBiomeDry,
   terrainDryness * 0.72
 );
 terrainUnderlayer *= terrainRootScale;
 terrainUnderlayer *= 1.0 + terrainMacroVariation + terrainMesoVariation;
 float terrainCoverage = smoothstep(0.08, 0.5, terrainSuitability) *
-  terrainBiomeDensity * terrainPathGrassMask;
+  terrainBiomeDensity * terrainPathGrassMask * terrainStoneClearance;
 float terrainUnderlayerAmount = terrainCoverage * mix(0.48, 0.78, terrainVigor);
 vec3 terrainSurfaceColor = mix(
   terrainSoil,
@@ -274,6 +276,10 @@ diffuseColor.rgb = mix(
   saturate(terrainPathCore + terrainPathShoulder * 0.82)
 );
 
+float terrainSurfaceNormalMask = max(
+  terrainEcologyMask,
+  saturate(terrainPathCore + terrainPathShoulder * 0.82)
+);
 float terrainMicroHeight =
   (terrainMicroNoise.b - 0.5) * 0.7 +
   (terrainMicroNoise.a - 0.5) * 0.3;
@@ -296,10 +302,15 @@ vec3 terrainGradient = sign(terrainDeterminant) * (
 );
 // Derivatives must be evaluated outside non-uniform control flow. The branch
 // only skips the final normal write once micro detail has faded away.
-if (terrainMicroWeight > 0.001 && abs(terrainDeterminant) > 1e-8) {
+if (
+  terrainMicroWeight > 0.001 &&
+  terrainSurfaceNormalMask > 0.001 &&
+  abs(terrainDeterminant) > 1e-8
+) {
   normal = normalize(
     abs(terrainDeterminant) * normal -
-      terrainGradient * uTerrainNormalStrength * terrainMicroWeight * 0.12
+      terrainGradient * uTerrainNormalStrength * terrainMicroWeight *
+        terrainSurfaceNormalMask * 0.12
   );
 }
 `;
