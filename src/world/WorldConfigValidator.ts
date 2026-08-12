@@ -109,6 +109,32 @@ export function validateWorldConfig(config: WorldConfig): void {
   if (config.pathWidth >= config.pathSpacing * 0.05) {
     throw new Error("pathWidth must stay far below pathSpacing.");
   }
+  if (config.lakeRadiusMin > config.lakeRadiusMax) {
+    throw new Error("lakeRadius range is reversed.");
+  }
+  const lakeCellMargin = config.lakeRadiusMax + config.lakeShoreWidth + 2;
+  if (lakeCellMargin * 2 >= config.lakeSpacing) {
+    throw new Error(
+      "lakeSpacing must leave room for the largest lake and its shore inside one cell.",
+    );
+  }
+  if (
+    config.riverWidth * 0.5 + config.waterHumidityRadius >=
+    config.riverSpacing * 0.45
+  ) {
+    throw new Error(
+      "River humidity bands must stay separated at the configured river spacing.",
+    );
+  }
+  if (config.riverMaxAltitude <= config.grassMinAltitude) {
+    throw new Error("riverMaxAltitude must exceed grassMinAltitude.");
+  }
+  if (
+    config.waterSurfaceOffset >= config.riverDepth ||
+    config.waterSurfaceOffset >= config.lakeDepth
+  ) {
+    throw new Error("waterSurfaceOffset must remain smaller than river and lake depth.");
+  }
   if (config.grassMinAltitude >= config.grassMaxAltitude) {
     throw new Error("grassMinAltitude must be lower than grassMaxAltitude.");
   }
