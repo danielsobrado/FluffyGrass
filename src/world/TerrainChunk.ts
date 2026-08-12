@@ -159,13 +159,11 @@ export class TerrainChunkBuilder {
       const z = this.originZ + zIndex * this.step;
       const height = this.field.sampleHeight(x, z);
       this.field.sampleHydrology(x, z, height, this.hydrology);
+      const suitabilityWithoutSlope =
+        this.field.sampleGrassSuitabilityWithoutSlope(x, z, height);
       this.field.sampleNormal(x, z, this.normal);
-      const suitability = this.field.sampleGrassSuitability(
-        x,
-        z,
-        height,
-        this.normal,
-      );
+      const suitability =
+        this.field.sampleGrassSlopeMask(this.normal) * suitabilityWithoutSlope;
       this.field.sampleColor(
         x,
         z,
