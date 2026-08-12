@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import {
+  createHydrologySample,
+  HydrologyField,
+  type HydrologySample,
+} from "./hydrology/HydrologyField";
 import type { WorldConfig } from "./WorldConfig";
 
 const COLOR_GRASS = new THREE.Color("#466f3a");
@@ -62,10 +67,6 @@ const PATH_MAX_FIELD_SLOPE = 2.02;
  */
 const PATH_CUTOFF_SAFETY = 2;
 
-// These helpers mirror THREE.MathUtils exactly, but keep the procedural field's
-// innermost loops free of repeated namespace lookups and function indirection.
-// A single grass placement evaluates hundreds of interpolations while sampling
-// height, normal, and suitability, so this is a meaningful streaming hot path.
 function lerp(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
 }
@@ -88,6 +89,8 @@ function clamp(value: number, minimum: number, maximum: number): number {
 export class TerrainField {
   private readonly grassSlopeLimit: number;
   private readonly grassSlopeFadeEnd: number;
+  private readonly hydrology: HydrologyField;
+  private readonly hydrologyScratch = createHydrologySample();
   private noisePairLow = 0;
   private noisePairHigh = 0;
   /** Frequency of the main and branch path fields. */
@@ -107,6 +110,7 @@ export class TerrainField {
   private readonly pathScratch = new THREE.Vector2();
 
   constructor(private readonly config: WorldConfig) {
+    this.hydrology = new HydrologyField(config);
     this.grassSlopeLimit = Math.cos(
       THREE.MathUtils.degToRad(config.grassMaxSlopeDegrees),
     );
@@ -117,16 +121,10 @@ export class TerrainField {
       1 / (config.pathSpacing * PATH_BRANCH_SPACING_RATIO);
     this.pathHalfWidthMain = config.pathWidth * 0.5;
     this.pathHalfWidthBranch = config.pathBranchWidth * 0.5;
-    // The shader wobbles the visible edge outwards by up to the roughness, so
-    // grass has to stand back that far again before its own clearance starts.
     const grassMargin = config.pathEdgeRoughness + config.pathGrassClearance;
     this.pathGrassHalfWidthMain = this.pathHalfWidthMain + grassMargin;
     this.pathGrassHalfWidthBranch = this.pathHalfWidthBranch + grassMargin;
 
-    // Beyond this much field value the point is further from every way than any
-    // caller can care about, and the gradient — two thirds of the cost of a
-    // sample — never has to be taken. The warp stretches the field's slope by
-    // its own, so both scales enter the bound.
     const candidateDistance =
       Math.max(this.pathGrassHalfWidthMain, this.pathGrassHalfWidthBranch) +
       PATH_MAX_CLEARANCE_RADIUS +
@@ -139,24 +137,17 @@ export class TerrainField {
       warpStretch *
       candidateDistance;
 
-    // Ways belong to the rolling grassland. `baseHeight + rollingHeight` sits
-    // above everything the rolling octaves can reach, so the fade only starts
-    // once the ground is climbing a mountain flank.
     this.pathAltitudeFadeStart = config.baseHeight + config.rollingHeight;
     this.pathAltitudeFadeEnd =
       this.pathAltitudeFadeStart + config.rollingHeight;
   }
 
   sampleHeight(x: number, z: number): number {
-    // Hoisted: this runs 19 value-noise evaluations deep and the config reads
-    // sit between calls the optimizer cannot see through.
     const mountainScale = this.config.mountainScale;
     const detailScale = this.config.detailScale;
     const seed = this.config.seed;
 
     const broad = this.fbm(x * mountainScale, z * mountainScale, 4, seed);
-    // Both warp axes read the same lattice cell and differ only by seed, so the
-    // floor and smoothstep setup is shared instead of being done twice.
     const warpX = x * mountainScale * 0.55;
     const warpZ = z * mountainScale * 0.55;
     this.valueNoisePair(warpX, warpZ, seed + 17, seed + 29);
@@ -177,13 +168,21 @@ export class TerrainField {
       (this.fbm(x * detailScale * 3.1, z * detailScale * 3.1, 3, seed + 307) -
         0.5) *
       3.5;
-
-    return (
+    const rawHeight =
       this.config.baseHeight +
       rolling +
       micro +
-      ridges * mountainMask * this.config.mountainHeight
-    );
+      ridges * mountainMask * this.config.mountainHeight;
+    return this.hydrology.carveHeight(x, z, rawHeight);
+  }
+
+  sampleHydrology(
+    x: number,
+    z: number,
+    height: number,
+    target: HydrologySample,
+  ): HydrologySample {
+    return this.hydrology.sample(x, z, height, target);
   }
 
   sampleNormal(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
@@ -207,11 +206,6 @@ export class TerrainField {
     );
   }
 
-  /**
-   * The slope factor of {@link sampleGrassSuitability}, split out because it is
-   * the only one that needs a normal — and the normal costs four extra height
-   * samples, roughly three quarters of the work of placing a blade.
-   */
   sampleGrassSlopeMask(normal: THREE.Vector3): number {
     return smoothstep(
       normal.y,
@@ -220,14 +214,6 @@ export class TerrainField {
     );
   }
 
-  /**
-   * Every suitability factor except the slope mask.
-   *
-   * Suitability is a product of masks that are each in [0,1], so this value is
-   * an upper bound on the final result: a caller whose acceptance threshold is
-   * already missed here can reject before sampling a normal at all, and get
-   * exactly the same answer it would have got the long way round.
-   */
   sampleGrassSuitabilityWithoutSlope(
     x: number,
     z: number,
@@ -246,7 +232,6 @@ export class TerrainField {
         this.config.grassMaxAltitude,
       );
 
-    // Broad biome noise creates coherent grasslands and coherent bare regions.
     const biome = this.fbm(
       x * 0.0017,
       z * 0.0017,
@@ -255,7 +240,6 @@ export class TerrainField {
     );
     const biomeMask = smoothstep(biome, 0.34, 0.5);
 
-    // Fine noise changes density inside a field without breaking it into tufts.
     const densityNoise = this.fbm(
       x * 0.0065,
       z * 0.0065,
@@ -275,20 +259,25 @@ export class TerrainField {
     );
     const ridgeMask =
       1 - smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
+    const waterMask = this.hydrology.sample(
+      x,
+      z,
+      height,
+      this.hydrologyScratch,
+    ).grassMask;
 
     return clamp(
-      lowAltitude * highAltitude * biomeMask * localDensity * ridgeMask,
+      lowAltitude *
+        highAltitude *
+        biomeMask *
+        localDensity *
+        ridgeMask *
+        waterMask,
       0,
       1,
     );
   }
 
-  /**
-   * Signed distance in metres from (x, z) to the centreline of the main way
-   * (`target.x`) and of the branch way (`target.y`). The sign says which side
-   * of the way the point is on and is only meaningful to an interpolator; a
-   * caller wants the magnitude.
-   */
   samplePathDistances(
     x: number,
     z: number,
@@ -307,9 +296,6 @@ export class TerrainField {
       );
     }
 
-    // One-sided differences. The gradient only sets the width of a way, never
-    // where it runs, so the half-step of bias a central difference would remove
-    // is not worth two more field samples.
     this.samplePathValues(x + PATH_GRADIENT_STEP, z);
     const eastMain = this.pathValueMain;
     const eastBranch = this.pathValueBranch;
@@ -331,7 +317,6 @@ export class TerrainField {
     );
   }
 
-  /** Lowland visibility shared by the terrain shader and grass placement. */
   samplePathVisibility(height: number): number {
     return (
       1 -
@@ -339,15 +324,6 @@ export class TerrainField {
     );
   }
 
-  /**
-   * How much grass a walking way leaves standing at (x, z): 1 well clear of
-   * every way, 0 on the tread.
-   *
-   * `radius` widens the cleared band by the footprint of whatever is being
-   * placed, so a four-metre grass patch can be dropped when it would straddle a
-   * way instead of growing across it. It saturates at
-   * {@link PATH_MAX_CLEARANCE_RADIUS}, which the early rejection is sized for.
-   */
   samplePathGrassMask(
     x: number,
     z: number,
@@ -395,14 +371,6 @@ export class TerrainField {
     return target.lerp(COLOR_SCRATCH, rockAmount);
   }
 
-  /**
-   * Both path fields at one point, into {@link pathValueMain} and
-   * {@link pathValueBranch}, each already centred on its own zero contour.
-   *
-   * The two share a single domain warp: it is the most expensive part of the
-   * sample, and reusing it leaves the contours uncorrelated because the fields
-   * that follow it differ in both scale and seed.
-   */
   private samplePathValues(x: number, z: number): void {
     const seed = this.config.seed;
     this.valueNoisePair(
@@ -466,13 +434,6 @@ export class TerrainField {
     return value / normalization;
   }
 
-  /**
-   * Two seeds sampled at one point, writing {@link noisePairLow} and
-   * {@link noisePairHigh}. Only the hashes differ between the two, so the cell
-   * coordinates and both smoothstep weights are computed once. Results go to
-   * fields rather than a returned tuple to keep the streaming path allocation
-   * free.
-   */
   private valueNoisePair(
     x: number,
     z: number,
@@ -516,9 +477,6 @@ export class TerrainField {
     const b = this.hash(x0 + 1, z0, seed);
     const c = this.hash(x0, z0 + 1, seed);
     const d = this.hash(x0 + 1, z0 + 1, seed);
-    // Inline the three bilinear interpolations: valueNoise is called hundreds
-    // of times for each accepted grass patch, so even tiny call overhead is
-    // amplified during streaming.
     const lower = a + (b - a) * sx;
     const upper = c + (d - c) * sx;
     return lower + (upper - lower) * sz;
