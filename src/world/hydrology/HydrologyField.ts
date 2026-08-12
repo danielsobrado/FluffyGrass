@@ -69,6 +69,17 @@ export class HydrologyField {
   private lakeWaterLevel = 0;
   private lakeNormalizedDistance = Number.POSITIVE_INFINITY;
 
+  private lakeCellX = Number.NaN;
+  private lakeCellZ = Number.NaN;
+  private lakeCellActive = false;
+  private lakeCenterX = 0;
+  private lakeCenterZ = 0;
+  private lakeRadiusX = 1;
+  private lakeRadiusZ = 1;
+  private lakeCos = 1;
+  private lakeSin = 0;
+  private lakeEdgePhase = 0;
+
   constructor(private readonly config: WorldConfig) {}
 
   carveHeight(x: number, z: number, height: number): number {
@@ -84,8 +95,7 @@ export class HydrologyField {
       const core = 1 - clamp01(this.lakeNormalizedDistance);
       const bedTarget =
         this.lakeWaterLevel - this.config.lakeDepth * (0.72 + core * 0.28);
-      const basinTarget = Math.min(carved, bedTarget);
-      carved = lerp(carved, basinTarget, this.lakeBasin);
+      carved = lerp(carved, Math.min(carved, bedTarget), this.lakeBasin);
     }
     return carved;
   }
@@ -183,18 +193,72 @@ export class HydrologyField {
     const spacing = this.config.lakeSpacing;
     const cellX = Math.floor(x / spacing);
     const cellZ = Math.floor(z / spacing);
-    if (hash(cellX, cellZ, this.config.seed + 1201) >= this.config.lakeChance) {
+    this.prepareLakeCell(cellX, cellZ);
+    if (!this.lakeCellActive) {
       this.clearLake();
       return;
     }
 
+    const dx = x - this.lakeCenterX;
+    const dz = z - this.lakeCenterZ;
+    const localX = dx * this.lakeCos + dz * this.lakeSin;
+    const localZ = -dx * this.lakeSin + dz * this.lakeCos;
+    const normalized = Math.hypot(
+      localX / this.lakeRadiusX,
+      localZ / this.lakeRadiusZ,
+    );
+    const polar = Math.atan2(
+      localZ / this.lakeRadiusZ,
+      localX / this.lakeRadiusX,
+    );
+    const edge =
+      Math.sin(polar * LAKE_PRIMARY_EDGE_LOBES + this.lakeEdgePhase) *
+        LAKE_EDGE_FEATHER_RATIO +
+      Math.sin(
+        polar * LAKE_SECONDARY_EDGE_LOBES - this.lakeEdgePhase * 0.71,
+      ) *
+        LAKE_EDGE_FEATHER_RATIO *
+        0.45;
+    const shapedDistance = normalized / (1 + edge);
+    const altitudeMask =
+      1 -
+      smoothstep(
+        height,
+        this.lakeWaterLevel + this.config.lakeDepth * 0.8,
+        this.lakeWaterLevel +
+          this.config.lakeDepth +
+          this.config.lakeShoreWidth,
+      );
+    const minimumRadius = Math.min(this.lakeRadiusX, this.lakeRadiusZ);
+    const shoreRatio = this.config.lakeShoreWidth / minimumRadius;
+    const humidityRatio = this.config.waterHumidityRadius / minimumRadius;
+
+    this.lakeNormalizedDistance = shapedDistance;
+    this.lakeCoverage =
+      (1 - smoothstep(shapedDistance, 0.96, 1.02)) * altitudeMask;
+    this.lakeBasin =
+      (1 - smoothstep(shapedDistance, 1, 1 + shoreRatio)) * altitudeMask;
+    this.lakeProximity =
+      (1 - smoothstep(shapedDistance, 1, 1 + humidityRatio)) * altitudeMask;
+  }
+
+  private prepareLakeCell(cellX: number, cellZ: number): void {
+    if (cellX === this.lakeCellX && cellZ === this.lakeCellZ) return;
+
+    this.lakeCellX = cellX;
+    this.lakeCellZ = cellZ;
+    this.lakeCellActive =
+      hash(cellX, cellZ, this.config.seed + 1201) < this.config.lakeChance;
+    if (!this.lakeCellActive) return;
+
+    const spacing = this.config.lakeSpacing;
     const margin = this.config.lakeRadiusMax + this.config.lakeShoreWidth + 2;
     const available = spacing - margin * 2;
-    const centerX =
+    this.lakeCenterX =
       cellX * spacing +
       margin +
       hash(cellX, cellZ, this.config.seed + 1213) * available;
-    const centerZ =
+    this.lakeCenterZ =
       cellZ * spacing +
       margin +
       hash(cellX, cellZ, this.config.seed + 1223) * available;
@@ -208,56 +272,22 @@ export class HydrologyField {
       1.28,
       hash(cellX, cellZ, this.config.seed + 1237),
     );
+    this.lakeRadiusX = baseRadius * aspect;
+    this.lakeRadiusZ = baseRadius / aspect;
     const angle = hash(cellX, cellZ, this.config.seed + 1249) * TWO_PI;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const dx = x - centerX;
-    const dz = z - centerZ;
-    const localX = dx * cos + dz * sin;
-    const localZ = -dx * sin + dz * cos;
-    const radiusX = baseRadius * aspect;
-    const radiusZ = baseRadius / aspect;
-    const normalized = Math.hypot(localX / radiusX, localZ / radiusZ);
-    const polar = Math.atan2(localZ / radiusZ, localX / radiusX);
-    const edgePhase = hash(cellX, cellZ, this.config.seed + 1259) * TWO_PI;
-    const edge =
-      Math.sin(polar * LAKE_PRIMARY_EDGE_LOBES + edgePhase) *
-        LAKE_EDGE_FEATHER_RATIO +
-      Math.sin(polar * LAKE_SECONDARY_EDGE_LOBES - edgePhase * 0.71) *
-        LAKE_EDGE_FEATHER_RATIO *
-        0.45;
-    const shapedDistance = normalized / (1 + edge);
+    this.lakeCos = Math.cos(angle);
+    this.lakeSin = Math.sin(angle);
+    this.lakeEdgePhase = hash(cellX, cellZ, this.config.seed + 1259) * TWO_PI;
     const levelNoise = hash(cellX, cellZ, this.config.seed + 1277);
     this.lakeWaterLevel =
       this.config.baseHeight +
       this.config.rollingHeight * lerp(0.06, 0.42, levelNoise);
-    const altitudeMask =
-      1 -
-      smoothstep(
-        height,
-        this.lakeWaterLevel + this.config.lakeDepth * 0.8,
-        this.lakeWaterLevel +
-          this.config.lakeDepth +
-          this.config.lakeShoreWidth,
-      );
-    const shoreRatio = this.config.lakeShoreWidth / Math.min(radiusX, radiusZ);
-    const humidityRatio =
-      this.config.waterHumidityRadius / Math.min(radiusX, radiusZ);
-
-    this.lakeNormalizedDistance = shapedDistance;
-    this.lakeCoverage =
-      (1 - smoothstep(shapedDistance, 0.96, 1.02)) * altitudeMask;
-    this.lakeBasin =
-      (1 - smoothstep(shapedDistance, 1, 1 + shoreRatio)) * altitudeMask;
-    this.lakeProximity =
-      (1 - smoothstep(shapedDistance, 1, 1 + humidityRatio)) * altitudeMask;
   }
 
   private clearLake(): void {
     this.lakeCoverage = 0;
     this.lakeBasin = 0;
     this.lakeProximity = 0;
-    this.lakeWaterLevel = 0;
     this.lakeNormalizedDistance = Number.POSITIVE_INFINITY;
   }
 }
