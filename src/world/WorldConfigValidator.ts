@@ -1,4 +1,8 @@
 import { resolveHydrologyLakeCellMargin } from "./hydrology/HydrologyField";
+import {
+  resolveHydrologyRiverMinimumSeparation,
+  resolveHydrologyRiverWetHalfWidth,
+} from "./hydrology/RiverField";
 import type { WorldConfig } from "./WorldConfig";
 
 const MAX_GRASS_PATCHES_PER_CHUNK_AXIS = 32;
@@ -118,12 +122,13 @@ export function validateWorldConfig(config: WorldConfig): void {
       "lakeSpacing must contain the largest lake, shoreline, and humidity halo inside one cell.",
     );
   }
+  const riverMinimumSeparation = resolveHydrologyRiverMinimumSeparation(config);
   if (
-    config.riverWidth * 0.5 + config.waterHumidityRadius >=
-    config.riverSpacing * 0.45
+    riverMinimumSeparation <= 0 ||
+    resolveHydrologyRiverWetHalfWidth(config) * 2 >= riverMinimumSeparation
   ) {
     throw new Error(
-      "River humidity bands must stay separated at the configured river spacing.",
+      "riverSpacing must keep worst-case meanders and humidity bands separated.",
     );
   }
   if (config.riverMaxAltitude <= config.grassMinAltitude) {
