@@ -9,6 +9,7 @@ const LAKE_SECONDARY_EDGE_LOBES = 9;
 const LAKE_MIN_ASPECT = 0.76;
 export const HYDROLOGY_LAKE_MAX_ASPECT = 1.28;
 const HYDROLOGY_LAKE_MAX_EDGE_SCALE = 1.06;
+const SAMPLE_HEIGHT_EPSILON = 1e-9;
 
 export interface HydrologySample {
   waterCoverage: number;
@@ -93,6 +94,10 @@ export class HydrologyField {
   private lakeSin = 0;
   private lakeEdgePhase = 0;
 
+  private carvedSampleX = Number.NaN;
+  private carvedSampleZ = Number.NaN;
+  private carvedSampleHeight = Number.NaN;
+
   constructor(private readonly config: WorldConfig) {}
 
   carveHeight(x: number, z: number, height: number): number {
@@ -110,6 +115,10 @@ export class HydrologyField {
         this.lakeWaterLevel - this.config.lakeDepth * (0.72 + core * 0.28);
       carved = lerp(carved, Math.min(carved, bedTarget), this.lakeBasin);
     }
+
+    this.carvedSampleX = x;
+    this.carvedSampleZ = z;
+    this.carvedSampleHeight = carved;
     return carved;
   }
 
@@ -130,7 +139,13 @@ export class HydrologyField {
       return target;
     }
 
-    this.sampleStructure(x, z, carvedHeight);
+    if (
+      x !== this.carvedSampleX ||
+      z !== this.carvedSampleZ ||
+      Math.abs(carvedHeight - this.carvedSampleHeight) > SAMPLE_HEIGHT_EPSILON
+    ) {
+      this.sampleStructure(x, z, carvedHeight);
+    }
     const waterCoverage = Math.max(this.riverCoverage, this.lakeCoverage);
     const waterProximity = Math.max(this.riverProximity, this.lakeProximity);
     const lakeDominant = this.lakeCoverage >= this.riverCoverage;
