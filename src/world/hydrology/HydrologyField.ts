@@ -6,6 +6,9 @@ const RIVER_ALTITUDE_FADE = 18;
 const LAKE_EDGE_FEATHER_RATIO = 0.035;
 const LAKE_PRIMARY_EDGE_LOBES = 5;
 const LAKE_SECONDARY_EDGE_LOBES = 9;
+const LAKE_MIN_ASPECT = 0.76;
+export const HYDROLOGY_LAKE_MAX_ASPECT = 1.28;
+const HYDROLOGY_LAKE_MAX_EDGE_SCALE = 1.06;
 
 export interface HydrologySample {
   waterCoverage: number;
@@ -27,6 +30,16 @@ export function createHydrologySample(): HydrologySample {
     riverCoverage: 0,
     lakeCoverage: 0,
   };
+}
+
+export function resolveHydrologyLakeCellMargin(config: WorldConfig): number {
+  return (
+    config.lakeRadiusMax *
+      HYDROLOGY_LAKE_MAX_ASPECT *
+      HYDROLOGY_LAKE_MAX_EDGE_SCALE +
+    Math.max(config.lakeShoreWidth, config.waterHumidityRadius) +
+    2
+  );
 }
 
 function clamp01(value: number): number {
@@ -252,7 +265,7 @@ export class HydrologyField {
     if (!this.lakeCellActive) return;
 
     const spacing = this.config.lakeSpacing;
-    const margin = this.config.lakeRadiusMax + this.config.lakeShoreWidth + 2;
+    const margin = resolveHydrologyLakeCellMargin(this.config);
     const available = spacing - margin * 2;
     this.lakeCenterX =
       cellX * spacing +
@@ -268,8 +281,8 @@ export class HydrologyField {
       hash(cellX, cellZ, this.config.seed + 1231),
     );
     const aspect = lerp(
-      0.76,
-      1.28,
+      LAKE_MIN_ASPECT,
+      HYDROLOGY_LAKE_MAX_ASPECT,
       hash(cellX, cellZ, this.config.seed + 1237),
     );
     this.lakeRadiusX = baseRadius * aspect;
