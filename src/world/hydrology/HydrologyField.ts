@@ -2,8 +2,6 @@ import type { WorldConfig } from "../WorldConfig";
 import { createLakeSample, LakeField } from "./LakeField";
 import { createRiverSample, RiverField } from "./RiverField";
 
-export { resolveHydrologyLakeCellMargin } from "./LakeField";
-
 const SAMPLE_HEIGHT_EPSILON = 1e-9;
 
 export interface HydrologySample {
