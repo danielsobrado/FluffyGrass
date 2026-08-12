@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import {
+  createHydrologySample,
+  type HydrologySample,
+} from "./hydrology/HydrologyField";
 import type { TerrainField } from "./TerrainField";
 import type {
   TerrainSurfaceField,
@@ -7,14 +11,17 @@ import type {
 
 /** Every grass layer and the character stay at the default 0. */
 export const TERRAIN_RENDER_ORDER = 1;
+export const WATER_RENDER_ORDER = 2;
 
 const VERTEX_STAGE = 0;
 const INDEX_STAGE = 1;
 const FINALIZE_STAGE = 2;
+const WATER_MIN_COVERAGE = 0.01;
 
 export class TerrainChunk {
   readonly key: string;
   readonly mesh: THREE.Mesh;
+  readonly waterMesh?: THREE.Mesh;
 
   constructor(
     readonly chunkX: number,
@@ -23,27 +30,32 @@ export class TerrainChunk {
     geometry: THREE.BufferGeometry,
     material: THREE.Material,
     receiveShadow: boolean,
+    waterGeometry?: THREE.BufferGeometry,
+    waterMaterial?: THREE.Material,
   ) {
     this.key = `${chunkX}:${chunkZ}`;
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = `terrain-${this.key}-r${resolution}`;
     this.mesh.receiveShadow = receiveShadow;
     this.mesh.castShadow = false;
-    // Terrain is the widest and most expensive per-pixel layer in the scene: a
-    // detail texture fetch plus shadow receiving over most of the frame. Its
-    // material is created before the grass materials, so three's opaque sort
-    // (renderOrder, then material.id, then depth) would otherwise shade it
-    // first with nothing occluding it. Pushing it behind every grass layer lets
-    // the depth buffer reject the terrain fragments the grass already covers.
     this.mesh.renderOrder = TERRAIN_RENDER_ORDER;
+
+    if (waterGeometry && waterMaterial) {
+      this.waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
+      this.waterMesh.name = `water-${this.key}-r${resolution}`;
+      this.waterMesh.receiveShadow = false;
+      this.waterMesh.castShadow = false;
+      this.waterMesh.renderOrder = WATER_RENDER_ORDER;
+    }
   }
 
   dispose(): void {
     this.mesh.geometry.dispose();
+    this.waterMesh?.geometry.dispose();
   }
 }
 
-/** Builds the configured terrain mesh in bounded slices instead of blocking a frame. */
+/** Builds terrain and matching water meshes in bounded slices. */
 export class TerrainChunkBuilder {
   readonly key: string;
   readonly resolution: number;
@@ -57,20 +69,28 @@ export class TerrainChunkBuilder {
   private readonly colors: Float32Array;
   private readonly paths: Float32Array;
   private readonly ecologies: Float32Array;
+  private readonly environments: Float32Array;
   private readonly biomes: Float32Array;
+  private readonly waterPositions: Float32Array;
+  private readonly waterNormals: Float32Array;
+  private readonly waterCoverages: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private readonly pathDistances = new THREE.Vector2();
   private readonly ecology = new THREE.Vector4();
-  private readonly biome = new THREE.Vector4();
+  private readonly environment = new THREE.Vector4();
+  private readonly biome = new THREE.Vector3();
+  private readonly hydrology: HydrologySample = createHydrologySample();
   private readonly surfaceTargets: TerrainSurfaceTargets = {
     ecology: this.ecology,
+    environment: this.environment,
     biome: this.biome,
   };
   private stage = VERTEX_STAGE;
   private nextVertex = 0;
   private nextCell = 0;
+  private maxWaterCoverage = 0;
 
   constructor(
     private readonly chunkX: number,
@@ -80,6 +100,7 @@ export class TerrainChunkBuilder {
     private readonly field: TerrainField,
     private readonly surfaceField: TerrainSurfaceField,
     private readonly material: THREE.Material,
+    private readonly waterMaterial: THREE.Material | undefined,
     private readonly receiveShadow: boolean,
   ) {
     this.key = `${chunkX}:${chunkZ}`;
@@ -94,7 +115,11 @@ export class TerrainChunkBuilder {
     this.colors = new Float32Array(vertexCount * 3);
     this.paths = new Float32Array(vertexCount * 3);
     this.ecologies = new Float32Array(vertexCount * 4);
-    this.biomes = new Float32Array(vertexCount * 4);
+    this.environments = new Float32Array(vertexCount * 4);
+    this.biomes = new Float32Array(vertexCount * 3);
+    this.waterPositions = new Float32Array(vertexCount * 3);
+    this.waterNormals = new Float32Array(vertexCount * 3);
+    this.waterCoverages = new Float32Array(vertexCount);
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
@@ -133,6 +158,7 @@ export class TerrainChunkBuilder {
       const x = this.originX + xIndex * this.step;
       const z = this.originZ + zIndex * this.step;
       const height = this.field.sampleHeight(x, z);
+      this.field.sampleHydrology(x, z, height, this.hydrology);
       this.field.sampleNormal(x, z, this.normal);
       const suitability = this.field.sampleGrassSuitability(
         x,
@@ -148,11 +174,15 @@ export class TerrainChunkBuilder {
         suitability,
         this.color,
       );
-      // Signed distances, not a coverage mask: a signed distance field stays
-      // close to linear across a cell, so interpolating it between vertices
-      // metres apart still resolves a way barely wider than one of them.
       this.field.samplePathDistances(x, z, this.pathDistances);
-      this.surfaceField.sample(x, z, suitability, this.surfaceTargets);
+      this.surfaceField.sample(
+        x,
+        z,
+        height,
+        suitability,
+        this.hydrology,
+        this.surfaceTargets,
+      );
 
       const offset = this.nextVertex * 3;
       this.paths[offset] = this.pathDistances.x;
@@ -167,15 +197,34 @@ export class TerrainChunkBuilder {
       this.colors[offset] = this.color.r;
       this.colors[offset + 1] = this.color.g;
       this.colors[offset + 2] = this.color.b;
+
       const ecologyOffset = this.nextVertex * 4;
       this.ecologies[ecologyOffset] = this.ecology.x;
       this.ecologies[ecologyOffset + 1] = this.ecology.y;
       this.ecologies[ecologyOffset + 2] = this.ecology.z;
       this.ecologies[ecologyOffset + 3] = this.ecology.w;
-      this.biomes[ecologyOffset] = this.biome.x;
-      this.biomes[ecologyOffset + 1] = this.biome.y;
-      this.biomes[ecologyOffset + 2] = this.biome.z;
-      this.biomes[ecologyOffset + 3] = this.biome.w;
+      this.environments[ecologyOffset] = this.environment.x;
+      this.environments[ecologyOffset + 1] = this.environment.y;
+      this.environments[ecologyOffset + 2] = this.environment.z;
+      this.environments[ecologyOffset + 3] = this.environment.w;
+
+      const biomeOffset = this.nextVertex * 3;
+      this.biomes[biomeOffset] = this.biome.x;
+      this.biomes[biomeOffset + 1] = this.biome.y;
+      this.biomes[biomeOffset + 2] = this.biome.z;
+
+      this.waterPositions[offset] = x;
+      this.waterPositions[offset + 1] = this.hydrology.waterLevel;
+      this.waterPositions[offset + 2] = z;
+      this.waterNormals[offset] = 0;
+      this.waterNormals[offset + 1] = 1;
+      this.waterNormals[offset + 2] = 0;
+      this.waterCoverages[this.nextVertex] = this.hydrology.waterCoverage;
+      this.maxWaterCoverage = Math.max(
+        this.maxWaterCoverage,
+        this.hydrology.waterCoverage,
+      );
+
       this.nextVertex += 1;
       processed += 1;
     }
@@ -234,12 +283,18 @@ export class TerrainChunkBuilder {
       new THREE.BufferAttribute(this.ecologies, 4),
     );
     geometry.setAttribute(
+      "terrainEnvironment",
+      new THREE.BufferAttribute(this.environments, 4),
+    );
+    geometry.setAttribute(
       "terrainBiome",
-      new THREE.BufferAttribute(this.biomes, 4),
+      new THREE.BufferAttribute(this.biomes, 3),
     );
     geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
+
+    const waterGeometry = this.createWaterGeometry();
     this.stage += 1;
     return new TerrainChunk(
       this.chunkX,
@@ -248,6 +303,31 @@ export class TerrainChunkBuilder {
       geometry,
       this.material,
       this.receiveShadow,
+      waterGeometry,
+      waterGeometry ? this.waterMaterial : undefined,
     );
+  }
+
+  private createWaterGeometry(): THREE.BufferGeometry | undefined {
+    if (!this.waterMaterial || this.maxWaterCoverage <= WATER_MIN_COVERAGE) {
+      return undefined;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(this.waterPositions, 3),
+    );
+    geometry.setAttribute(
+      "normal",
+      new THREE.BufferAttribute(this.waterNormals, 3),
+    );
+    geometry.setAttribute(
+      "waterCoverage",
+      new THREE.BufferAttribute(this.waterCoverages, 1),
+    );
+    geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
   }
 }
