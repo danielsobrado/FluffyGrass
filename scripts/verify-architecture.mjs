@@ -6,6 +6,8 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORLD_APP_MAX_LINES = 540;
 const TERRAIN_STREAMER_MAX_LINES = 300;
+const HYDROLOGY_FIELD_MAX_LINES = 340;
+const WATER_MATERIAL_MAX_LINES = 180;
 const STONE_GEOMETRY_MAX_LINES = 340;
 const EXTRACTED_MODULE_MAX_LINES = 260;
 const CONFIG_LOADER_MAX_LINES = 220;
@@ -34,9 +36,12 @@ const environment = read("src/app/WorldEnvironmentController.ts");
 const frameMetrics = read("src/app/WorldFrameMetrics.ts");
 const runtimeGuard = read("src/app/WorldRuntimeGuard.ts");
 const statusHud = read("src/app/WorldStatusHud.ts");
+const terrainField = read("src/world/TerrainField.ts");
 const terrainStreamer = read("src/world/TerrainStreamer.ts");
 const terrainMaterial = read("src/world/TerrainMaterialController.ts");
 const terrainShader = read("src/world/TerrainMaterialShader.ts");
+const hydrologyField = read("src/world/hydrology/HydrologyField.ts");
+const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
 const stoneClearance = read("src/world/stones/StoneClearance.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
@@ -141,6 +146,7 @@ assert(
 assert(
   lineCount(terrainStreamer) <= TERRAIN_STREAMER_MAX_LINES &&
     terrainStreamer.includes("TerrainMaterialController") &&
+    terrainStreamer.includes("WaterMaterialController") &&
     terrainStreamer.includes("private disposed = false") &&
     !terrainStreamer.includes("onBeforeCompile") &&
     !terrainStreamer.includes("TERRAIN_DETAIL_COLOR"),
@@ -153,6 +159,22 @@ assert(
     terrainMaterial.includes("surfaceNoiseTexture.dispose()") &&
     terrainShader.includes("TERRAIN_DETAIL_COLOR"),
   "Terrain material and shader modules must own terrain rendering concerns outside the streamer.",
+);
+assert(
+  lineCount(hydrologyField) <= HYDROLOGY_FIELD_MAX_LINES &&
+    terrainField.includes('from "./hydrology/HydrologyField"') &&
+    terrainField.includes("this.hydrology.carveHeight") &&
+    !hydrologyField.includes('from "../TerrainField"') &&
+    !hydrologyField.includes("THREE."),
+  "Hydrology must stay a deterministic field independent from terrain rendering and Three.js.",
+);
+assert(
+  lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
+    waterMaterial.includes("class WaterMaterialController") &&
+    waterMaterial.includes("onBeforeCompile") &&
+    waterMaterial.includes("depthWrite: false") &&
+    !terrainStreamer.includes("MeshPhongMaterial"),
+  "Water shading must remain isolated from terrain streaming and keep transparent depth writes disabled.",
 );
 
 assert(
@@ -218,11 +240,13 @@ assert(
 );
 assert(
   worldConfigSchema.includes("grassFarImpostorsPerPatch") &&
+    worldConfigSchema.includes("waterEnabled") &&
     worldConfigValidator.includes("validateWorldConfig") &&
+    worldConfigValidator.includes("resolveHydrologyLakeCellMargin") &&
     grassConfigValidator.includes("validateGrassConfig"),
-  "World and grass domain invariants must remain explicit outside their loaders.",
+  "World, hydrology, and grass domain invariants must remain explicit outside their loaders.",
 );
 
 console.log(
-  "[architecture] Runtime, terrain, config, and stone responsibility boundaries verified.",
+  "[architecture] Runtime, terrain, hydrology, config, and stone responsibility boundaries verified.",
 );
