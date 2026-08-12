@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
+import { WaterMaterialController } from "./hydrology/WaterMaterialController";
 import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
 import type { TerrainField } from "./TerrainField";
 import { TerrainMaterialController } from "./TerrainMaterialController";
@@ -31,6 +32,7 @@ export class TerrainStreamer {
   private readonly queue: ChunkRequest[] = [];
   private readonly desired = new Map<string, ChunkRequest>();
   private readonly materialController: TerrainMaterialController;
+  private readonly waterMaterialController: WaterMaterialController;
   private readonly surfaceField: TerrainSurfaceField;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
@@ -47,7 +49,8 @@ export class TerrainStreamer {
     shadows: boolean,
   ) {
     this.materialController = new TerrainMaterialController(config, shadows);
-    this.surfaceField = new TerrainSurfaceField();
+    this.waterMaterialController = new WaterMaterialController(config);
+    this.surfaceField = new TerrainSurfaceField(config);
   }
 
   update(
@@ -57,6 +60,7 @@ export class TerrainStreamer {
     if (this.disposed) {
       return;
     }
+    this.waterMaterialController.update(performance.now() * 0.001);
     const chunkX = Math.floor(position.x / this.config.chunkSize);
     const chunkZ = Math.floor(position.z / this.config.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -96,6 +100,7 @@ export class TerrainStreamer {
     this.activeBuild = undefined;
     this.desired.clear();
     this.materialController.dispose();
+    this.waterMaterialController.dispose();
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {
@@ -210,6 +215,9 @@ export class TerrainStreamer {
         this.field,
         this.surfaceField,
         this.materialController.material,
+        this.config.waterEnabled >= 1
+          ? this.waterMaterialController.material
+          : undefined,
         this.materialController.shadows,
       );
     }
@@ -252,11 +260,17 @@ export class TerrainStreamer {
     }
     this.chunks.set(chunk.key, chunk);
     this.scene.add(chunk.mesh);
+    if (chunk.waterMesh) {
+      this.scene.add(chunk.waterMesh);
+    }
     this.activeBuild = undefined;
   }
 
   private removeChunk(chunk: TerrainChunk): void {
     this.scene.remove(chunk.mesh);
+    if (chunk.waterMesh) {
+      this.scene.remove(chunk.waterMesh);
+    }
     chunk.dispose();
   }
 }
