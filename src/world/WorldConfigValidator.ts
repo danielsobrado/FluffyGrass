@@ -1,3 +1,4 @@
+import { resolveHydrologyLakeCellMargin } from "./hydrology/HydrologyField";
 import type { WorldConfig } from "./WorldConfig";
 
 const MAX_GRASS_PATCHES_PER_CHUNK_AXIS = 32;
@@ -112,10 +113,9 @@ export function validateWorldConfig(config: WorldConfig): void {
   if (config.lakeRadiusMin > config.lakeRadiusMax) {
     throw new Error("lakeRadius range is reversed.");
   }
-  const lakeCellMargin = config.lakeRadiusMax + config.lakeShoreWidth + 2;
-  if (lakeCellMargin * 2 >= config.lakeSpacing) {
+  if (resolveHydrologyLakeCellMargin(config) * 2 >= config.lakeSpacing) {
     throw new Error(
-      "lakeSpacing must leave room for the largest lake and its shore inside one cell.",
+      "lakeSpacing must contain the largest lake, shoreline, and humidity halo inside one cell.",
     );
   }
   if (
