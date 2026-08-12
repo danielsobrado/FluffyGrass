@@ -64,6 +64,25 @@ export interface WorldConfig {
   mountainHeight: number;
   mountainScale: number;
   detailScale: number;
+  /** 0 disables terrain carving, wetness, grass exclusion, and water meshes. */
+  waterEnabled: number;
+  riverWidth: number;
+  riverBankWidth: number;
+  riverDepth: number;
+  riverSpacing: number;
+  riverMeander: number;
+  riverMaxAltitude: number;
+  waterHumidityRadius: number;
+  lakeSpacing: number;
+  lakeChance: number;
+  lakeRadiusMin: number;
+  lakeRadiusMax: number;
+  lakeDepth: number;
+  lakeShoreWidth: number;
+  waterSurfaceOffset: number;
+  waterOpacity: number;
+  waterRippleStrength: number;
+  waterRippleScale: number;
   pathWidth: number;
   pathBranchWidth: number;
   pathSpacing: number;
