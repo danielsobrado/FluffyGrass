@@ -1,9 +1,5 @@
 import type { WorldConfig } from "../WorldConfig";
-import {
-  createLakeSample,
-  LakeField,
-  resolveHydrologyLakeCellMargin,
-} from "./LakeField";
+import { createLakeSample, LakeField } from "./LakeField";
 import { createRiverSample, RiverField } from "./RiverField";
 
 export { resolveHydrologyLakeCellMargin } from "./LakeField";
