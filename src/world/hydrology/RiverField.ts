@@ -5,6 +5,8 @@ const RIVER_EDGE_FEATHER = 0.8;
 const RIVER_ALTITUDE_FADE = 18;
 const RIVER_SECONDARY_AMPLITUDE = 0.3;
 const RIVER_LATERAL_OFFSET = 0.18;
+const RIVER_MAX_MEANDER_SCALE = 1.15;
+export const HYDROLOGY_RIVER_MAX_WIDTH_SCALE = 1.18;
 
 export interface RiverSample {
   coverage: number;
@@ -14,6 +16,25 @@ export interface RiverSample {
 
 export function createRiverSample(): RiverSample {
   return { coverage: 0, bank: 0, proximity: 0 };
+}
+
+export function resolveHydrologyRiverMinimumSeparation(
+  config: WorldConfig,
+): number {
+  const maximumLateralShift =
+    config.riverSpacing * RIVER_LATERAL_OFFSET * 0.5;
+  const maximumMeander =
+    config.riverMeander *
+    RIVER_MAX_MEANDER_SCALE *
+    (1 + RIVER_SECONDARY_AMPLITUDE);
+  return config.riverSpacing - 2 * (maximumLateralShift + maximumMeander);
+}
+
+export function resolveHydrologyRiverWetHalfWidth(config: WorldConfig): number {
+  return (
+    config.riverWidth * HYDROLOGY_RIVER_MAX_WIDTH_SCALE * 0.5 +
+    config.waterHumidityRadius
+  );
 }
 
 function lerp(start: number, end: number, amount: number): number {
@@ -106,12 +127,17 @@ export class RiverField {
     const phasePrimary = hash(index, seed + 1301) * TWO_PI;
     const phaseSecondary = hash(index, seed + 1307) * TWO_PI;
     const amplitude =
-      this.config.riverMeander * lerp(0.72, 1.15, hash(index, seed + 1319));
+      this.config.riverMeander *
+      lerp(0.72, RIVER_MAX_MEANDER_SCALE, hash(index, seed + 1319));
     const lateralOffset =
       (hash(index, seed + 1327) - 0.5) *
       this.config.riverSpacing *
       RIVER_LATERAL_OFFSET;
-    const widthScale = lerp(0.82, 1.18, hash(index, seed + 1361));
+    const widthScale = lerp(
+      0.82,
+      HYDROLOGY_RIVER_MAX_WIDTH_SCALE,
+      hash(index, seed + 1361),
+    );
     const centerZ =
       index * this.config.riverSpacing +
       lateralOffset +
