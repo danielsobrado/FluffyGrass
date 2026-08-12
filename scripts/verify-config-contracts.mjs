@@ -102,6 +102,24 @@ try {
       () =>
         load(
           worldLoader,
+          worldSource.replace("lakeSpacing: 480", "lakeSpacing: 180"),
+        ),
+      /largest lake, shoreline, and humidity halo/i,
+      "Lake cells must contain their complete basin and humidity footprint.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("riverMeander: 105", "riverMeander: 220"),
+        ),
+      /worst-case meanders and humidity bands separated/i,
+      "River tuning must reject corridors that can collide after meandering.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
           worldSource.replace("seed: 42017", "seed: 9007199254740992"),
         ),
       /seed must be a safe integer/,
