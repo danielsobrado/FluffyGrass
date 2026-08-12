@@ -1,14 +1,13 @@
 import type { WorldConfig } from "../WorldConfig";
+import {
+  createLakeSample,
+  LakeField,
+  resolveHydrologyLakeCellMargin,
+} from "./LakeField";
+import { createRiverSample, RiverField } from "./RiverField";
 
-const TWO_PI = Math.PI * 2;
-const RIVER_EDGE_FEATHER = 0.8;
-const RIVER_ALTITUDE_FADE = 18;
-const LAKE_EDGE_FEATHER_RATIO = 0.035;
-const LAKE_PRIMARY_EDGE_LOBES = 5;
-const LAKE_SECONDARY_EDGE_LOBES = 9;
-const LAKE_MIN_ASPECT = 0.76;
-export const HYDROLOGY_LAKE_MAX_ASPECT = 1.28;
-const HYDROLOGY_LAKE_MAX_EDGE_SCALE = 1.06;
+export { resolveHydrologyLakeCellMargin } from "./LakeField";
+
 const SAMPLE_HEIGHT_EPSILON = 1e-9;
 
 export interface HydrologySample {
@@ -33,16 +32,6 @@ export function createHydrologySample(): HydrologySample {
   };
 }
 
-export function resolveHydrologyLakeCellMargin(config: WorldConfig): number {
-  return (
-    config.lakeRadiusMax *
-      HYDROLOGY_LAKE_MAX_ASPECT *
-      HYDROLOGY_LAKE_MAX_EDGE_SCALE +
-    Math.max(config.lakeShoreWidth, config.waterHumidityRadius) +
-    2
-  );
-}
-
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
@@ -58,47 +47,20 @@ function smoothstep(value: number, minimum: number, maximum: number): number {
   return amount * amount * (3 - 2 * amount);
 }
 
-function hash(x: number, z: number, seed: number): number {
-  let value = Math.imul(x, 374761393) ^ Math.imul(z, 668265263) ^ seed;
-  value = Math.imul(value ^ (value >>> 13), 1274126177);
-  return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
-}
-
-function repeatedDistance(value: number, period: number): number {
-  const wrapped = value - Math.floor(value / period) * period;
-  return Math.min(wrapped, period - wrapped);
-}
-
-/**
- * Deterministic hydrology semantics shared by terrain carving, grass placement,
- * terrain shading, and water rendering.
- */
+/** Coordinates terrain carving and the shared water/ecology semantics. */
 export class HydrologyField {
-  private riverCoverage = 0;
-  private riverBank = 0;
-  private riverProximity = 0;
-  private lakeCoverage = 0;
-  private lakeBasin = 0;
-  private lakeProximity = 0;
-  private lakeWaterLevel = 0;
-  private lakeNormalizedDistance = Number.POSITIVE_INFINITY;
-
-  private lakeCellX = Number.NaN;
-  private lakeCellZ = Number.NaN;
-  private lakeCellActive = false;
-  private lakeCenterX = 0;
-  private lakeCenterZ = 0;
-  private lakeRadiusX = 1;
-  private lakeRadiusZ = 1;
-  private lakeCos = 1;
-  private lakeSin = 0;
-  private lakeEdgePhase = 0;
-
+  private readonly rivers: RiverField;
+  private readonly lakes: LakeField;
+  private readonly river = createRiverSample();
+  private readonly lake = createLakeSample();
   private carvedSampleX = Number.NaN;
   private carvedSampleZ = Number.NaN;
   private carvedSampleHeight = Number.NaN;
 
-  constructor(private readonly config: WorldConfig) {}
+  constructor(private readonly config: WorldConfig) {
+    this.rivers = new RiverField(config);
+    this.lakes = new LakeField(config);
+  }
 
   carveHeight(x: number, z: number, height: number): number {
     if (this.config.waterEnabled < 1) return height;
@@ -106,14 +68,15 @@ export class HydrologyField {
     this.sampleStructure(x, z, height);
     const riverDepth =
       this.config.riverDepth *
-      (this.riverCoverage * 0.72 + this.riverBank * 0.28);
+      (this.river.coverage * 0.72 + this.river.bank * 0.28);
     let carved = height - riverDepth;
 
-    if (this.lakeBasin > 0) {
-      const core = 1 - clamp01(this.lakeNormalizedDistance);
+    if (this.lake.basin > 0) {
+      const core = 1 - clamp01(this.lake.normalizedDistance);
       const bedTarget =
-        this.lakeWaterLevel - this.config.lakeDepth * (0.72 + core * 0.28);
-      carved = lerp(carved, Math.min(carved, bedTarget), this.lakeBasin);
+        this.lake.waterLevel -
+        this.config.lakeDepth * (0.72 + core * 0.28);
+      carved = lerp(carved, Math.min(carved, bedTarget), this.lake.basin);
     }
 
     this.carvedSampleX = x;
@@ -129,14 +92,7 @@ export class HydrologyField {
     target: HydrologySample,
   ): HydrologySample {
     if (this.config.waterEnabled < 1) {
-      target.waterCoverage = 0;
-      target.waterProximity = 0;
-      target.humidityBoost = 0;
-      target.grassMask = 1;
-      target.waterLevel = carvedHeight;
-      target.riverCoverage = 0;
-      target.lakeCoverage = 0;
-      return target;
+      return this.clear(carvedHeight, target);
     }
 
     if (
@@ -146,176 +102,39 @@ export class HydrologyField {
     ) {
       this.sampleStructure(x, z, carvedHeight);
     }
-    const waterCoverage = Math.max(this.riverCoverage, this.lakeCoverage);
-    const waterProximity = Math.max(this.riverProximity, this.lakeProximity);
-    const lakeDominant = this.lakeCoverage >= this.riverCoverage;
+
+    const waterCoverage = Math.max(this.river.coverage, this.lake.coverage);
+    const waterProximity = Math.max(this.river.proximity, this.lake.proximity);
     const riverWaterDepth =
-      this.config.riverDepth * (0.58 + this.riverCoverage * 0.12);
+      this.config.riverDepth * (0.58 + this.river.coverage * 0.12);
 
     target.waterCoverage = clamp01(waterCoverage);
     target.waterProximity = clamp01(waterProximity);
     target.humidityBoost = clamp01(waterProximity * 0.68);
     target.grassMask = 1 - smoothstep(waterCoverage, 0.03, 0.28);
     target.waterLevel =
-      (lakeDominant && this.lakeCoverage > 0.01
-        ? this.lakeWaterLevel
-        : carvedHeight + riverWaterDepth * this.riverCoverage) +
+      (this.lake.coverage > 0.01
+        ? this.lake.waterLevel
+        : carvedHeight + riverWaterDepth * this.river.coverage) +
       this.config.waterSurfaceOffset;
-    target.riverCoverage = clamp01(this.riverCoverage);
-    target.lakeCoverage = clamp01(this.lakeCoverage);
+    target.riverCoverage = clamp01(this.river.coverage);
+    target.lakeCoverage = clamp01(this.lake.coverage);
     return target;
   }
 
   private sampleStructure(x: number, z: number, height: number): void {
-    this.sampleRiver(x, z, height);
-    this.sampleLake(x, z, height);
+    this.rivers.sample(x, z, height, this.river);
+    this.lakes.sample(x, z, height, this.lake);
   }
 
-  private sampleRiver(x: number, z: number, height: number): void {
-    const spacing = this.config.riverSpacing;
-    const phase = (this.config.seed % 8192) / 8192 * TWO_PI;
-    const primaryFrequency = TWO_PI / (spacing * 1.7);
-    const secondaryFrequency = TWO_PI / (spacing * 0.63);
-    const meander =
-      Math.sin(x * primaryFrequency + phase) * this.config.riverMeander +
-      Math.sin(x * secondaryFrequency + phase * 1.73) *
-        this.config.riverMeander *
-        0.32;
-    const distance = repeatedDistance(z + meander, spacing);
-    const halfWidth = this.config.riverWidth * 0.5;
-    const altitudeMask =
-      1 -
-      smoothstep(
-        height,
-        this.config.riverMaxAltitude - RIVER_ALTITUDE_FADE,
-        this.config.riverMaxAltitude,
-      );
-
-    this.riverCoverage =
-      (1 -
-        smoothstep(
-          distance,
-          Math.max(0, halfWidth - RIVER_EDGE_FEATHER),
-          halfWidth + RIVER_EDGE_FEATHER,
-        )) *
-      altitudeMask;
-    this.riverBank =
-      (1 -
-        smoothstep(
-          distance,
-          halfWidth,
-          halfWidth + this.config.riverBankWidth,
-        )) *
-      altitudeMask;
-    this.riverProximity =
-      (1 -
-        smoothstep(
-          distance,
-          halfWidth,
-          halfWidth + this.config.waterHumidityRadius,
-        )) *
-      altitudeMask;
-  }
-
-  private sampleLake(x: number, z: number, height: number): void {
-    const spacing = this.config.lakeSpacing;
-    const cellX = Math.floor(x / spacing);
-    const cellZ = Math.floor(z / spacing);
-    this.prepareLakeCell(cellX, cellZ);
-    if (!this.lakeCellActive) {
-      this.clearLake();
-      return;
-    }
-
-    const dx = x - this.lakeCenterX;
-    const dz = z - this.lakeCenterZ;
-    const localX = dx * this.lakeCos + dz * this.lakeSin;
-    const localZ = -dx * this.lakeSin + dz * this.lakeCos;
-    const normalized = Math.hypot(
-      localX / this.lakeRadiusX,
-      localZ / this.lakeRadiusZ,
-    );
-    const polar = Math.atan2(
-      localZ / this.lakeRadiusZ,
-      localX / this.lakeRadiusX,
-    );
-    const edge =
-      Math.sin(polar * LAKE_PRIMARY_EDGE_LOBES + this.lakeEdgePhase) *
-        LAKE_EDGE_FEATHER_RATIO +
-      Math.sin(
-        polar * LAKE_SECONDARY_EDGE_LOBES - this.lakeEdgePhase * 0.71,
-      ) *
-        LAKE_EDGE_FEATHER_RATIO *
-        0.45;
-    const shapedDistance = normalized / (1 + edge);
-    const altitudeMask =
-      1 -
-      smoothstep(
-        height,
-        this.lakeWaterLevel + this.config.lakeDepth * 0.8,
-        this.lakeWaterLevel +
-          this.config.lakeDepth +
-          this.config.lakeShoreWidth,
-      );
-    const minimumRadius = Math.min(this.lakeRadiusX, this.lakeRadiusZ);
-    const shoreRatio = this.config.lakeShoreWidth / minimumRadius;
-    const humidityRatio = this.config.waterHumidityRadius / minimumRadius;
-
-    this.lakeNormalizedDistance = shapedDistance;
-    this.lakeCoverage =
-      (1 - smoothstep(shapedDistance, 0.96, 1.02)) * altitudeMask;
-    this.lakeBasin =
-      (1 - smoothstep(shapedDistance, 1, 1 + shoreRatio)) * altitudeMask;
-    this.lakeProximity =
-      (1 - smoothstep(shapedDistance, 1, 1 + humidityRatio)) * altitudeMask;
-  }
-
-  private prepareLakeCell(cellX: number, cellZ: number): void {
-    if (cellX === this.lakeCellX && cellZ === this.lakeCellZ) return;
-
-    this.lakeCellX = cellX;
-    this.lakeCellZ = cellZ;
-    this.lakeCellActive =
-      hash(cellX, cellZ, this.config.seed + 1201) < this.config.lakeChance;
-    if (!this.lakeCellActive) return;
-
-    const spacing = this.config.lakeSpacing;
-    const margin = resolveHydrologyLakeCellMargin(this.config);
-    const available = spacing - margin * 2;
-    this.lakeCenterX =
-      cellX * spacing +
-      margin +
-      hash(cellX, cellZ, this.config.seed + 1213) * available;
-    this.lakeCenterZ =
-      cellZ * spacing +
-      margin +
-      hash(cellX, cellZ, this.config.seed + 1223) * available;
-    const baseRadius = lerp(
-      this.config.lakeRadiusMin,
-      this.config.lakeRadiusMax,
-      hash(cellX, cellZ, this.config.seed + 1231),
-    );
-    const aspect = lerp(
-      LAKE_MIN_ASPECT,
-      HYDROLOGY_LAKE_MAX_ASPECT,
-      hash(cellX, cellZ, this.config.seed + 1237),
-    );
-    this.lakeRadiusX = baseRadius * aspect;
-    this.lakeRadiusZ = baseRadius / aspect;
-    const angle = hash(cellX, cellZ, this.config.seed + 1249) * TWO_PI;
-    this.lakeCos = Math.cos(angle);
-    this.lakeSin = Math.sin(angle);
-    this.lakeEdgePhase = hash(cellX, cellZ, this.config.seed + 1259) * TWO_PI;
-    const levelNoise = hash(cellX, cellZ, this.config.seed + 1277);
-    this.lakeWaterLevel =
-      this.config.baseHeight +
-      this.config.rollingHeight * lerp(0.06, 0.42, levelNoise);
-  }
-
-  private clearLake(): void {
-    this.lakeCoverage = 0;
-    this.lakeBasin = 0;
-    this.lakeProximity = 0;
-    this.lakeNormalizedDistance = Number.POSITIVE_INFINITY;
+  private clear(height: number, target: HydrologySample): HydrologySample {
+    target.waterCoverage = 0;
+    target.waterProximity = 0;
+    target.humidityBoost = 0;
+    target.grassMask = 1;
+    target.waterLevel = height;
+    target.riverCoverage = 0;
+    target.lakeCoverage = 0;
+    return target;
   }
 }
