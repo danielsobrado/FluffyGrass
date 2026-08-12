@@ -1,4 +1,4 @@
-import { resolveHydrologyLakeCellMargin } from "./hydrology/HydrologyField";
+import { resolveHydrologyLakeCellMargin } from "./hydrology/LakeField";
 import {
   resolveHydrologyRiverMinimumSeparation,
   resolveHydrologyRiverWetHalfWidth,
