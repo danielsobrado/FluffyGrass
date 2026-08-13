@@ -104,9 +104,10 @@ assert(
       "this.streamingBuildDeadline - grassBuildReserveMs - stoneBuildReserveMs",
     ) &&
     worldApp.includes("this.streamingBuildDeadline - grassBuildReserveMs") &&
-    worldApp.includes("performance.now() + stoneBuildReserveMs") &&
-    worldApp.includes("performance.now() + grassBuildReserveMs"),
-  "The shared streaming budget must reserve bounded progress for terrain, stones, and grass instead of allowing an earlier subsystem to starve grass.",
+    worldApp.includes("cameraGroundHeight,\n      this.streamingBuildDeadline") &&
+    !worldApp.includes("performance.now() + stoneBuildReserveMs") &&
+    !worldApp.includes("performance.now() + grassBuildReserveMs"),
+  "Terrain, stones, and grass must share one hard streaming deadline without creating budget after it expires.",
 );
 assert(
   worldApp.includes(
