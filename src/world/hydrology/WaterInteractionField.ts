@@ -1,5 +1,6 @@
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import type { WorldConfig } from "../WorldConfig";
+import type { HydrologySample } from "./HydrologyField";
 
 const STONE_INTERACTION_EXTRA_RADIUS = 0.75;
 const MIN_RIVER_WAKE_COVERAGE = 0.02;
@@ -22,9 +23,7 @@ export class WaterInteractionField {
   sample(
     x: number,
     z: number,
-    riverCoverage: number,
-    flowX: number,
-    flowZ: number,
+    hydrology: HydrologySample,
     stoneClearance: number,
     target: WaterInteractionSample,
   ): WaterInteractionSample {
@@ -46,25 +45,25 @@ export class WaterInteractionField {
 
     if (
       this.config.waterStoneWakeStrength <= 0 ||
-      riverCoverage <= MIN_RIVER_WAKE_COVERAGE
+      hydrology.riverCoverage <= MIN_RIVER_WAKE_COVERAGE
     ) {
       return target;
     }
 
-    const flowLength = Math.hypot(flowX, flowZ);
+    const flowLength = Math.hypot(hydrology.flowX, hydrology.flowZ);
     if (!(flowLength > 1e-6)) {
       return target;
     }
 
-    const normalizedFlowX = flowX / flowLength;
-    const normalizedFlowZ = flowZ / flowLength;
+    const flowX = hydrology.flowX / flowLength;
+    const flowZ = hydrology.flowZ / flowLength;
     let wake = 0;
     for (let index = 1; index <= WAKE_SAMPLE_COUNT; index += 1) {
       const progress = index / WAKE_SAMPLE_COUNT;
       const distance = this.config.waterStoneWakeLength * progress;
       const upstreamClearance = sampleStoneGrassClearance(
-        x - normalizedFlowX * distance,
-        z - normalizedFlowZ * distance,
+        x - flowX * distance,
+        z - flowZ * distance,
         STONE_INTERACTION_EXTRA_RADIUS,
       );
       const upstreamObstacle = Math.max(0, Math.min(1, 1 - upstreamClearance));
@@ -73,7 +72,7 @@ export class WaterInteractionField {
     }
 
     target.wake =
-      Math.max(0, wake - target.obstacle * 0.35) * riverCoverage;
+      Math.max(0, wake - target.obstacle * 0.35) * hydrology.riverCoverage;
     return target;
   }
 }
