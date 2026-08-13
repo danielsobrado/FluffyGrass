@@ -105,13 +105,14 @@ export class HydrologyField {
     const waterProximity = Math.max(this.river.proximity, this.lake.proximity);
     const riverWaterDepth =
       this.config.riverDepth * (0.58 + this.river.coverage * 0.12);
+    const lakeSurfaceActive = this.lake.basin > 0.001;
 
     target.waterCoverage = clamp01(waterCoverage);
     target.waterProximity = clamp01(waterProximity);
     target.humidityBoost = clamp01(waterProximity * 0.68);
     target.grassMask = 1 - smoothstep(waterCoverage, 0.03, 0.28);
     target.waterLevel =
-      (this.lake.coverage > 0.01
+      (lakeSurfaceActive
         ? this.lake.waterLevel
         : carvedHeight + riverWaterDepth * this.river.coverage) +
       this.config.waterSurfaceOffset;
