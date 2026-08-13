@@ -12,6 +12,8 @@ export interface HydrologySample {
   waterLevel: number;
   riverCoverage: number;
   lakeCoverage: number;
+  flowX: number;
+  flowZ: number;
 }
 
 export function createHydrologySample(): HydrologySample {
@@ -23,6 +25,8 @@ export function createHydrologySample(): HydrologySample {
     waterLevel: 0,
     riverCoverage: 0,
     lakeCoverage: 0,
+    flowX: 0,
+    flowZ: 0,
   };
 }
 
@@ -113,6 +117,8 @@ export class HydrologyField {
       this.config.waterSurfaceOffset;
     target.riverCoverage = clamp01(this.river.coverage);
     target.lakeCoverage = clamp01(this.lake.coverage);
+    target.flowX = this.river.flowX;
+    target.flowZ = this.river.flowZ;
     return target;
   }
 
@@ -129,6 +135,8 @@ export class HydrologyField {
     target.waterLevel = height;
     target.riverCoverage = 0;
     target.lakeCoverage = 0;
+    target.flowX = 0;
+    target.flowZ = 0;
     return target;
   }
 }
