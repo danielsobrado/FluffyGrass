@@ -2,6 +2,7 @@ import type { WorldConfig } from "../WorldConfig";
 
 const TWO_PI = Math.PI * 2;
 const RIVER_EDGE_FEATHER = 0.8;
+const RIVER_LOD_VISIBLE_EDGE_FACTOR = 0.75;
 const RIVER_ALTITUDE_FADE = 18;
 const RIVER_SECONDARY_AMPLITUDE = 0.3;
 const RIVER_LATERAL_OFFSET = 0.18;
@@ -43,7 +44,10 @@ export function resolveHydrologyRiverWetHalfWidth(config: WorldConfig): number {
 export function resolveHydrologyRiverMinimumVisibleHalfWidth(
   config: WorldConfig,
 ): number {
-  return config.riverWidth * RIVER_MIN_WIDTH_SCALE * 0.5 + RIVER_EDGE_FEATHER;
+  return (
+    config.riverWidth * RIVER_MIN_WIDTH_SCALE * 0.5 +
+    RIVER_EDGE_FEATHER * RIVER_LOD_VISIBLE_EDGE_FACTOR
+  );
 }
 
 function lerp(start: number, end: number, amount: number): number {
