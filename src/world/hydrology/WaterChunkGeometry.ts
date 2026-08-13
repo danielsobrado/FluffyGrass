@@ -1,18 +1,7 @@
 import * as THREE from "three";
-import {
-  createWaterFlowSample,
-  resolveDownhillWaterFlow,
-  type WaterFlowSample,
-} from "./WaterFlowDirection";
-import {
-  createHydrologySample,
-  type HydrologySample,
-} from "./HydrologyField";
-import {
-  createWaterInteractionSample,
-  type WaterInteractionField,
-  type WaterInteractionSample,
-} from "./WaterInteractionField";
+import { WaterChunkInteractionResolver } from "./WaterChunkInteractionResolver";
+import type { HydrologySample } from "./HydrologyField";
+import type { WaterInteractionField } from "./WaterInteractionField";
 import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
 
 /** Owns water-only vertex packing and sparse wet-cell topology for one terrain chunk. */
@@ -22,14 +11,12 @@ export class WaterChunkGeometryBuilder {
   private readonly data: Float32Array;
   private readonly interactions: Float32Array;
   private readonly stoneClearances: Float32Array;
-  private readonly interaction: WaterInteractionSample = createWaterInteractionSample();
-  private readonly interactionHydrology: HydrologySample = createHydrologySample();
-  private readonly flow: WaterFlowSample = createWaterFlowSample();
+  private readonly interactionResolver: WaterChunkInteractionResolver;
   private maxCoverage = 0;
 
   constructor(
     private readonly resolution: number,
-    private readonly interactionField: WaterInteractionField,
+    interactionField: WaterInteractionField,
   ) {
     const vertexCount = resolution * resolution;
     this.positions = new Float32Array(vertexCount * 3);
@@ -37,6 +24,14 @@ export class WaterChunkGeometryBuilder {
     this.data = new Float32Array(vertexCount * 4);
     this.interactions = new Float32Array(vertexCount * 2);
     this.stoneClearances = new Float32Array(vertexCount);
+    this.interactionResolver = new WaterChunkInteractionResolver(
+      resolution,
+      this.positions,
+      this.data,
+      this.interactions,
+      this.stoneClearances,
+      interactionField,
+    );
   }
 
   writeVertex(
@@ -67,9 +62,16 @@ export class WaterChunkGeometryBuilder {
     this.maxCoverage = Math.max(this.maxCoverage, hydrology.waterCoverage);
   }
 
+  advanceInteractions(deadline: number): boolean {
+    if (this.maxCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD) return true;
+    return this.interactionResolver.advance(deadline);
+  }
+
   createGeometry(): THREE.BufferGeometry | undefined {
     if (this.maxCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD) return undefined;
-    this.resolveFlowAndInteractions();
+    if (!this.interactionResolver.isComplete()) {
+      throw new Error("Water geometry finalized before interaction resolution completed.");
+    }
     const indices = this.createIndices();
     if (!indices) return undefined;
 
@@ -85,36 +87,6 @@ export class WaterChunkGeometryBuilder {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;
-  }
-
-  private resolveFlowAndInteractions(): void {
-    const vertexCount = this.resolution * this.resolution;
-    for (let index = 0; index < vertexCount; index += 1) {
-      const dataOffset = index * 4;
-      if (this.data[dataOffset] < WATER_VISIBLE_COVERAGE_THRESHOLD) continue;
-
-      resolveDownhillWaterFlow(
-        index,
-        this.resolution,
-        this.positions,
-        this.data,
-        this.flow,
-      );
-      this.interactionHydrology.riverCoverage = this.flow.riverCoverage;
-      this.interactionHydrology.flowX = this.flow.flowX;
-      this.interactionHydrology.flowZ = this.flow.flowZ;
-      const positionOffset = index * 3;
-      this.interactionField.sample(
-        this.positions[positionOffset],
-        this.positions[positionOffset + 2],
-        this.interactionHydrology,
-        this.stoneClearances[index],
-        this.interaction,
-      );
-      const interactionOffset = index * 2;
-      this.interactions[interactionOffset] = this.interaction.obstacle;
-      this.interactions[interactionOffset + 1] = this.interaction.wake;
-    }
   }
 
   private createIndices(): Uint16Array | Uint32Array | undefined {
