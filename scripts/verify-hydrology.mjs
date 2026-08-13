@@ -9,9 +9,7 @@ const SAMPLE_STEP = 12;
 const EPSILON = 1e-8;
 
 function assert(condition, message) {
-  if (!condition) {
-    throw new Error(`[hydrology] ${message}`);
-  }
+  if (!condition) throw new Error(`[hydrology] ${message}`);
 }
 
 function assertClose(actual, expected, message, epsilon = EPSILON) {
@@ -32,23 +30,34 @@ const server = await createServer({
 
 try {
   const THREE = await import("three");
-  const { TerrainField } = await server.ssrLoadModule(
-    "/src/world/TerrainField.ts",
-  );
-  const { TerrainChunkBuilder } = await server.ssrLoadModule(
-    "/src/world/TerrainChunk.ts",
-  );
+  const { TerrainField } = await server.ssrLoadModule("/src/world/TerrainField.ts");
+  const { TerrainChunkBuilder } = await server.ssrLoadModule("/src/world/TerrainChunk.ts");
   const { TerrainSurfaceField } = await server.ssrLoadModule(
     "/src/world/terrain/TerrainSurfaceField.ts",
   );
   const { createHydrologySample } = await server.ssrLoadModule(
     "/src/world/hydrology/HydrologyField.ts",
   );
+  const {
+    WaterInteractionField,
+    createWaterInteractionSample,
+  } = await server.ssrLoadModule(
+    "/src/world/hydrology/WaterInteractionField.ts",
+  );
+  const {
+    WATER_FLOW_NOISE_SIZE,
+    sampleWaterFlowNoisePixel,
+  } = await server.ssrLoadModule(
+    "/src/world/hydrology/WaterFlowNoiseTexture.ts",
+  );
   const { WaterMaterialController } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterMaterialController.ts",
   );
   const { WATER_VISIBLE_COVERAGE_THRESHOLD } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterMaterialTuning.ts",
+  );
+  const { setStoneClearanceField } = await server.ssrLoadModule(
+    "/src/world/stones/StoneClearance.ts",
   );
   const { WORLD_CONFIG_SCHEMA } = await server.ssrLoadModule(
     "/src/world/WorldConfigSchema.ts",
@@ -77,6 +86,23 @@ try {
   validateWorldConfig(config);
   assert(config.waterEnabled === 1, "Production hydrology must be enabled.");
 
+  const noiseA = new Float64Array(4);
+  const noiseB = new Float64Array(4);
+  sampleWaterFlowNoisePixel(17, 29, config.seed, noiseA);
+  sampleWaterFlowNoisePixel(
+    17 + WATER_FLOW_NOISE_SIZE,
+    29 - WATER_FLOW_NOISE_SIZE,
+    config.seed,
+    noiseB,
+  );
+  for (let channel = 0; channel < 4; channel += 1) {
+    assertClose(
+      noiseA[channel],
+      noiseB[channel],
+      `Water noise channel ${channel} must tile exactly.`,
+    );
+  }
+
   const terrain = new TerrainField(config);
   const dryTerrain = new TerrainField({ ...config, waterEnabled: 0 });
   const hydrology = createHydrologySample();
@@ -99,10 +125,7 @@ try {
     for (let x = -halfWorld; x <= halfWorld; x += SAMPLE_STEP) {
       const height = terrain.sampleHeight(x, z);
       const dryHeight = dryTerrain.sampleHeight(x, z);
-      assert(
-        height <= dryHeight + EPSILON,
-        `Hydrology raised terrain at ${x}, ${z}.`,
-      );
+      assert(height <= dryHeight + EPSILON, `Hydrology raised terrain at ${x}, ${z}.`);
       if (dryHeight - height > 0.05) carvedSamples += 1;
 
       terrain.sampleHydrology(x, z, height, hydrology);
@@ -123,9 +146,7 @@ try {
         const levelKey = hydrology.waterLevel.toFixed(5);
         lakeLevels.set(levelKey, (lakeLevels.get(levelKey) ?? 0) + 1);
       }
-      if (!wetPoint && hydrology.waterCoverage > 0.65) {
-        wetPoint = { x, z, height };
-      }
+      if (!wetPoint && hydrology.waterCoverage > 0.65) wetPoint = { x, z, height };
 
       if (hydrology.waterCoverage > 0.65) {
         assert(
@@ -181,11 +202,7 @@ try {
     beforeNormal.riverCoverage > 0.05 && beforeNormal.riverCoverage < 0.95,
     "Call-order regression must exercise the river altitude fade, not a saturated mask.",
   );
-  sensitiveTerrain.sampleNormal(
-    riverPoint.x,
-    riverPoint.z,
-    new THREE.Vector3(),
-  );
+  sensitiveTerrain.sampleNormal(riverPoint.x, riverPoint.z, new THREE.Vector3());
   const afterNormal = createHydrologySample();
   sensitiveTerrain.sampleHydrology(
     riverPoint.x,
@@ -214,6 +231,7 @@ try {
   const riverConfig = { ...config, lakeChance: 0 };
   const riverTerrain = new TerrainField(riverConfig);
   const riverSurface = new TerrainSurfaceField(riverConfig);
+  const waterInteractionField = new WaterInteractionField(riverConfig);
   const chunkX = Math.floor(riverPoint.x / config.chunkSize);
   const chunkZ = Math.floor(riverPoint.z / config.chunkSize);
   const terrainMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -225,14 +243,13 @@ try {
     config.terrainNearResolution,
     riverTerrain,
     riverSurface,
+    waterInteractionField,
     terrainMaterial,
     waterMaterial,
     false,
   );
   let chunk;
-  while (!chunk) {
-    chunk = builder.advance(1000);
-  }
+  while (!chunk) chunk = builder.advance(1000);
   assert(chunk.waterMesh, "A river terrain chunk must build a water mesh.");
   assert(
     chunk.mesh.geometry.getAttribute("terrainEnvironment")?.itemSize === 4,
@@ -251,9 +268,14 @@ try {
   );
 
   const waterData = chunk.waterMesh.geometry.getAttribute("waterData");
+  const waterInteraction = chunk.waterMesh.geometry.getAttribute("waterInteraction");
   assert(
     waterData?.itemSize === 4,
     "Water mesh must pack coverage, depth, and downstream flow in one vec4.",
+  );
+  assert(
+    waterInteraction?.itemSize === 2,
+    "Water mesh must pack stone-edge and downstream-wake interaction masks.",
   );
   let positiveDepthSamples = 0;
   for (let index = 0; index < waterData.array.length; index += 4) {
@@ -278,6 +300,33 @@ try {
   terrainMaterial.dispose();
   waterMaterial.dispose();
 
+  const fakeStoneField = {
+    sampleGrassClearance(x, z) {
+      return Math.abs(x) < 0.75 && Math.abs(z) < 0.75 ? 0 : 1;
+    },
+  };
+  setStoneClearanceField(fakeStoneField);
+  try {
+    const interactionField = new WaterInteractionField(config);
+    const interactionHydrology = createHydrologySample();
+    interactionHydrology.riverCoverage = 1;
+    interactionHydrology.flowX = 1;
+    interactionHydrology.flowZ = 0;
+    const interaction = createWaterInteractionSample();
+    interactionField.sample(0, 0, interactionHydrology, 0, interaction);
+    assert(interaction.obstacle > 0.99, "Stone centers must drive water obstacle foam.");
+    interactionField.sample(
+      config.waterStoneWakeLength,
+      0,
+      interactionHydrology,
+      1,
+      interaction,
+    );
+    assert(interaction.wake > 0.99, "River flow must carry stone wakes downstream.");
+  } finally {
+    setStoneClearanceField(undefined);
+  }
+
   const waterController = new WaterMaterialController(config);
   const shader = {
     uniforms: {},
@@ -286,8 +335,9 @@ try {
   };
   waterController.material.onBeforeCompile(shader, {});
   assert(
-    shader.vertexShader.includes("attribute vec4 waterData"),
-    "Water shader must consume the packed hydrology attribute.",
+    shader.vertexShader.includes("attribute vec4 waterData") &&
+      shader.vertexShader.includes("attribute vec2 waterInteraction"),
+    "Water shader must consume hydrology and stone-interaction attributes.",
   );
   for (const token of [
     "waterFlowDirection",
@@ -299,12 +349,17 @@ try {
     "waterDetailWeight",
     "waterLightingNormal",
     "gl_FrontFacing",
+    "waterSampleAdvectedNoise",
+    "waterCaustic",
+    "waterGlint",
+    "waterStoneFoam",
   ]) {
-    assert(
-      shader.fragmentShader.includes(token),
-      `Water shader is missing ${token}.`,
-    );
+    assert(shader.fragmentShader.includes(token), `Water shader is missing ${token}.`);
   }
+  assert(
+    shader.uniforms.uWaterFlowNoise?.value?.isDataTexture === true,
+    "Water must bind the generated deterministic flow-noise texture.",
+  );
   assert(
     shader.fragmentShader.includes(
       `waterCoverageRaw < ${WATER_VISIBLE_COVERAGE_THRESHOLD}`,
@@ -332,7 +387,7 @@ try {
   waterController.dispose();
 
   console.log(
-    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; deterministic semantics, sparse topology, flow, depth, and physical water verified.`,
+    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow noise, caustics, glints, stone wakes, depth, and physical water verified.`,
   );
 } finally {
   await server.close();
