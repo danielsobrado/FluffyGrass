@@ -39,6 +39,9 @@ export class WaterMaterialController {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
+    // This is one open height-field surface rather than a transparent volume.
+    // Rendering back then front would shade/blend the same sheet twice.
+    this.material.forceSinglePass = true;
     this.uniforms = {
       uWaterTime: { value: 0 },
       uWaterOpacity: { value: config.waterOpacity },
