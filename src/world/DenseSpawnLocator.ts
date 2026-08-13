@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { StoneField } from "./stones/StoneField";
+import { StoneField } from "./stones/StoneField";
 import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
 
@@ -32,12 +32,16 @@ interface SpawnCandidate {
 
 export class DenseSpawnLocator {
   private readonly normal = new THREE.Vector3();
+  private readonly stones?: StoneField;
 
   constructor(
     private readonly field: TerrainField,
     private readonly config: WorldConfig,
-    private readonly stones?: StoneField,
-  ) {}
+    stones?: StoneField,
+  ) {
+    this.stones =
+      stones ?? (config.stonesEnabled >= 1 ? new StoneField(field, config) : undefined);
+  }
 
   find(): DenseWorldSpawn {
     const halfWorld = this.config.worldSize * 0.5 - this.config.chunkSize;
@@ -188,11 +192,12 @@ export class DenseSpawnLocator {
           height,
           clearanceRadius,
         );
-        const stoneClearance = this.stones?.sampleGrassClearance(
-          candidateX,
-          candidateZ,
-          clearanceRadius,
-        ) ?? 1;
+        const stoneClearance =
+          this.stones?.sampleGrassClearance(
+            candidateX,
+            candidateZ,
+            clearanceRadius,
+          ) ?? 1;
         const clearance = Math.min(pathClearance, stoneClearance);
         if (clearance <= 0.5) {
           continue;
