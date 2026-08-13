@@ -58,15 +58,24 @@ try {
   const flow = createWaterFlowSample();
   resolveDownhillWaterFlow(center, resolution, positions, data, flow);
   assertClose(flow.riverCoverage, coverage, "River coverage must be preserved.");
-  assertClose(flow.flowX, 1, "Uphill source flow must flip downhill.");
+  assertClose(flow.flowX, 1, "Uphill source flow must resolve downhill for CPU wakes.");
   assertClose(flow.flowZ, 0, "Flow must stay on the river tangent.");
-  assertClose(data[center * 4 + 2], coverage, "Packed flow must use corrected direction.");
+  assertClose(
+    data[center * 4 + 2],
+    -coverage,
+    "CPU correction must not flip packed vertex flow before interpolation.",
+  );
 
   data[center * 4 + 2] = coverage;
   resolveDownhillWaterFlow(center, resolution, positions, data, flow);
   assertClose(flow.flowX, 1, "Already-downhill flow must remain unchanged.");
+  assertClose(
+    data[center * 4 + 2],
+    coverage,
+    "Already-downhill packed flow must remain unchanged.",
+  );
 
-  console.log("[water-flow] Downhill packed surface-flow direction verified.");
+  console.log("[water-flow] Downhill CPU wakes and coherent packed flow verified.");
 } finally {
   await server.close();
 }
