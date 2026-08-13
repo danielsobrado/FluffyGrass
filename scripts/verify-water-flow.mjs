@@ -116,6 +116,36 @@ try {
     "Already-downhill packed flow must remain unchanged.",
   );
 
+  // A dry vertex stores the bank it sits on, not a water surface. If that height
+  // joins the slope, a steep bank outvotes the river's own fall and sends the
+  // stone wakes upstream. Here the left neighbour is dry land far below the
+  // water, while the water itself descends towards +x.
+  const bankPositions = new Float32Array(resolution * resolution * 3);
+  const bankData = new Float32Array(resolution * resolution * 4);
+  for (let z = 0; z < resolution; z += 1) {
+    for (let x = 0; x < resolution; x += 1) {
+      const index = z * resolution + x;
+      const positionOffset = index * 3;
+      const dataOffset = index * 4;
+      const dry = x === 0;
+      bankPositions[positionOffset] = x;
+      bankPositions[positionOffset + 1] = dry ? -10 : -0.5 * x;
+      bankPositions[positionOffset + 2] = z;
+      bankData[dataOffset] = dry ? 0 : 1;
+      bankData[dataOffset + 1] = 1;
+      bankData[dataOffset + 2] = dry ? 0 : coverage;
+      bankData[dataOffset + 3] = 0;
+    }
+  }
+
+  resolveDownhillWaterFlow(center, resolution, bankPositions, bankData, flow);
+  assertClose(
+    flow.flowX,
+    1,
+    "A dry bank must not outvote the water surface when resolving downstream flow.",
+  );
+  assertClose(flow.flowZ, 0, "A dry bank must not tilt flow off the river tangent.");
+
   console.log(
     "[water-flow] Downhill CPU wakes, coherent packed flow, budgeted interactions, and single-pass water verified.",
   );

@@ -1,3 +1,5 @@
+import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
+
 const FLOW_EPSILON = 1e-6;
 
 export interface WaterFlowSample {
@@ -8,6 +10,22 @@ export interface WaterFlowSample {
 
 export function createWaterFlowSample(): WaterFlowSample {
   return { riverCoverage: 0, flowX: 0, flowZ: 0 };
+}
+
+/**
+ * Every vertex carries a surface height, but a dry one carries the bank it sits on
+ * rather than a water surface. Folding that into the slope lets a steep bank decide
+ * which way the river runs, so dry neighbours collapse onto the sampled vertex and
+ * the difference becomes one-sided instead.
+ */
+function wetNeighbour(
+  data: Float32Array,
+  neighbour: number,
+  fallback: number,
+): number {
+  return data[neighbour * 4] >= WATER_VISIBLE_COVERAGE_THRESHOLD
+    ? neighbour
+    : fallback;
 }
 
 /** Resolves a downhill CPU direction without changing the coherent packed tangent. */
@@ -32,10 +50,15 @@ export function resolveDownhillWaterFlow(
   let flowZ = data[dataOffset + 3] / riverCoverage;
   const xIndex = index % resolution;
   const zIndex = Math.floor(index / resolution);
-  const left = xIndex > 0 ? index - 1 : index;
-  const right = xIndex + 1 < resolution ? index + 1 : index;
-  const down = zIndex > 0 ? index - resolution : index;
-  const up = zIndex + 1 < resolution ? index + resolution : index;
+  const left = xIndex > 0 ? wetNeighbour(data, index - 1, index) : index;
+  const right =
+    xIndex + 1 < resolution ? wetNeighbour(data, index + 1, index) : index;
+  const down =
+    zIndex > 0 ? wetNeighbour(data, index - resolution, index) : index;
+  const up =
+    zIndex + 1 < resolution
+      ? wetNeighbour(data, index + resolution, index)
+      : index;
 
   const leftPosition = left * 3;
   const rightPosition = right * 3;
