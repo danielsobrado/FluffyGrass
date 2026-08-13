@@ -115,6 +115,19 @@ try {
   textureC.dispose();
 
   const terrain = new TerrainField(rawConfig);
+  const worldHalfExtent = rawConfig.worldSize * 0.5;
+  for (const [x, z] of [
+    [worldHalfExtent + 0.01, 0],
+    [-worldHalfExtent - 0.01, 0],
+    [0, worldHalfExtent + 0.01],
+    [0, -worldHalfExtent - 0.01],
+  ]) {
+    const height = terrain.sampleHeight(x, z);
+    assert(
+      terrain.sampleGrassSuitabilityWithoutSlope(x, z, height) === 0,
+      "Grass suitability must be zero outside the bounded terrain world.",
+    );
+  }
   const surface = new TerrainSurfaceField(rawConfig);
   const hydrology = createHydrologySample();
   const normal = new THREE.Vector3();
@@ -272,7 +285,7 @@ try {
   );
 
   console.log(
-    "[terrain-surface] Determinism, environment semantics, LOD, stone, biome, and path parity verified.",
+    "[terrain-surface] Determinism, bounded ecology, environment semantics, LOD, stone, biome, and path parity verified.",
   );
 } finally {
   await server.close();
