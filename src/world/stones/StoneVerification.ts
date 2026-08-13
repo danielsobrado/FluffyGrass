@@ -1,7 +1,7 @@
 import { WorldConfigLoader } from "../WorldConfigLoader";
 import { TerrainField } from "../TerrainField";
 import { buildStonePolyhedron } from "./StoneClipper";
-import { generateStoneMesh } from "./StoneGeometry";
+import { generateStoneMesh, type StoneMeshData } from "./StoneGeometry";
 import { resolveStoneRecipe, STONE_ARCHETYPE_IDS } from "./StoneRecipe";
 import { StoneField } from "./StoneField";
 
@@ -46,6 +46,29 @@ function renderEdgeKey(
   const keyA = `${positions[a * 3]}:${positions[a * 3 + 1]}:${positions[a * 3 + 2]}`;
   const keyB = `${positions[b * 3]}:${positions[b * 3 + 1]}:${positions[b * 3 + 2]}`;
   return keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+}
+
+function renderedSurfaceArea(mesh: StoneMeshData): number {
+  const { positions, indices } = mesh;
+  let area = 0;
+  for (let index = 0; index < indices.length; index += 3) {
+    const a = indices[index] * 3;
+    const b = indices[index + 1] * 3;
+    const c = indices[index + 2] * 3;
+    const abx = positions[b] - positions[a];
+    const aby = positions[b + 1] - positions[a + 1];
+    const abz = positions[b + 2] - positions[a + 2];
+    const acx = positions[c] - positions[a];
+    const acy = positions[c + 1] - positions[a + 1];
+    const acz = positions[c + 2] - positions[a + 2];
+    area +=
+      Math.hypot(
+        aby * acz - abz * acy,
+        abz * acx - abx * acz,
+        abx * acy - aby * acx,
+      ) * 0.5;
+  }
+  return area;
 }
 
 function fail(message: string): never {
@@ -138,13 +161,18 @@ function verifyGeometry(summary: StoneVerificationSummary): void {
           `${archetype}:${seed} chipped edge ${edge} borders ${count} triangles.`,
         );
       }
-      // Not monotonic, and it should not be: a chip that clips a corner can
-      // also trim the neighbouring faces down to fewer vertices, so the count
-      // can fall slightly. Only a collapse would indicate the chip planes are
-      // eating the body rather than nicking it.
+      // Rendered surface area, not triangle count. A chip that clips a corner
+      // also trims its neighbours to fewer corners, and faces are triangulated
+      // around a centre only above a corner threshold, so a nick that removes
+      // 2% of the body can drop 18% of its triangles as faces fall below that
+      // threshold. Area answers the question the check is actually asking —
+      // whether the chip planes are eating the body rather than nicking it —
+      // and answers it independently of how the surface is tessellated.
+      const baseArea = renderedSurfaceArea(mesh);
+      const chippedArea = renderedSurfaceArea(chipped);
       assert(
-        chipped.metrics.triangleCount >= mesh.metrics.triangleCount * 0.85,
-        `${archetype}:${seed} chipping collapsed the body (${mesh.metrics.triangleCount} -> ${chipped.metrics.triangleCount} tris).`,
+        chippedArea >= baseArea * 0.9,
+        `${archetype}:${seed} chipping collapsed the body (${baseArea.toFixed(3)} -> ${chippedArea.toFixed(3)} surface area).`,
       );
       assert(
         chipped.metrics.vertexCount <= VERTEX_BUDGET &&

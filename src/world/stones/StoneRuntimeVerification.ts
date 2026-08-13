@@ -87,6 +87,7 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
   assert(
     mesh.tones.length === vertices &&
       mesh.wears.length === vertices &&
+      mesh.bounces.length === vertices &&
       mesh.mosses.length === vertices,
     `${label} scalar attribute count does not match metrics.`,
   );
@@ -124,6 +125,10 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
     assert(
       mesh.wears[index] >= 0 && mesh.wears[index] <= 1,
       `${label} wear ${index} is out of range.`,
+    );
+    assert(
+      mesh.bounces[index] >= 0 && mesh.bounces[index] <= 1,
+      `${label} bounce ${index} is out of range.`,
     );
     assert(
       mesh.mosses[index] >= 0 && mesh.mosses[index] <= 1,
