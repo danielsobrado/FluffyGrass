@@ -32,6 +32,8 @@ export const WATER_SURFACE_FRAGMENT = `
 float waterCoverageRaw = saturate(vWaterData.x);
 vec3 waterScreenDx = dFdx(vWaterWorldPosition);
 vec3 waterScreenDy = dFdy(vWaterWorldPosition);
+vec3 waterGeometricNormal = normalize(cross(waterScreenDx, waterScreenDy));
+if (waterGeometricNormal.y < 0.0) waterGeometricNormal = -waterGeometricNormal;
 if (waterCoverageRaw < 0.012) discard;
 
 float waterCoverage = smoothstep(0.015, 0.34, waterCoverageRaw);
@@ -41,6 +43,13 @@ float waterRiverAmount = saturate(length(waterPackedFlow));
 vec2 waterFlowDirection = waterRiverAmount > 0.001
   ? waterPackedFlow / waterRiverAmount
   : normalize(vec2(0.78, 0.63));
+if (waterRiverAmount > 0.001 && waterGeometricNormal.y > 0.05) {
+  vec2 waterHeightGradient =
+    -waterGeometricNormal.xz / waterGeometricNormal.y;
+  if (dot(waterHeightGradient, waterFlowDirection) > 0.0) {
+    waterFlowDirection = -waterFlowDirection;
+  }
+}
 vec2 waterFlowPerpendicular = vec2(-waterFlowDirection.y, waterFlowDirection.x);
 vec2 waterPosition = vWaterWorldPosition.xz;
 float waterDistance = distance(cameraPosition, vWaterWorldPosition);
@@ -122,10 +131,8 @@ vec2 waterSlope = mix(
   waterRiverAmount
 ) * waterWaveStrength + waterMicroSlope * uWaterRippleStrength;
 
-vec3 waterWorldNormal = normalize(cross(waterScreenDx, waterScreenDy));
-if (waterWorldNormal.y < 0.0) waterWorldNormal = -waterWorldNormal;
-waterWorldNormal = normalize(
-  waterWorldNormal + vec3(-waterSlope.x, 0.0, -waterSlope.y)
+vec3 waterWorldNormal = normalize(
+  waterGeometricNormal + vec3(-waterSlope.x, 0.0, -waterSlope.y)
 );
 normal = normalize((viewMatrix * vec4(waterWorldNormal, 0.0)).xyz);
 
