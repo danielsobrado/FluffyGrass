@@ -4,7 +4,10 @@ import {
   resolveDownhillWaterFlow,
   type WaterFlowSample,
 } from "./WaterFlowDirection";
-import type { HydrologySample } from "./HydrologyField";
+import {
+  createHydrologySample,
+  type HydrologySample,
+} from "./HydrologyField";
 import {
   createWaterInteractionSample,
   type WaterInteractionField,
@@ -20,6 +23,7 @@ export class WaterChunkGeometryBuilder {
   private readonly interactions: Float32Array;
   private readonly stoneClearances: Float32Array;
   private readonly interaction: WaterInteractionSample = createWaterInteractionSample();
+  private readonly interactionHydrology: HydrologySample = createHydrologySample();
   private readonly flow: WaterFlowSample = createWaterFlowSample();
   private maxCoverage = 0;
 
@@ -96,13 +100,14 @@ export class WaterChunkGeometryBuilder {
         this.data,
         this.flow,
       );
+      this.interactionHydrology.riverCoverage = this.flow.riverCoverage;
+      this.interactionHydrology.flowX = this.flow.flowX;
+      this.interactionHydrology.flowZ = this.flow.flowZ;
       const positionOffset = index * 3;
       this.interactionField.sample(
         this.positions[positionOffset],
         this.positions[positionOffset + 2],
-        this.flow.riverCoverage,
-        this.flow.flowX,
-        this.flow.flowZ,
+        this.interactionHydrology,
         this.stoneClearances[index],
         this.interaction,
       );
