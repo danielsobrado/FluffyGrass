@@ -122,6 +122,12 @@ waterCausticStrength: 0.28
 waterGlintStrength: 0.32
 waterStoneWakeStrength: 0.95
 waterStoneWakeLength: 4.2
+# Riverbed seen through the sheet: cobbles, sand, and algae, displaced along the
+# view ray to their real depth and bent by the wave slope so they swim about.
+waterBedStrength: 0.78
+waterBedScale: 0.38
+waterBedRefraction: 0.55
+waterAlgaeStrength: 0.55
 
 # Bare walking ways worn through the grass.
 pathWidth: 3

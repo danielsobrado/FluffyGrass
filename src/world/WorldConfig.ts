@@ -96,6 +96,11 @@ export interface WorldConfig {
   waterGlintStrength: number;
   waterStoneWakeStrength: number;
   waterStoneWakeLength: number;
+  /** Riverbed pebbles and algae seen through the sheet. 0 hides the bed entirely. */
+  waterBedStrength: number;
+  waterBedScale: number;
+  waterBedRefraction: number;
+  waterAlgaeStrength: number;
   pathWidth: number;
   pathBranchWidth: number;
   pathSpacing: number;

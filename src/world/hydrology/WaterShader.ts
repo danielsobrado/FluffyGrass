@@ -1,3 +1,4 @@
+import { WATER_BED_FRAGMENT_FUNCTIONS } from "./WaterBedShader";
 import { WATER_FLOW_FRAGMENT_FUNCTIONS } from "./WaterFlowShader";
 import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
 
@@ -32,14 +33,24 @@ uniform float uWaterFlowNoiseStrength;
 uniform float uWaterCausticStrength;
 uniform float uWaterGlintStrength;
 uniform float uWaterStoneWakeStrength;
+uniform sampler2D uWaterBedNoise;
+uniform float uWaterBedScale;
+uniform float uWaterBedStrength;
+uniform float uWaterBedRefraction;
+uniform float uWaterAlgaeStrength;
 uniform vec3 uWaterShallow;
 uniform vec3 uWaterDeep;
 uniform vec3 uWaterReflection;
 uniform vec3 uWaterFoam;
+uniform vec3 uWaterPebbleDark;
+uniform vec3 uWaterPebbleLight;
+uniform vec3 uWaterSand;
+uniform vec3 uWaterAlgae;
 varying vec4 vWaterData;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
 ${WATER_FLOW_FRAGMENT_FUNCTIONS}
+${WATER_BED_FRAGMENT_FUNCTIONS}
 `;
 
 export const WATER_SURFACE_FRAGMENT = `
@@ -175,6 +186,19 @@ vec3 waterSurfaceColor = mix(
   uWaterDeep,
   saturate(waterDepthFactor * 0.82 + waterCoverage * 0.18)
 );
+float waterBedRelief = 0.0;
+vec3 waterBedColor = waterSampleRiverBed(
+  waterResolveBedPosition(waterSlope, waterDepth),
+  waterFlowDirection,
+  waterTime,
+  waterRiverAmount,
+  waterBedRelief
+);
+// Only worth drawing while the water is still shallow enough to see through.
+float waterBedVisibility = uWaterBedStrength * waterDetailWeight *
+  (1.0 - smoothstep(0.0, uWaterDepthFade * 2.6, waterDepth));
+waterSurfaceColor = mix(waterSurfaceColor, waterBedColor, waterBedVisibility);
+
 float waterShallowLight =
   (1.0 - smoothstep(0.18, 2.4, waterDepth)) * waterDetailWeight;
 float waterCaustic = smoothstep(0.56, 0.9, waterFlowNoise.b) *
@@ -219,7 +243,8 @@ float waterFoamAmount = saturate(
 waterSurfaceColor = mix(waterSurfaceColor, uWaterFoam, waterFoamAmount);
 roughnessFactor = clamp(
   roughnessFactor + waterRiverAmount * waterDetailWeight * 0.035 +
-    waterStoneActivity * 0.08 + waterFoamAmount * 0.48 - waterGlint * 0.025,
+    waterStoneActivity * 0.08 + waterFoamAmount * 0.48 - waterGlint * 0.025 +
+    waterBedRelief * waterBedVisibility * 0.07,
   0.02,
   0.75
 );
@@ -229,5 +254,8 @@ float waterDepthOpacity = mix(0.58, 1.0, waterDepthFactor);
 float waterFresnelOpacity = mix(0.78, 1.0, waterFresnelVisual);
 float waterAlpha = uWaterOpacity * waterCoverage * waterDepthOpacity * waterFresnelOpacity;
 waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.22), waterFoamAmount);
+// The bed replaces what the terrain underneath was showing, so it has to carry
+// enough alpha to be seen rather than ghosting over the flat riverbed colour.
+waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.34), waterBedVisibility);
 diffuseColor.a *= waterAlpha;
 `;

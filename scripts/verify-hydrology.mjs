@@ -53,6 +53,10 @@ try {
   } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterFlowNoiseTexture.ts",
   );
+  const {
+    WATER_BED_NOISE_SIZE,
+    sampleWaterBedPixel,
+  } = await server.ssrLoadModule("/src/world/hydrology/WaterBedTexture.ts");
   const { WaterMaterialController } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterMaterialController.ts",
   );
@@ -105,6 +109,46 @@ try {
       `Water noise channel ${channel} must tile exactly.`,
     );
   }
+
+  // The bed map repeats across open water, so a seam would draw a visible grid
+  // of pebbles on the riverbed.
+  const bedA = new Float64Array(4);
+  const bedB = new Float64Array(4);
+  sampleWaterBedPixel(23, 91, config.seed, bedA);
+  sampleWaterBedPixel(
+    23 + WATER_BED_NOISE_SIZE,
+    91 - WATER_BED_NOISE_SIZE,
+    config.seed,
+    bedB,
+  );
+  for (let channel = 0; channel < 4; channel += 1) {
+    assertClose(
+      bedA[channel],
+      bedB[channel],
+      `Water bed channel ${channel} must tile exactly.`,
+    );
+  }
+  let bedRelief = 0;
+  let bedAlgae = 0;
+  const bedPixel = new Float64Array(4);
+  for (let y = 0; y < WATER_BED_NOISE_SIZE; y += 4) {
+    for (let x = 0; x < WATER_BED_NOISE_SIZE; x += 4) {
+      sampleWaterBedPixel(x, y, config.seed, bedPixel);
+      if (bedPixel[0] > 0.5) bedRelief += 1;
+      // Matches the floor WaterBedShader thresholds at, so this tracks the algae
+      // that actually reaches the screen rather than the raw noise underneath.
+      if (bedPixel[2] > 0.66) bedAlgae += 1;
+    }
+  }
+  const bedPixels = (WATER_BED_NOISE_SIZE / 4) ** 2;
+  assert(
+    bedRelief > bedPixels * 0.15 && bedRelief < bedPixels * 0.7,
+    `Riverbed must carry cobbles standing in crevices, not flat sand or solid stone (${bedRelief}/${bedPixels}).`,
+  );
+  assert(
+    bedAlgae > bedPixels * 0.05 && bedAlgae < bedPixels * 0.5,
+    `Riverbed algae must clump into mats rather than vanish or wash over everything (${bedAlgae}/${bedPixels}).`,
+  );
 
   const terrain = new TerrainField(config);
   const dryTerrain = new TerrainField({ ...config, waterEnabled: 0 });
@@ -414,12 +458,30 @@ try {
     "waterCaustic",
     "waterGlint",
     "waterStoneFoam",
+    "waterSampleRiverBed",
+    "waterResolveBedPosition",
+    "waterBedRelief",
+    "waterBedVisibility",
+    "uWaterAlgaeStrength",
   ]) {
     assert(shader.fragmentShader.includes(token), `Water shader is missing ${token}.`);
   }
   assert(
     shader.uniforms.uWaterFlowNoise?.value?.isDataTexture === true,
     "Water must bind the generated deterministic flow-noise texture.",
+  );
+  assert(
+    shader.uniforms.uWaterBedNoise?.value?.isDataTexture === true &&
+      shader.uniforms.uWaterBedNoise.value.wrapS === THREE.RepeatWrapping &&
+      shader.uniforms.uWaterBedNoise.value.wrapT === THREE.RepeatWrapping,
+    "Water must bind the riverbed map as a repeating texture.",
+  );
+  // The bed is sampled at the depth it actually sits at, bent by the wave slope;
+  // reading it flat at the surface would paste pebbles onto the water instead.
+  const bedCall = shader.fragmentShader.indexOf("waterResolveBedPosition(waterSlope");
+  assert(
+    bedCall > shader.fragmentShader.indexOf("vec2 waterSlope =") && bedCall > 0,
+    "The riverbed lookup must be displaced by the resolved wave slope, not the flat surface.",
   );
   assert(
     shader.fragmentShader.includes(

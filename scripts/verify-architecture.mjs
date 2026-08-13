@@ -12,8 +12,13 @@ const WATER_CHUNK_GEOMETRY_MAX_LINES = 180;
 const WATER_INTERACTION_MAX_LINES = 120;
 const WATER_FLOW_NOISE_MAX_LINES = 220;
 const WATER_FLOW_SHADER_MAX_LINES = 100;
+const WATER_BED_SHADER_MAX_LINES = 100;
+const WATER_BED_TEXTURE_MAX_LINES = 220;
 const WATER_MATERIAL_MAX_LINES = 180;
-const WATER_SHADER_MAX_LINES = 260;
+// Raised for the riverbed composite. The bed's map generation and GLSL live in
+// WaterBedTexture/WaterBedShader under their own limits, so what landed here is
+// only the surface blend this file exists to own.
+const WATER_SHADER_MAX_LINES = 275;
 const STONE_GEOMETRY_MAX_LINES = 340;
 const EXTRACTED_MODULE_MAX_LINES = 260;
 const CONFIG_LOADER_MAX_LINES = 220;
@@ -55,6 +60,8 @@ const waterChunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
 const waterInteraction = read("src/world/hydrology/WaterInteractionField.ts");
 const waterFlowNoise = read("src/world/hydrology/WaterFlowNoiseTexture.ts");
 const waterFlowShader = read("src/world/hydrology/WaterFlowShader.ts");
+const waterBedShader = read("src/world/hydrology/WaterBedShader.ts");
+const waterBedTexture = read("src/world/hydrology/WaterBedTexture.ts");
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const waterShader = read("src/world/hydrology/WaterShader.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
@@ -240,6 +247,23 @@ assert(
   "Flow-noise GLSL helpers must stay separate from the physical material controller.",
 );
 assert(
+  lineCount(waterBedTexture) <= WATER_BED_TEXTURE_MAX_LINES &&
+    waterBedTexture.includes("periodicWorleyPebble") &&
+    waterBedTexture.includes("createWaterBedTexture") &&
+    waterBedTexture.includes("waterPeriodicValueNoise") &&
+    !waterBedTexture.includes("MeshPhysicalMaterial"),
+  "Riverbed map generation must reuse the shared periodic noise and stay outside material lifecycle.",
+);
+assert(
+  lineCount(waterBedShader) <= WATER_BED_SHADER_MAX_LINES &&
+    waterBedShader.includes("waterSampleRiverBed") &&
+    waterBedShader.includes("waterResolveBedPosition") &&
+    !waterBedShader.includes("THREE.") &&
+    waterShader.includes('from "./WaterBedShader"') &&
+    waterShader.includes("waterResolveBedPosition(waterSlope, waterDepth)"),
+  "Riverbed GLSL must stay a separate helper that the surface shader only composites.",
+);
+assert(
   lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
     lineCount(waterShader) <= WATER_SHADER_MAX_LINES &&
     waterMaterial.includes("class WaterMaterialController") &&
@@ -247,6 +271,8 @@ assert(
     waterMaterial.includes("THREE.DoubleSide") &&
     waterMaterial.includes("createWaterFlowNoiseTexture") &&
     waterMaterial.includes("flowNoiseTexture.dispose()") &&
+    waterMaterial.includes("createWaterBedTexture") &&
+    waterMaterial.includes("bedTexture.dispose()") &&
     waterMaterial.includes('from "./WaterShader"') &&
     waterMaterial.includes("onBeforeCompile") &&
     waterMaterial.includes("depthWrite: false") &&
