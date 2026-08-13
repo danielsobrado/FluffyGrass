@@ -30,6 +30,8 @@ varying vec3 vWaterWorldPosition;
 
 export const WATER_SURFACE_FRAGMENT = `
 float waterCoverageRaw = saturate(vWaterData.x);
+vec3 waterScreenDx = dFdx(vWaterWorldPosition);
+vec3 waterScreenDy = dFdy(vWaterWorldPosition);
 if (waterCoverageRaw < 0.012) discard;
 
 float waterCoverage = smoothstep(0.015, 0.34, waterCoverageRaw);
@@ -103,8 +105,6 @@ vec2 waterSlope = mix(
   waterRiverAmount
 ) * waterWaveStrength + waterMicroSlope * uWaterRippleStrength;
 
-vec3 waterScreenDx = dFdx(vWaterWorldPosition);
-vec3 waterScreenDy = dFdy(vWaterWorldPosition);
 vec3 waterWorldNormal = normalize(cross(waterScreenDx, waterScreenDy));
 if (waterWorldNormal.y < 0.0) waterWorldNormal = -waterWorldNormal;
 waterWorldNormal = normalize(
