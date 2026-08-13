@@ -24,6 +24,8 @@ const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
+const workloadProbe = read("src/runtime/GrassWorkloadProbe.ts");
+const workloadHud = read("src/runtime/WorldDiagnosticsHud.ts");
 const viewportSizing = read("src/runtime/ViewportSizing.ts");
 const qaMetrics = read("src/qa/GrassQaMetrics.ts");
 const qaRunner = read("src/qa/GrassQaRunner.ts");
@@ -48,6 +50,13 @@ assert(
     world.includes("this.stats?.update()") &&
     diagnosticsController.includes("options.gpuTiming && !options.statsPanelEnabled"),
   "The lazy stats-gl panel and custom GPU timer must not issue overlapping GPU timing queries.",
+);
+assert(
+  workloadProbe.includes('near?.bridgeField, "near-bridge"') &&
+    workloadProbe.includes('case "near-bridge"') &&
+    workloadProbe.includes("nearBridgeInstances") &&
+    workloadHud.includes("snapshot.nearBridgeInstances"),
+  "Grass workload diagnostics must count bridge submissions through collection and presentation.",
 );
 assert(
   main.includes("app?.dispose()") &&
