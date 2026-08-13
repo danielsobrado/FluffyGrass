@@ -83,6 +83,12 @@ export interface WorldConfig {
   waterOpacity: number;
   waterRippleStrength: number;
   waterRippleScale: number;
+  waterFlowSpeed: number;
+  waterFoamStrength: number;
+  waterFresnelStrength: number;
+  waterDepthFade: number;
+  waterDetailDistance: number;
+  waterLakeWaveStrength: number;
   pathWidth: number;
   pathBranchWidth: number;
   pathSpacing: number;
