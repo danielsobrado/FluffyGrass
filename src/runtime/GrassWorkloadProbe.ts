@@ -5,6 +5,7 @@ const FAR_INDICES_PER_CARD = 6;
 
 type GrassMeshKind =
   | "near-base"
+  | "near-bridge"
   | "near-detail"
   | "near-ultra"
   | "mid"
@@ -32,6 +33,7 @@ interface RuntimeAccentField {
 
 interface RuntimeNearField {
   baseField?: RuntimeTileField;
+  bridgeField?: RuntimeTileField;
   baseDetailedField?: RuntimeTileField;
   ultraNearField?: RuntimeTileField;
   detailFoliageField?: RuntimeAccentField;
@@ -66,6 +68,7 @@ interface RuntimeWorldApp {
 
 interface FrameWorkload {
   nearBaseInstances: number;
+  nearBridgeInstances: number;
   nearDetailInstances: number;
   nearUltraInstances: number;
   nearSubmittedTriangles: number;
@@ -124,6 +127,7 @@ export class GrassWorkloadProbe {
     this.activeMeshes.clear();
     const near = this.grass.nearField;
     this.instrumentTileField(near?.baseField, "near-base");
+    this.instrumentTileField(near?.bridgeField, "near-bridge");
     this.instrumentTileField(near?.baseDetailedField, "near-detail");
     this.instrumentTileField(near?.ultraNearField, "near-ultra");
     for (const tile of near?.detailFoliageField?.tiles?.values() ?? []) {
@@ -183,6 +187,7 @@ export class GrassWorkloadProbe {
       logicalBladeEquivalents: nearResidentUniqueInstances + patchLogical,
       visibleLogicalBladeEquivalents:
         this.lastFrame.nearBaseInstances +
+        this.lastFrame.nearBridgeInstances +
         this.lastFrame.nearUltraInstances +
         visiblePatchLogical,
     };
@@ -260,6 +265,10 @@ export class GrassWorkloadProbe {
         this.currentFrame.nearBaseInstances += instances;
         this.addNearTriangles(instances, submittedIndices);
         break;
+      case "near-bridge":
+        this.currentFrame.nearBridgeInstances += instances;
+        this.addNearTriangles(instances, submittedIndices);
+        break;
       case "near-detail":
         this.currentFrame.nearDetailInstances += instances;
         this.addNearTriangles(instances, submittedIndices);
@@ -278,8 +287,6 @@ export class GrassWorkloadProbe {
           Math.floor(submittedIndices / FAR_INDICES_PER_CARD) * instances;
         break;
       case "accent":
-        // One card per instance: the accent geometry is a single card, so the
-        // trimmed instance count is the number of plants on screen.
         this.currentFrame.accentSubmittedCards += instances;
         break;
     }
@@ -294,6 +301,7 @@ export class GrassWorkloadProbe {
 function createEmptyFrameWorkload(): FrameWorkload {
   return {
     nearBaseInstances: 0,
+    nearBridgeInstances: 0,
     nearDetailInstances: 0,
     nearUltraInstances: 0,
     nearSubmittedTriangles: 0,
