@@ -22,6 +22,7 @@ export class WorldDiagnosticsController {
   private readonly hud = new WorldDiagnosticsHud();
   private lastHudUpdate = 0;
   private enabled = true;
+  private disposed = false;
 
   private constructor(app: unknown, options: WorldDiagnosticsOptions) {
     const runtime = resolveWorldDiagnosticsRuntime(app);
@@ -49,6 +50,10 @@ export class WorldDiagnosticsController {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.enabled = false;
     this.restoreRenderer();
     this.probe.dispose();
@@ -97,14 +102,10 @@ export class WorldDiagnosticsController {
   }
 
   private disableAfterFailure(error: unknown): void {
-    if (!this.enabled) {
+    if (!this.enabled || this.disposed) {
       return;
     }
-    this.enabled = false;
-    this.restoreRenderer();
-    this.probe.dispose();
-    this.gpuTimer.dispose();
-    this.hud.dispose();
+    this.dispose();
     console.warn("[Drusniel World] Workload diagnostics disabled.", error);
   }
 
