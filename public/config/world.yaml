@@ -91,7 +91,7 @@ detailScale: 0.0055
 # Procedural hydrology. River corridors carve the terrain; deterministic basin
 # cells create lowland lakes. Humidity reaches farther than the visible water.
 waterEnabled: 1
-riverWidth: 9
+riverWidth: 12
 riverBankWidth: 4.5
 riverDepth: 1.6
 riverSpacing: 520
