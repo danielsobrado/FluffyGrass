@@ -212,6 +212,7 @@ try {
   );
   for (const token of [
     "waterFlowDirection",
+    "waterHeightGradient",
     "waterDepthFactor",
     "waterFresnel",
     "waterShoreBand",
@@ -229,6 +230,13 @@ try {
     "Water derivatives must be evaluated before shoreline discard.",
   );
   assert(
+    waterController.material.isMeshPhysicalMaterial === true &&
+      Math.abs(waterController.material.ior - 1.333) < 1e-6 &&
+      Math.abs(waterController.material.roughness - config.waterRoughness) < 1e-9 &&
+      waterController.material.transmission === 0,
+    "Water must use the physical dielectric BRDF without transmission overhead.",
+  );
+  assert(
     waterController.material.depthWrite === false &&
       waterController.material.transparent === true,
     "Water must keep transparent depth writes disabled.",
@@ -236,7 +244,7 @@ try {
   waterController.dispose();
 
   console.log(
-    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow, depth, and water shader verified.`,
+    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow, depth, and physical water shader verified.`,
   );
 } finally {
   await server.close();
