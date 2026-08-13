@@ -14,10 +14,18 @@ function assert(condition, message) {
   }
 }
 
+function assertClose(actual, expected, message, epsilon = EPSILON) {
+  assert(
+    Math.abs(actual - expected) <= epsilon,
+    `${message} Expected ${expected}, received ${actual}.`,
+  );
+}
+
 const server = await createServer({
   configFile: false,
   root: REPOSITORY_ROOT,
   appType: "custom",
+  logLevel: "silent",
   server: { middlewareMode: true },
   optimizeDeps: { noDiscovery: true },
 });
@@ -38,6 +46,9 @@ try {
   );
   const { WaterMaterialController } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterMaterialController.ts",
+  );
+  const { WATER_VISIBLE_COVERAGE_THRESHOLD } = await server.ssrLoadModule(
+    "/src/world/hydrology/WaterMaterialTuning.ts",
   );
   const { WORLD_CONFIG_SCHEMA } = await server.ssrLoadModule(
     "/src/world/WorldConfigSchema.ts",
@@ -81,6 +92,7 @@ try {
   let carvedSamples = 0;
   let normalizedFlowSamples = 0;
   let wetPoint;
+  let riverPoint;
   const lakeLevels = new Map();
 
   for (let z = -halfWorld; z <= halfWorld; z += SAMPLE_STEP) {
@@ -102,6 +114,9 @@ try {
           `River flow must stay normalized, received ${flowLength}.`,
         );
         normalizedFlowSamples += 1;
+        if (!riverPoint && hydrology.lakeCoverage < 0.01) {
+          riverPoint = { x, z, dryHeight };
+        }
       }
       if (hydrology.lakeCoverage > 0.65) {
         lakeSamples += 1;
@@ -146,9 +161,61 @@ try {
     "A lake must expose multiple samples at one exactly flat water level.",
   );
   assert(wetPoint, "Hydrology verification needs at least one open-water point.");
+  assert(riverPoint, "Hydrology verification needs a river-only sample.");
 
-  const chunkX = Math.floor(wetPoint.x / config.chunkSize);
-  const chunkZ = Math.floor(wetPoint.z / config.chunkSize);
+  const sensitiveConfig = {
+    ...config,
+    lakeChance: 0,
+    riverMaxAltitude: riverPoint.dryHeight + 9,
+  };
+  const sensitiveTerrain = new TerrainField(sensitiveConfig);
+  const sensitiveHeight = sensitiveTerrain.sampleHeight(riverPoint.x, riverPoint.z);
+  const beforeNormal = createHydrologySample();
+  sensitiveTerrain.sampleHydrology(
+    riverPoint.x,
+    riverPoint.z,
+    sensitiveHeight,
+    beforeNormal,
+  );
+  assert(
+    beforeNormal.riverCoverage > 0.05 && beforeNormal.riverCoverage < 0.95,
+    "Call-order regression must exercise the river altitude fade, not a saturated mask.",
+  );
+  sensitiveTerrain.sampleNormal(
+    riverPoint.x,
+    riverPoint.z,
+    new THREE.Vector3(),
+  );
+  const afterNormal = createHydrologySample();
+  sensitiveTerrain.sampleHydrology(
+    riverPoint.x,
+    riverPoint.z,
+    sensitiveHeight,
+    afterNormal,
+  );
+  for (const key of [
+    "waterCoverage",
+    "waterProximity",
+    "humidityBoost",
+    "grassMask",
+    "waterLevel",
+    "riverCoverage",
+    "lakeCoverage",
+    "flowX",
+    "flowZ",
+  ]) {
+    assertClose(
+      afterNormal[key],
+      beforeNormal[key],
+      `Hydrology ${key} must not depend on intervening normal samples.`,
+    );
+  }
+
+  const riverConfig = { ...config, lakeChance: 0 };
+  const riverTerrain = new TerrainField(riverConfig);
+  const riverSurface = new TerrainSurfaceField(riverConfig);
+  const chunkX = Math.floor(riverPoint.x / config.chunkSize);
+  const chunkZ = Math.floor(riverPoint.z / config.chunkSize);
   const terrainMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
   const waterMaterial = new THREE.MeshBasicMaterial({ transparent: true });
   const builder = new TerrainChunkBuilder(
@@ -156,8 +223,8 @@ try {
     chunkZ,
     config.chunkSize,
     config.terrainNearResolution,
-    terrain,
-    surface,
+    riverTerrain,
+    riverSurface,
     terrainMaterial,
     waterMaterial,
     false,
@@ -166,11 +233,23 @@ try {
   while (!chunk) {
     chunk = builder.advance(1000);
   }
-  assert(chunk.waterMesh, "A wet terrain chunk must build a water mesh.");
+  assert(chunk.waterMesh, "A river terrain chunk must build a water mesh.");
   assert(
     chunk.mesh.geometry.getAttribute("terrainEnvironment")?.itemSize === 4,
     "Terrain must carry altitude/humidity/water/stone environment channels.",
   );
+  const terrainIndexCount = chunk.mesh.geometry.getIndex()?.count ?? 0;
+  const waterIndexCount = chunk.waterMesh.geometry.getIndex()?.count ?? 0;
+  assert(
+    waterIndexCount > 0 && waterIndexCount < terrainIndexCount,
+    "River water must submit only wet cells instead of the complete terrain grid.",
+  );
+  assertClose(
+    chunk.getTriangleCount(),
+    (terrainIndexCount + waterIndexCount) / 3,
+    "Terrain diagnostics must include streamed water triangles.",
+  );
+
   const waterData = chunk.waterMesh.geometry.getAttribute("waterData");
   assert(
     waterData?.itemSize === 4,
@@ -218,12 +297,20 @@ try {
     "waterShoreBand",
     "waterRiverFoam",
     "waterDetailWeight",
+    "waterLightingNormal",
+    "gl_FrontFacing",
   ]) {
     assert(
       shader.fragmentShader.includes(token),
       `Water shader is missing ${token}.`,
     );
   }
+  assert(
+    shader.fragmentShader.includes(
+      `waterCoverageRaw < ${WATER_VISIBLE_COVERAGE_THRESHOLD}`,
+    ),
+    "CPU water topology and shader clipping must share one coverage threshold.",
+  );
   assert(
     shader.fragmentShader.indexOf("dFdx(vWaterWorldPosition)") <
       shader.fragmentShader.indexOf("discard"),
@@ -238,13 +325,14 @@ try {
   );
   assert(
     waterController.material.depthWrite === false &&
-      waterController.material.transparent === true,
-    "Water must keep transparent depth writes disabled.",
+      waterController.material.transparent === true &&
+      waterController.material.side === THREE.DoubleSide,
+    "Water must be transparent, avoid depth writes, and remain visible from below.",
   );
   waterController.dispose();
 
   console.log(
-    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow, depth, and physical water shader verified.`,
+    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; deterministic semantics, sparse topology, flow, depth, and physical water verified.`,
   );
 } finally {
   await server.close();
