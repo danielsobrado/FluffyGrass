@@ -209,6 +209,9 @@ export class DenseSpawnLocator {
           offsetX === 0 && offsetZ === 0
             ? suitability
             : this.sampleAreaSuitability(candidateX, candidateZ);
+        if (!(areaSuitability > 0)) {
+          continue;
+        }
         const score = areaSuitability * clearance;
         if (!best || score > best.suitability) {
           best = { x: candidateX, z: candidateZ, suitability: score };
