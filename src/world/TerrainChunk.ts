@@ -73,7 +73,7 @@ export class TerrainChunkBuilder {
   private readonly biomes: Float32Array;
   private readonly waterPositions: Float32Array;
   private readonly waterNormals: Float32Array;
-  private readonly waterCoverages: Float32Array;
+  private readonly waterData: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
@@ -119,7 +119,7 @@ export class TerrainChunkBuilder {
     this.biomes = new Float32Array(vertexCount * 3);
     this.waterPositions = new Float32Array(vertexCount * 3);
     this.waterNormals = new Float32Array(vertexCount * 3);
-    this.waterCoverages = new Float32Array(vertexCount);
+    this.waterData = new Float32Array(vertexCount * 4);
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
@@ -217,7 +217,15 @@ export class TerrainChunkBuilder {
       this.waterNormals[offset] = 0;
       this.waterNormals[offset + 1] = 1;
       this.waterNormals[offset + 2] = 0;
-      this.waterCoverages[this.nextVertex] = this.hydrology.waterCoverage;
+      this.waterData[ecologyOffset] = this.hydrology.waterCoverage;
+      this.waterData[ecologyOffset + 1] = Math.max(
+        0,
+        this.hydrology.waterLevel - height,
+      );
+      this.waterData[ecologyOffset + 2] =
+        this.hydrology.flowX * this.hydrology.riverCoverage;
+      this.waterData[ecologyOffset + 3] =
+        this.hydrology.flowZ * this.hydrology.riverCoverage;
       this.maxWaterCoverage = Math.max(
         this.maxWaterCoverage,
         this.hydrology.waterCoverage,
@@ -320,8 +328,8 @@ export class TerrainChunkBuilder {
       new THREE.BufferAttribute(this.waterNormals, 3),
     );
     geometry.setAttribute(
-      "waterCoverage",
-      new THREE.BufferAttribute(this.waterCoverages, 1),
+      "waterData",
+      new THREE.BufferAttribute(this.waterData, 4),
     );
     geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
     geometry.computeBoundingBox();
