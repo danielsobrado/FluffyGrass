@@ -75,8 +75,7 @@ export class TerrainStreamer {
   getDiagnostics(): TerrainDiagnostics {
     let triangles = 0;
     for (const chunk of this.chunks.values()) {
-      const cells = chunk.resolution - 1;
-      triangles += cells * cells * 2;
+      triangles += chunk.getTriangleCount();
     }
     return {
       activeChunks: this.chunks.size,
