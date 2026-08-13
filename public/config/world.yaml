@@ -114,6 +114,7 @@ waterFresnelStrength: 1.65
 waterDepthFade: 1.35
 waterDetailDistance: 110
 waterLakeWaveStrength: 0.55
+waterRoughness: 0.12
 
 # Bare walking ways worn through the grass.
 pathWidth: 3
