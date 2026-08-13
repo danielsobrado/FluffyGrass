@@ -94,11 +94,13 @@ const packageLock = JSON.parse(readFileSync(PACKAGE_LOCK_FILE, "utf8"));
 const packageLockRoot = packageLock.packages?.[""];
 if (
   !packageLockRoot ||
+  packageLock.name !== packageMetadata.name ||
+  packageLock.version !== packageMetadata.version ||
   packageLockRoot.name !== packageMetadata.name ||
   packageLockRoot.version !== packageMetadata.version ||
   packageLockRoot.engines?.node !== packageMetadata.engines?.node
 ) {
-  fail("package-lock.json root metadata must match package.json exactly.");
+  fail("package-lock.json project metadata must match package.json exactly.");
 }
 const nodeEngine = String(packageMetadata.engines?.node ?? "");
 if (
