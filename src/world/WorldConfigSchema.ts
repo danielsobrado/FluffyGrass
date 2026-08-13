@@ -123,6 +123,7 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   waterDepthFade: { minimum: 0.1, maximum: 10 },
   waterDetailDistance: { minimum: 20, maximum: 400 },
   waterLakeWaveStrength: { minimum: 0.1, maximum: 1 },
+  waterRoughness: { minimum: 0.02, maximum: 0.5 },
   pathWidth: { minimum: 0.5, maximum: 12 },
   pathBranchWidth: { minimum: 0.4, maximum: 12 },
   pathSpacing: { minimum: 120, maximum: 4000 },
