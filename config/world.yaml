@@ -88,6 +88,41 @@ mountainHeight: 210
 mountainScale: 0.00115
 detailScale: 0.0055
 
+# Procedural hydrology. River corridors carve the terrain; deterministic basin
+# cells create lowland lakes. Humidity reaches farther than the visible water.
+waterEnabled: 1
+riverWidth: 12
+riverBankWidth: 4.5
+riverDepth: 1.6
+riverSpacing: 520
+riverMeander: 105
+riverMaxAltitude: 72
+waterHumidityRadius: 34
+lakeSpacing: 480
+lakeChance: 0.38
+lakeRadiusMin: 26
+lakeRadiusMax: 58
+lakeDepth: 3
+lakeShoreWidth: 8
+waterSurfaceOffset: 0.08
+waterOpacity: 0.72
+waterRippleStrength: 0.14
+waterRippleScale: 0.085
+waterFlowSpeed: 0.85
+waterFoamStrength: 0.9
+waterFresnelStrength: 1.65
+waterDepthFade: 1.35
+waterDetailDistance: 110
+waterLakeWaveStrength: 0.55
+waterRoughness: 0.12
+# Flow-aligned breakup, shallow subsurface light, sparse glints, and stone wakes.
+waterFlowNoiseScale: 0.052
+waterFlowNoiseStrength: 0.34
+waterCausticStrength: 0.28
+waterGlintStrength: 0.32
+waterStoneWakeStrength: 0.95
+waterStoneWakeLength: 4.2
+
 # Bare walking ways worn through the grass.
 pathWidth: 3
 pathBranchWidth: 1.7
