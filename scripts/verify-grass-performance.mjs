@@ -491,12 +491,6 @@ assert(
   "Mid geometry must stay descending-dither sorted and prefix-trimmed with drawRange.",
 );
 
-// The sub-pixel width clamp widens a blade towards a ceiling. That ceiling used
-// to be a bare 0.02 m with nothing tying it to the blade: when the blades were
-// widened past it, `max(source, min(target, ceiling))` collapsed to `source` and
-// the clamp silently stopped doing anything — taking both the anti-sparkle
-// widening and the mid layer's density-falloff coverage payback with it, in a
-// way no gate could see. It must now be derived from the configured half-width.
 const bladeWidthMin = readYamlNumber(grassConfig, "bladeWidthMin");
 const bladeWidthMax = readYamlNumber(grassConfig, "bladeWidthMax");
 const sourceHalfWidth = (bladeWidthMin + bladeWidthMax) * 0.25;
@@ -569,10 +563,6 @@ for (const profile of orderedBiomes) {
     `Biome ${profile.label} exceeds density or analytical bounds ceilings.`,
   );
 }
-// Biome resolution costs two noise octaves plus a rank-table search, so it must
-// stay in the build path. The per-frame paths are the LOD controller and the
-// materials; naming them directly is a stronger and far less brittle check than
-// trying to pattern-match proximity to an `update(` in the builder itself.
 assert(
   biomeField.includes("sampleGrassBiome") &&
     tileFactory.includes("sampleGrassBiome(x, z)") &&
@@ -583,14 +573,11 @@ assert(
     !impostorMaterial.includes("sampleGrassBiome"),
   "Biome resolution must remain build-time-only, never on a per-frame path.",
 );
-// Blades rejected by terrain masks must not pay for a biome sample first.
 assert(
   tileFactory.indexOf("if (suitability < MIN_SUITABILITY") <
     tileFactory.indexOf("const biomeSample = sampleGrassBiome(x, z)"),
   "Near tiles must sample the biome only for blades that survive placement.",
 );
-// Biome 0 carries the art direction's palette. A profile set that leaves it a
-// minority makes the active preset stop describing what the world looks like.
 const totalWorldShare = orderedBiomes.reduce(
   (sum, profile) => sum + profile.worldShare,
   0,
@@ -600,21 +587,11 @@ assert(
     orderedBiomes[0].worldShare / totalWorldShare >= 0.4,
   "Biome 0 must hold at least 40% of the world.",
 );
-// The biome field must be rank-transformed before it is sliced: a raw sum of
-// noise octaves is bell-shaped, and slicing that into shares gave the middle
-// biome two thirds of the world regardless of what the profiles asked for.
 assert(
   biomeField.includes("RANK_TABLE") && biomeField.includes("uniformField("),
   "The biome field must be remapped to a uniform variable before slicing.",
 );
-// ---------------------------------------------------------------------------
-// Detail foliage (accent cards): ferns, flowers, seed heads.
-//
-// The layer's whole justification is that it is noise next to the mid band, so
-// the checks below are about it staying that way: a bounded density, a bounded
-// resident set, and the one place in the grass pipeline where a fragment
-// `discard` is allowed to exist.
-// ---------------------------------------------------------------------------
+
 const accentTileSize = readSourceNumber(
   detailFoliageField,
   "DETAIL_FOLIAGE_TILE_SIZE",
@@ -649,10 +626,6 @@ assert(
   accentFadeDistance + accentFadeTransition <= 30,
   "Accents must be gone by 30 m; past that they are sub-pixel sprinkles the mid band already provides.",
 );
-
-// Worst-case residency over every tile phase, the same enumeration the near
-// field is measured with. Cards are counted before terrain masks and biome
-// accentDensity reject any of them, so this is a strict ceiling.
 const accentCardsPerTile = Math.round(accentTileSize ** 2 * accentDensity);
 let accentResidentTiles = 0;
 let accentDrawnTiles = 0;
@@ -676,7 +649,6 @@ for (let iz = 0; iz < 64; iz += 1) {
   }
 }
 const accentResidentCards = accentResidentTiles * accentCardsPerTile;
-// Six vertices per card: two stacked quads sharing their middle row.
 const accentVertices = accentResidentCards * 6;
 assert(
   accentResidentCards <= 2500,
@@ -702,10 +674,6 @@ assert(
     detailFoliageField.includes("DITHER_SAFETY_MARGIN"),
   "Accent tiles must stay dither-sorted so the draw can be trimmed to a prefix.",
 );
-// The near/mid materials owe their early-Z friendliness to rejecting in the
-// vertex stage. Cutout cards genuinely cannot, so the accent material is the
-// single exception — and its only discard must be the atlas alpha test, with
-// the coverage rejection still done by collapsing the card off-screen.
 const accentDiscards = detailFoliageMaterial.match(/discard;/g) ?? [];
 assert(
   accentDiscards.length === 1 &&
@@ -723,15 +691,12 @@ assert(
     detailFoliageMaterial.includes("smoothstep(uFadeDistance * 0.4, uFadeDistance"),
   "The accent atlas must keep mipmaps and compensate its alpha cutoff with distance.",
 );
-// Same rule as the blade layers: biome and macro resolution is build-time only.
 assert(
   detailFoliageField.includes("sampleGrassBiome(x, z)") &&
     !detailFoliageMaterial.includes("sampleGrassBiome") &&
     !detailFoliageMaterial.includes("sampleGrassMacro"),
   "Accent biome and macro sampling must remain in the build path.",
 );
-// Species and tint rows are bounded uniform arrays indexed per instance, so
-// growing the catalogue can never grow the draw count.
 const maxAccentSpecies = Number(
   accentSpeciesSource.match(/GRASS_MAX_ACCENT_SPECIES = (\d+)/)?.[1],
 );
@@ -769,8 +734,6 @@ for (const profile of orderedBiomes) {
     );
   }
 }
-// One material for every species, tint, and biome: the accent layer must never
-// become a per-look material or a per-look draw.
 assert(
   (detailFoliageField.match(/new THREE\.InstancedMesh\(/g) ?? []).length === 1 &&
     detailFoliageField.includes("this.material.material") &&
@@ -792,12 +755,6 @@ assert(
   "Accent tiers must only lower coverage, end at zero, and ramp like every other tier scalar.",
 );
 
-// ---------------------------------------------------------------------------
-// Mobile naturalness plan (G1-G6): the invariants none of the numeric checks
-// above can see. Every one of these is a property that would regress silently.
-// ---------------------------------------------------------------------------
-// The compact profile owns its own ultra-near multiplier so that lowering phone
-// density can never quietly thin the desktop near band with it.
 assert(
   compactUltraMultiplier <= ultraMultiplier &&
     nearField.includes("grassUltraNearDensityMultiplierCompact"),
@@ -811,8 +768,9 @@ assert(
   worldGrassSystem.indexOf("this.processBuildQueue(streamBuildDeadline)") <
     worldGrassSystem.indexOf("this.nearField.update(") &&
     worldGrassSystem.includes("DESKTOP_STREAM_BUILD_RESERVE_MS") &&
-    worldApp.includes("performance.now() + grassBuildReserveMs"),
-  "Mid/far grass streaming must receive bounded progress before near-field detail work.",
+    worldApp.includes("this.streamingBuildDeadline") &&
+    !worldApp.includes("performance.now() + grassBuildReserveMs"),
+  "Mid/far grass streaming must receive bounded progress before near-field detail work without extending the shared frame deadline.",
 );
 assert(
   nearField.includes("this.baseField?.update(focus, baseDeadline)") &&
@@ -821,10 +779,6 @@ assert(
     nearField.includes("this.buildCursor = (this.buildCursor + 1)"),
   "Near grass builders must rotate and share their deadline instead of starving later layers.",
 );
-// Placement shape is configuration, schema-checked and cross-validated at
-// load, and versioned into the cache key — a cached tile built against the
-// previous tuft rule must not survive in the LRU and draw beside freshly built
-// neighbours.
 const configLoader = read("src/world/WorldConfigLoader.ts");
 const configSchema = read("src/world/WorldConfigSchema.ts");
 const configValidator = read("src/world/WorldConfigValidator.ts");
@@ -843,9 +797,6 @@ assert(
     tileFactory.includes("placement-${GRASS_PLACEMENT_VERSION}"),
   "The near placement cache key must carry the placement version.",
 );
-// Motion phase must decorrelate flutter and stiffness without touching either
-// dither: the mid layer's CPU draw truncation reproduces grassDither exactly
-// and depends on it carrying no per-instance term.
 assert(
   nearMaterial.includes(
     "float grassMotionPhase = fract(grassPhase + instanceVariation.x);",
@@ -858,17 +809,6 @@ assert(
     !nearMaterial.includes("grassMotionPhase * 0.819173"),
   "Motion phase must drive flutter and stiffness only; both dithers must keep the source phase.",
 );
-// The near source blade leans through the instance transform, so plane azimuth
-// and lean direction stay independent without a new attribute.
-//
-// This used to assert the source blade was flat, by pinning the single-triangle
-// vertex push verbatim. That conflated two different things: *lean must not be
-// baked* (the real invariant, since baking it re-couples azimuth to lean) with
-// *the blade must have no shape*, which nothing required and which forced every
-// blade to be a rigid plank. The blade now carries a rest arc along its own
-// depth axis; it rotates with the blade's plane, so it re-couples nothing. What
-// is checked instead is that the arc is the shared configuration-driven one and
-// that the bounds charge its reach.
 assert(
   !tileFactory.includes("const centerZ = lean * curve") &&
     tileFactory.includes("resolveGrassBladeArcPoint(height, curve, 1)") &&
@@ -880,8 +820,6 @@ assert(
     tileFactory.includes("INSTANCE_HORIZONTAL_SCALE_MAX) /"),
   "Near blades must lean by transform, scaled to the horizontal displacement the bounds charge.",
 );
-// The placement loop runs per blade over thousands of candidates per tile; the
-// heading blend has to stay scalar rather than allocating vectors in it.
 const samplingLoop = tileFactory.slice(
   tileFactory.indexOf("private advanceSampling("),
   tileFactory.indexOf("private advanceFinalize("),
@@ -891,8 +829,6 @@ assert(
     !/\bnew Array\(/.test(samplingLoop),
   "The near placement loop must not allocate per blade.",
 );
-// Compact wind: one shared expression for every layer, so a blade and the card
-// that replaces it at distance cannot bend different ways.
 const windNoise = read("src/grass/wind/WindNoiseTexture.ts");
 assert(
   windNoise.includes("export function grassCompactGustGlsl") &&
@@ -902,16 +838,12 @@ assert(
     detailFoliageMaterial.includes("grassCompactGustGlsl({"),
   "Every layer's compact gust must come from the one shared expression.",
 );
-// The two waves' weights sum to one, so the envelope stays inside [0, 1] and
-// the reserved wind displacement is unchanged.
 const primaryWeight = readSourceNumber(windNoise, "GRASS_GUST_PRIMARY_WEIGHT");
 const crossWeight = readSourceNumber(windNoise, "GRASS_GUST_CROSS_WEIGHT");
 assert(
   Math.abs(primaryWeight + crossWeight - 1) < 1e-9,
   `Compact gust weights must sum to one: ${primaryWeight} + ${crossWeight}.`,
 );
-// Diagnostics stay honest: the HUD must name what each number measures rather
-// than presenting a logical density estimate as render work.
 const diagnosticsHud = read("src/runtime/WorldDiagnosticsHud.ts");
 const workloadProbe = read("src/runtime/GrassWorkloadProbe.ts");
 assert(
@@ -1003,11 +935,6 @@ assert(worldGrassSystem.includes("mesh.receiveShadow = false"), "Mid/far grass m
 const underfill = Number(lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1]);
 assert(underfill === 0, "Far-card underfill must remain disabled in the full mid band.");
 assert(!impostorMaterial.includes("vec4 color00 = sampleFrame") && impostorMaterial.includes("atlasColor = sampleFrame(selectedFrame, vUv)"), "Far views must reconstruct the blend stochastically with one atlas fetch, at every distance.");
-
-// Per-mesh values cannot be uniforms. three uploads a material's custom uniforms
-// only on the first draw of each contiguous same-material run (`refreshMaterial`
-// in WebGLRenderer), and its opaque sort groups by material.id before depth, so
-// every mesh sharing a material silently inherited the first one's values.
 assert(
   !/\.onBeforeRender\s*=/.test(nearMaterial) &&
     !/\.onBeforeRender\s*=/.test(impostorMaterial),
@@ -1050,10 +977,6 @@ assert(
   "Terrain must draw after grass so covered terrain fragments are depth-rejected.",
 );
 
-// Instance rows are sorted by the shader's dither key so the survivors of the
-// LOD cull are a prefix, letting the draw be truncated with mesh.count. This
-// must never drop a blade the shader would have kept, so the check below
-// reproduces both sides in float32 and compares them directly.
 assert(
   tileFactory.includes('job.stage === "radix-count"') &&
     tileFactory.includes("SINGLE_BLADE_DITHER_BIAS = 0.662358981"),
@@ -1068,12 +991,6 @@ assert(
 );
 verifyDitherTruncationIsLossless(1 / ditherMargin);
 
-/**
- * The shader keeps a blade when `dither <= coverage`, evaluated per blade from
- * its own 3D camera distance. The CPU truncates the draw using coverage at the
- * tile's nearest point and a horizontal distance, both of which can only
- * overstate coverage. Confirm no blade survives the shader beyond the cut.
- */
 function verifyDitherTruncationIsLossless(margin) {
   const bias = 0.662358981;
   const seed = 0x6a09e667 / 4294967296;
@@ -1093,8 +1010,6 @@ function verifyDitherTruncationIsLossless(margin) {
   const fadeStart = near - transition;
   const fadeEnd = near + transition;
   for (let step = 0; step <= 400; step += 1) {
-    // Nearest horizontal distance to the tile, and the farthest a blade inside
-    // it can actually be from the camera: one tile diagonal plus 24 m of relief.
     const nearest = (step / 400) * (fadeEnd + 4);
     const farthest = Math.hypot(nearest + tileSize * Math.SQRT2, 24);
     const cutCoverage = coverageAt(nearest, fadeStart, fadeEnd) + margin;
@@ -1105,7 +1020,6 @@ function verifyDitherTruncationIsLossless(margin) {
           ? upperBoundIndex(dithers, cutCoverage)
           : upperBoundIndex(dithers, cutCoverage);
     for (let index = 0; index < bladeCount; index += 1) {
-      // Best case for the shader: the blade sits at the tile's nearest point.
       const shaderCoverage = coverageAt(nearest, fadeStart, fadeEnd);
       const kept = dithers[index] <= shaderCoverage;
       assert(
