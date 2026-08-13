@@ -31,6 +31,10 @@ const interactionResolverSource = readFileSync(
   resolve(REPOSITORY_ROOT, "src/world/hydrology/WaterChunkInteractionResolver.ts"),
   "utf8",
 );
+const waterMaterialSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/world/hydrology/WaterMaterialController.ts"),
+  "utf8",
+);
 assert(
   terrainChunkSource.includes("WATER_INTERACTION_STAGE") &&
     terrainChunkSource.includes("advanceWaterInteractions(deadline)") &&
@@ -47,6 +51,11 @@ assert(
     !interactionResolverSource.includes("BufferGeometry") &&
     !interactionResolverSource.includes("MeshPhysicalMaterial"),
   "Water interaction resolution must stay small and independent from geometry/material ownership.",
+);
+assert(
+  waterMaterialSource.includes("side: THREE.DoubleSide") &&
+    waterMaterialSource.includes("this.material.forceSinglePass = true"),
+  "The open double-sided water sheet must remain single-pass to avoid duplicate transparent draws.",
 );
 
 const server = await createServer({
@@ -108,7 +117,7 @@ try {
   );
 
   console.log(
-    "[water-flow] Downhill CPU wakes, coherent packed flow, and budgeted interactions verified.",
+    "[water-flow] Downhill CPU wakes, coherent packed flow, budgeted interactions, and single-pass water verified.",
   );
 } finally {
   await server.close();
