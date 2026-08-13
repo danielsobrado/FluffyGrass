@@ -13,6 +13,7 @@ import { APP_VERSION } from "../version";
 const ISLAND_MODEL_PATH = revisionedAssetPath("./island.glb");
 const DECORATIVE_TEXT_MODEL_PATH = revisionedAssetPath("./fluffy_grass_text.glb");
 const MODEL_SCALE = 3;
+const ISLAND_MAX_DELTA_SECONDS = 0.1;
 
 export class IslandApp {
   private readonly scene = new THREE.Scene();
@@ -138,7 +139,12 @@ export class IslandApp {
       return;
     }
     this.frameHandle = requestAnimationFrame(this.render);
-    const deltaSeconds = this.clock.getDelta();
+    const rawDeltaSeconds = this.clock.getDelta();
+    const deltaSeconds = THREE.MathUtils.clamp(
+      Number.isFinite(rawDeltaSeconds) ? rawDeltaSeconds : 0,
+      0,
+      ISLAND_MAX_DELTA_SECONDS,
+    );
     this.controls.update();
     this.grass.update(deltaSeconds, this.camera);
     this.renderer.render(this.scene, this.camera);
