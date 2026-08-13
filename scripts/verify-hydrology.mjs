@@ -38,6 +38,9 @@ try {
   const { createHydrologySample } = await server.ssrLoadModule(
     "/src/world/hydrology/HydrologyField.ts",
   );
+  const { LakeField, createLakeSample } = await server.ssrLoadModule(
+    "/src/world/hydrology/LakeField.ts",
+  );
   const {
     WaterInteractionField,
     createWaterInteractionSample,
@@ -183,6 +186,61 @@ try {
   );
   assert(wetPoint, "Hydrology verification needs at least one open-water point.");
   assert(riverPoint, "Hydrology verification needs a river-only sample.");
+
+  // A lake only ever resolves the spacing cell its sample falls in, so every band
+  // it feeds has to reach zero before that cell's edge. When the reserved margin
+  // is too small the outer humidity halo is instead cut off mid-value, leaving a
+  // step along an invisible grid line. Extra seeds are pinned because containment
+  // is a placement property: the shipped seed alone happens to clear the old bound
+  // and would leave the regression untested.
+  const CONTAINMENT_CELL_RANGE = 12;
+  const CONTAINMENT_STEP = 2;
+  const CONTAINMENT_NUDGE = 1e-6;
+  let containedLakeSamples = 0;
+  for (const seed of [config.seed, 7, 5150]) {
+    const lakeConfig = { ...config, seed };
+    const lakes = new LakeField(lakeConfig);
+    const lakeSample = createLakeSample();
+    const spacing = lakeConfig.lakeSpacing;
+    const bedHeight = lakeConfig.baseHeight - lakeConfig.lakeDepth;
+    const extent = CONTAINMENT_CELL_RANGE * spacing;
+
+    for (let cell = -CONTAINMENT_CELL_RANGE; cell <= CONTAINMENT_CELL_RANGE; cell += 1) {
+      const boundary = cell * spacing;
+      for (let offset = -extent; offset <= extent; offset += CONTAINMENT_STEP) {
+        for (const side of [-CONTAINMENT_NUDGE, CONTAINMENT_NUDGE]) {
+          for (const [x, z] of [
+            [boundary + side, offset],
+            [offset, boundary + side],
+          ]) {
+            lakes.sample(x, z, bedHeight, lakeSample);
+            assert(
+              lakeSample.coverage === 0 &&
+                lakeSample.basin === 0 &&
+                lakeSample.proximity === 0,
+              `Lake ${lakeSample.coverage > 0 ? "water" : lakeSample.basin > 0 ? "shoreline" : "humidity"} ` +
+                `is still ${lakeSample.coverage || lakeSample.basin || lakeSample.proximity} at its own ` +
+                `cell edge (${x}, ${z}, seed ${seed}), so the neighbouring cell cuts it off.`,
+            );
+          }
+        }
+      }
+    }
+
+    // Guard the sweep itself: those edges must be silent because lakes stay clear
+    // of them, not because this seed has no lakes to clip. The stride stays well
+    // under the narrowest humidity halo, so no live lake is missed.
+    for (let z = -extent; z <= extent; z += 40) {
+      for (let x = -extent; x <= extent; x += 40) {
+        lakes.sample(x, z, bedHeight, lakeSample);
+        if (lakeSample.proximity > 0) containedLakeSamples += 1;
+      }
+    }
+  }
+  assert(
+    containedLakeSamples > 1000,
+    `Lake containment sweep only saw ${containedLakeSamples} wet samples, so it proves nothing.`,
+  );
 
   const sensitiveConfig = {
     ...config,

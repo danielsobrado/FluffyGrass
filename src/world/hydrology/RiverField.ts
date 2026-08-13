@@ -67,28 +67,65 @@ function hash(index: number, seed: number): number {
   return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
 }
 
-interface RiverLane {
-  distance: number;
+/** Per-lane values that depend only on the lane index, resolved once and reused. */
+interface RiverLaneShape {
+  index: number;
+  laneOffset: number;
+  phasePrimary: number;
+  phaseSecondary: number;
+  amplitude: number;
   halfWidth: number;
-  flowX: number;
-  flowZ: number;
+  flowSign: number;
+}
+
+/** One lane evaluated at the sampled x, keeping the phases the winner needs. */
+interface RiverLane {
+  shape: RiverLaneShape;
+  distance: number;
+  primaryPhase: number;
+  secondaryPhase: number;
+}
+
+/** Power of two so the slot index is a mask away, and >= 2 so adjacent lanes fit. */
+const LANE_SHAPE_CACHE_SIZE = 4;
+const LANE_SHAPE_CACHE_MASK = LANE_SHAPE_CACHE_SIZE - 1;
+
+function createLaneShape(): RiverLaneShape {
+  return {
+    index: Number.NaN,
+    laneOffset: 0,
+    phasePrimary: 0,
+    phaseSecondary: 0,
+    amplitude: 0,
+    halfWidth: 0,
+    flowSign: 1,
+  };
 }
 
 /** Continuous lowland river corridors with deterministic per-river variation. */
 export class RiverField {
   private readonly primaryFrequency: number;
   private readonly secondaryFrequency: number;
+  /**
+   * Direct-mapped on the low index bits. A sample only ever needs the two
+   * adjacent lanes around z, which always land in different slots, so a row
+   * sweep resolves each lane's hashes once instead of once per sample.
+   */
+  private readonly laneShapes: RiverLaneShape[] = Array.from(
+    { length: LANE_SHAPE_CACHE_SIZE },
+    createLaneShape,
+  );
   private readonly laneA: RiverLane = {
+    shape: createLaneShape(),
     distance: 0,
-    halfWidth: 0,
-    flowX: 0,
-    flowZ: 0,
+    primaryPhase: 0,
+    secondaryPhase: 0,
   };
   private readonly laneB: RiverLane = {
+    shape: createLaneShape(),
     distance: 0,
-    halfWidth: 0,
-    flowX: 0,
-    flowZ: 0,
+    primaryPhase: 0,
+    secondaryPhase: 0,
   };
 
   constructor(private readonly config: WorldConfig) {
@@ -107,6 +144,7 @@ export class RiverField {
     this.sampleLane(lowerIndex + 1, x, z, this.laneB);
     const lane =
       this.laneA.distance <= this.laneB.distance ? this.laneA : this.laneB;
+    const halfWidth = lane.shape.halfWidth;
     const altitudeMask =
       1 -
       smoothstep(
@@ -119,28 +157,27 @@ export class RiverField {
       (1 -
         smoothstep(
           lane.distance,
-          Math.max(0, lane.halfWidth - RIVER_EDGE_FEATHER),
-          lane.halfWidth + RIVER_EDGE_FEATHER,
+          Math.max(0, halfWidth - RIVER_EDGE_FEATHER),
+          halfWidth + RIVER_EDGE_FEATHER,
         )) *
       altitudeMask;
     target.bank =
       (1 -
         smoothstep(
           lane.distance,
-          lane.halfWidth,
-          lane.halfWidth + this.config.riverBankWidth,
+          halfWidth,
+          halfWidth + this.config.riverBankWidth,
         )) *
       altitudeMask;
     target.proximity =
       (1 -
         smoothstep(
           lane.distance,
-          lane.halfWidth,
-          lane.halfWidth + this.config.waterHumidityRadius,
+          halfWidth,
+          halfWidth + this.config.waterHumidityRadius,
         )) *
       altitudeMask;
-    target.flowX = lane.flowX;
-    target.flowZ = lane.flowZ;
+    this.resolveFlow(lane, target);
     return target;
   }
 
@@ -150,12 +187,43 @@ export class RiverField {
     z: number,
     target: RiverLane,
   ): void {
+    const shape = this.resolveLaneShape(index);
+    const primaryPhase = x * this.primaryFrequency + shape.phasePrimary;
+    const secondaryPhase = x * this.secondaryFrequency + shape.phaseSecondary;
+    const centerZ =
+      shape.laneOffset +
+      Math.sin(primaryPhase) * shape.amplitude +
+      Math.sin(secondaryPhase) * shape.amplitude * RIVER_SECONDARY_AMPLITUDE;
+
+    target.shape = shape;
+    target.distance = Math.abs(z - centerZ);
+    target.primaryPhase = primaryPhase;
+    target.secondaryPhase = secondaryPhase;
+  }
+
+  /** Only the nearest lane contributes, so its tangent is resolved after the pick. */
+  private resolveFlow(lane: RiverLane, target: RiverSample): void {
+    const amplitude = lane.shape.amplitude;
+    const derivative =
+      Math.cos(lane.primaryPhase) * amplitude * this.primaryFrequency +
+      Math.cos(lane.secondaryPhase) *
+        amplitude *
+        RIVER_SECONDARY_AMPLITUDE *
+        this.secondaryFrequency;
+    const flowSign = lane.shape.flowSign;
+    // The meander derivative is bounded well inside float range, so the plain
+    // tangent length is exact enough and far cheaper than Math.hypot.
+    const flowLength = Math.sqrt(1 + derivative * derivative);
+
+    target.flowX = flowSign / flowLength;
+    target.flowZ = (flowSign * derivative) / flowLength;
+  }
+
+  private resolveLaneShape(index: number): RiverLaneShape {
+    const shape = this.laneShapes[index & LANE_SHAPE_CACHE_MASK];
+    if (shape.index === index) return shape;
+
     const seed = this.config.seed;
-    const phasePrimary = hash(index, seed + 1301) * TWO_PI;
-    const phaseSecondary = hash(index, seed + 1307) * TWO_PI;
-    const amplitude =
-      this.config.riverMeander *
-      lerp(0.72, RIVER_MAX_MEANDER_SCALE, hash(index, seed + 1319));
     const lateralOffset =
       (hash(index, seed + 1327) - 0.5) *
       this.config.riverSpacing *
@@ -165,25 +233,16 @@ export class RiverField {
       HYDROLOGY_RIVER_MAX_WIDTH_SCALE,
       hash(index, seed + 1361),
     );
-    const primaryPhase = x * this.primaryFrequency + phasePrimary;
-    const secondaryPhase = x * this.secondaryFrequency + phaseSecondary;
-    const centerZ =
-      index * this.config.riverSpacing +
-      lateralOffset +
-      Math.sin(primaryPhase) * amplitude +
-      Math.sin(secondaryPhase) * amplitude * RIVER_SECONDARY_AMPLITUDE;
-    const derivative =
-      Math.cos(primaryPhase) * amplitude * this.primaryFrequency +
-      Math.cos(secondaryPhase) *
-        amplitude *
-        RIVER_SECONDARY_AMPLITUDE *
-        this.secondaryFrequency;
-    const flowSign = hash(index, seed + 1373) < 0.5 ? -1 : 1;
-    const flowLength = Math.hypot(1, derivative);
 
-    target.distance = Math.abs(z - centerZ);
-    target.halfWidth = this.config.riverWidth * widthScale * 0.5;
-    target.flowX = flowSign / flowLength;
-    target.flowZ = (flowSign * derivative) / flowLength;
+    shape.index = index;
+    shape.laneOffset = index * this.config.riverSpacing + lateralOffset;
+    shape.phasePrimary = hash(index, seed + 1301) * TWO_PI;
+    shape.phaseSecondary = hash(index, seed + 1307) * TWO_PI;
+    shape.amplitude =
+      this.config.riverMeander *
+      lerp(0.72, RIVER_MAX_MEANDER_SCALE, hash(index, seed + 1319));
+    shape.halfWidth = this.config.riverWidth * widthScale * 0.5;
+    shape.flowSign = hash(index, seed + 1373) < 0.5 ? -1 : 1;
+    return shape;
   }
 }
