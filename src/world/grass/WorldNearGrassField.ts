@@ -609,6 +609,7 @@ export class WorldNearGrassField {
       grassConfig,
     );
     const tileSize = this.worldConfig.grassNearTileSize;
+    const worldHalfExtent = this.worldConfig.worldSize * 0.5;
     this.factory = factory;
     this.baseField = new WorldSingleBladeTileField(
       this.scene,
@@ -619,6 +620,7 @@ export class WorldNearGrassField {
         visibilityRadius: this.resolveBridgeEntryVisibilityRadius(
           this.artDirection,
         ),
+        worldHalfExtent,
         densityMultiplier: 1,
         bladeSegments: 1,
         receiveShadows: false,
@@ -641,6 +643,7 @@ export class WorldNearGrassField {
       {
         namePrefix: "world-grass-near-bridge",
         visibilityRadius: this.resolveBaseVisibilityRadius(this.artDirection),
+        worldHalfExtent,
         densityMultiplier: 1,
         bladeSegments: 1,
         receiveShadows: false,
@@ -672,6 +675,7 @@ export class WorldNearGrassField {
           this.worldConfig.grassUltraNearDistance +
           this.worldConfig.grassUltraNearTransitionDistance +
           SINGLE_BLADE_BOUNDS_MARGIN,
+        worldHalfExtent,
         densityMultiplier: 1,
         bladeSegments: grassConfig.geometry.bladeSegments,
         receiveShadows: true,
@@ -703,6 +707,7 @@ export class WorldNearGrassField {
             this.worldConfig.grassUltraNearDistance +
             this.worldConfig.grassUltraNearTransitionDistance +
             SINGLE_BLADE_BOUNDS_MARGIN,
+          worldHalfExtent,
           densityMultiplier: ultraAdditionalDensity,
           bladeSegments: grassConfig.geometry.bladeSegments,
           receiveShadows: true,
