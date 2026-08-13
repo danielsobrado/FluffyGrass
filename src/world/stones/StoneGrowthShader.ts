@@ -131,10 +131,11 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   float stoneLichenColorVariation = 1.0;
 
   if (stoneDetailWeight > 0.001) {
-    // Merged stone geometry is flat shaded: every vertex of a logical face has
-    // the same packed unit normal, so interpolation does not require a fragment
-    // normalize. Avoiding that square root matters on close mossy faces.
-    vec3 stoneGrowthNormal = vStoneWorldNormal;
+    // Facets are smoothed across shallow breaks, so a corner's normal no longer
+    // matches its neighbours and interpolation shortens the varying. Projection
+    // only compares axis magnitudes and does not care, but the runoff term
+    // reads the vertical component directly and would drift without this.
+    vec3 stoneGrowthNormal = normalize(vStoneWorldNormal);
     vec2 stoneGrowthOffset = vec2(
       vStoneGrowthSeed * 37.17,
       vStoneGrowthSeed * 71.93
@@ -318,8 +319,18 @@ if (stoneGrainFade > 0.001) {
 }
 `;
 
+/**
+ * Ambient wrap.
+ *
+ * A hemisphere ground colour tuned for turf leaves a downward-facing stone
+ * bevel at almost zero, and the baked turf bounce cannot rescue albedo the
+ * lighting has already multiplied to black. Raising the floor turns that hard
+ * contact rim back into shaded stone, and because the base albedo is already
+ * pushed toward the bounce colour there, the lift arrives green rather than
+ * grey. Still one max: no extra fragment cost over the old floor.
+ */
 const LIGHTING_FLOOR = `
-outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.24);
+outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.34);
 `;
 
 export function applyStoneSurfaceShader(
@@ -384,7 +395,7 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v10:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v11:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 

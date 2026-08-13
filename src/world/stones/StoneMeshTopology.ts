@@ -86,6 +86,12 @@ export function buildWorkingStoneFaces(
   return faces;
 }
 
+/**
+ * Signed dihedral sharpness per welded edge: positive on ridges, negative in
+ * creases. Notches and cut junctions produce both, and they want opposite
+ * treatments — a ridge catches light, a crease traps shadow — so the sign has
+ * to survive rather than being flattened by an unsigned angle.
+ */
 export function buildStoneEdgeSharpness(
   faces: readonly WorkingStoneFace[],
 ): Map<string, number> {
@@ -93,12 +99,16 @@ export function buildStoneEdgeSharpness(
     normalX: number;
     normalY: number;
     normalZ: number;
+    centerX: number;
+    centerY: number;
+    centerZ: number;
   }
   const firstFace = new Map<string, EdgeFace>();
   const sharpness = new Map<string, number>();
 
   for (const face of faces) {
     const count = face.shared.length;
+    const center = faceCenter(face);
     for (let index = 0; index < count; index += 1) {
       const a = face.shared[index];
       const b = face.shared[(index + 1) % count];
@@ -110,6 +120,9 @@ export function buildStoneEdgeSharpness(
           normalX: face.normalX,
           normalY: face.normalY,
           normalZ: face.normalZ,
+          centerX: center[0],
+          centerY: center[1],
+          centerZ: center[2],
         });
         continue;
       }
@@ -118,13 +131,37 @@ export function buildStoneEdgeSharpness(
         existing.normalY * face.normalY +
         existing.normalZ * face.normalZ;
       const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-      sharpness.set(
-        key,
-        smoothstep(angle, STONE_WEAR_ANGLE_START, STONE_WEAR_ANGLE_FULL),
+      const magnitude = smoothstep(
+        angle,
+        STONE_WEAR_ANGLE_START,
+        STONE_WEAR_ANGLE_FULL,
       );
+      // The first face's centre against the second face's plane: behind it the
+      // pair folds outward (a ridge), in front of it the pair folds inward.
+      const corner = face.points[index];
+      const side =
+        (existing.centerX - corner.x) * face.normalX +
+        (existing.centerY - corner.y) * face.normalY +
+        (existing.centerZ - corner.z) * face.normalZ;
+      sharpness.set(key, side > 0 ? -magnitude : magnitude);
     }
   }
   return sharpness;
+}
+
+function faceCenter(
+  face: WorkingStoneFace,
+): readonly [number, number, number] {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const point of face.points) {
+    x += point.x;
+    y += point.y;
+    z += point.z;
+  }
+  const inverse = 1 / face.points.length;
+  return [x * inverse, y * inverse, z * inverse];
 }
 
 export function countSharedStoneFacePairs(
