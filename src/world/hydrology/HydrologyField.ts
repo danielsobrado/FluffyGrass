@@ -3,6 +3,14 @@ import { createLakeSample, LakeField } from "./LakeField";
 import { createRiverSample, RiverField } from "./RiverField";
 
 const SAMPLE_HEIGHT_EPSILON = 1e-9;
+const SOURCE_HEIGHT_CACHE_SIZE = 8;
+
+interface SourceHeightSample {
+  x: number;
+  z: number;
+  carvedHeight: number;
+  sourceHeight: number;
+}
 
 export interface HydrologySample {
   waterCoverage: number;
@@ -51,6 +59,16 @@ export class HydrologyField {
   private readonly lakes: LakeField;
   private readonly river = createRiverSample();
   private readonly lake = createLakeSample();
+  private readonly sourceHeightCache: SourceHeightSample[] = Array.from(
+    { length: SOURCE_HEIGHT_CACHE_SIZE },
+    () => ({
+      x: Number.NaN,
+      z: Number.NaN,
+      carvedHeight: Number.NaN,
+      sourceHeight: Number.NaN,
+    }),
+  );
+  private sourceHeightCursor = 0;
   private carvedSampleX = Number.NaN;
   private carvedSampleZ = Number.NaN;
   private carvedSampleHeight = Number.NaN;
@@ -77,6 +95,7 @@ export class HydrologyField {
       carved = lerp(carved, Math.min(carved, bedTarget), this.lake.basin);
     }
 
+    this.cacheSourceHeight(x, z, carved, height);
     this.carvedSampleX = x;
     this.carvedSampleZ = z;
     this.carvedSampleHeight = carved;
@@ -98,7 +117,14 @@ export class HydrologyField {
       z !== this.carvedSampleZ ||
       Math.abs(carvedHeight - this.carvedSampleHeight) > SAMPLE_HEIGHT_EPSILON
     ) {
-      this.sampleStructure(x, z, carvedHeight);
+      this.sampleStructure(
+        x,
+        z,
+        this.resolveSourceHeight(x, z, carvedHeight) ?? carvedHeight,
+      );
+      this.carvedSampleX = x;
+      this.carvedSampleZ = z;
+      this.carvedSampleHeight = carvedHeight;
     }
 
     const waterCoverage = Math.max(this.river.coverage, this.lake.coverage);
@@ -121,6 +147,38 @@ export class HydrologyField {
     target.flowX = this.river.flowX;
     target.flowZ = this.river.flowZ;
     return target;
+  }
+
+  private cacheSourceHeight(
+    x: number,
+    z: number,
+    carvedHeight: number,
+    sourceHeight: number,
+  ): void {
+    const entry = this.sourceHeightCache[this.sourceHeightCursor];
+    entry.x = x;
+    entry.z = z;
+    entry.carvedHeight = carvedHeight;
+    entry.sourceHeight = sourceHeight;
+    this.sourceHeightCursor =
+      (this.sourceHeightCursor + 1) % this.sourceHeightCache.length;
+  }
+
+  private resolveSourceHeight(
+    x: number,
+    z: number,
+    carvedHeight: number,
+  ): number | undefined {
+    for (const entry of this.sourceHeightCache) {
+      if (
+        entry.x === x &&
+        entry.z === z &&
+        Math.abs(entry.carvedHeight - carvedHeight) <= SAMPLE_HEIGHT_EPSILON
+      ) {
+        return entry.sourceHeight;
+      }
+    }
+    return undefined;
   }
 
   private sampleStructure(x: number, z: number, height: number): void {
