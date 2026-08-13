@@ -147,11 +147,16 @@ export class DenseSpawnLocator {
       if (pathMask <= 0) {
         continue;
       }
+      const stoneMask = this.stones?.sampleGrassClearance(sampleX, sampleZ) ?? 1;
+      if (stoneMask <= 0.02) {
+        continue;
+      }
       this.field.sampleNormal(sampleX, sampleZ, this.normal);
       total +=
         suitabilityWithoutSlope *
         this.field.sampleGrassSlopeMask(this.normal) *
-        pathMask;
+        pathMask *
+        stoneMask;
     }
 
     return total / AREA_SAMPLE_OFFSETS.length;
