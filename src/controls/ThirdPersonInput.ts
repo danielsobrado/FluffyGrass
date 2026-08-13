@@ -18,14 +18,52 @@ const MAX_TOUCH_DISTANCE = 70;
 const WHEEL_DELTA_LINE = 1;
 const WHEEL_DELTA_PAGE = 2;
 const WHEEL_LINE_PIXELS = 16;
+const MOBILE_DIRECTIONS = [
+  {
+    direction: "north-west",
+    label: "↖",
+    ariaLabel: "Move forward left",
+    x: -1,
+    y: 1,
+  },
+  { direction: "north", label: "↑", ariaLabel: "Move forward", x: 0, y: 1 },
+  {
+    direction: "north-east",
+    label: "↗",
+    ariaLabel: "Move forward right",
+    x: 1,
+    y: 1,
+  },
+  { direction: "west", label: "←", ariaLabel: "Move left", x: -1, y: 0 },
+  { direction: "east", label: "→", ariaLabel: "Move right", x: 1, y: 0 },
+  {
+    direction: "south-west",
+    label: "↙",
+    ariaLabel: "Move backward left",
+    x: -1,
+    y: -1,
+  },
+  { direction: "south", label: "↓", ariaLabel: "Move backward", x: 0, y: -1 },
+  {
+    direction: "south-east",
+    label: "↘",
+    ariaLabel: "Move backward right",
+    x: 1,
+    y: -1,
+  },
+] as const;
 
 export class ThirdPersonInput {
   private readonly keys = new Set<string>();
   private readonly touchMovement = new THREE.Vector2();
+  private readonly mobileButtonMovement = new THREE.Vector2();
   private readonly lookDelta = new THREE.Vector2();
   private movePointer?: PointerState;
   private lookPointer?: PointerState;
   private mobileControls?: HTMLElement;
+  private mobileMoveControls?: HTMLElement;
+  private mobileDirectionButton?: HTMLButtonElement;
+  private mobileDirectionPointerId?: number;
   private mobileSprint = false;
   private mobileJumpHeld = false;
   private jumpRequested = false;
@@ -50,6 +88,7 @@ export class ThirdPersonInput {
 
   getMovement(target: THREE.Vector2): THREE.Vector2 {
     const touch = this.resolveTouchMovement();
+    const mobileButtons = this.resolveMobileButtonMovement();
     const keyboardX =
       (this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0) -
       (this.keys.has("KeyA") || this.keys.has("ArrowLeft") ? 1 : 0);
@@ -57,8 +96,8 @@ export class ThirdPersonInput {
       (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0) -
       (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0);
     target.set(
-      THREE.MathUtils.clamp(keyboardX + touch.x, -1, 1),
-      THREE.MathUtils.clamp(keyboardY + touch.y, -1, 1),
+      THREE.MathUtils.clamp(keyboardX + touch.x + mobileButtons.x, -1, 1),
+      THREE.MathUtils.clamp(keyboardY + touch.y + mobileButtons.y, -1, 1),
     );
     if (target.lengthSq() > 1) {
       target.normalize();
@@ -104,9 +143,13 @@ export class ThirdPersonInput {
 
   getDiagnostics(): string {
     const movement = this.resolveTouchMovement();
+    const mobileButtons = this.resolveMobileButtonMovement();
     const active = [
       this.movePointer
         ? `move ${movement.x.toFixed(2)}/${movement.y.toFixed(2)}`
+        : "",
+      mobileButtons.lengthSq() > 0
+        ? `buttons ${mobileButtons.x.toFixed(2)}/${mobileButtons.y.toFixed(2)}`
         : "",
       this.lookPointer ? "look" : "",
       this.isSprinting() ? "run" : "",
@@ -136,6 +179,8 @@ export class ThirdPersonInput {
       document.exitPointerLock();
     }
     this.clearTransientInput();
+    this.mobileMoveControls?.remove();
+    this.mobileMoveControls = undefined;
     this.mobileControls?.remove();
     this.mobileControls = undefined;
     this.canvas.style.touchAction = this.previousTouchAction;
@@ -166,6 +211,8 @@ export class ThirdPersonInput {
   }
 
   private createMobileControls(): void {
+    this.createMobileMoveControls();
+
     const controls = document.createElement("div");
     controls.className = "mobile-character-controls";
     controls.innerHTML = `
@@ -199,8 +246,12 @@ export class ThirdPersonInput {
     };
     jumpButton?.addEventListener("pointerdown", (event) => setJump(true, event));
     jumpButton?.addEventListener("pointerup", (event) => setJump(false, event));
-    jumpButton?.addEventListener("pointercancel", (event) => setJump(false, event));
-    jumpButton?.addEventListener("pointerleave", (event) => setJump(false, event));
+    jumpButton?.addEventListener("pointercancel", (event) =>
+      setJump(false, event),
+    );
+    jumpButton?.addEventListener("pointerleave", (event) =>
+      setJump(false, event),
+    );
 
     const runButton = controls.querySelector<HTMLButtonElement>(
       "[data-character-run]",
@@ -225,6 +276,52 @@ export class ThirdPersonInput {
 
     document.body.appendChild(controls);
     this.mobileControls = controls;
+  }
+
+  private createMobileMoveControls(): void {
+    const controls = document.createElement("div");
+    controls.className = "mobile-move-controls";
+    controls.setAttribute("role", "group");
+    controls.setAttribute("aria-label", "Movement controls");
+
+    for (const direction of MOBILE_DIRECTIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.direction = direction.direction;
+      button.dataset.moveX = String(direction.x);
+      button.dataset.moveY = String(direction.y);
+      button.setAttribute("aria-label", direction.ariaLabel);
+      button.setAttribute("aria-pressed", "false");
+      button.textContent = direction.label;
+      button.addEventListener("pointerdown", this.handleMobileDirectionDown);
+      button.addEventListener("pointerup", this.handleMobileDirectionRelease);
+      button.addEventListener(
+        "pointercancel",
+        this.handleMobileDirectionRelease,
+      );
+      button.addEventListener(
+        "lostpointercapture",
+        this.handleMobileDirectionRelease,
+      );
+      controls.appendChild(button);
+    }
+
+    document.body.appendChild(controls);
+    this.mobileMoveControls = controls;
+  }
+
+  private resolveMobileButtonMovement(): THREE.Vector2 {
+    return this.mobileButtonMovement;
+  }
+
+  private clearMobileDirection(): void {
+    this.mobileDirectionButton?.setAttribute("aria-pressed", "false");
+    if (this.mobileDirectionButton) {
+      this.mobileDirectionButton.dataset.active = "false";
+    }
+    this.mobileDirectionButton = undefined;
+    this.mobileDirectionPointerId = undefined;
+    this.mobileButtonMovement.set(0, 0);
   }
 
   private resolveTouchMovement(): THREE.Vector2 {
@@ -305,6 +402,7 @@ export class ThirdPersonInput {
   private clearTransientInput(): void {
     this.movePointer = undefined;
     this.lookPointer = undefined;
+    this.clearMobileDirection();
     this.mobileSprint = false;
     this.mobileJumpHeld = false;
     this.jumpRequested = false;
@@ -314,6 +412,49 @@ export class ThirdPersonInput {
     this.keys.clear();
     this.lastInputType = "idle";
   }
+
+  private readonly handleMobileDirectionDown = (event: PointerEvent): void => {
+    const button = event.currentTarget;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (
+      this.mobileDirectionPointerId !== undefined &&
+      this.mobileDirectionPointerId !== event.pointerId
+    ) {
+      return;
+    }
+    const x = Number(button.dataset.moveX);
+    const y = Number(button.dataset.moveY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    this.clearMobileDirection();
+    this.mobileDirectionPointerId = event.pointerId;
+    this.mobileDirectionButton = button;
+    this.mobileButtonMovement.set(x, y);
+    if (this.mobileButtonMovement.lengthSq() > 1) {
+      this.mobileButtonMovement.normalize();
+    }
+    button.dataset.active = "true";
+    button.setAttribute("aria-pressed", "true");
+    button.setPointerCapture(event.pointerId);
+    this.inputEventCount += 1;
+    this.lastInputType = "move-button";
+  };
+
+  private readonly handleMobileDirectionRelease = (
+    event: PointerEvent,
+  ): void => {
+    if (this.mobileDirectionPointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.clearMobileDirection();
+  };
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     if (isEditableInputTarget(event.target)) {
