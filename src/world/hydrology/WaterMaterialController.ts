@@ -31,7 +31,7 @@ export class WaterMaterialController {
       transparent: true,
       opacity: 1,
       depthWrite: false,
-      side: THREE.FrontSide,
+      side: THREE.DoubleSide,
     });
     this.uniforms = {
       uWaterTime: { value: 0 },
