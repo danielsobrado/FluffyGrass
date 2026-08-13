@@ -15,6 +15,7 @@ const GRASS_CONFIG_LOADER = resolve(
   "GrassConfigLoader.ts",
 );
 const PACKAGE_FILE = resolve(REPOSITORY_ROOT, "package.json");
+const PACKAGE_LOCK_FILE = resolve(REPOSITORY_ROOT, "package-lock.json");
 const NODE_VERSION_FILE = resolve(REPOSITORY_ROOT, ".nvmrc");
 const NPM_CONFIG_FILE = resolve(REPOSITORY_ROOT, ".npmrc");
 const WORKFLOW_EXTENSIONS = new Set([".yml", ".yaml"]);
@@ -89,6 +90,16 @@ if (
 }
 
 const packageMetadata = JSON.parse(readFileSync(PACKAGE_FILE, "utf8"));
+const packageLock = JSON.parse(readFileSync(PACKAGE_LOCK_FILE, "utf8"));
+const packageLockRoot = packageLock.packages?.[""];
+if (
+  !packageLockRoot ||
+  packageLockRoot.name !== packageMetadata.name ||
+  packageLockRoot.version !== packageMetadata.version ||
+  packageLockRoot.engines?.node !== packageMetadata.engines?.node
+) {
+  fail("package-lock.json root metadata must match package.json exactly.");
+}
 const nodeEngine = String(packageMetadata.engines?.node ?? "");
 if (
   nodeEngine.length === 0 ||
