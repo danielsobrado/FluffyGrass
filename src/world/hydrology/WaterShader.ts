@@ -136,7 +136,10 @@ vec2 waterSlope = mix(
 vec3 waterWorldNormal = normalize(
   waterGeometricNormal + vec3(-waterSlope.x, 0.0, -waterSlope.y)
 );
-normal = normalize((viewMatrix * vec4(waterWorldNormal, 0.0)).xyz);
+vec3 waterLightingNormal = gl_FrontFacing
+  ? waterWorldNormal
+  : -waterWorldNormal;
+normal = normalize((viewMatrix * vec4(waterLightingNormal, 0.0)).xyz);
 
 float waterDepthFactor = 1.0 - exp(
   -waterDepth / max(0.01, uWaterDepthFade)
@@ -158,7 +161,7 @@ if (waterRiverAmount > 0.02) {
 }
 
 vec3 waterViewDirection = normalize(cameraPosition - vWaterWorldPosition);
-float waterFacing = saturate(dot(waterWorldNormal, waterViewDirection));
+float waterFacing = saturate(dot(waterLightingNormal, waterViewDirection));
 float waterFresnel = 0.0204 + 0.9796 * pow(1.0 - waterFacing, 5.0);
 float waterFresnelVisual = saturate(waterFresnel * uWaterFresnelStrength);
 waterSurfaceColor = mix(
