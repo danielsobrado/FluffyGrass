@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -16,6 +17,27 @@ function assertClose(actual, expected, message) {
     `${message} Expected ${expected}, received ${actual}.`,
   );
 }
+
+const terrainChunkSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/world/TerrainChunk.ts"),
+  "utf8",
+);
+const waterGeometrySource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/world/hydrology/WaterChunkGeometry.ts"),
+  "utf8",
+);
+const interactionResolverSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/world/hydrology/WaterChunkInteractionResolver.ts"),
+  "utf8",
+);
+assert(
+  terrainChunkSource.includes("WATER_INTERACTION_STAGE") &&
+    terrainChunkSource.includes("advanceWaterInteractions(deadline)") &&
+    waterGeometrySource.includes("advanceInteractions(deadline") &&
+    interactionResolverSource.includes("performance.now() < deadline") &&
+    !waterGeometrySource.includes("resolveFlowAndInteractions"),
+  "Stone wakes must remain a frame-budgeted terrain-build stage rather than finalize-time work.",
+);
 
 const server = await createServer({
   configFile: false,
@@ -75,7 +97,9 @@ try {
     "Already-downhill packed flow must remain unchanged.",
   );
 
-  console.log("[water-flow] Downhill CPU wakes and coherent packed flow verified.");
+  console.log(
+    "[water-flow] Downhill CPU wakes, coherent packed flow, and budgeted interactions verified.",
+  );
 } finally {
   await server.close();
 }
