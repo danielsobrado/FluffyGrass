@@ -1,6 +1,5 @@
 export const WATER_FLOW_FRAGMENT_FUNCTIONS = `
 vec4 waterSampleAdvectedNoise(
-  sampler2D noiseTexture,
   vec2 position,
   vec2 flowDirection,
   float time,
@@ -13,7 +12,7 @@ vec4 waterSampleAdvectedNoise(
     dot(position, perpendicular)
   );
   vec2 warpUv = position * scale * 0.31 + vec2(time * 0.007, -time * 0.005);
-  vec2 warp = texture2D(noiseTexture, warpUv).rg * 2.0 - 1.0;
+  vec2 warp = texture2D(uWaterFlowNoise, warpUv).rg * 2.0 - 1.0;
   float travel = time * speed * scale * 0.18;
   vec2 primaryUv =
     flowSpace * vec2(scale * 0.58, scale * 1.42) +
@@ -23,8 +22,8 @@ vec4 waterSampleAdvectedNoise(
     flowSpace.yx * vec2(scale * 1.11, scale * 0.73) +
     warp.yx * 0.052 +
     vec2(0.37, -travel * 0.61);
-  vec4 primary = texture2D(noiseTexture, primaryUv);
-  vec4 secondary = texture2D(noiseTexture, secondaryUv);
+  vec4 primary = texture2D(uWaterFlowNoise, primaryUv);
+  vec4 secondary = texture2D(uWaterFlowNoise, secondaryUv);
   return vec4(
     mix(primary.r, secondary.r, 0.34),
     mix(primary.g, secondary.g, 0.46),
