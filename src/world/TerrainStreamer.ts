@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
+import { WaterInteractionField } from "./hydrology/WaterInteractionField";
 import { WaterMaterialController } from "./hydrology/WaterMaterialController";
 import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
 import type { TerrainField } from "./TerrainField";
@@ -32,8 +33,9 @@ export class TerrainStreamer {
   private readonly queue: ChunkRequest[] = [];
   private readonly desired = new Map<string, ChunkRequest>();
   private readonly materialController: TerrainMaterialController;
-  private readonly waterMaterialController: WaterMaterialController;
+  private readonly waterMaterialController?: WaterMaterialController;
   private readonly surfaceField: TerrainSurfaceField;
+  private readonly waterInteractionField: WaterInteractionField;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private activeBuild?: TerrainChunkBuilder;
@@ -49,8 +51,10 @@ export class TerrainStreamer {
     shadows: boolean,
   ) {
     this.materialController = new TerrainMaterialController(config, shadows);
-    this.waterMaterialController = new WaterMaterialController(config);
+    this.waterMaterialController =
+      config.waterEnabled >= 1 ? new WaterMaterialController(config) : undefined;
     this.surfaceField = new TerrainSurfaceField(config);
+    this.waterInteractionField = new WaterInteractionField(config);
   }
 
   update(
@@ -60,7 +64,7 @@ export class TerrainStreamer {
     if (this.disposed) {
       return;
     }
-    this.waterMaterialController.update(performance.now() * 0.001);
+    this.waterMaterialController?.update(performance.now() * 0.001);
     const chunkX = Math.floor(position.x / this.config.chunkSize);
     const chunkZ = Math.floor(position.z / this.config.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -99,7 +103,7 @@ export class TerrainStreamer {
     this.activeBuild = undefined;
     this.desired.clear();
     this.materialController.dispose();
-    this.waterMaterialController.dispose();
+    this.waterMaterialController?.dispose();
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {
@@ -213,10 +217,9 @@ export class TerrainStreamer {
         request.resolution,
         this.field,
         this.surfaceField,
+        this.waterInteractionField,
         this.materialController.material,
-        this.config.waterEnabled >= 1
-          ? this.waterMaterialController.material
-          : undefined,
+        this.waterMaterialController?.material,
         this.materialController.shadows,
       );
     }
