@@ -3,10 +3,10 @@ import type { WorldConfig } from "../WorldConfig";
 import {
   WATER_DEEP_COLOR,
   WATER_FOAM_COLOR,
+  WATER_IOR,
   WATER_MATERIAL_CACHE_KEY,
   WATER_REFLECTION_COLOR,
   WATER_SHALLOW_COLOR,
-  WATER_SHININESS,
   WATER_SPECULAR_COLOR,
 } from "./WaterMaterialTuning";
 import {
@@ -17,18 +17,22 @@ import {
 } from "./WaterShader";
 
 export class WaterMaterialController {
-  readonly material = new THREE.MeshPhongMaterial({
-    color: WATER_SHALLOW_COLOR,
-    specular: WATER_SPECULAR_COLOR,
-    shininess: WATER_SHININESS,
-    transparent: true,
-    opacity: 1,
-    depthWrite: false,
-    side: THREE.FrontSide,
-  });
+  readonly material: THREE.MeshPhysicalMaterial;
   private readonly uniforms: Record<string, THREE.IUniform>;
 
   constructor(config: WorldConfig) {
+    this.material = new THREE.MeshPhysicalMaterial({
+      color: WATER_SHALLOW_COLOR,
+      roughness: config.waterRoughness,
+      metalness: 0,
+      ior: WATER_IOR,
+      specularColor: WATER_SPECULAR_COLOR,
+      specularIntensity: 1,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      side: THREE.FrontSide,
+    });
     this.uniforms = {
       uWaterTime: { value: 0 },
       uWaterOpacity: { value: config.waterOpacity },
