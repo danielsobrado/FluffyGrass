@@ -96,16 +96,17 @@ export class TerrainHeightLattice {
     return false;
   }
 
-  /** Bilinear height. Points outside the built area clamp to the edge cell. */
+  /** Bilinear height. Points outside the built area clamp to the nearest edge. */
   sampleHeight(x: number, z: number): number {
     const size = this.size;
-    const last = size - 2;
-    const fx = (x - this.originX) * this.inverseSpacing;
-    const fz = (z - this.originZ) * this.inverseSpacing;
-    let column = Math.floor(fx);
-    let row = Math.floor(fz);
-    column = column < 0 ? 0 : column > last ? last : column;
-    row = row < 0 ? 0 : row > last ? last : row;
+    const lastCell = size - 2;
+    const lastSample = size - 1;
+    const rawX = (x - this.originX) * this.inverseSpacing;
+    const rawZ = (z - this.originZ) * this.inverseSpacing;
+    const fx = Math.max(0, Math.min(lastSample, rawX));
+    const fz = Math.max(0, Math.min(lastSample, rawZ));
+    const column = Math.min(lastCell, Math.floor(fx));
+    const row = Math.min(lastCell, Math.floor(fz));
     const tx = fx - column;
     const tz = fz - row;
 
