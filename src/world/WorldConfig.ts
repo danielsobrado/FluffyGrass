@@ -89,6 +89,7 @@ export interface WorldConfig {
   waterDepthFade: number;
   waterDetailDistance: number;
   waterLakeWaveStrength: number;
+  waterRoughness: number;
   pathWidth: number;
   pathBranchWidth: number;
   pathSpacing: number;
