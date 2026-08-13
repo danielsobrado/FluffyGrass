@@ -216,6 +216,7 @@ const HOMOGENEOUS_VARIANT_INDEX = 0;
 const WORLD_VARIANT_COUNT = 1;
 const FIELD_COVERAGE_MIN = 0.16;
 const FIELD_COVERAGE_FULL = 0.5;
+const FIELD_COVERAGE_REJECT = 0.02;
 const COMPACT_BUILD_COOLDOWN_FRAMES = 2;
 const CHUNK_BUILD_WARNING_MS = 24;
 const DESKTOP_BUILD_BUDGET_MS = 4;
@@ -1020,45 +1021,52 @@ export class WorldGrassSystem {
         (patchZ + 0.5) * job.cellSize +
         job.random.range(-job.jitterRadius, job.jitterRadius);
       const height = this.field.sampleHeight(x, z);
+      const suitabilityWithoutSlope =
+        this.field.sampleGrassSuitabilityWithoutSlope(x, z, height);
+      if (suitabilityWithoutSlope <= FIELD_COVERAGE_MIN) {
+        continue;
+      }
       this.field.sampleNormal(x, z, job.normal);
-      const suitability = this.field.sampleGrassSuitability(
+      const suitability =
+        suitabilityWithoutSlope * this.field.sampleGrassSlopeMask(job.normal);
+      const fieldCoverage = THREE.MathUtils.smoothstep(
+        suitability,
+        FIELD_COVERAGE_MIN,
+        FIELD_COVERAGE_FULL,
+      );
+      if (fieldCoverage <= FIELD_COVERAGE_REJECT) {
+        continue;
+      }
+      const pathCoverage = this.field.samplePathGrassMask(
         x,
         z,
         height,
-        job.normal,
+        this.worldConfig.grassPatchSize * 0.5,
       );
-      // A patch is a single clump of blades spread over grassPatchSize, so it
-      // is cleared by a walking way as one piece. Widening the way by the
-      // clump's own reach drops the patches that would otherwise grow across
-      // the tread rather than beside it.
+      const pathFieldCoverage = fieldCoverage * pathCoverage;
+      if (pathFieldCoverage <= FIELD_COVERAGE_REJECT) {
+        continue;
+      }
+      // Stones drop a patch only when its centre falls inside a footprint:
+      // clearing by the patch's whole reach would ring every boulder with a
+      // bare halo at mid distance. Per-blade precision lives in the near
+      // tiles, which sample the same field.
+      const preBiomeCoverage =
+        pathFieldCoverage * sampleStoneGrassClearance(x, z);
+      if (preBiomeCoverage <= FIELD_COVERAGE_REJECT) {
+        continue;
+      }
       // The biome is decided once per patch at build time and rides the
       // instance buffers from there. Density is lerped across a border while
       // the species itself is a per-blade dithered pick, so bare ground ramps
       // smoothly even where the two interleave.
       const biomeSample = sampleGrassBiome(x, z);
-      const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
-      const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
-      const coverage =
-        THREE.MathUtils.smoothstep(
-          suitability,
-          FIELD_COVERAGE_MIN,
-          FIELD_COVERAGE_FULL,
-        ) *
-        this.field.samplePathGrassMask(
-          x,
-          z,
-          height,
-          this.worldConfig.grassPatchSize * 0.5,
-        ) *
-        // Stones drop a patch only when its centre falls inside a footprint:
-        // clearing by the patch's whole reach would ring every boulder with a
-        // bare halo at mid distance. Per-blade precision lives in the near
-        // tiles, which sample the same field.
-        sampleStoneGrassClearance(x, z) *
-        resolveGrassBiomeDensity(biomeSample);
-      if (coverage <= 0.02) {
+      const coverage = preBiomeCoverage * resolveGrassBiomeDensity(biomeSample);
+      if (coverage <= FIELD_COVERAGE_REJECT) {
         continue;
       }
+      const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
+      const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
 
       job.position.set(
         x,
