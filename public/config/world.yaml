@@ -108,6 +108,12 @@ waterSurfaceOffset: 0.08
 waterOpacity: 0.72
 waterRippleStrength: 0.14
 waterRippleScale: 0.085
+waterFlowSpeed: 0.85
+waterFoamStrength: 0.9
+waterFresnelStrength: 1.65
+waterDepthFade: 1.35
+waterDetailDistance: 110
+waterLakeWaveStrength: 0.55
 
 # Bare walking ways worn through the grass.
 pathWidth: 3
