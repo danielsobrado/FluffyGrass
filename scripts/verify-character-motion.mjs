@@ -35,6 +35,7 @@ const geometry = read("src/character/CapeMotionGeometry.ts");
 const tuning = read("src/character/CapeMotionTuning.ts");
 const character = read("src/character/SnowflowCharacter.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
+const input = read("src/controls/ThirdPersonInput.ts");
 const spring = read("src/character/CharacterSpring.ts");
 
 const minimumBend = readConstant(tuning, "CAPE_MIN_FORWARD_BEND");
@@ -105,12 +106,28 @@ assert(
     controller.includes("this.character.reset({"),
   "Controller reset must explicitly clear persistent character motion state and immediately apply the spawn slope.",
 );
+assert(
+  input.includes('direction: "north-west"') &&
+    input.includes('direction: "north-east"') &&
+    input.includes('direction: "south-west"') &&
+    input.includes('direction: "south-east"') &&
+    input.includes("this.mobileButtonMovement.normalize()") &&
+    input.includes("button.setPointerCapture(event.pointerId)") &&
+    input.includes('"lostpointercapture"'),
+  "Mobile movement must expose all diagonal directions, normalize them, and capture the active pointer until release.",
+);
+assert(
+  input.includes("const deltaPixels = normalizeWheelDeltaPixels(event)") &&
+    input.includes("!Number.isFinite(deltaPixels) || deltaPixels === 0") &&
+    input.includes("this.zoomDelta += deltaPixels"),
+  "Third-person wheel input must reject invalid or empty deltas before changing camera zoom.",
+);
 
 verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSideBend);
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Spring recovery, explicit character reset, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Spring recovery, explicit character reset, mobile input safety, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
 );
 
 function verifyBounds(
