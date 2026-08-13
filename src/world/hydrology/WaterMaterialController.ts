@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
+import { createWaterFlowNoiseTexture } from "./WaterFlowNoiseTexture";
 import {
   WATER_DEEP_COLOR,
+  WATER_FLOW_NOISE_SEED_SALT,
   WATER_FOAM_COLOR,
   WATER_IOR,
   WATER_MATERIAL_CACHE_KEY,
@@ -18,9 +20,13 @@ import {
 
 export class WaterMaterialController {
   readonly material: THREE.MeshPhysicalMaterial;
+  private readonly flowNoiseTexture: THREE.DataTexture;
   private readonly uniforms: Record<string, THREE.IUniform>;
 
   constructor(config: WorldConfig) {
+    this.flowNoiseTexture = createWaterFlowNoiseTexture(
+      (config.seed ^ WATER_FLOW_NOISE_SEED_SALT) >>> 0,
+    );
     this.material = new THREE.MeshPhysicalMaterial({
       color: WATER_SHALLOW_COLOR,
       roughness: config.waterRoughness,
@@ -44,6 +50,12 @@ export class WaterMaterialController {
       uWaterDepthFade: { value: config.waterDepthFade },
       uWaterDetailDistance: { value: config.waterDetailDistance },
       uWaterLakeWaveStrength: { value: config.waterLakeWaveStrength },
+      uWaterFlowNoise: { value: this.flowNoiseTexture },
+      uWaterFlowNoiseScale: { value: config.waterFlowNoiseScale },
+      uWaterFlowNoiseStrength: { value: config.waterFlowNoiseStrength },
+      uWaterCausticStrength: { value: config.waterCausticStrength },
+      uWaterGlintStrength: { value: config.waterGlintStrength },
+      uWaterStoneWakeStrength: { value: config.waterStoneWakeStrength },
       uWaterShallow: { value: WATER_SHALLOW_COLOR },
       uWaterDeep: { value: WATER_DEEP_COLOR },
       uWaterReflection: { value: WATER_REFLECTION_COLOR },
@@ -57,6 +69,7 @@ export class WaterMaterialController {
   }
 
   dispose(): void {
+    this.flowNoiseTexture.dispose();
     this.material.dispose();
   }
 
