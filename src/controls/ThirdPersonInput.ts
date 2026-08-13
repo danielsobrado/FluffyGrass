@@ -505,9 +505,12 @@ export class ThirdPersonInput {
   };
 
   private readonly handleWheel = (event: WheelEvent): void => {
+    const deltaPixels = normalizeWheelDeltaPixels(event);
+    if (!Number.isFinite(deltaPixels) || deltaPixels === 0) {
+      return;
+    }
     event.preventDefault();
-    this.zoomDelta +=
-      normalizeWheelDeltaPixels(event) * this.config.characterZoomSensitivity;
+    this.zoomDelta += deltaPixels * this.config.characterZoomSensitivity;
     this.inputEventCount += 1;
     this.lastInputType = "wheel";
   };
