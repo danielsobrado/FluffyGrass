@@ -115,6 +115,13 @@ waterDepthFade: 1.35
 waterDetailDistance: 110
 waterLakeWaveStrength: 0.55
 waterRoughness: 0.12
+# Flow-aligned breakup, shallow subsurface light, sparse glints, and stone wakes.
+waterFlowNoiseScale: 0.052
+waterFlowNoiseStrength: 0.34
+waterCausticStrength: 0.28
+waterGlintStrength: 0.32
+waterStoneWakeStrength: 0.95
+waterStoneWakeLength: 4.2
 
 # Bare walking ways worn through the grass.
 pathWidth: 3
