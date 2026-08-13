@@ -1,7 +1,8 @@
 import * as THREE from "three";
 
-export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v4";
+export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v5";
 export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
+export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_SHALLOW_COLOR = new THREE.Color("#55949d");
 export const WATER_DEEP_COLOR = new THREE.Color("#244f63");
 export const WATER_REFLECTION_COLOR = new THREE.Color("#a8cad5");
