@@ -8,6 +8,7 @@ const WORLD_APP_MAX_LINES = 540;
 const TERRAIN_STREAMER_MAX_LINES = 300;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const WATER_MATERIAL_MAX_LINES = 180;
+const WATER_SHADER_MAX_LINES = 260;
 const STONE_GEOMETRY_MAX_LINES = 340;
 const EXTRACTED_MODULE_MAX_LINES = 260;
 const CONFIG_LOADER_MAX_LINES = 220;
@@ -42,6 +43,7 @@ const terrainMaterial = read("src/world/TerrainMaterialController.ts");
 const terrainShader = read("src/world/TerrainMaterialShader.ts");
 const hydrologyField = read("src/world/hydrology/HydrologyField.ts");
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
+const waterShader = read("src/world/hydrology/WaterShader.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
 const stoneClearance = read("src/world/stones/StoneClearance.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
@@ -170,11 +172,15 @@ assert(
 );
 assert(
   lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
+    lineCount(waterShader) <= WATER_SHADER_MAX_LINES &&
     waterMaterial.includes("class WaterMaterialController") &&
+    waterMaterial.includes('from "./WaterShader"') &&
     waterMaterial.includes("onBeforeCompile") &&
     waterMaterial.includes("depthWrite: false") &&
+    waterShader.includes("WATER_SURFACE_FRAGMENT") &&
+    !waterMaterial.includes("waterRiverPhaseA") &&
     !terrainStreamer.includes("MeshPhongMaterial"),
-  "Water shading must remain isolated from terrain streaming and keep transparent depth writes disabled.",
+  "Water material lifecycle and GLSL implementation must stay split from terrain streaming.",
 );
 
 assert(
