@@ -3,6 +3,7 @@ import {
   createHydrologySample,
   type HydrologySample,
 } from "./hydrology/HydrologyField";
+import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./hydrology/WaterMaterialTuning";
 import type { TerrainField } from "./TerrainField";
 import type {
   TerrainSurfaceField,
@@ -16,7 +17,6 @@ export const WATER_RENDER_ORDER = 2;
 const VERTEX_STAGE = 0;
 const INDEX_STAGE = 1;
 const FINALIZE_STAGE = 2;
-const WATER_MIN_COVERAGE = 0.01;
 
 export class TerrainChunk {
   readonly key: string;
@@ -47,6 +47,12 @@ export class TerrainChunk {
       this.waterMesh.castShadow = false;
       this.waterMesh.renderOrder = WATER_RENDER_ORDER;
     }
+  }
+
+  getTriangleCount(): number {
+    const terrainIndices = this.mesh.geometry.getIndex()?.count ?? 0;
+    const waterIndices = this.waterMesh?.geometry.getIndex()?.count ?? 0;
+    return (terrainIndices + waterIndices) / 3;
   }
 
   dispose(): void {
@@ -315,9 +321,17 @@ export class TerrainChunkBuilder {
   }
 
   private createWaterGeometry(): THREE.BufferGeometry | undefined {
-    if (!this.waterMaterial || this.maxWaterCoverage <= WATER_MIN_COVERAGE) {
+    if (
+      !this.waterMaterial ||
+      this.maxWaterCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD
+    ) {
       return undefined;
     }
+    const waterIndices = this.createWaterIndices();
+    if (!waterIndices) {
+      return undefined;
+    }
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
       "position",
@@ -331,9 +345,45 @@ export class TerrainChunkBuilder {
       "waterData",
       new THREE.BufferAttribute(this.waterData, 4),
     );
-    geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
+    geometry.setIndex(new THREE.BufferAttribute(waterIndices, 1));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;
+  }
+
+  private createWaterIndices(): Uint16Array | Uint32Array | undefined {
+    const waterIndices = this.indices instanceof Uint16Array
+      ? new Uint16Array(this.indices.length)
+      : new Uint32Array(this.indices.length);
+    let writeOffset = 0;
+
+    for (let zIndex = 0; zIndex < this.cells; zIndex += 1) {
+      for (let xIndex = 0; xIndex < this.cells; xIndex += 1) {
+        const row = zIndex * this.resolution + xIndex;
+        const topLeft = row;
+        const bottomLeft = row + this.resolution;
+        const topRight = row + 1;
+        const bottomRight = bottomLeft + 1;
+        const maximumCoverage = Math.max(
+          this.waterData[topLeft * 4],
+          this.waterData[bottomLeft * 4],
+          this.waterData[topRight * 4],
+          this.waterData[bottomRight * 4],
+        );
+        if (maximumCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD) {
+          continue;
+        }
+
+        waterIndices[writeOffset] = topLeft;
+        waterIndices[writeOffset + 1] = bottomLeft;
+        waterIndices[writeOffset + 2] = topRight;
+        waterIndices[writeOffset + 3] = topRight;
+        waterIndices[writeOffset + 4] = bottomLeft;
+        waterIndices[writeOffset + 5] = bottomRight;
+        writeOffset += 6;
+      }
+    }
+
+    return writeOffset > 0 ? waterIndices.slice(0, writeOffset) : undefined;
   }
 }
