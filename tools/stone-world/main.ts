@@ -165,7 +165,14 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
     height,
     normalScratch,
   );
-  field.sampleColor(x, z, height, normalScratch, suitability, colorScratch);
+  field.sampleColor(
+    x,
+    z,
+    height,
+    suitability,
+    field.sampleEcologyAt(x, z, height),
+    colorScratch,
+  );
 
   field.samplePathDistances(x, z, pathScratch);
   const visibility = field.samplePathVisibility(height);

@@ -135,8 +135,8 @@ export class WorldMinimapRaster {
         point.x,
         point.z,
         height,
-        this.normalScratch,
         suitability,
+        this.field.sampleEcologyAt(point.x, point.z, height),
         this.colorScratch,
       );
 

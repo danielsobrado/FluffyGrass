@@ -1,5 +1,15 @@
 import * as THREE from "three";
 import {
+  createTerrainLandform,
+  TerrainLandformField,
+  type TerrainLandform,
+} from "./ecology/TerrainLandformField";
+import {
+  createEcologySample,
+  WorldEcologyField,
+  type WorldEcologySample,
+} from "./ecology/WorldEcologyField";
+import {
   createHydrologySample,
   HydrologyField,
   type HydrologySample,
@@ -19,6 +29,31 @@ const COLOR_SCRATCH = new THREE.Color();
  * silently otherwise.
  */
 export const TERRAIN_NORMAL_STEP = 1.5;
+
+/**
+ * Radius of the landform sampling ring, in metres.
+ *
+ * Chosen by measurement, not intuition. Curvature has to be read at the scale
+ * of the process it explains — water collects in a hillside hollow, not in a
+ * bump — and narrower rings return the terrain's mid-frequency content, which
+ * then jitters between neighbouring samples. Across a transect at map
+ * resolution, the jump between adjacent samples as a share of the field's own
+ * spread falls 0.058 → 0.037 → 0.027 → 0.024 at radii of 16, 28, 44 and 64 m,
+ * against 0.027 for slope and 0.025 for exposure. Past about 44 m it stops
+ * buying smoothness and only costs reach, so that is where this sits.
+ */
+export const TERRAIN_CURVATURE_STEP = 44;
+/**
+ * Curvature magnitude that maps to roughly ±0.76 after soft saturation; the
+ * 85th percentile of |curvature| measured at the radius above.
+ *
+ * The field is saturated with tanh rather than clamped, so this is a scale
+ * rather than a limit. That distinction mattered: an earlier clamp at a mid
+ * percentile pinned most of the world to ±1, where any wobble between
+ * neighbours became a full-scale flip and painted salt-and-pepper rock across
+ * the whole map.
+ */
+export const TERRAIN_CURVATURE_RANGE = 0.00214;
 
 /**
  * Walking ways are the zero contours of two domain-warped value-noise fields.
@@ -92,6 +127,10 @@ export class TerrainField {
   private readonly grassSlopeFadeEnd: number;
   private readonly hydrology: HydrologyField;
   private readonly hydrologyScratch = createHydrologySample();
+  private readonly ecology: WorldEcologyField;
+  private readonly ecologyScratch = createEcologySample();
+  private readonly landform: TerrainLandformField;
+  private readonly landformScratch = createTerrainLandform();
   private noisePairLow = 0;
   private noisePairHigh = 0;
   /** Frequency of the main and branch path fields. */
@@ -113,6 +152,12 @@ export class TerrainField {
   constructor(private readonly config: WorldConfig) {
     this.worldHalfExtent = config.worldSize * 0.5;
     this.hydrology = new HydrologyField(config);
+    this.ecology = new WorldEcologyField(config);
+    this.landform = new TerrainLandformField(
+      (x, z) => this.sampleHeight(x, z),
+      TERRAIN_CURVATURE_STEP,
+      TERRAIN_CURVATURE_RANGE,
+    );
     this.grassSlopeLimit = Math.cos(
       THREE.MathUtils.degToRad(config.grassMaxSlopeDegrees),
     );
@@ -185,6 +230,29 @@ export class TerrainField {
     target: HydrologySample,
   ): HydrologySample {
     return this.hydrology.sample(x, z, height, target);
+  }
+
+  /**
+   * Landform convexity: positive on ridges and spurs, negative in hollows and
+   * drainage lines, zero on an even slope.
+   *
+   * Measured across {@link TERRAIN_CURVATURE_STEP} rather than the shading
+   * normal's step. Curvature has to be sampled at the scale of the process it
+   * explains, and water pools at the scale of a landform, not of a bump: at a
+   * metre and a half this returns the micro-noise riding on the terrain, which
+   * would speckle the ecology instead of finding its valleys.
+   */
+  sampleCurvature(x: number, z: number): number {
+    return this.sampleLandform(x, z, this.landformScratch).convexity;
+  }
+
+  /** Landform shape at a point: convexity, fall, and facing. */
+  sampleLandform(
+    x: number,
+    z: number,
+    target: TerrainLandform,
+  ): TerrainLandform {
+    return this.landform.sample(x, z, target);
   }
 
   sampleNormal(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
@@ -338,15 +406,28 @@ export class TerrainField {
     height: number,
     radius = 0,
   ): number {
-    const clearance = Math.min(radius, PATH_MAX_CLEARANCE_RADIUS);
     this.samplePathDistances(x, z, this.pathScratch);
+    return this.resolvePathGrassMask(this.pathScratch, height, radius);
+  }
+
+  /**
+   * The grass mask for distances a caller has already sampled. Terrain chunks
+   * read path distances per vertex anyway, so re-deriving them inside the
+   * ecology layer would pay for the same gradient twice.
+   */
+  resolvePathGrassMask(
+    distances: THREE.Vector2,
+    height: number,
+    radius = 0,
+  ): number {
+    const clearance = Math.min(radius, PATH_MAX_CLEARANCE_RADIUS);
     const main = smoothstep(
-      Math.abs(this.pathScratch.x),
+      Math.abs(distances.x),
       this.pathGrassHalfWidthMain + clearance,
       this.pathGrassHalfWidthMain + clearance + PATH_GRASS_FEATHER,
     );
     const branch = smoothstep(
-      Math.abs(this.pathScratch.y),
+      Math.abs(distances.y),
       this.pathGrassHalfWidthBranch + clearance,
       this.pathGrassHalfWidthBranch + clearance + PATH_GRASS_FEATHER,
     );
@@ -354,29 +435,89 @@ export class TerrainField {
     return lerp(1, pathMask, this.samplePathVisibility(height));
   }
 
+  /**
+   * Ground colour, derived from the ecology at this point rather than from a
+   * second private reading of the terrain.
+   *
+   * The dry/lush split used to come from an independent noise field and the
+   * rock from raw steepness, which meant the ground's own story disagreed with
+   * the grass growing on it and with the stones lying on it. Reading all three
+   * from {@link WorldEcologyField} is what makes a dry sunny spur show pale
+   * grass, thin soil, and exposed rock together instead of by coincidence.
+   */
   sampleColor(
     x: number,
     z: number,
     height: number,
-    normal: THREE.Vector3,
     grassSuitability: number,
+    ecology: WorldEcologySample,
     target: THREE.Color,
   ): THREE.Color {
-    const steepness = 1 - normal.y;
     const altitude = smoothstep(
       height,
       this.config.grassMaxAltitude - 35,
       this.config.grassMaxAltitude + 50,
     );
-    const dry = this.valueNoise(x * 0.006, z * 0.006, this.config.seed + 701);
-    target.copy(COLOR_GRASS).lerp(COLOR_DRY_GRASS, dry * 0.42);
-    target.lerp(COLOR_DIRT, 1 - grassSuitability);
-    const rockAmount = Math.max(
-      smoothstep(steepness, 0.12, 0.42),
-      altitude,
+
+    // Moisture drives the lush/parched axis; the residual noise only breaks up
+    // an otherwise even wash, so a patch of dry grass now marks somewhere that
+    // is genuinely dry.
+    const grain =
+      this.valueNoise(x * 0.006, z * 0.006, this.config.seed + 701) - 0.5;
+    const dryness = clamp(
+      1 - ecology.moisture + grain * 0.22,
+      0,
+      1,
     );
+    target.copy(COLOR_GRASS).lerp(COLOR_DRY_GRASS, dryness * 0.86);
+
+    // Bare soil shows where cover fails: thin soil, traffic, or unsuitable
+    // ground. Taking the strongest cause rather than adding them keeps a
+    // footpath from turning the whole surrounding meadow to dirt.
+    const bare = Math.max(
+      1 - grassSuitability,
+      ecology.disturbance,
+      clamp(0.82 - ecology.fertility, 0, 1) * 0.75,
+    );
+    target.lerp(COLOR_DIRT, clamp(bare, 0, 1));
+
     COLOR_SCRATCH.copy(COLOR_ROCK).lerp(COLOR_HIGH_ROCK, altitude);
-    return target.lerp(COLOR_SCRATCH, rockAmount);
+    return target.lerp(COLOR_SCRATCH, ecology.rockiness);
+  }
+
+  /**
+   * Ecology from inputs a caller already holds. This is the path the hot
+   * consumers use: terrain chunks, grass placement, and stone placement all
+   * sample height, normal, hydrology, and path distances for their own reasons,
+   * so the layer costs them one lattice lookup rather than a second reading of
+   * the world.
+   */
+  resolveEcology(
+    x: number,
+    z: number,
+    height: number,
+    hydrology: HydrologySample,
+    pathDistances: THREE.Vector2,
+    target: WorldEcologySample,
+  ): WorldEcologySample {
+    return this.ecology.sample(
+      height,
+      this.sampleLandform(x, z, this.landformScratch),
+      hydrology,
+      this.resolvePathGrassMask(pathDistances, height),
+      target,
+    );
+  }
+
+  /** Ecology for callers without those inputs: probes, maps, and tools. */
+  sampleEcologyAt(x: number, z: number, height: number): WorldEcologySample {
+    return this.ecology.sample(
+      height,
+      this.sampleLandform(x, z, this.landformScratch),
+      this.hydrology.sample(x, z, height, this.hydrologyScratch),
+      this.samplePathGrassMask(x, z, height),
+      this.ecologyScratch,
+    );
   }
 
   private samplePathValues(x: number, z: number): void {

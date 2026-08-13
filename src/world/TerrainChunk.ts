@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import {
+  createEcologySample,
+  type WorldEcologySample,
+} from "./ecology/WorldEcologyField";
+import {
   createHydrologySample,
   type HydrologySample,
 } from "./hydrology/HydrologyField";
@@ -88,6 +92,8 @@ export class TerrainChunkBuilder {
   private readonly environment = new THREE.Vector4();
   private readonly biome = new THREE.Vector3();
   private readonly hydrology: HydrologySample = createHydrologySample();
+  /** Distinct from `ecology` above, which is the packed shader channel. */
+  private readonly ecologySample: WorldEcologySample = createEcologySample();
   private readonly surfaceTargets: TerrainSurfaceTargets = {
     ecology: this.ecology,
     environment: this.environment,
@@ -173,15 +179,25 @@ export class TerrainChunkBuilder {
       this.field.sampleNormal(x, z, this.normal);
       const suitability =
         this.field.sampleGrassSlopeMask(this.normal) * suitabilityWithoutSlope;
+      this.field.samplePathDistances(x, z, this.pathDistances);
+      // Ecology first, from the readings above: colour is a consequence of it,
+      // not a second opinion about the same ground.
+      this.field.resolveEcology(
+        x,
+        z,
+        height,
+        this.hydrology,
+        this.pathDistances,
+        this.ecologySample,
+      );
       this.field.sampleColor(
         x,
         z,
         height,
-        this.normal,
         suitability,
+        this.ecologySample,
         this.color,
       );
-      this.field.samplePathDistances(x, z, this.pathDistances);
       this.surfaceField.sample(
         x,
         z,

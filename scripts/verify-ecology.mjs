@@ -1,0 +1,224 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as THREE from "three";
+import { createServer } from "vite";
+
+/**
+ * Build gate for the ecological field layer.
+ *
+ * The claim this layer makes is that vegetation, soil, and stone are
+ * consequences of shared causes rather than independent scatter. That claim is
+ * only worth anything if the causes behave like causes, so the checks here are
+ * about relationships between places — a ridge against a hollow, a sunny face
+ * against a shaded one — not about absolute values, which are art direction and
+ * are free to move.
+ */
+const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
+
+function fail(message) {
+  throw new Error(`[ecology] ${message}`);
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    fail(message);
+  }
+}
+
+const server = await createServer({
+  configFile: false,
+  root: REPOSITORY_ROOT,
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+  optimizeDeps: { noDiscovery: true },
+});
+
+try {
+  const { WorldConfigLoader } = await server.ssrLoadModule(
+    "/src/world/WorldConfigLoader.ts",
+  );
+  const { TerrainField } = await server.ssrLoadModule(
+    "/src/world/TerrainField.ts",
+  );
+  const { WorldEcologyField, createEcologySample } = await server.ssrLoadModule(
+    "/src/world/ecology/WorldEcologyField.ts",
+  );
+  const { createHydrologySample } = await server.ssrLoadModule(
+    "/src/world/hydrology/HydrologyField.ts",
+  );
+
+  const configSource = readFileSync(
+    resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
+    "utf8",
+  );
+  const config = new WorldConfigLoader().parse(configSource);
+  const field = new TerrainField(config);
+  const ecologyField = new WorldEcologyField(config);
+
+  const dry = createHydrologySample();
+  const sample = createEcologySample();
+
+  /**
+   * Builds the landform the field expects. Slope is derived from the gradient
+   * the same way the real lattice derives it, so a test case cannot describe a
+   * shape the world could never produce.
+   */
+  function evaluate({
+    gradientX = 0,
+    gradientZ = 0,
+    convexity = 0,
+    hydrology = dry,
+    path = 1,
+    height = config.baseHeight,
+  }) {
+    const gradient = Math.hypot(gradientX, gradientZ);
+    const landform = {
+      convexity,
+      slope: 1 - 1 / Math.sqrt(1 + gradient * gradient),
+      gradientX,
+      gradientZ,
+    };
+    return { ...ecologyField.sample(height, landform, hydrology, path, sample) };
+  }
+
+  const STEEP = 1.05;
+
+  // The headline claim: a dry ridge close to water stays drier than a sheltered
+  // hollow far from any. Proximity supplies water; slope and convexity refuse
+  // to hold it. If this ever inverts, moisture has collapsed back into
+  // distance-to-water and the rings it was built to avoid are back.
+  const riversideRidge = evaluate({
+    gradientX: STEEP,
+    convexity: 0.85,
+    hydrology: { ...dry, humidityBoost: 0.9, waterProximity: 0.95 },
+  });
+  const distantHollow = evaluate({ convexity: -0.85 });
+  assert(
+    distantHollow.moisture > riversideRidge.moisture,
+    `A hollow far from water (${distantHollow.moisture.toFixed(3)}) must stay wetter than a steep convex spur beside it (${riversideRidge.moisture.toFixed(3)}).`,
+  );
+
+  // Landform has to matter on its own, with no mapped water anywhere near.
+  const hollow = evaluate({ convexity: -1 });
+  const spur = evaluate({ convexity: 1 });
+  assert(
+    hollow.moisture > spur.moisture * 1.35,
+    `Curvature barely moves moisture (hollow ${hollow.moisture.toFixed(3)} vs spur ${spur.moisture.toFixed(3)}); the landform term is not doing its job.`,
+  );
+
+  // Slope sheds, sun dries.
+  assert(
+    evaluate({}).moisture > evaluate({ gradientX: STEEP }).moisture,
+    "Steep ground must shed water relative to level ground.",
+  );
+  // The world sun sits toward +X/+Z, so a face tilted to meet it has a
+  // gradient falling the other way.
+  const sunward = { gradientX: -0.6, gradientZ: -0.4 };
+  const leeward = { gradientX: 0.6, gradientZ: 0.4 };
+  assert(
+    evaluate(leeward).moisture > evaluate(sunward).moisture,
+    "A shaded face must hold moisture better than a sun-facing one.",
+  );
+  assert(
+    evaluate(sunward).exposure > evaluate(leeward).exposure,
+    "Exposure must follow surface aspect against the world sun.",
+  );
+
+  // Rock is what is left when cover fails, so cover has to be able to bury it.
+  const bareSlope = evaluate({ gradientX: STEEP, convexity: 1 });
+  const richFlat = evaluate({ convexity: -1 });
+  assert(
+    bareSlope.rockiness > richFlat.rockiness,
+    `Steep convex ground (${bareSlope.rockiness.toFixed(3)}) must show more stone than deep soil in a hollow (${richFlat.rockiness.toFixed(3)}).`,
+  );
+  assert(
+    richFlat.fertility > bareSlope.fertility,
+    "Fertility must accumulate where material comes to rest, not on stripped ground.",
+  );
+
+  // Traffic strips soil without pretending to change the weather.
+  const walked = evaluate({ path: 0 });
+  const untouched = evaluate({ path: 1 });
+  assert(
+    walked.disturbance === 1 && untouched.disturbance === 0,
+    "Disturbance must invert the path grass mask exactly.",
+  );
+  assert(
+    walked.fertility < untouched.fertility &&
+      Math.abs(walked.moisture - untouched.moisture) < 1e-9,
+    "Trampling must cost soil, not rainfall.",
+  );
+
+  // Every channel stays in range across real terrain, and the layer stays a
+  // pure function of position: two fields built from the same config must
+  // agree everywhere, or LODs sampling it will disagree with each other.
+  const second = new TerrainField(config);
+  const normal = new THREE.Vector3();
+  const otherNormal = new THREE.Vector3();
+  const half = config.worldSize * 0.5 - 4;
+  let checked = 0;
+  let wettest = 0;
+  let driest = 1;
+  for (let index = 0; index < 4000; index += 1) {
+    const x = ((index * 613.7) % (half * 2)) - half;
+    const z = ((index * 271.3) % (half * 2)) - half;
+    const height = field.sampleHeight(x, z);
+    field.sampleNormal(x, z, normal);
+    const value = field.sampleEcologyAt(x, z, height);
+    for (const [name, channel] of Object.entries(value)) {
+      assert(
+        Number.isFinite(channel) && channel >= 0 && channel <= 1,
+        `Ecology channel ${name} left [0, 1] at ${x.toFixed(0)}, ${z.toFixed(0)}: ${channel}.`,
+      );
+    }
+    wettest = Math.max(wettest, value.moisture);
+    driest = Math.min(driest, value.moisture);
+
+    const otherHeight = second.sampleHeight(x, z);
+    second.sampleNormal(x, z, otherNormal);
+    const repeat = second.sampleEcologyAt(x, z, otherHeight);
+    for (const name of Object.keys(value)) {
+      assert(
+        Math.abs(repeat[name] - value[name]) <= 1e-12,
+        `Ecology is not deterministic across field instances for ${name} at ${x.toFixed(0)}, ${z.toFixed(0)}.`,
+      );
+    }
+    checked += 1;
+  }
+
+  // A field that never varies is a field nobody can see. Guard the spread so a
+  // future tuning pass cannot flatten the world back to uniform mush.
+  assert(
+    wettest - driest > 0.35,
+    `Moisture spans only ${(wettest - driest).toFixed(3)} across the world; the ecology has flattened out.`,
+  );
+
+  // Curvature must stay a landform reading, not micro-noise. Its lattice cache
+  // is a speed device only, so an uncached read has to match a cached one.
+  const fresh = new TerrainField(config);
+  let worstCurvature = 0;
+  for (let index = 0; index < 500; index += 1) {
+    const x = ((index * 97.3) % 800) - 400;
+    const z = ((index * 43.1) % 800) - 400;
+    worstCurvature = Math.max(
+      worstCurvature,
+      Math.abs(fresh.sampleCurvature(x, z) - field.sampleCurvature(x, z)),
+    );
+  }
+  assert(
+    worstCurvature <= 1e-12,
+    `Curvature depends on cache state; worst disagreement ${worstCurvature}.`,
+  );
+
+  console.log(
+    `[ecology] OK · ${checked} points in range and deterministic · moisture spans ${(wettest - driest).toFixed(2)} · landform outranks water proximity · curvature cache is transparent`,
+  );
+} catch (error) {
+  console.error(`[ecology] ${error?.message ?? error}`);
+  process.exitCode = 1;
+} finally {
+  await server.close();
+}
