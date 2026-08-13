@@ -81,6 +81,12 @@ assert(
   "Island public GLB assets must be revision-busted with the deployed source version.",
 );
 assert(
+  island.includes("ISLAND_MAX_DELTA_SECONDS") &&
+    island.includes("Number.isFinite(rawDeltaSeconds)") &&
+    island.includes("THREE.MathUtils.clamp("),
+  "Island rendering must clamp resumed or invalid frame deltas before updating grass animation.",
+);
+assert(
   /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.grass\.dispose\(\);[\s\S]*?grassTrailField\.dispose\(\);[\s\S]*?\}/.test(
     world,
   ),
