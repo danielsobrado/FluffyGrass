@@ -10,7 +10,7 @@ export function createWaterFlowSample(): WaterFlowSample {
   return { riverCoverage: 0, flowX: 0, flowZ: 0 };
 }
 
-/** Normalizes packed river flow and flips it toward the locally lower bed. */
+/** Normalizes packed river flow and flips it toward the locally lower surface. */
 export function resolveDownhillWaterFlow(
   index: number,
   resolution: number,
@@ -43,14 +43,14 @@ export function resolveDownhillWaterFlow(
   const upPosition = up * 3;
   const deltaX = positions[rightPosition] - positions[leftPosition];
   const deltaZ = positions[upPosition + 2] - positions[downPosition + 2];
-  const bedLeft = positions[leftPosition + 1] - data[left * 4 + 1];
-  const bedRight = positions[rightPosition + 1] - data[right * 4 + 1];
-  const bedDown = positions[downPosition + 1] - data[down * 4 + 1];
-  const bedUp = positions[upPosition + 1] - data[up * 4 + 1];
   const gradientX =
-    Math.abs(deltaX) > FLOW_EPSILON ? (bedRight - bedLeft) / deltaX : 0;
+    Math.abs(deltaX) > FLOW_EPSILON
+      ? (positions[rightPosition + 1] - positions[leftPosition + 1]) / deltaX
+      : 0;
   const gradientZ =
-    Math.abs(deltaZ) > FLOW_EPSILON ? (bedUp - bedDown) / deltaZ : 0;
+    Math.abs(deltaZ) > FLOW_EPSILON
+      ? (positions[upPosition + 1] - positions[downPosition + 1]) / deltaZ
+      : 0;
 
   if (gradientX * flowX + gradientZ * flowZ > 0) {
     flowX = -flowX;
