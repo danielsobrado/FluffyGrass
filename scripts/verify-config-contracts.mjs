@@ -120,6 +120,15 @@ try {
       () =>
         load(
           worldLoader,
+          worldSource.replace("riverWidth: 12", "riverWidth: 9"),
+        ),
+      /far-terrain LOD sampling/i,
+      "River width must remain visible on the coarsest terrain grid.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
           worldSource.replace("seed: 42017", "seed: 9007199254740992"),
         ),
       /seed must be a safe integer/,
