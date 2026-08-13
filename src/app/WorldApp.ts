@@ -55,9 +55,7 @@ export class WorldApp {
   private readonly environment: WorldEnvironmentController;
   private readonly frameMetrics = new WorldFrameMetrics();
   private readonly runtimeGuard: WorldRuntimeGuard;
-  private readonly statusHud = new WorldStatusHud(
-    document.querySelector<HTMLElement>("#world-stats"),
-  );
+  private readonly statusHud = new WorldStatusHud(document.querySelector<HTMLElement>("#world-stats"));
   private readonly drawingBufferSize = new THREE.Vector2();
   private pixelRatio = 1;
   private readonly flyMode: boolean;
@@ -354,8 +352,7 @@ export class WorldApp {
     const stoneBuildReserveMs = this.profile.compact
       ? WORLD_COMPACT_STONE_BUILD_RESERVE_MS
       : WORLD_DESKTOP_STONE_BUILD_RESERVE_MS;
-    const terrainBuildDeadline =
-      this.streamingBuildDeadline - grassBuildReserveMs - stoneBuildReserveMs;
+    const terrainBuildDeadline = this.streamingBuildDeadline - grassBuildReserveMs - stoneBuildReserveMs;
     this.terrain.update(
       this.controls.getStreamingPosition(),
       terrainBuildDeadline,
@@ -372,9 +369,7 @@ export class WorldApp {
 
   private readonly updateGrass = (deltaSeconds: number): void => {
     grassTrailField.render(deltaSeconds);
-    const cameraGroundHeight = this.flyMode
-      ? this.sampleGroundHeight(this.camera.position)
-      : undefined;
+    const cameraGroundHeight = this.flyMode ? this.sampleGroundHeight(this.camera.position) : undefined;
     this.grass.update(
       deltaSeconds,
       this.camera,
