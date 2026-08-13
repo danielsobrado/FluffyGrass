@@ -5,6 +5,7 @@ const RIVER_EDGE_FEATHER = 0.8;
 const RIVER_ALTITUDE_FADE = 18;
 const RIVER_SECONDARY_AMPLITUDE = 0.3;
 const RIVER_LATERAL_OFFSET = 0.18;
+const RIVER_MIN_WIDTH_SCALE = 0.82;
 const RIVER_MAX_MEANDER_SCALE = 1.15;
 export const HYDROLOGY_RIVER_MAX_WIDTH_SCALE = 1.18;
 
@@ -37,6 +38,12 @@ export function resolveHydrologyRiverWetHalfWidth(config: WorldConfig): number {
     config.riverWidth * HYDROLOGY_RIVER_MAX_WIDTH_SCALE * 0.5 +
     config.waterHumidityRadius
   );
+}
+
+export function resolveHydrologyRiverMinimumVisibleHalfWidth(
+  config: WorldConfig,
+): number {
+  return config.riverWidth * RIVER_MIN_WIDTH_SCALE * 0.5 + RIVER_EDGE_FEATHER;
 }
 
 function lerp(start: number, end: number, amount: number): number {
@@ -150,7 +157,7 @@ export class RiverField {
       this.config.riverSpacing *
       RIVER_LATERAL_OFFSET;
     const widthScale = lerp(
-      0.82,
+      RIVER_MIN_WIDTH_SCALE,
       HYDROLOGY_RIVER_MAX_WIDTH_SCALE,
       hash(index, seed + 1361),
     );
