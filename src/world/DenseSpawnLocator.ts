@@ -113,6 +113,9 @@ export class DenseSpawnLocator {
       }
     }
 
+    if (!(bestSuitability > 0)) {
+      throw new Error("Unable to locate viable grass terrain for the world spawn.");
+    }
     const clearSpawn = this.resolveClearSpawn(bestX, bestZ, bestSuitability, radius);
     const height = this.field.sampleHeight(clearSpawn.x, clearSpawn.z);
     return {
@@ -213,7 +216,10 @@ export class DenseSpawnLocator {
       }
     }
 
-    return best ?? { x, z, suitability };
+    if (!best) {
+      throw new Error("Unable to find a path- and stone-safe world spawn.");
+    }
+    return best;
   }
 
   private resolveHeading(x: number, z: number): number {
