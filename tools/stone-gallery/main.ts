@@ -7,6 +7,14 @@ import {
 import { resolveQualityStoneRecipe } from "../../src/world/stones/StoneShapeQuality";
 import { generateStoneMesh } from "../../src/world/stones/StoneGeometry";
 import { WorldConfigLoader } from "../../src/world/WorldConfigLoader";
+import {
+  WORLD_DEFAULT_HEMISPHERE_GROUND,
+  WORLD_DEFAULT_HEMISPHERE_INTENSITY,
+  WORLD_DEFAULT_HEMISPHERE_SKY,
+  WORLD_DEFAULT_SUN,
+  WORLD_DEFAULT_SUN_INTENSITY,
+  WORLD_SUN_DIRECTION,
+} from "../../src/app/WorldEnvironmentTuning";
 import { applyStoneSurfaceShader } from "../../src/world/stones/StoneGrowthShader";
 import {
   STONE_PALETTES,
@@ -67,6 +75,9 @@ if (focusParam !== null && !isArchetype(focusParam)) {
 const mossParam = readNumberParam("moss", 0.7, 0, 1);
 const growthParam = readGrowthMode(params.get("growth"));
 const chipsParam = params.get("chips") !== "0";
+/** Contact shading and edge softness only read at close range; frame for it. */
+const columnsParam = Math.trunc(readNumberParam("columns", 8, 1, 16));
+const distanceParam = readNumberParam("dist", 0, 0, 80);
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
 const out = document.querySelector<HTMLElement>("#out");
@@ -89,7 +100,9 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   200,
 );
-if (focusParam) {
+if (distanceParam > 0) {
+  camera.position.set(0, distanceParam * 0.34, distanceParam);
+} else if (focusParam) {
   camera.position.set(0.6, 2.6, 6.2);
 } else {
   camera.position.set(0, 9.5, 15.5);
@@ -99,9 +112,21 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0.4, 0);
 controls.update();
 
-scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
-const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
-sun.position.set(350, 500, 220).normalize().multiplyScalar(60);
+// Stone paint is judged against exposure, so the probe has to stand under the
+// world's own lights. A brighter ambient here would flatten every value read
+// and send tuning off toward colours that go dark in the real field.
+scene.add(
+  new THREE.HemisphereLight(
+    WORLD_DEFAULT_HEMISPHERE_SKY,
+    WORLD_DEFAULT_HEMISPHERE_GROUND,
+    WORLD_DEFAULT_HEMISPHERE_INTENSITY,
+  ),
+);
+const sun = new THREE.DirectionalLight(
+  WORLD_DEFAULT_SUN,
+  WORLD_DEFAULT_SUN_INTENSITY,
+);
+sun.position.set(...WORLD_SUN_DIRECTION).normalize().multiplyScalar(60);
 scene.add(sun);
 
 const ground = new THREE.Mesh(
@@ -137,7 +162,7 @@ const paletteColumns: StonePalette[] = paletteParam
       STONE_PALETTES.mossy,
     ];
 
-const columns = 8;
+const columns = columnsParam;
 const spacing = 2.6;
 const GROWTH_EPSILON = 1e-4;
 let totalTriangles = 0;
@@ -161,6 +186,7 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     colorizeStoneVertices(
       mesh.tones,
       mesh.wears,
+      mesh.bounces,
       palette,
       {
         valueScale: 0.94 + ((seed * 2654435761) >>> 28) / 160,
