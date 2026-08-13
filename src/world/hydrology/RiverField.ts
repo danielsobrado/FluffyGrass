@@ -128,8 +128,8 @@ export class RiverField {
           lane.halfWidth + this.config.waterHumidityRadius,
         )) *
       altitudeMask;
-    target.flowX = lane.flowX * altitudeMask;
-    target.flowZ = lane.flowZ * altitudeMask;
+    target.flowX = lane.flowX;
+    target.flowZ = lane.flowZ;
     return target;
   }
 
