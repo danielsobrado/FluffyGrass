@@ -79,7 +79,7 @@ export class TerrainChunkBuilder {
   private readonly environments: Float32Array;
   private readonly biomes: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
-  private readonly waterGeometryBuilder: WaterChunkGeometryBuilder;
+  private readonly waterGeometryBuilder?: WaterChunkGeometryBuilder;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private readonly pathDistances = new THREE.Vector2();
@@ -125,11 +125,12 @@ export class TerrainChunkBuilder {
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
-    this.waterGeometryBuilder = new WaterChunkGeometryBuilder(
-      resolution,
-      waterMaterial !== undefined,
-      waterInteractionField,
-    );
+    if (waterMaterial) {
+      this.waterGeometryBuilder = new WaterChunkGeometryBuilder(
+        resolution,
+        waterInteractionField,
+      );
+    }
   }
 
   advance(budgetMs: number): TerrainChunk | undefined {
@@ -215,7 +216,7 @@ export class TerrainChunkBuilder {
       this.biomes[biomeOffset] = this.biome.x;
       this.biomes[biomeOffset + 1] = this.biome.y;
       this.biomes[biomeOffset + 2] = this.biome.z;
-      this.waterGeometryBuilder.writeVertex(
+      this.waterGeometryBuilder?.writeVertex(
         this.nextVertex,
         x,
         z,
@@ -277,7 +278,7 @@ export class TerrainChunkBuilder {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
 
-    const waterGeometry = this.waterGeometryBuilder.createGeometry();
+    const waterGeometry = this.waterGeometryBuilder?.createGeometry();
     this.stage += 1;
     return new TerrainChunk(
       this.chunkX,
