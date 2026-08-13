@@ -87,6 +87,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 export class TerrainField {
+  private readonly worldHalfExtent: number;
   private readonly grassSlopeLimit: number;
   private readonly grassSlopeFadeEnd: number;
   private readonly hydrology: HydrologyField;
@@ -110,6 +111,7 @@ export class TerrainField {
   private readonly pathScratch = new THREE.Vector2();
 
   constructor(private readonly config: WorldConfig) {
+    this.worldHalfExtent = config.worldSize * 0.5;
     this.hydrology = new HydrologyField(config);
     this.grassSlopeLimit = Math.cos(
       THREE.MathUtils.degToRad(config.grassMaxSlopeDegrees),
@@ -219,6 +221,13 @@ export class TerrainField {
     z: number,
     height: number,
   ): number {
+    if (
+      Math.abs(x) > this.worldHalfExtent ||
+      Math.abs(z) > this.worldHalfExtent
+    ) {
+      return 0;
+    }
+
     const lowAltitude = smoothstep(
       height,
       this.config.grassMinAltitude,
@@ -257,8 +266,7 @@ export class TerrainField {
       z * 0.002,
       this.config.seed + 613,
     );
-    const ridgeMask =
-      1 - smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
+    const ridgeMask = 1 - smoothstep(exposedRidge, 0.74, 0.92) * 0.7;
     const waterMask = this.hydrology.sample(
       x,
       z,
@@ -402,12 +410,10 @@ export class TerrainField {
     deltaEast: number,
     deltaNorth: number,
   ): number {
-    const gradient =
-      Math.hypot(deltaEast, deltaNorth) / PATH_GRADIENT_STEP;
+    const gradient = Math.hypot(deltaEast, deltaNorth) / PATH_GRADIENT_STEP;
     const distance = Math.abs(value) / Math.max(gradient, PATH_MIN_GRADIENT);
     return (
-      (value >= 0 ? 1 : -1) *
-      Math.min(PATH_MAX_DISTANCE, distance)
+      (value >= 0 ? 1 : -1) * Math.min(PATH_MAX_DISTANCE, distance)
     );
   }
 
