@@ -322,7 +322,10 @@ try {
       1,
       interaction,
     );
-    assert(interaction.wake > 0.99, "River flow must carry stone wakes downstream.");
+    assert(
+      interaction.wake > 0.5 && interaction.wake < 1,
+      "River stone wakes must remain present but taper downstream.",
+    );
   } finally {
     setStoneClearanceField(undefined);
   }
