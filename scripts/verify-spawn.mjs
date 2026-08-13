@@ -12,6 +12,19 @@ function assert(condition, message) {
   if (!condition) throw new Error(`[spawn] ${message}`);
 }
 
+const worldAppSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/app/WorldApp.ts"),
+  "utf8",
+);
+assert(
+  worldAppSource.includes("const stoneField = new StoneField(this.field, config)") &&
+    worldAppSource.includes(
+      "new DenseSpawnLocator(this.field, config, stoneField).find()",
+    ) &&
+    /new WorldStoneSystem\([\s\S]*?stoneField,[\s\S]*?config,/.test(worldAppSource),
+  "World startup must reuse one deterministic stone field for spawn clearance and streaming.",
+);
+
 const server = await createServer({
   configFile: false,
   root: REPOSITORY_ROOT,
