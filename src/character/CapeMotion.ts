@@ -2,12 +2,18 @@ import * as THREE from "three";
 import { CharacterSpring } from "./CharacterSpring";
 import { CapeMotionGeometry } from "./CapeMotionGeometry";
 import {
+  CAPE_AIRBORNE_BLEND_RATE,
+  CAPE_AIRBORNE_FLUTTER_STRENGTH,
+  CAPE_AIRBORNE_SPEED_THRESHOLD,
   CAPE_AIRFLOW_END,
   CAPE_AIRFLOW_START,
   CAPE_BASE_BACK_ANGLE,
   CAPE_FLUTTER_STRENGTH,
   CAPE_FORWARD_ACCELERATION_LAG,
   CAPE_FORWARD_DRAG,
+  CAPE_JUMP_BILLOW_FREQUENCY,
+  CAPE_JUMP_BILLOW_STRENGTH,
+  CAPE_JUMP_ROOT_BILLOW_SCALE,
   CAPE_LANDING_ROOT_IMPULSE,
   CAPE_LANDING_SIDE_IMPULSE_SCALE,
   CAPE_LANDING_TAIL_IMPULSE,
@@ -32,6 +38,8 @@ import {
   CAPE_VERTICAL_AIRFLOW_SCALE,
   CAPE_VERTICAL_LAG,
 } from "./CapeMotionTuning";
+
+const TWO_PI = Math.PI * 2;
 
 export interface CapeMotionInput {
   forwardVelocity: number;
@@ -61,6 +69,9 @@ export class CapeMotion {
   private readonly tailZ = new CharacterSpring();
   private readonly geometry: CapeMotionGeometry;
   private elapsedSeconds = 0;
+  private airborneTime = 0;
+  private airborneBlend = 0;
+  private airborne = false;
   private previousForwardVelocity = 0;
   private previousSideVelocity = 0;
 
@@ -109,7 +120,15 @@ export class CapeMotion {
     this.previousForwardVelocity = forwardVelocity;
     this.previousSideVelocity = sideVelocity;
 
+    if (
+      !this.airborne &&
+      Math.abs(verticalVelocity) >= CAPE_AIRBORNE_SPEED_THRESHOLD
+    ) {
+      this.airborne = true;
+      this.airborneTime = 0;
+    }
     if (input.landed) {
+      this.airborne = false;
       const impact = THREE.MathUtils.clamp(
         finiteOrZero(input.landingImpact),
         0,
@@ -125,11 +144,27 @@ export class CapeMotion {
       this.tailX.addImpulse(impact * CAPE_LANDING_TAIL_IMPULSE);
     }
 
+    if (this.airborne) {
+      this.airborneTime += delta;
+    }
+    const airborneTarget = this.airborne ? 1 : 0;
+    const airborneBlend = 1 - Math.exp(-CAPE_AIRBORNE_BLEND_RATE * delta);
+    this.airborneBlend = THREE.MathUtils.lerp(
+      this.airborneBlend,
+      airborneTarget,
+      airborneBlend,
+    );
+    const jumpBillow =
+      Math.sin(this.airborneTime * CAPE_JUMP_BILLOW_FREQUENCY * TWO_PI) *
+      CAPE_JUMP_BILLOW_STRENGTH *
+      this.airborneBlend;
+
     const targetX = THREE.MathUtils.clamp(
       CAPE_BASE_BACK_ANGLE +
         forward01 * CAPE_FORWARD_DRAG +
         forwardAcceleration01 * CAPE_FORWARD_ACCELERATION_LAG -
-        vertical01 * CAPE_VERTICAL_LAG,
+        vertical01 * CAPE_VERTICAL_LAG +
+        jumpBillow * CAPE_JUMP_ROOT_BILLOW_SCALE,
       CAPE_MIN_FORWARD_BEND,
       CAPE_MAX_FORWARD_BEND,
     );
@@ -179,7 +214,8 @@ export class CapeMotion {
     const tailBendX = this.tailX.update(
       targetX * CAPE_TAIL_FORWARD_SCALE +
         forwardAcceleration01 * CAPE_FORWARD_ACCELERATION_LAG -
-        vertical01 * CAPE_TAIL_VERTICAL_LAG,
+        vertical01 * CAPE_TAIL_VERTICAL_LAG +
+        jumpBillow,
       delta,
       CAPE_TAIL_FREQUENCY,
       CAPE_TAIL_DAMPING,
@@ -206,10 +242,14 @@ export class CapeMotion {
       1,
       Math.hypot(forwardAcceleration01, sideAcceleration01),
     );
-    const flutterAmplitude =
+    const movementFlutter =
       CAPE_FLUTTER_STRENGTH *
       airflow *
       (0.55 + accelerationEnergy * 0.45);
+    const flutterAmplitude = Math.max(
+      movementFlutter,
+      CAPE_AIRBORNE_FLUTTER_STRENGTH * this.airborneBlend,
+    );
     this.geometry.update(
       this.elapsedSeconds,
       tailBendX,
@@ -225,6 +265,9 @@ export class CapeMotion {
 
   reset(): void {
     this.elapsedSeconds = 0;
+    this.airborneTime = 0;
+    this.airborneBlend = 0;
+    this.airborne = false;
     this.previousForwardVelocity = 0;
     this.previousSideVelocity = 0;
     this.backX.reset(CAPE_BASE_BACK_ANGLE);
