@@ -90,6 +90,7 @@ function isGrassSummaryLine(line: string): boolean {
 function formatWorkloadLines(snapshot: GrassWorkloadSnapshot): string[] {
   const nearSubmitted =
     snapshot.nearBaseInstances +
+    snapshot.nearBridgeInstances +
     snapshot.nearDetailInstances +
     snapshot.nearUltraInstances;
   return [
