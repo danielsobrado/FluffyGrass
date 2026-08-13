@@ -2,7 +2,7 @@ import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import type { WorldConfig } from "../WorldConfig";
 import type { HydrologySample } from "./HydrologyField";
 
-const STONE_INTERACTION_EXTRA_RADIUS = 0.22;
+const STONE_INTERACTION_EXTRA_RADIUS = 0.75;
 const MIN_RIVER_WAKE_COVERAGE = 0.02;
 const WAKE_SAMPLE_COUNT = 3;
 const WAKE_END_STRENGTH = 0.55;
@@ -27,7 +27,15 @@ export class WaterInteractionField {
     stoneClearance: number,
     target: WaterInteractionSample,
   ): WaterInteractionSample {
-    target.obstacle = Math.max(0, Math.min(1, 1 - stoneClearance));
+    const expandedClearance = sampleStoneGrassClearance(
+      x,
+      z,
+      STONE_INTERACTION_EXTRA_RADIUS,
+    );
+    target.obstacle = Math.max(
+      0,
+      Math.min(1, 1 - Math.min(stoneClearance, expandedClearance)),
+    );
     target.wake = 0;
 
     if (
