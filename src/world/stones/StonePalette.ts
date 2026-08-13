@@ -6,6 +6,8 @@
  * lichen masks, so close-range colony breakup can reveal the original stone.
  */
 
+import { STONE_BOUNCE_STRENGTH } from "./StoneGeometryTuning";
+
 export interface StoneLinearColor {
   readonly r: number;
   readonly g: number;
@@ -116,7 +118,20 @@ export interface StoneTintParams {
   readonly secondaryBlend?: number;
 }
 
-const RAMP_BANDING_STRENGTH = 0.62;
+/**
+ * Light thrown back onto the lower body by the surrounding turf. It is one
+ * colour for every palette because it belongs to the field, not to the rock,
+ * and it is the difference between a stone standing in grass and a stone
+ * standing on top of it.
+ */
+const TURF_BOUNCE = linearFromHex("#61763f");
+
+/**
+ * A trace of stepping keeps the ramp stylized. The old strength quantized tone
+ * into four visible plateaus, which fought the smoothed facets by drawing hard
+ * value bands straight across a curve.
+ */
+const RAMP_BANDING_STRENGTH = 0.2;
 
 function mixChannel(a: number, b: number, amount: number): number {
   return a + (b - a) * amount;
@@ -153,6 +168,7 @@ export function resolveStoneGrowthColors(
 export function colorizeStoneVertices(
   tones: Float32Array,
   wears: Float32Array,
+  bounces: Float32Array,
   paletteColors: StonePalette,
   tint: StoneTintParams,
   target: Float32Array | Uint8Array,
@@ -218,6 +234,13 @@ export function colorizeStoneVertices(
       r = mixChannel(r, edgeR, wear);
       g = mixChannel(g, edgeG, wear);
       b = mixChannel(b, edgeB, wear);
+    }
+
+    const bounce = bounces[index] * STONE_BOUNCE_STRENGTH;
+    if (bounce > 0) {
+      r = mixChannel(r, TURF_BOUNCE.r, bounce);
+      g = mixChannel(g, TURF_BOUNCE.g, bounce);
+      b = mixChannel(b, TURF_BOUNCE.b, bounce);
     }
 
     const offset = targetOffset + index * targetStride;

@@ -205,6 +205,7 @@ export class StoneRenderInstanceWriter {
     colorizeStoneVertices(
       variant.tones,
       variant.wears,
+      variant.bounces,
       palette,
       tint,
       buffers.packedBytes,
