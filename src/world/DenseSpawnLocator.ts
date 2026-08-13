@@ -47,9 +47,6 @@ export class DenseSpawnLocator {
     const halfWorld = this.config.worldSize * 0.5 - this.config.chunkSize;
     const radius = Math.min(this.config.spawnSearchRadius, halfWorld);
     const step = this.config.spawnSearchStep;
-    let bestX = 0;
-    let bestZ = 0;
-    let bestSuitability = Number.NEGATIVE_INFINITY;
     const coarseStep = step * COARSE_STEP_MULTIPLIER;
     const coarseCandidates: SpawnCandidate[] = [];
     const sampledSuitability = new Map<string, number>();
@@ -64,29 +61,28 @@ export class DenseSpawnLocator {
       return suitability;
     };
 
-    // Biome suitability is spatially coherent, so find the best broad regions
-    // first and spend the configured fine step only around those candidates.
+    // Rank broad ecological regions without invoking the stone generator. Exact
+    // body/stone clearance is intentionally deferred to the few best regions.
     for (let z = -radius; z <= radius; z += coarseStep) {
       for (let x = -radius; x <= radius; x += coarseStep) {
-        const suitability = sampleCandidate(x, z);
-        coarseCandidates.push({ x, z, suitability });
-        if (suitability > bestSuitability) {
-          bestX = x;
-          bestZ = z;
-          bestSuitability = suitability;
-        }
+        coarseCandidates.push({ x, z, suitability: sampleCandidate(x, z) });
       }
     }
-
     coarseCandidates.sort(
       (left, right) => right.suitability - left.suitability,
     );
+    if (!(coarseCandidates[0]?.suitability > 0)) {
+      throw new Error("Unable to locate viable grass terrain for the world spawn.");
+    }
+
+    const regions: SpawnCandidate[] = [];
     const candidatesToRefine = Math.min(
       REFINE_CANDIDATE_COUNT,
       coarseCandidates.length,
     );
     for (let index = 0; index < candidatesToRefine; index += 1) {
       const candidate = coarseCandidates[index];
+      let regionalBest = candidate;
       for (
         let z = candidate.z - coarseStep;
         z <= candidate.z + coarseStep;
@@ -104,19 +100,31 @@ export class DenseSpawnLocator {
             continue;
           }
           const suitability = sampleCandidate(x, z);
-          if (suitability > bestSuitability) {
-            bestX = x;
-            bestZ = z;
-            bestSuitability = suitability;
+          if (suitability > regionalBest.suitability) {
+            regionalBest = { x, z, suitability };
           }
         }
       }
+      regions.push(regionalBest);
+    }
+    regions.sort((left, right) => right.suitability - left.suitability);
+
+    let clearSpawn: SpawnCandidate | undefined;
+    for (const region of regions) {
+      clearSpawn = this.tryResolveClearSpawn(
+        region.x,
+        region.z,
+        region.suitability,
+        radius,
+      );
+      if (clearSpawn) {
+        break;
+      }
+    }
+    if (!clearSpawn) {
+      throw new Error("Unable to find a path- and stone-safe world spawn.");
     }
 
-    if (!(bestSuitability > 0)) {
-      throw new Error("Unable to locate viable grass terrain for the world spawn.");
-    }
-    const clearSpawn = this.resolveClearSpawn(bestX, bestZ, bestSuitability, radius);
     const height = this.field.sampleHeight(clearSpawn.x, clearSpawn.z);
     return {
       position: new THREE.Vector3(
@@ -147,27 +155,22 @@ export class DenseSpawnLocator {
       if (pathMask <= 0) {
         continue;
       }
-      const stoneMask = this.stones?.sampleGrassClearance(sampleX, sampleZ) ?? 1;
-      if (stoneMask <= 0.02) {
-        continue;
-      }
       this.field.sampleNormal(sampleX, sampleZ, this.normal);
       total +=
         suitabilityWithoutSlope *
         this.field.sampleGrassSlopeMask(this.normal) *
-        pathMask *
-        stoneMask;
+        pathMask;
     }
 
     return total / AREA_SAMPLE_OFFSETS.length;
   }
 
-  private resolveClearSpawn(
+  private tryResolveClearSpawn(
     x: number,
     z: number,
     suitability: number,
     searchRadius: number,
-  ): SpawnCandidate {
+  ): SpawnCandidate | undefined {
     const clearanceRadius =
       this.config.characterScale * CHARACTER_CLEARANCE_RADIUS_SCALE;
     const step = this.config.spawnSearchStep * CLEAR_SPAWN_STEP_SCALE;
@@ -222,10 +225,6 @@ export class DenseSpawnLocator {
           best = { x: candidateX, z: candidateZ, suitability: score };
         }
       }
-    }
-
-    if (!best) {
-      throw new Error("Unable to find a path- and stone-safe world spawn.");
     }
     return best;
   }
