@@ -103,7 +103,8 @@ export class WorldApp {
     this.applyRendererSize();
 
     this.field = new TerrainField(config);
-    const spawn = new DenseSpawnLocator(this.field, config).find();
+    const stoneField = new StoneField(this.field, config);
+    const spawn = new DenseSpawnLocator(this.field, config, stoneField).find();
     const params = new URLSearchParams(window.location.search);
     const useFlyControls =
       params.get("control") === "fly" || params.get("view") === "aerial";
@@ -125,7 +126,6 @@ export class WorldApp {
       profile.compact,
       profile.shadows && !useFlyControls,
     );
-    const stoneField = new StoneField(this.field, config);
     this.stones = new WorldStoneSystem(
       this.scene,
       stoneField,
@@ -284,6 +284,7 @@ export class WorldApp {
       this.grassInitializationError = this.runtimeGuard.formatError(error);
       this.grassEnabled = false;
       this.grass.dispose();
+      grassTrailField.dispose();
     } finally {
       if (!this.disposed) {
         this.grassInitializing = false;
