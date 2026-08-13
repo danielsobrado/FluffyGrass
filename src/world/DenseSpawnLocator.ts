@@ -1,10 +1,14 @@
 import * as THREE from "three";
+import type { StoneField } from "./stones/StoneField";
 import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
 
 const HEADING_SAMPLE_COUNT = 8;
 const COARSE_STEP_MULTIPLIER = 4;
 const REFINE_CANDIDATE_COUNT = 8;
+const CLEAR_SPAWN_SEARCH_RADIUS_STEPS = 2;
+const CLEAR_SPAWN_STEP_SCALE = 0.5;
+const CHARACTER_CLEARANCE_RADIUS_SCALE = 0.5;
 const AREA_SAMPLE_OFFSETS = [
   [0, 0],
   [1, 0],
@@ -32,6 +36,7 @@ export class DenseSpawnLocator {
   constructor(
     private readonly field: TerrainField,
     private readonly config: WorldConfig,
+    private readonly stones?: StoneField,
   ) {}
 
   find(): DenseWorldSpawn {
@@ -104,16 +109,17 @@ export class DenseSpawnLocator {
       }
     }
 
-    const height = this.field.sampleHeight(bestX, bestZ);
+    const clearSpawn = this.resolveClearSpawn(bestX, bestZ, bestSuitability, radius);
+    const height = this.field.sampleHeight(clearSpawn.x, clearSpawn.z);
     return {
       position: new THREE.Vector3(
-        bestX,
+        clearSpawn.x,
         height + this.config.spawnEyeHeight,
-        bestZ,
+        clearSpawn.z,
       ),
-      yaw: this.resolveHeading(bestX, bestZ),
+      yaw: this.resolveHeading(clearSpawn.x, clearSpawn.z),
       pitch: THREE.MathUtils.degToRad(this.config.spawnPitchDegrees),
-      suitability: THREE.MathUtils.clamp(bestSuitability, 0, 1),
+      suitability: THREE.MathUtils.clamp(clearSpawn.suitability, 0, 1),
     };
   }
 
@@ -125,16 +131,84 @@ export class DenseSpawnLocator {
       const sampleX = x + offsetX * radius;
       const sampleZ = z + offsetZ * radius;
       const height = this.field.sampleHeight(sampleX, sampleZ);
+      const suitabilityWithoutSlope =
+        this.field.sampleGrassSuitabilityWithoutSlope(sampleX, sampleZ, height);
+      if (suitabilityWithoutSlope <= 0) {
+        continue;
+      }
+      const pathMask = this.field.samplePathGrassMask(sampleX, sampleZ, height);
+      if (pathMask <= 0) {
+        continue;
+      }
       this.field.sampleNormal(sampleX, sampleZ, this.normal);
-      total += this.field.sampleGrassSuitability(
-        sampleX,
-        sampleZ,
-        height,
-        this.normal,
-      );
+      total +=
+        suitabilityWithoutSlope *
+        this.field.sampleGrassSlopeMask(this.normal) *
+        pathMask;
     }
 
     return total / AREA_SAMPLE_OFFSETS.length;
+  }
+
+  private resolveClearSpawn(
+    x: number,
+    z: number,
+    suitability: number,
+    searchRadius: number,
+  ): SpawnCandidate {
+    const clearanceRadius =
+      this.config.characterScale * CHARACTER_CLEARANCE_RADIUS_SCALE;
+    const step = this.config.spawnSearchStep * CLEAR_SPAWN_STEP_SCALE;
+    let best: SpawnCandidate | undefined;
+
+    for (
+      let offsetZ = -CLEAR_SPAWN_SEARCH_RADIUS_STEPS;
+      offsetZ <= CLEAR_SPAWN_SEARCH_RADIUS_STEPS;
+      offsetZ += 1
+    ) {
+      for (
+        let offsetX = -CLEAR_SPAWN_SEARCH_RADIUS_STEPS;
+        offsetX <= CLEAR_SPAWN_SEARCH_RADIUS_STEPS;
+        offsetX += 1
+      ) {
+        const candidateX = x + offsetX * step;
+        const candidateZ = z + offsetZ * step;
+        if (
+          candidateX < -searchRadius ||
+          candidateX > searchRadius ||
+          candidateZ < -searchRadius ||
+          candidateZ > searchRadius
+        ) {
+          continue;
+        }
+        const height = this.field.sampleHeight(candidateX, candidateZ);
+        const pathClearance = this.field.samplePathGrassMask(
+          candidateX,
+          candidateZ,
+          height,
+          clearanceRadius,
+        );
+        const stoneClearance = this.stones?.sampleGrassClearance(
+          candidateX,
+          candidateZ,
+          clearanceRadius,
+        ) ?? 1;
+        const clearance = Math.min(pathClearance, stoneClearance);
+        if (clearance <= 0.5) {
+          continue;
+        }
+        const areaSuitability =
+          offsetX === 0 && offsetZ === 0
+            ? suitability
+            : this.sampleAreaSuitability(candidateX, candidateZ);
+        const score = areaSuitability * clearance;
+        if (!best || score > best.suitability) {
+          best = { x: candidateX, z: candidateZ, suitability: score };
+        }
+      }
+    }
+
+    return best ?? { x, z, suitability };
   }
 
   private resolveHeading(x: number, z: number): number {
