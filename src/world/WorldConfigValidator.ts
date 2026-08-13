@@ -1,9 +1,4 @@
-import { resolveHydrologyLakeCellMargin } from "./hydrology/LakeField";
-import {
-  resolveHydrologyRiverMinimumSeparation,
-  resolveHydrologyRiverMinimumVisibleHalfWidth,
-  resolveHydrologyRiverWetHalfWidth,
-} from "./hydrology/RiverField";
+import { validateHydrologyConfig } from "./hydrology/HydrologyConfigValidator";
 import type { WorldConfig } from "./WorldConfig";
 
 const MAX_GRASS_PATCHES_PER_CHUNK_AXIS = 32;
@@ -115,40 +110,9 @@ export function validateWorldConfig(config: WorldConfig): void {
   if (config.pathWidth >= config.pathSpacing * 0.05) {
     throw new Error("pathWidth must stay far below pathSpacing.");
   }
-  if (config.lakeRadiusMin > config.lakeRadiusMax) {
-    throw new Error("lakeRadius range is reversed.");
-  }
-  if (resolveHydrologyLakeCellMargin(config) * 2 >= config.lakeSpacing) {
-    throw new Error(
-      "lakeSpacing must contain the largest lake, shoreline, and humidity halo inside one cell.",
-    );
-  }
-  const riverMinimumSeparation = resolveHydrologyRiverMinimumSeparation(config);
-  if (
-    riverMinimumSeparation <= 0 ||
-    resolveHydrologyRiverWetHalfWidth(config) * 2 >= riverMinimumSeparation
-  ) {
-    throw new Error(
-      "riverSpacing must keep worst-case meanders and humidity bands separated.",
-    );
-  }
-  const farTerrainStep = config.chunkSize / farCells;
-  if (
-    resolveHydrologyRiverMinimumVisibleHalfWidth(config) <= farTerrainStep * 0.5
-  ) {
-    throw new Error(
-      "riverWidth must remain wide enough to survive far-terrain LOD sampling.",
-    );
-  }
-  if (config.riverMaxAltitude <= config.grassMinAltitude) {
-    throw new Error("riverMaxAltitude must exceed grassMinAltitude.");
-  }
-  if (
-    config.waterSurfaceOffset >= config.riverDepth ||
-    config.waterSurfaceOffset >= config.lakeDepth
-  ) {
-    throw new Error("waterSurfaceOffset must remain smaller than river and lake depth.");
-  }
+
+  validateHydrologyConfig(config);
+
   if (config.grassMinAltitude >= config.grassMaxAltitude) {
     throw new Error("grassMinAltitude must be lower than grassMaxAltitude.");
   }
