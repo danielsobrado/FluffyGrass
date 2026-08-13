@@ -18,7 +18,6 @@ export class WaterChunkGeometryBuilder {
 
   constructor(
     private readonly resolution: number,
-    private readonly enabled: boolean,
     private readonly interactionField: WaterInteractionField,
   ) {
     const vertexCount = resolution * resolution;
@@ -36,8 +35,6 @@ export class WaterChunkGeometryBuilder {
     hydrology: HydrologySample,
     stoneClearance: number,
   ): void {
-    if (!this.enabled) return;
-
     const positionOffset = index * 3;
     this.positions[positionOffset] = x;
     this.positions[positionOffset + 1] = hydrology.waterLevel;
@@ -72,9 +69,7 @@ export class WaterChunkGeometryBuilder {
   }
 
   createGeometry(): THREE.BufferGeometry | undefined {
-    if (!this.enabled || this.maxCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD) {
-      return undefined;
-    }
+    if (this.maxCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD) return undefined;
     const indices = this.createIndices();
     if (!indices) return undefined;
 
