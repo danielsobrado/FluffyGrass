@@ -216,14 +216,16 @@ export class TerrainChunkBuilder {
       this.biomes[biomeOffset] = this.biome.x;
       this.biomes[biomeOffset + 1] = this.biome.y;
       this.biomes[biomeOffset + 2] = this.biome.z;
-      this.waterGeometryBuilder?.writeVertex(
-        this.nextVertex,
-        x,
-        z,
-        height,
-        this.hydrology,
-        this.environment.w,
-      );
+      if (this.waterGeometryBuilder) {
+        this.waterGeometryBuilder.writeVertex(
+          this.nextVertex,
+          x,
+          z,
+          height,
+          this.hydrology,
+          this.environment.w,
+        );
+      }
 
       this.nextVertex += 1;
       processed += 1;
@@ -278,7 +280,9 @@ export class TerrainChunkBuilder {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
 
-    const waterGeometry = this.waterGeometryBuilder?.createGeometry();
+    const waterGeometry = this.waterGeometryBuilder
+      ? this.waterGeometryBuilder.createGeometry()
+      : undefined;
     this.stage += 1;
     return new TerrainChunk(
       this.chunkX,
