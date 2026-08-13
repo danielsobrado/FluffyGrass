@@ -9,4 +9,11 @@ export interface WorldController {
   getInputDiagnostics(): string;
   getStreamingPosition(): THREE.Vector3;
   getMode(): WorldControlMode;
+  /**
+   * Move to a ground position, clamping into the world and settling onto the
+   * surface there. Implementations snap the camera rather than easing it: the
+   * destination is arbitrarily far away, so an eased follow would sweep the
+   * streaming focus across the whole map and queue every chunk between.
+   */
+  teleport(x: number, z: number): void;
 }

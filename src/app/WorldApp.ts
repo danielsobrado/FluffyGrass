@@ -25,6 +25,7 @@ import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 import { GrassArtMenu } from "./GrassArtMenu";
 import { WorldEnvironmentController } from "./WorldEnvironmentController";
+import { WorldMinimap } from "./WorldMinimap";
 import { WorldFrameMetrics, type WorldFrameSubsystem } from "./WorldFrameMetrics";
 import { WorldRuntimeGuard } from "./WorldRuntimeGuard";
 import { WorldStatusHud } from "./WorldStatusHud";
@@ -52,6 +53,7 @@ export class WorldApp {
   private readonly stones: WorldStoneSystem;
   private readonly grass: WorldGrassSystem;
   private readonly controls: WorldController;
+  private readonly minimap: WorldMinimap;
   private readonly environment: WorldEnvironmentController;
   private readonly frameMetrics = new WorldFrameMetrics();
   private readonly runtimeGuard: WorldRuntimeGuard;
@@ -80,7 +82,7 @@ export class WorldApp {
   private constructor(
     canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
-    private readonly config: WorldConfig,
+    config: WorldConfig,
   ) {
     this.camera = new THREE.PerspectiveCamera(
       profile.cameraFov,
@@ -165,6 +167,7 @@ export class WorldApp {
           config,
           profile,
           spawn,
+          this.field,
         )
       : new ThirdPersonController(
           this.scene,
@@ -175,6 +178,7 @@ export class WorldApp {
           profile,
           spawn,
         );
+    this.minimap = new WorldMinimap(this.field, config, this.controls);
 
     console.info(
       `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
@@ -235,6 +239,7 @@ export class WorldApp {
     cancelAnimationFrame(this.frameHandle);
     window.clearInterval(this.watchdogHandle);
     this.runtimeGuard.dispose();
+    this.minimap.dispose();
     this.controls.dispose();
     this.terrain.dispose();
     this.stones.dispose();
@@ -339,9 +344,6 @@ export class WorldApp {
 
   private readonly updateControls = (deltaSeconds: number): void => {
     this.controls.update(deltaSeconds);
-    if (this.controls.getMode() === "fly") {
-      this.constrainCamera();
-    }
     this.environment.updateShadow(this.controls.getStreamingPosition());
   };
 
@@ -467,27 +469,8 @@ export class WorldApp {
     this.stats = stats;
   }
 
-  private constrainCamera(): void {
-    const halfWorld = this.config.worldSize * 0.5 - 2;
-    this.camera.position.x = THREE.MathUtils.clamp(
-      this.camera.position.x,
-      -halfWorld,
-      halfWorld,
-    );
-    this.camera.position.z = THREE.MathUtils.clamp(
-      this.camera.position.z,
-      -halfWorld,
-      halfWorld,
-    );
-    const terrainHeight = this.sampleGroundHeight(this.camera.position);
-    this.camera.position.y = THREE.MathUtils.clamp(
-      this.camera.position.y,
-      terrainHeight + this.config.spawnEyeHeight,
-      this.config.mountainHeight + 520,
-    );
-  }
-
   private readonly updateHud = (deltaSeconds: number): void => {
+    this.minimap.update();
     if (!this.statusHud.shouldUpdate(deltaSeconds)) {
       return;
     }

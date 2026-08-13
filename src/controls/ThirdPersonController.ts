@@ -176,20 +176,43 @@ export class ThirdPersonController implements WorldController {
     return "third-person";
   }
 
+  teleport(x: number, z: number): void {
+    if (this.disposed) {
+      return;
+    }
+    // Keep the player's current framing: a teleport is a move, not a restart,
+    // and snapping their zoom back to the default would undo deliberate setup.
+    const halfWorld = this.config.worldSize * 0.5 - 2;
+    this.placeAt(
+      THREE.MathUtils.clamp(x, -halfWorld, halfWorld),
+      THREE.MathUtils.clamp(z, -halfWorld, halfWorld),
+      this.facing,
+    );
+  }
+
   private reset(): void {
     if (this.disposed) {
       return;
     }
-    this.position.copy(this.spawnPosition);
-    this.velocity.set(0, 0, 0);
-    this.animationVelocity.set(0, 0, 0);
-    this.desiredVelocity.set(0, 0, 0);
-    this.facing = this.spawnFacing;
-    this.cameraYaw = this.spawnFacing;
     this.cameraElevation = THREE.MathUtils.degToRad(
       this.config.characterCameraElevationDegrees,
     );
     this.cameraDistance = this.config.characterCameraDistance;
+    this.placeAt(
+      this.spawnPosition.x,
+      this.spawnPosition.z,
+      this.spawnFacing,
+    );
+  }
+
+  /** Settle the character onto the surface at (x, z) facing a given heading. */
+  private placeAt(x: number, z: number, facing: number): void {
+    this.position.set(x, this.field.sampleHeight(x, z), z);
+    this.velocity.set(0, 0, 0);
+    this.animationVelocity.set(0, 0, 0);
+    this.desiredVelocity.set(0, 0, 0);
+    this.facing = facing;
+    this.cameraYaw = facing;
     this.speed = 0;
     this.previousSpeed = 0;
     this.acceleration = 0;
