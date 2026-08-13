@@ -9,6 +9,7 @@ import {
 export interface WorldSingleBladeTileFieldOptions {
   namePrefix: string;
   visibilityRadius: number;
+  worldHalfExtent: number;
   densityMultiplier: number;
   bladeSegments: number;
   receiveShadows: boolean;
@@ -347,6 +348,14 @@ export class WorldSingleBladeTileField {
         const tileZ = this.centerTileZ + dz;
         const originX = tileX * this.tileSize;
         const originZ = tileZ * this.tileSize;
+        if (
+          originX < -this.options.worldHalfExtent ||
+          originZ < -this.options.worldHalfExtent ||
+          originX + this.tileSize > this.options.worldHalfExtent ||
+          originZ + this.tileSize > this.options.worldHalfExtent
+        ) {
+          continue;
+        }
         const distance = this.distanceToTile(
           focus.x,
           focus.z,
