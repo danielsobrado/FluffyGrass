@@ -26,6 +26,7 @@ export class GpuFrameTimer {
   private activeQuery?: WebGLQuery;
   private status: GpuFrameTimerStatus;
   private failed = false;
+  private disposed = false;
 
   constructor(renderer: THREE.WebGLRenderer, enabled: boolean) {
     if (!enabled) {
@@ -56,6 +57,9 @@ export class GpuFrameTimer {
   }
 
   beginFrame(): void {
+    if (this.disposed) {
+      return;
+    }
     this.poll();
     if (
       this.status !== "active" ||
@@ -81,7 +85,12 @@ export class GpuFrameTimer {
   }
 
   endFrame(): void {
-    if (!this.activeQuery || !this.gl || !this.extension) {
+    if (
+      this.disposed ||
+      !this.activeQuery ||
+      !this.gl ||
+      !this.extension
+    ) {
       return;
     }
 
@@ -115,12 +124,17 @@ export class GpuFrameTimer {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.releaseQueries();
     this.samples.length = 0;
   }
 
   private poll(): void {
     if (
+      this.disposed ||
       this.status !== "active" ||
       this.failed ||
       !this.gl ||
@@ -170,7 +184,7 @@ export class GpuFrameTimer {
   }
 
   private disableAfterFailure(error: unknown): void {
-    if (this.failed) {
+    if (this.failed || this.disposed) {
       return;
     }
     this.failed = true;
