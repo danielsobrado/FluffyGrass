@@ -183,6 +183,13 @@ float waterFoamAmount = saturate(
   (waterShoreBand * 0.78 + waterRiverFoam * 0.16) * uWaterFoamStrength
 );
 waterSurfaceColor = mix(waterSurfaceColor, uWaterFoam, waterFoamAmount);
+roughnessFactor = clamp(
+  roughnessFactor +
+    waterRiverAmount * waterDetailWeight * 0.035 +
+    waterFoamAmount * 0.48,
+  0.02,
+  0.75
+);
 
 diffuseColor.rgb = waterSurfaceColor;
 float waterDepthOpacity = mix(0.58, 1.0, waterDepthFactor);
