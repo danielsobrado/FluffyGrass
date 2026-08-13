@@ -3,12 +3,8 @@ import {
   createHydrologySample,
   type HydrologySample,
 } from "./hydrology/HydrologyField";
-import {
-  createWaterInteractionSample,
-  type WaterInteractionField,
-  type WaterInteractionSample,
-} from "./hydrology/WaterInteractionField";
-import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./hydrology/WaterMaterialTuning";
+import { WaterChunkGeometryBuilder } from "./hydrology/WaterChunkGeometry";
+import type { WaterInteractionField } from "./hydrology/WaterInteractionField";
 import type { TerrainField } from "./TerrainField";
 import type {
   TerrainSurfaceField,
@@ -66,7 +62,7 @@ export class TerrainChunk {
   }
 }
 
-/** Builds terrain and matching water meshes in bounded slices. */
+/** Builds terrain and delegates matching water geometry in bounded slices. */
 export class TerrainChunkBuilder {
   readonly key: string;
   readonly resolution: number;
@@ -82,11 +78,8 @@ export class TerrainChunkBuilder {
   private readonly ecologies: Float32Array;
   private readonly environments: Float32Array;
   private readonly biomes: Float32Array;
-  private readonly waterPositions: Float32Array;
-  private readonly waterNormals: Float32Array;
-  private readonly waterData: Float32Array;
-  private readonly waterInteractions: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
+  private readonly waterGeometryBuilder: WaterChunkGeometryBuilder;
   private readonly normal = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private readonly pathDistances = new THREE.Vector2();
@@ -94,8 +87,6 @@ export class TerrainChunkBuilder {
   private readonly environment = new THREE.Vector4();
   private readonly biome = new THREE.Vector3();
   private readonly hydrology: HydrologySample = createHydrologySample();
-  private readonly waterInteraction: WaterInteractionSample =
-    createWaterInteractionSample();
   private readonly surfaceTargets: TerrainSurfaceTargets = {
     ecology: this.ecology,
     environment: this.environment,
@@ -104,7 +95,6 @@ export class TerrainChunkBuilder {
   private stage = VERTEX_STAGE;
   private nextVertex = 0;
   private nextCell = 0;
-  private maxWaterCoverage = 0;
 
   constructor(
     private readonly chunkX: number,
@@ -113,7 +103,7 @@ export class TerrainChunkBuilder {
     resolution: number,
     private readonly field: TerrainField,
     private readonly surfaceField: TerrainSurfaceField,
-    private readonly waterInteractionField: WaterInteractionField,
+    waterInteractionField: WaterInteractionField,
     private readonly material: THREE.Material,
     private readonly waterMaterial: THREE.Material | undefined,
     private readonly receiveShadow: boolean,
@@ -132,13 +122,14 @@ export class TerrainChunkBuilder {
     this.ecologies = new Float32Array(vertexCount * 4);
     this.environments = new Float32Array(vertexCount * 4);
     this.biomes = new Float32Array(vertexCount * 3);
-    this.waterPositions = new Float32Array(vertexCount * 3);
-    this.waterNormals = new Float32Array(vertexCount * 3);
-    this.waterData = new Float32Array(vertexCount * 4);
-    this.waterInteractions = new Float32Array(vertexCount * 2);
     this.indices = vertexCount <= 65535
       ? new Uint16Array(this.cells * this.cells * 6)
       : new Uint32Array(this.cells * this.cells * 6);
+    this.waterGeometryBuilder = new WaterChunkGeometryBuilder(
+      resolution,
+      waterMaterial !== undefined,
+      waterInteractionField,
+    );
   }
 
   advance(budgetMs: number): TerrainChunk | undefined {
@@ -146,9 +137,7 @@ export class TerrainChunkBuilder {
     let processed = 0;
 
     while (this.stage <= FINALIZE_STAGE) {
-      if (processed > 0 && performance.now() >= deadline) {
-        return undefined;
-      }
+      if (processed > 0 && performance.now() >= deadline) return undefined;
 
       if (this.stage === VERTEX_STAGE) {
         processed += this.advanceVertices(deadline);
@@ -226,52 +215,19 @@ export class TerrainChunkBuilder {
       this.biomes[biomeOffset] = this.biome.x;
       this.biomes[biomeOffset + 1] = this.biome.y;
       this.biomes[biomeOffset + 2] = this.biome.z;
-
-      this.waterPositions[offset] = x;
-      this.waterPositions[offset + 1] = this.hydrology.waterLevel;
-      this.waterPositions[offset + 2] = z;
-      this.waterNormals[offset] = 0;
-      this.waterNormals[offset + 1] = 1;
-      this.waterNormals[offset + 2] = 0;
-      this.waterData[ecologyOffset] = this.hydrology.waterCoverage;
-      this.waterData[ecologyOffset + 1] = Math.max(
-        0,
-        this.hydrology.waterLevel - height,
-      );
-      this.waterData[ecologyOffset + 2] =
-        this.hydrology.flowX * this.hydrology.riverCoverage;
-      this.waterData[ecologyOffset + 3] =
-        this.hydrology.flowZ * this.hydrology.riverCoverage;
-
-      if (
-        this.waterMaterial &&
-        this.hydrology.waterCoverage >= WATER_VISIBLE_COVERAGE_THRESHOLD
-      ) {
-        this.waterInteractionField.sample(
-          x,
-          z,
-          this.hydrology,
-          this.environment.w,
-          this.waterInteraction,
-        );
-        const interactionOffset = this.nextVertex * 2;
-        this.waterInteractions[interactionOffset] =
-          this.waterInteraction.obstacle;
-        this.waterInteractions[interactionOffset + 1] =
-          this.waterInteraction.wake;
-      }
-
-      this.maxWaterCoverage = Math.max(
-        this.maxWaterCoverage,
-        this.hydrology.waterCoverage,
+      this.waterGeometryBuilder.writeVertex(
+        this.nextVertex,
+        x,
+        z,
+        height,
+        this.hydrology,
+        this.environment.w,
       );
 
       this.nextVertex += 1;
       processed += 1;
     }
-    if (this.nextVertex >= total) {
-      this.stage = INDEX_STAGE;
-    }
+    if (this.nextVertex >= total) this.stage = INDEX_STAGE;
     return processed;
   }
 
@@ -295,30 +251,16 @@ export class TerrainChunkBuilder {
       this.nextCell += 1;
       processed += 1;
     }
-    if (this.nextCell >= total) {
-      this.stage = FINALIZE_STAGE;
-    }
+    if (this.nextCell >= total) this.stage = FINALIZE_STAGE;
     return processed;
   }
 
   private finalize(): TerrainChunk {
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(this.positions, 3),
-    );
-    geometry.setAttribute(
-      "normal",
-      new THREE.BufferAttribute(this.normals, 3),
-    );
-    geometry.setAttribute(
-      "color",
-      new THREE.BufferAttribute(this.colors, 3),
-    );
-    geometry.setAttribute(
-      "terrainPath",
-      new THREE.BufferAttribute(this.paths, 3),
-    );
+    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+    geometry.setAttribute("terrainPath", new THREE.BufferAttribute(this.paths, 3));
     geometry.setAttribute(
       "terrainEcology",
       new THREE.BufferAttribute(this.ecologies, 4),
@@ -335,7 +277,7 @@ export class TerrainChunkBuilder {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
 
-    const waterGeometry = this.createWaterGeometry();
+    const waterGeometry = this.waterGeometryBuilder.createGeometry();
     this.stage += 1;
     return new TerrainChunk(
       this.chunkX,
@@ -347,76 +289,5 @@ export class TerrainChunkBuilder {
       waterGeometry,
       waterGeometry ? this.waterMaterial : undefined,
     );
-  }
-
-  private createWaterGeometry(): THREE.BufferGeometry | undefined {
-    if (
-      !this.waterMaterial ||
-      this.maxWaterCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD
-    ) {
-      return undefined;
-    }
-    const waterIndices = this.createWaterIndices();
-    if (!waterIndices) {
-      return undefined;
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(this.waterPositions, 3),
-    );
-    geometry.setAttribute(
-      "normal",
-      new THREE.BufferAttribute(this.waterNormals, 3),
-    );
-    geometry.setAttribute(
-      "waterData",
-      new THREE.BufferAttribute(this.waterData, 4),
-    );
-    geometry.setAttribute(
-      "waterInteraction",
-      new THREE.BufferAttribute(this.waterInteractions, 2),
-    );
-    geometry.setIndex(new THREE.BufferAttribute(waterIndices, 1));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    return geometry;
-  }
-
-  private createWaterIndices(): Uint16Array | Uint32Array | undefined {
-    const waterIndices = this.indices instanceof Uint16Array
-      ? new Uint16Array(this.indices.length)
-      : new Uint32Array(this.indices.length);
-    let writeOffset = 0;
-
-    for (let zIndex = 0; zIndex < this.cells; zIndex += 1) {
-      for (let xIndex = 0; xIndex < this.cells; xIndex += 1) {
-        const row = zIndex * this.resolution + xIndex;
-        const topLeft = row;
-        const bottomLeft = row + this.resolution;
-        const topRight = row + 1;
-        const bottomRight = bottomLeft + 1;
-        const maximumCoverage = Math.max(
-          this.waterData[topLeft * 4],
-          this.waterData[bottomLeft * 4],
-          this.waterData[topRight * 4],
-          this.waterData[bottomRight * 4],
-        );
-        if (maximumCoverage < WATER_VISIBLE_COVERAGE_THRESHOLD) {
-          continue;
-        }
-
-        waterIndices[writeOffset] = topLeft;
-        waterIndices[writeOffset + 1] = bottomLeft;
-        waterIndices[writeOffset + 2] = topRight;
-        waterIndices[writeOffset + 3] = topRight;
-        waterIndices[writeOffset + 4] = bottomLeft;
-        waterIndices[writeOffset + 5] = bottomRight;
-        writeOffset += 6;
-      }
-    }
-
-    return writeOffset > 0 ? waterIndices.slice(0, writeOffset) : undefined;
   }
 }
