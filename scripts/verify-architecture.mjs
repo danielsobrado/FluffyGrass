@@ -37,6 +37,7 @@ const environment = read("src/app/WorldEnvironmentController.ts");
 const frameMetrics = read("src/app/WorldFrameMetrics.ts");
 const runtimeGuard = read("src/app/WorldRuntimeGuard.ts");
 const statusHud = read("src/app/WorldStatusHud.ts");
+const terrainChunk = read("src/world/TerrainChunk.ts");
 const terrainField = read("src/world/TerrainField.ts");
 const terrainStreamer = read("src/world/TerrainStreamer.ts");
 const terrainMaterial = read("src/world/TerrainMaterialController.ts");
@@ -150,9 +151,18 @@ assert(
     terrainStreamer.includes("TerrainMaterialController") &&
     terrainStreamer.includes("WaterMaterialController") &&
     terrainStreamer.includes("private disposed = false") &&
+    terrainStreamer.includes("chunk.getTriangleCount()") &&
     !terrainStreamer.includes("onBeforeCompile") &&
-    !terrainStreamer.includes("TERRAIN_DETAIL_COLOR"),
-  "TerrainStreamer must own residency/build scheduling, not shader or texture construction, and must be disposal-safe.",
+    !terrainStreamer.includes("TERRAIN_DETAIL_COLOR") &&
+    !terrainStreamer.includes("MeshPhongMaterial") &&
+    !terrainStreamer.includes("MeshPhysicalMaterial"),
+  "TerrainStreamer must own residency/build scheduling and diagnostics, not shader or material construction.",
+);
+assert(
+  terrainChunk.includes("createWaterIndices") &&
+    terrainChunk.includes("WATER_VISIBLE_COVERAGE_THRESHOLD") &&
+    terrainChunk.includes("getTriangleCount()"),
+  "Terrain chunks must submit only potentially visible water cells and expose their complete triangle cost.",
 );
 assert(
   lineCount(terrainMaterial) <= EXTRACTED_MODULE_MAX_LINES &&
@@ -166,21 +176,25 @@ assert(
   lineCount(hydrologyField) <= HYDROLOGY_FIELD_MAX_LINES &&
     terrainField.includes('from "./hydrology/HydrologyField"') &&
     terrainField.includes("this.hydrology.carveHeight") &&
+    hydrologyField.includes("sourceHeightCache") &&
     !hydrologyField.includes('from "../TerrainField"') &&
     !hydrologyField.includes("THREE."),
-  "Hydrology must stay a deterministic field independent from terrain rendering and Three.js.",
+  "Hydrology must stay deterministic, preserve source-height semantics, and remain independent from terrain rendering.",
 );
 assert(
   lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
     lineCount(waterShader) <= WATER_SHADER_MAX_LINES &&
     waterMaterial.includes("class WaterMaterialController") &&
+    waterMaterial.includes("MeshPhysicalMaterial") &&
+    waterMaterial.includes("THREE.DoubleSide") &&
     waterMaterial.includes('from "./WaterShader"') &&
     waterMaterial.includes("onBeforeCompile") &&
     waterMaterial.includes("depthWrite: false") &&
     waterShader.includes("WATER_SURFACE_FRAGMENT") &&
-    !waterMaterial.includes("waterRiverPhaseA") &&
-    !terrainStreamer.includes("MeshPhongMaterial"),
-  "Water material lifecycle and GLSL implementation must stay split from terrain streaming.",
+    waterShader.includes("waterLightingNormal") &&
+    waterShader.includes("gl_FrontFacing") &&
+    !waterMaterial.includes("waterRiverPhaseA"),
+  "Physical water material lifecycle and GLSL implementation must stay split and support correct two-sided lighting.",
 );
 
 assert(
@@ -249,6 +263,7 @@ assert(
     worldConfigSchema.includes("waterEnabled") &&
     worldConfigValidator.includes("validateWorldConfig") &&
     worldConfigValidator.includes("resolveHydrologyLakeCellMargin") &&
+    worldConfigValidator.includes("resolveHydrologyRiverMinimumVisibleHalfWidth") &&
     grassConfigValidator.includes("validateGrassConfig"),
   "World, hydrology, and grass domain invariants must remain explicit outside their loaders.",
 );
