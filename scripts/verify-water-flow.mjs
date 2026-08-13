@@ -6,6 +6,7 @@ import { createServer } from "vite";
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const EPSILON = 1e-6;
+const WATER_INTERACTION_RESOLVER_MAX_LINES = 100;
 
 function assert(condition, message) {
   if (!condition) throw new Error(`[water-flow] ${message}`);
@@ -37,6 +38,15 @@ assert(
     interactionResolverSource.includes("performance.now() < deadline") &&
     !waterGeometrySource.includes("resolveFlowAndInteractions"),
   "Stone wakes must remain a frame-budgeted terrain-build stage rather than finalize-time work.",
+);
+assert(
+  interactionResolverSource.split(/\r?\n/).length <=
+      WATER_INTERACTION_RESOLVER_MAX_LINES &&
+    interactionResolverSource.includes("resolveDownhillWaterFlow") &&
+    interactionResolverSource.includes("interactionField.sample") &&
+    !interactionResolverSource.includes("BufferGeometry") &&
+    !interactionResolverSource.includes("MeshPhysicalMaterial"),
+  "Water interaction resolution must stay small and independent from geometry/material ownership.",
 );
 
 const server = await createServer({
