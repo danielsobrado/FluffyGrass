@@ -90,6 +90,12 @@ export interface WorldConfig {
   waterDetailDistance: number;
   waterLakeWaveStrength: number;
   waterRoughness: number;
+  waterFlowNoiseScale: number;
+  waterFlowNoiseStrength: number;
+  waterCausticStrength: number;
+  waterGlintStrength: number;
+  waterStoneWakeStrength: number;
+  waterStoneWakeLength: number;
   pathWidth: number;
   pathBranchWidth: number;
   pathSpacing: number;
