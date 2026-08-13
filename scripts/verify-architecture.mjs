@@ -8,6 +8,10 @@ const WORLD_APP_MAX_LINES = 540;
 const TERRAIN_STREAMER_MAX_LINES = 300;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;
+const WATER_CHUNK_GEOMETRY_MAX_LINES = 180;
+const WATER_INTERACTION_MAX_LINES = 120;
+const WATER_FLOW_NOISE_MAX_LINES = 220;
+const WATER_FLOW_SHADER_MAX_LINES = 100;
 const WATER_MATERIAL_MAX_LINES = 180;
 const WATER_SHADER_MAX_LINES = 260;
 const STONE_GEOMETRY_MAX_LINES = 340;
@@ -47,6 +51,10 @@ const hydrologyField = read("src/world/hydrology/HydrologyField.ts");
 const hydrologyConfigValidator = read(
   "src/world/hydrology/HydrologyConfigValidator.ts",
 );
+const waterChunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
+const waterInteraction = read("src/world/hydrology/WaterInteractionField.ts");
+const waterFlowNoise = read("src/world/hydrology/WaterFlowNoiseTexture.ts");
+const waterFlowShader = read("src/world/hydrology/WaterFlowShader.ts");
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const waterShader = read("src/world/hydrology/WaterShader.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
@@ -154,6 +162,7 @@ assert(
   lineCount(terrainStreamer) <= TERRAIN_STREAMER_MAX_LINES &&
     terrainStreamer.includes("TerrainMaterialController") &&
     terrainStreamer.includes("WaterMaterialController") &&
+    terrainStreamer.includes("WaterInteractionField") &&
     terrainStreamer.includes("private disposed = false") &&
     terrainStreamer.includes("chunk.getTriangleCount()") &&
     !terrainStreamer.includes("onBeforeCompile") &&
@@ -163,10 +172,21 @@ assert(
   "TerrainStreamer must own residency/build scheduling and diagnostics, not shader or material construction.",
 );
 assert(
-  terrainChunk.includes("createWaterIndices") &&
-    terrainChunk.includes("WATER_VISIBLE_COVERAGE_THRESHOLD") &&
-    terrainChunk.includes("getTriangleCount()"),
-  "Terrain chunks must submit only potentially visible water cells and expose their complete triangle cost.",
+  terrainChunk.includes("WaterChunkGeometryBuilder") &&
+    terrainChunk.includes("waterGeometryBuilder.writeVertex") &&
+    terrainChunk.includes("waterGeometryBuilder.createGeometry") &&
+    terrainChunk.includes("getTriangleCount()") &&
+    !terrainChunk.includes("createWaterIndices") &&
+    !terrainChunk.includes("WATER_VISIBLE_COVERAGE_THRESHOLD"),
+  "Terrain chunks must delegate water packing/topology and expose their complete triangle cost.",
+);
+assert(
+  lineCount(waterChunkGeometry) <= WATER_CHUNK_GEOMETRY_MAX_LINES &&
+    waterChunkGeometry.includes("createIndices") &&
+    waterChunkGeometry.includes("WATER_VISIBLE_COVERAGE_THRESHOLD") &&
+    waterChunkGeometry.includes('"waterData"') &&
+    waterChunkGeometry.includes('"waterInteraction"'),
+  "Water chunk geometry must own packed attributes and sparse wet-cell topology.",
 );
 assert(
   lineCount(terrainMaterial) <= EXTRACTED_MODULE_MAX_LINES &&
@@ -197,19 +217,46 @@ assert(
   "Hydrology cross-field invariants must remain isolated from the world validator.",
 );
 assert(
+  lineCount(waterInteraction) <= WATER_INTERACTION_MAX_LINES &&
+    waterInteraction.includes("WAKE_SAMPLE_COUNT") &&
+    waterInteraction.includes("sampleStoneGrassClearance") &&
+    waterInteraction.includes("waterStoneWakeLength") &&
+    !waterInteraction.includes("THREE."),
+  "Water/stone interaction must stay a small deterministic field outside rendering modules.",
+);
+assert(
+  lineCount(waterFlowNoise) <= WATER_FLOW_NOISE_MAX_LINES &&
+    waterFlowNoise.includes("periodicWorleyRidge") &&
+    waterFlowNoise.includes("createWaterFlowNoiseTexture") &&
+    waterFlowNoise.includes("THREE.DataTexture"),
+  "Water flow noise generation must remain deterministic, bounded, and isolated from material lifecycle.",
+);
+assert(
+  lineCount(waterFlowShader) <= WATER_FLOW_SHADER_MAX_LINES &&
+    waterFlowShader.includes("waterSampleAdvectedNoise") &&
+    waterFlowShader.includes("waterResolveStoneEdge") &&
+    !waterFlowShader.includes("MeshPhysicalMaterial"),
+  "Flow-noise GLSL helpers must stay separate from the physical material controller.",
+);
+assert(
   lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
     lineCount(waterShader) <= WATER_SHADER_MAX_LINES &&
     waterMaterial.includes("class WaterMaterialController") &&
     waterMaterial.includes("MeshPhysicalMaterial") &&
     waterMaterial.includes("THREE.DoubleSide") &&
+    waterMaterial.includes("createWaterFlowNoiseTexture") &&
+    waterMaterial.includes("flowNoiseTexture.dispose()") &&
     waterMaterial.includes('from "./WaterShader"') &&
     waterMaterial.includes("onBeforeCompile") &&
     waterMaterial.includes("depthWrite: false") &&
+    waterShader.includes('from "./WaterFlowShader"') &&
     waterShader.includes("WATER_SURFACE_FRAGMENT") &&
+    waterShader.includes("waterSampleAdvectedNoise") &&
+    waterShader.includes("waterStoneFoam") &&
     waterShader.includes("waterLightingNormal") &&
     waterShader.includes("gl_FrontFacing") &&
     !waterMaterial.includes("waterRiverPhaseA"),
-  "Physical water material lifecycle and GLSL implementation must stay split and support correct two-sided lighting.",
+  "Physical water lifecycle, flow helpers, and GLSL implementation must stay split and disposal-safe.",
 );
 
 assert(
@@ -276,12 +323,14 @@ assert(
 assert(
   worldConfigSchema.includes("grassFarImpostorsPerPatch") &&
     worldConfigSchema.includes("waterEnabled") &&
+    worldConfigSchema.includes("waterFlowNoiseStrength") &&
+    worldConfigSchema.includes("waterStoneWakeStrength") &&
     worldConfigValidator.includes("validateWorldConfig") &&
     worldConfigValidator.includes("validateHydrologyConfig") &&
     grassConfigValidator.includes("validateGrassConfig"),
-  "World, hydrology, and grass domain invariants must remain explicit outside their loaders.",
+  "World, hydrology, advanced-water, and grass domain invariants must remain explicit outside their loaders.",
 );
 
 console.log(
-  "[architecture] Runtime, terrain, hydrology, config, and stone responsibility boundaries verified.",
+  "[architecture] Runtime, terrain, hydrology, advanced water, config, and stone responsibility boundaries verified.",
 );
