@@ -10,7 +10,7 @@ export function createWaterFlowSample(): WaterFlowSample {
   return { riverCoverage: 0, flowX: 0, flowZ: 0 };
 }
 
-/** Normalizes packed river flow and flips it toward the locally lower surface. */
+/** Resolves a downhill CPU direction without changing the coherent packed tangent. */
 export function resolveDownhillWaterFlow(
   index: number,
   resolution: number,
@@ -56,8 +56,6 @@ export function resolveDownhillWaterFlow(
     flowX = -flowX;
     flowZ = -flowZ;
   }
-  data[dataOffset + 2] = flowX * riverCoverage;
-  data[dataOffset + 3] = flowZ * riverCoverage;
   target.flowX = flowX;
   target.flowZ = flowZ;
   return target;
