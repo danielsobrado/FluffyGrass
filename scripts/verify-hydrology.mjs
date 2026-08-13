@@ -36,6 +36,9 @@ try {
   const { createHydrologySample } = await server.ssrLoadModule(
     "/src/world/hydrology/HydrologyField.ts",
   );
+  const { WaterMaterialController } = await server.ssrLoadModule(
+    "/src/world/hydrology/WaterMaterialController.ts",
+  );
   const { WORLD_CONFIG_SCHEMA } = await server.ssrLoadModule(
     "/src/world/WorldConfigSchema.ts",
   );
@@ -76,6 +79,7 @@ try {
   let riverSamples = 0;
   let lakeSamples = 0;
   let carvedSamples = 0;
+  let normalizedFlowSamples = 0;
   let wetPoint;
   const lakeLevels = new Map();
 
@@ -90,7 +94,15 @@ try {
       if (dryHeight - height > 0.05) carvedSamples += 1;
 
       terrain.sampleHydrology(x, z, height, hydrology);
-      if (hydrology.riverCoverage > 0.65) riverSamples += 1;
+      if (hydrology.riverCoverage > 0.65) {
+        riverSamples += 1;
+        const flowLength = Math.hypot(hydrology.flowX, hydrology.flowZ);
+        assert(
+          Math.abs(flowLength - 1) < 1e-6,
+          `River flow must stay normalized, received ${flowLength}.`,
+        );
+        normalizedFlowSamples += 1;
+      }
       if (hydrology.lakeCoverage > 0.65) {
         lakeSamples += 1;
         const levelKey = hydrology.waterLevel.toFixed(5);
@@ -126,6 +138,10 @@ try {
   assert(riverSamples > 20, "Production seed must contain visible river water.");
   assert(lakeSamples > 20, "Production seed must contain visible lake water.");
   assert(
+    normalizedFlowSamples === riverSamples,
+    "Every strong river sample must expose normalized downstream flow.",
+  );
+  assert(
     [...lakeLevels.values()].some((count) => count >= 4),
     "A lake must expose multiple samples at one exactly flat water level.",
   );
@@ -155,16 +171,72 @@ try {
     chunk.mesh.geometry.getAttribute("terrainEnvironment")?.itemSize === 4,
     "Terrain must carry altitude/humidity/water/stone environment channels.",
   );
+  const waterData = chunk.waterMesh.geometry.getAttribute("waterData");
   assert(
-    chunk.waterMesh.geometry.getAttribute("waterCoverage")?.itemSize === 1,
-    "Water mesh must carry shoreline coverage for fragment clipping.",
+    waterData?.itemSize === 4,
+    "Water mesh must pack coverage, depth, and downstream flow in one vec4.",
+  );
+  let positiveDepthSamples = 0;
+  for (let index = 0; index < waterData.array.length; index += 4) {
+    const coverage = waterData.array[index];
+    const depth = waterData.array[index + 1];
+    const flowLength = Math.hypot(
+      waterData.array[index + 2],
+      waterData.array[index + 3],
+    );
+    assert(depth >= 0, "Packed water depth must never be negative.");
+    assert(
+      flowLength <= coverage + 1e-5,
+      "Packed flow magnitude must not exceed visible water coverage.",
+    );
+    if (coverage > 0.1 && depth > 0.05) positiveDepthSamples += 1;
+  }
+  assert(
+    positiveDepthSamples > 0,
+    "A wet chunk must carry real bed-to-surface depth for water absorption.",
   );
   chunk.dispose();
   terrainMaterial.dispose();
   waterMaterial.dispose();
 
+  const waterController = new WaterMaterialController(config);
+  const shader = {
+    uniforms: {},
+    vertexShader: "#include <common>\n#include <begin_vertex>",
+    fragmentShader: "#include <common>\n#include <normal_fragment_maps>",
+  };
+  waterController.material.onBeforeCompile(shader, {});
+  assert(
+    shader.vertexShader.includes("attribute vec4 waterData"),
+    "Water shader must consume the packed hydrology attribute.",
+  );
+  for (const token of [
+    "waterFlowDirection",
+    "waterDepthFactor",
+    "waterFresnel",
+    "waterShoreBand",
+    "waterRiverFoam",
+    "waterDetailWeight",
+  ]) {
+    assert(
+      shader.fragmentShader.includes(token),
+      `Water shader is missing ${token}.`,
+    );
+  }
+  assert(
+    shader.fragmentShader.indexOf("dFdx(vWaterWorldPosition)") <
+      shader.fragmentShader.indexOf("discard"),
+    "Water derivatives must be evaluated before shoreline discard.",
+  );
+  assert(
+    waterController.material.depthWrite === false &&
+      waterController.material.transparent === true,
+    "Water must keep transparent depth writes disabled.",
+  );
+  waterController.dispose();
+
   console.log(
-    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; terrain/water integration verified.`,
+    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow, depth, and water shader verified.`,
   );
 } finally {
   await server.close();
