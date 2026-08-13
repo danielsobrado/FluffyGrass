@@ -1,6 +1,7 @@
 import { resolveHydrologyLakeCellMargin } from "./hydrology/LakeField";
 import {
   resolveHydrologyRiverMinimumSeparation,
+  resolveHydrologyRiverMinimumVisibleHalfWidth,
   resolveHydrologyRiverWetHalfWidth,
 } from "./hydrology/RiverField";
 import type { WorldConfig } from "./WorldConfig";
@@ -129,6 +130,14 @@ export function validateWorldConfig(config: WorldConfig): void {
   ) {
     throw new Error(
       "riverSpacing must keep worst-case meanders and humidity bands separated.",
+    );
+  }
+  const farTerrainStep = config.chunkSize / farCells;
+  if (
+    resolveHydrologyRiverMinimumVisibleHalfWidth(config) <= farTerrainStep * 0.5
+  ) {
+    throw new Error(
+      "riverWidth must remain wide enough to survive far-terrain LOD sampling.",
     );
   }
   if (config.riverMaxAltitude <= config.grassMinAltitude) {
