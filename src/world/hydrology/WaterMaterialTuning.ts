@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v3";
+export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v4";
 export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
 export const WATER_SHALLOW_COLOR = new THREE.Color("#55949d");
 export const WATER_DEEP_COLOR = new THREE.Color("#244f63");
