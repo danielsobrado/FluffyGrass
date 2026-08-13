@@ -7,6 +7,7 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 const WORLD_APP_MAX_LINES = 540;
 const TERRAIN_STREAMER_MAX_LINES = 300;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
+const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;
 const WATER_MATERIAL_MAX_LINES = 180;
 const WATER_SHADER_MAX_LINES = 260;
 const STONE_GEOMETRY_MAX_LINES = 340;
@@ -43,6 +44,9 @@ const terrainStreamer = read("src/world/TerrainStreamer.ts");
 const terrainMaterial = read("src/world/TerrainMaterialController.ts");
 const terrainShader = read("src/world/TerrainMaterialShader.ts");
 const hydrologyField = read("src/world/hydrology/HydrologyField.ts");
+const hydrologyConfigValidator = read(
+  "src/world/hydrology/HydrologyConfigValidator.ts",
+);
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const waterShader = read("src/world/hydrology/WaterShader.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
@@ -182,6 +186,17 @@ assert(
   "Hydrology must stay deterministic, preserve source-height semantics, and remain independent from terrain rendering.",
 );
 assert(
+  lineCount(hydrologyConfigValidator) <=
+      HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES &&
+    hydrologyConfigValidator.includes("validateHydrologyConfig") &&
+    hydrologyConfigValidator.includes("resolveHydrologyLakeCellMargin") &&
+    hydrologyConfigValidator.includes("resolveHydrologyRiverMinimumVisibleHalfWidth") &&
+    worldConfigValidator.includes('from "./hydrology/HydrologyConfigValidator"') &&
+    worldConfigValidator.includes("validateHydrologyConfig(config)") &&
+    !worldConfigValidator.includes("resolveHydrologyLakeCellMargin"),
+  "Hydrology cross-field invariants must remain isolated from the world validator.",
+);
+assert(
   lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
     lineCount(waterShader) <= WATER_SHADER_MAX_LINES &&
     waterMaterial.includes("class WaterMaterialController") &&
@@ -262,8 +277,7 @@ assert(
   worldConfigSchema.includes("grassFarImpostorsPerPatch") &&
     worldConfigSchema.includes("waterEnabled") &&
     worldConfigValidator.includes("validateWorldConfig") &&
-    worldConfigValidator.includes("resolveHydrologyLakeCellMargin") &&
-    worldConfigValidator.includes("resolveHydrologyRiverMinimumVisibleHalfWidth") &&
+    worldConfigValidator.includes("validateHydrologyConfig") &&
     grassConfigValidator.includes("validateGrassConfig"),
   "World, hydrology, and grass domain invariants must remain explicit outside their loaders.",
 );
