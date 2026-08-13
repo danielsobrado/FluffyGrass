@@ -31,6 +31,7 @@ export class WaterInteractionField {
     target.wake = 0;
 
     if (
+      this.config.stonesEnabled < 1 ||
       this.config.waterStoneWakeStrength <= 0 ||
       hydrology.riverCoverage <= MIN_RIVER_WAKE_COVERAGE
     ) {
