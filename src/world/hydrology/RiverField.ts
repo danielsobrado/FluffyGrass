@@ -12,10 +12,12 @@ export interface RiverSample {
   coverage: number;
   bank: number;
   proximity: number;
+  flowX: number;
+  flowZ: number;
 }
 
 export function createRiverSample(): RiverSample {
-  return { coverage: 0, bank: 0, proximity: 0 };
+  return { coverage: 0, bank: 0, proximity: 0, flowX: 0, flowZ: 0 };
 }
 
 export function resolveHydrologyRiverMinimumSeparation(
@@ -57,14 +59,26 @@ function hash(index: number, seed: number): number {
 interface RiverLane {
   distance: number;
   halfWidth: number;
+  flowX: number;
+  flowZ: number;
 }
 
 /** Continuous lowland river corridors with deterministic per-river variation. */
 export class RiverField {
   private readonly primaryFrequency: number;
   private readonly secondaryFrequency: number;
-  private readonly laneA: RiverLane = { distance: 0, halfWidth: 0 };
-  private readonly laneB: RiverLane = { distance: 0, halfWidth: 0 };
+  private readonly laneA: RiverLane = {
+    distance: 0,
+    halfWidth: 0,
+    flowX: 0,
+    flowZ: 0,
+  };
+  private readonly laneB: RiverLane = {
+    distance: 0,
+    halfWidth: 0,
+    flowX: 0,
+    flowZ: 0,
+  };
 
   constructor(private readonly config: WorldConfig) {
     this.primaryFrequency = TWO_PI / (config.riverSpacing * 1.7);
@@ -114,6 +128,8 @@ export class RiverField {
           lane.halfWidth + this.config.waterHumidityRadius,
         )) *
       altitudeMask;
+    target.flowX = lane.flowX * altitudeMask;
+    target.flowZ = lane.flowZ * altitudeMask;
     return target;
   }
 
@@ -138,15 +154,25 @@ export class RiverField {
       HYDROLOGY_RIVER_MAX_WIDTH_SCALE,
       hash(index, seed + 1361),
     );
+    const primaryPhase = x * this.primaryFrequency + phasePrimary;
+    const secondaryPhase = x * this.secondaryFrequency + phaseSecondary;
     const centerZ =
       index * this.config.riverSpacing +
       lateralOffset +
-      Math.sin(x * this.primaryFrequency + phasePrimary) * amplitude +
-      Math.sin(x * this.secondaryFrequency + phaseSecondary) *
+      Math.sin(primaryPhase) * amplitude +
+      Math.sin(secondaryPhase) * amplitude * RIVER_SECONDARY_AMPLITUDE;
+    const derivative =
+      Math.cos(primaryPhase) * amplitude * this.primaryFrequency +
+      Math.cos(secondaryPhase) *
         amplitude *
-        RIVER_SECONDARY_AMPLITUDE;
+        RIVER_SECONDARY_AMPLITUDE *
+        this.secondaryFrequency;
+    const flowSign = hash(index, seed + 1373) < 0.5 ? -1 : 1;
+    const flowLength = Math.hypot(1, derivative);
 
     target.distance = Math.abs(z - centerZ);
     target.halfWidth = this.config.riverWidth * widthScale * 0.5;
+    target.flowX = flowSign / flowLength;
+    target.flowZ = (flowSign * derivative) / flowLength;
   }
 }
