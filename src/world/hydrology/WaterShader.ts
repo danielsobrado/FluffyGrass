@@ -1,3 +1,5 @@
+import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
+
 export const WATER_VERTEX_DECLARATIONS = `
 attribute vec4 waterData;
 varying vec4 vWaterData;
@@ -34,7 +36,7 @@ vec3 waterScreenDx = dFdx(vWaterWorldPosition);
 vec3 waterScreenDy = dFdy(vWaterWorldPosition);
 vec3 waterGeometricNormal = normalize(cross(waterScreenDx, waterScreenDy));
 if (waterGeometricNormal.y < 0.0) waterGeometricNormal = -waterGeometricNormal;
-if (waterCoverageRaw < 0.012) discard;
+if (waterCoverageRaw < ${WATER_VISIBLE_COVERAGE_THRESHOLD}) discard;
 
 float waterCoverage = smoothstep(0.015, 0.34, waterCoverageRaw);
 float waterDepth = max(0.0, vWaterData.y);
