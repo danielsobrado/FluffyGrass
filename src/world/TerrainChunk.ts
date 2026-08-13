@@ -16,8 +16,9 @@ export const TERRAIN_RENDER_ORDER = 1;
 export const WATER_RENDER_ORDER = 2;
 
 const VERTEX_STAGE = 0;
-const INDEX_STAGE = 1;
-const FINALIZE_STAGE = 2;
+const WATER_INTERACTION_STAGE = 1;
+const INDEX_STAGE = 2;
+const FINALIZE_STAGE = 3;
 
 export class TerrainChunk {
   readonly key: string;
@@ -142,6 +143,8 @@ export class TerrainChunkBuilder {
 
       if (this.stage === VERTEX_STAGE) {
         processed += this.advanceVertices(deadline);
+      } else if (this.stage === WATER_INTERACTION_STAGE) {
+        processed += this.advanceWaterInteractions(deadline);
       } else if (this.stage === INDEX_STAGE) {
         processed += this.advanceIndices(deadline);
       } else {
@@ -230,8 +233,18 @@ export class TerrainChunkBuilder {
       this.nextVertex += 1;
       processed += 1;
     }
-    if (this.nextVertex >= total) this.stage = INDEX_STAGE;
+    if (this.nextVertex >= total) this.stage = WATER_INTERACTION_STAGE;
     return processed;
+  }
+
+  private advanceWaterInteractions(deadline: number): number {
+    if (
+      !this.waterGeometryBuilder ||
+      this.waterGeometryBuilder.advanceInteractions(deadline)
+    ) {
+      this.stage = INDEX_STAGE;
+    }
+    return 1;
   }
 
   private advanceIndices(deadline: number): number {
