@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v6";
+export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v7";
 export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
 export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_BED_NOISE_SEED_SALT = 0x3b1f7a2d;

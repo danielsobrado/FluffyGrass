@@ -8,12 +8,14 @@ attribute vec2 waterInteraction;
 varying vec4 vWaterData;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
+varying vec3 vWaterWorldNormal;
 `;
 
 export const WATER_VERTEX_POSITION = `
 vWaterData = waterData;
 vWaterInteraction = waterInteraction;
 vWaterWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vWaterWorldNormal = (modelMatrix * vec4(objectNormal, 0.0)).xyz;
 `;
 
 export const WATER_FRAGMENT_DECLARATIONS = `
@@ -49,15 +51,20 @@ uniform vec3 uWaterAlgae;
 varying vec4 vWaterData;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
+varying vec3 vWaterWorldNormal;
 ${WATER_FLOW_FRAGMENT_FUNCTIONS}
 ${WATER_BED_FRAGMENT_FUNCTIONS}
 `;
 
 export const WATER_SURFACE_FRAGMENT = `
 float waterCoverageRaw = saturate(vWaterData.x);
-vec3 waterScreenDx = dFdx(vWaterWorldPosition);
-vec3 waterScreenDy = dFdy(vWaterWorldPosition);
-vec3 waterGeometricNormal = normalize(cross(waterScreenDx, waterScreenDy));
+// Interpolated from the settled water levels, so the sheet shades smoothly across a
+// quad. Guarded because an interpolated normal can still shorten to nothing where
+// two steep banks meet, and a flat sheet is the honest answer when it does.
+float waterNormalLength = length(vWaterWorldNormal);
+vec3 waterGeometricNormal = waterNormalLength > 1e-4
+  ? vWaterWorldNormal / waterNormalLength
+  : vec3(0.0, 1.0, 0.0);
 if (waterGeometricNormal.y < 0.0) waterGeometricNormal = -waterGeometricNormal;
 if (waterCoverageRaw < ${WATER_VISIBLE_COVERAGE_THRESHOLD}) discard;
 
@@ -65,15 +72,11 @@ float waterCoverage = smoothstep(0.015, 0.34, waterCoverageRaw);
 float waterDepth = max(0.0, vWaterData.y);
 vec2 waterPackedFlow = vWaterData.zw;
 float waterRiverAmount = saturate(length(waterPackedFlow));
+// Already pointing downhill: the direction is settled per vertex on the CPU, so it
+// interpolates instead of being decided once per triangle.
 vec2 waterFlowDirection = waterRiverAmount > 0.001
   ? waterPackedFlow / waterRiverAmount
   : normalize(vec2(0.78, 0.63));
-if (waterRiverAmount > 0.001 && waterGeometricNormal.y > 0.05) {
-  vec2 waterHeightGradient = -waterGeometricNormal.xz / waterGeometricNormal.y;
-  if (dot(waterHeightGradient, waterFlowDirection) > 0.0) {
-    waterFlowDirection = -waterFlowDirection;
-  }
-}
 vec2 waterFlowPerpendicular = vec2(-waterFlowDirection.y, waterFlowDirection.x);
 vec2 waterPosition = vWaterWorldPosition.xz;
 float waterDistance = distance(cameraPosition, vWaterWorldPosition);

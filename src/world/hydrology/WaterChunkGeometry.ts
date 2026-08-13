@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import { WaterChunkInteractionResolver } from "./WaterChunkInteractionResolver";
+import {
+  createWaterSurfaceGradient,
+  resolveWaterSurfaceGradient,
+} from "./WaterFlowDirection";
 import type { HydrologySample } from "./HydrologyField";
 import type { WaterInteractionField } from "./WaterInteractionField";
 import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
@@ -74,6 +78,7 @@ export class WaterChunkGeometryBuilder {
     }
     const indices = this.createIndices();
     if (!indices) return undefined;
+    this.writeSurfaceNormals();
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
@@ -87,6 +92,32 @@ export class WaterChunkGeometryBuilder {
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;
+  }
+
+  /**
+   * The sheet is written flat-up per vertex, so the surface tilt has to be recovered
+   * from the settled water levels once every neighbour is known. Shading from these
+   * interpolated normals is what keeps a sloping river smooth: a screen-space
+   * derivative would give one constant normal per triangle, and would degenerate
+   * altogether on a triangle seen edge-on at the bank.
+   */
+  private writeSurfaceNormals(): void {
+    const gradient = createWaterSurfaceGradient();
+    const vertexCount = this.resolution * this.resolution;
+    for (let index = 0; index < vertexCount; index += 1) {
+      resolveWaterSurfaceGradient(
+        index,
+        this.resolution,
+        this.positions,
+        this.data,
+        gradient,
+      );
+      const length = Math.hypot(gradient.gradientX, 1, gradient.gradientZ);
+      const normalOffset = index * 3;
+      this.normals[normalOffset] = -gradient.gradientX / length;
+      this.normals[normalOffset + 1] = 1 / length;
+      this.normals[normalOffset + 2] = -gradient.gradientZ / length;
+    }
   }
 
   private createIndices(): Uint16Array | Uint32Array | undefined {

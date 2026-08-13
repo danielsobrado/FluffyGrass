@@ -53,6 +53,15 @@ assert(
   "Water interaction resolution must stay small and independent from geometry/material ownership.",
 );
 assert(
+  interactionResolverSource.includes("this.data[dataOffset + 2] = this.flow.flowX") &&
+    interactionResolverSource.includes("this.data[dataOffset + 3] = this.flow.flowZ"),
+  "The settled downhill tangent must be packed per vertex so it interpolates instead of being decided per triangle.",
+);
+assert(
+  waterGeometrySource.includes("resolveWaterSurfaceGradient"),
+  "The water sheet must carry real per-vertex normals rather than a flat-up placeholder.",
+);
+assert(
   waterMaterialSource.includes("side: THREE.DoubleSide") &&
     waterMaterialSource.includes("this.material.forceSinglePass = true"),
   "The open double-sided water sheet must remain single-pass to avoid duplicate transparent draws.",
@@ -70,7 +79,9 @@ const server = await createServer({
 try {
   const {
     createWaterFlowSample,
+    createWaterSurfaceGradient,
     resolveDownhillWaterFlow,
+    resolveWaterSurfaceGradient,
   } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterFlowDirection.ts",
   );
@@ -145,6 +156,21 @@ try {
     "A dry bank must not outvote the water surface when resolving downstream flow.",
   );
   assertClose(flow.flowZ, 0, "A dry bank must not tilt flow off the river tangent.");
+
+  // The same slope drives the vertex normals, so a mis-read bank would tilt the
+  // shading of the whole shore quad rather than just its wake direction.
+  const gradient = createWaterSurfaceGradient();
+  resolveWaterSurfaceGradient(center, resolution, positions, data, gradient);
+  assertClose(gradient.gradientX, -1, "The water surface must fall along its own slope.");
+  assertClose(gradient.gradientZ, 0, "A river running along x must read level across z.");
+
+  resolveWaterSurfaceGradient(center, resolution, bankPositions, bankData, gradient);
+  assertClose(
+    gradient.gradientX,
+    -0.5,
+    "A dry bank must not tilt the water normals it merely borders.",
+  );
+  assertClose(gradient.gradientZ, 0, "A level river must shade level across z.");
 
   console.log(
     "[water-flow] Downhill CPU wakes, coherent packed flow, budgeted interactions, and single-pass water verified.",

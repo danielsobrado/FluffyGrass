@@ -14,7 +14,13 @@ import {
 } from "./WaterInteractionField";
 import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
 
-/** Incrementally resolves flow-aware stone interaction channels for one water grid. */
+/**
+ * Incrementally settles the per-vertex flow tangent and the flow-aware stone
+ * interaction channels for one water grid. Resolving the downhill direction here
+ * rather than in the shader keeps it a smoothly interpolated vertex quantity: the
+ * fragment stage has only the flat per-triangle derivative to decide from, which
+ * makes the choice flip between the two triangles of a shore quad.
+ */
 export class WaterChunkInteractionResolver {
   private readonly interaction: WaterInteractionSample = createWaterInteractionSample();
   private readonly hydrology: HydrologySample = createHydrologySample();
@@ -41,8 +47,6 @@ export class WaterChunkInteractionResolver {
       this.nextIndex += 1;
       processed += 1;
       const dataOffset = index * 4;
-      if (this.data[dataOffset] < WATER_VISIBLE_COVERAGE_THRESHOLD) continue;
-
       resolveDownhillWaterFlow(
         index,
         this.resolution,
@@ -50,6 +54,12 @@ export class WaterChunkInteractionResolver {
         this.data,
         this.flow,
       );
+      // Dry vertices still carry a tangent into the wet side of a shore quad, so
+      // they are settled too - only the costly stone sampling is skipped for them.
+      this.data[dataOffset + 2] = this.flow.flowX * this.flow.riverCoverage;
+      this.data[dataOffset + 3] = this.flow.flowZ * this.flow.riverCoverage;
+      if (this.data[dataOffset] < WATER_VISIBLE_COVERAGE_THRESHOLD) continue;
+
       this.hydrology.riverCoverage = this.flow.riverCoverage;
       this.hydrology.flowX = this.flow.flowX;
       this.hydrology.flowZ = this.flow.flowZ;

@@ -446,7 +446,7 @@ try {
   );
   for (const token of [
     "waterFlowDirection",
-    "waterHeightGradient",
+    "vWaterWorldNormal",
     "waterDepthFactor",
     "waterFresnel",
     "waterShoreBand",
@@ -489,10 +489,17 @@ try {
     ),
     "CPU water topology and shader clipping must share one coverage threshold.",
   );
+  // A screen-space derivative is constant across a triangle and collapses on one seen
+  // edge-on, which shows up as a single mis-shaded triangle at the bank. The sheet
+  // carries real vertex normals instead, so shading and flow both interpolate.
   assert(
-    shader.fragmentShader.indexOf("dFdx(vWaterWorldPosition)") <
-      shader.fragmentShader.indexOf("discard"),
-    "Water derivatives must be evaluated before shoreline discard.",
+    !shader.fragmentShader.includes("dFdx(vWaterWorldPosition)") &&
+      !shader.fragmentShader.includes("dFdy(vWaterWorldPosition)"),
+    "Water shading must not rebuild the surface normal from screen-space derivatives.",
+  );
+  assert(
+    shader.vertexShader.includes("vWaterWorldNormal = (modelMatrix * vec4(objectNormal"),
+    "The water sheet must forward its per-vertex normal to the fragment stage.",
   );
   assert(
     waterController.material.isMeshPhysicalMaterial === true &&
