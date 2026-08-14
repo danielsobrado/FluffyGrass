@@ -35,6 +35,9 @@ export class WorldEnvironmentController {
   private readonly sun: THREE.DirectionalLight;
   private readonly hemisphere: THREE.HemisphereLight;
   private readonly shadowTexelSize: number;
+  private shadowFocusX = Number.NaN;
+  private shadowFocusY = Number.NaN;
+  private shadowFocusZ = Number.NaN;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -94,6 +97,16 @@ export class WorldEnvironmentController {
     if (!this.sun.castShadow) {
       return;
     }
+    if (
+      focus.x === this.shadowFocusX &&
+      focus.y === this.shadowFocusY &&
+      focus.z === this.shadowFocusZ
+    ) {
+      return;
+    }
+    this.shadowFocusX = focus.x;
+    this.shadowFocusY = focus.y;
+    this.shadowFocusZ = focus.z;
 
     const snappedX =
       Math.round(focus.dot(SHADOW_AXIS_X) / this.shadowTexelSize) *
