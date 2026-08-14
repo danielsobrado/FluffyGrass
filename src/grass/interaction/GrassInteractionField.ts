@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { STRIDE_LENGTH_METERS } from "../../character/SnowflowCharacter";
+import { grassGroundShadow } from "./GrassGroundShadow";
 import { grassTrailField } from "./GrassTrailField";
 
 export interface GrassInteractionConfig {
@@ -31,12 +32,27 @@ const IDLE_FOOT_RATIO = 0.45;
 const FOOT_DIRECTIONAL_BLEND = 0.45;
 const PULSE_START_RADIUS_FRACTION = 0.25;
 
+/**
+ * Contact-occlusion shape for {@link grassGroundShadow}. The disc is wider than
+ * the body contact that crushes grass, because what it stands for is wider: a
+ * body blocks sky from a patch of canopy well outside the ring its legs bend.
+ */
+const GROUND_SHADOW_RADIUS_SCALE = 2.4;
+const GROUND_SHADOW_STRENGTH = 0.5;
+/** Torso height above the feet, for the sun offset while standing. */
+const GROUND_SHADOW_BODY_HEIGHT = 0.85;
+/** An occluder further from the ground throws a wider, weaker patch. */
+const GROUND_SHADOW_LIFT_SPREAD = 0.35;
+const GROUND_SHADOW_LIFT_FADE = 0.9;
+
 class GrassInteractionField {
   private readonly direction = new THREE.Vector2(0, 1);
   private readonly pulsePosition = new THREE.Vector2();
   private config?: Readonly<GrassInteractionConfig>;
   private pulseStrength = 0;
   private pulseInitialStrength = 0;
+  /** Last height the character was standing on; see updateGroundShadow. */
+  private groundHeight?: number;
 
   configure(config: GrassInteractionConfig): void {
     validateConfig(config);
@@ -47,6 +63,8 @@ class GrassInteractionField {
     this.pulseStrength = 0;
     this.pulseInitialStrength = 0;
     this.direction.set(0, 1);
+    this.groundHeight = undefined;
+    grassGroundShadow.clear();
     grassTrailField.setFocus(position.x, position.z);
   }
 
@@ -68,6 +86,7 @@ class GrassInteractionField {
     }
 
     grassTrailField.setFocus(pose.position.x, pose.position.z);
+    this.updateGroundShadow(config, pose);
 
     if (pose.grounded) {
       this.submitFootContacts(config, pose, speed);
@@ -101,6 +120,36 @@ class GrassInteractionField {
   deactivate(): void {
     this.pulseStrength = 0;
     this.pulseInitialStrength = 0;
+    grassGroundShadow.clear();
+  }
+
+  /**
+   * Keeps the contact-occlusion disc on the ground the character last stood on.
+   * The pose's own height cannot be used directly: it rises with a jump, and a
+   * shadow that climbs with the thing casting it is worse than no shadow.
+   */
+  private updateGroundShadow(
+    config: Readonly<GrassInteractionConfig>,
+    pose: GrassInteractionPose,
+  ): void {
+    if (!Number.isFinite(pose.position.y)) {
+      grassGroundShadow.clear();
+      return;
+    }
+    if (pose.grounded || this.groundHeight === undefined) {
+      this.groundHeight = pose.position.y;
+    }
+    const lift = Math.max(0, pose.position.y - this.groundHeight);
+    grassGroundShadow.set(
+      pose.position.x,
+      this.groundHeight,
+      pose.position.z,
+      config.bodyContactRadius * GROUND_SHADOW_RADIUS_SCALE *
+        (1 + lift * GROUND_SHADOW_LIFT_SPREAD),
+      GROUND_SHADOW_BODY_HEIGHT + lift,
+      (GROUND_SHADOW_STRENGTH * config.strength) /
+        (1 + lift * GROUND_SHADOW_LIFT_FADE),
+    );
   }
 
   private submitFootContacts(

@@ -7,6 +7,7 @@ import type {
 } from "../GrassConfig";
 import type { GrassArtDirection } from "../GrassArtDirection";
 import { GRASS_GUST_TIP_BOOST } from "../GrassLodTuning";
+import { grassGroundShadow } from "../interaction/GrassGroundShadow";
 import { grassTrailField } from "../interaction/GrassTrailField";
 import {
   GRASS_GUST_FRONT_SCALE,
@@ -179,6 +180,9 @@ uniform float uGrassTrailStrength;
 uniform float uGrassTrailMaxAngle;
 uniform float uGrassTrailWobbleFrequency;
 uniform float uGrassTrailWobbleAmplitude;
+uniform vec4 uGrassGroundShadowDisc;
+uniform float uGrassGroundShadowStrength;
+varying float vGrassGroundShade;
 `;
 
 // The streamed world resolves coverage per blade from its own camera distance.
@@ -337,6 +341,7 @@ if (!grassKeepBlade) {
 GRASS_SHEEN_VARYING
 
 float grassCoverage = 1.0;
+GRASS_GROUND_SHADE_INIT
 GRASS_SUBPIXEL_WIDTH
 
 if (grassKeepBlade && grassProgress > 0.001) {
@@ -500,6 +505,33 @@ if (grassKeepBlade) {
 // fraction of the height to fake the crush back out. Rotating conserves the
 // blade's length by construction, so the fudge is gone.
 const VERTEX_TRAIL_BEND = `
+  // Contact occlusion under the character. Grass takes no part in the shadow
+  // map (see GrassGroundShadow), so without this the field stays fully lit right
+  // up to the feet standing in it and the character reads as a decal.
+  //
+  // Two falloffs, because a body near the ground occludes two different things.
+  // Across the ground it is a soft disc, squared so the darkest part stays
+  // small and the edge stays wide. Up the blade it is strongest at the root and
+  // gone by the tip: the sky the root cannot see is most of what lights it,
+  // while a tip standing clear of the disc is lit normally. Fading it out that
+  // way also hides the disc's edge, which is the tell on a fake like this.
+  if (uGrassGroundShadowStrength > 0.0) {
+    vec2 grassGroundOffset = grassWorldRoot.xz - uGrassGroundShadowDisc.xz;
+    float grassGroundRadius = max(uGrassGroundShadowDisc.w, 0.0001);
+    float grassGroundFalloff = 1.0 - saturate(
+      length(grassGroundOffset) / grassGroundRadius
+    );
+    if (grassGroundFalloff > 0.0) {
+      // The root's own height above the contact point, so grass on a bank above
+      // the character does not darken as if it were underfoot.
+      float grassGroundLift = 1.0 - saturate(
+        abs(grassWorldRoot.y - uGrassGroundShadowDisc.y) * 0.6
+      );
+      vGrassGroundShade = 1.0 -
+        grassGroundFalloff * grassGroundFalloff * grassGroundLift *
+        uGrassGroundShadowStrength * (1.0 - grassProgress * 0.72);
+    }
+  }
   if (uGrassTrailStrength > 0.0) {
     // The AABB reject is the whole early-out: two compares before any fetch,
     // and the trail square only ever covers a couple of dozen metres around the
@@ -646,6 +678,15 @@ varying vec2 vGrassSheen;
 ${GRASS_PALETTE_GLSL}
 `;
 
+/** Compiled in only where the character can reach; see GrassGroundShadow. */
+const FRAGMENT_GROUND_SHADE_DECLARATIONS = `
+varying float vGrassGroundShade;
+`;
+
+const FRAGMENT_GROUND_SHADE_APPLY = `
+diffuseColor.rgb *= vGrassGroundShade;
+`;
+
 const VERTEX_PALETTE_FRAGMENT_DECLARATIONS = `
 uniform vec3 uGrassTipColor;
 uniform float uGrassAmbientBoost;
@@ -659,6 +700,7 @@ varying vec2 vGrassSheen;
 const VERTEX_PALETTE_FRAGMENT_COLOR = `
 #include <color_fragment>
 diffuseColor.rgb = vGrassColor;
+GRASS_GROUND_SHADE_APPLY
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
@@ -687,6 +729,7 @@ diffuseColor.rgb = mix(
   uGrassBiomeTip[grassBiomeRow],
   vGrassGust * uGrassGustTipBoost * vGrassProgress
 );
+GRASS_GROUND_SHADE_APPLY
 totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
@@ -889,6 +932,8 @@ export class GrassNearMaterial {
     uGrassTrailMaxAngle: { value: DEFAULT_TRAIL_MAX_ANGLE },
     uGrassTrailWobbleFrequency: { value: DEFAULT_TRAIL_WOBBLE_FREQUENCY },
     uGrassTrailWobbleAmplitude: { value: DEFAULT_TRAIL_WOBBLE_AMPLITUDE },
+    uGrassGroundShadowDisc: { value: new THREE.Vector4(0, 0, 0, 1) },
+    uGrassGroundShadowStrength: { value: 0 },
   };
   private readonly interactive: boolean;
   private baseWindStrength = 0.14;
@@ -971,6 +1016,10 @@ export class GrassNearMaterial {
             .replace(
               "GRASS_TRAIL_BEND",
               this.interactive ? VERTEX_TRAIL_BEND : "",
+            )
+            .replace(
+              "GRASS_GROUND_SHADE_INIT",
+              this.interactive ? "vGrassGroundShade = 1.0;" : "",
             )}${vertexPalette ? VERTEX_PALETTE : VERTEX_SHADING}`,
         );
       shader.fragmentShader = shader.fragmentShader
@@ -980,11 +1029,17 @@ export class GrassNearMaterial {
             vertexPalette
               ? VERTEX_PALETTE_FRAGMENT_DECLARATIONS
               : FRAGMENT_DECLARATIONS
-          }`,
+          }${this.interactive ? FRAGMENT_GROUND_SHADE_DECLARATIONS : ""}`,
         )
         .replace(
           "#include <color_fragment>",
-          vertexPalette ? VERTEX_PALETTE_FRAGMENT_COLOR : FRAGMENT_COLOR,
+          (vertexPalette
+            ? VERTEX_PALETTE_FRAGMENT_COLOR
+            : FRAGMENT_COLOR
+          ).replace(
+            "GRASS_GROUND_SHADE_APPLY",
+            this.interactive ? FRAGMENT_GROUND_SHADE_APPLY : "",
+          ),
         )
         .replace(
           "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
@@ -1100,6 +1155,15 @@ export class GrassNearMaterial {
     this.uniforms.uGrassTime.value = elapsedSeconds;
     if (!this.interactive) {
       return;
+    }
+    if (grassGroundShadow.isEnabled()) {
+      (this.uniforms.uGrassGroundShadowDisc.value as THREE.Vector4).copy(
+        grassGroundShadow.disc,
+      );
+      this.uniforms.uGrassGroundShadowStrength.value =
+        grassGroundShadow.strength;
+    } else {
+      this.uniforms.uGrassGroundShadowStrength.value = 0;
     }
     if (!grassTrailField.isEnabled()) {
       this.uniforms.uGrassTrailStrength.value = 0;
