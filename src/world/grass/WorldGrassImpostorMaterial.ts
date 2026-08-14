@@ -331,7 +331,12 @@ vec2 encodeHemiOctahedral(vec3 direction) {
   return square * 0.5 + 0.5;
 }
 
-vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
+vec4 sampleFrame(
+  vec2 frameIndex,
+  vec2 localUv,
+  vec2 localUvDx,
+  vec2 localUvDy
+) {
   float cellSize = uFrameResolution + uPadding * 2.0;
   float pageSize = uViewsPerAxis * cellSize;
   vec2 pageIndex = vec2(
@@ -353,8 +358,8 @@ vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
   return textureGrad(
     uAtlas,
     atlasUv,
-    dFdx(localUv) * atlasGradientScale,
-    dFdy(localUv) * atlasGradientScale
+    localUvDx * atlasGradientScale,
+    localUvDy * atlasGradientScale
   );
 }
 
@@ -365,15 +370,14 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
-  // Dithered alpha works while the atlas is not strongly minified. Once several
-  // atlas texels collapse into one screen pixel, screen-door coverage becomes
-  // the isolated horizon speckles that TAA would normally hide. Resolve that
-  // from projected size rather than world distance so FOV, viewport size, and
-  // device pixel ratio cannot make the policy drift.
-  float atlasTexelsPerPixel = uFrameResolution * max(
-    fwidth(vUv.x),
-    fwidth(vUv.y)
-  );
+  // Derivatives have to be captured before any stochastic discard. GLSL makes
+  // later explicit and implicit derivatives undefined after a non-uniform
+  // discard, even if the derivative expression itself is outside the branch.
+  vec2 frameUvDx = dFdx(vUv);
+  vec2 frameUvDy = dFdy(vUv);
+  vec2 frameUvWidth = abs(frameUvDx) + abs(frameUvDy);
+  float atlasTexelsPerPixel =
+    uFrameResolution * max(frameUvWidth.x, frameUvWidth.y);
   float minification = smoothstep(
     ${IMPOSTOR_MINIFICATION_START_TEXELS_PER_PIXEL.toFixed(2)},
     ${IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL.toFixed(2)},
@@ -381,27 +385,6 @@ void main() {
   );
   bool fullyMinified =
     atlasTexelsPerPixel >= ${IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL.toFixed(2)};
-
-  float effectiveCoverage =
-    vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
-  // Fine stochastic coverage is useful where real mid blades overlap the cards.
-  // Once cards become tiny, field/stream coverage also resolves per subpatch so
-  // no other low-coverage source can turn into isolated pixels at the horizon.
-  float dither = fullyMinified
-    ? coverageNoise(
-        vec2(
-          vSubpatchIndex,
-          vSubpatchIndex * ${IMPOSTOR_MINIFIED_COVERAGE_SUBPATCH_SCALE.toFixed(11)}
-        ),
-        vInstanceSeed * 97.0 + ${IMPOSTOR_MINIFIED_COVERAGE_SEED_OFFSET.toFixed(2)}
-      )
-    : coverageNoise(
-        floor(vUv * uFrameResolution),
-        vInstanceSeed * 97.0 + vSubpatchIndex * 0.217
-      );
-  if (dither >= effectiveCoverage) {
-    discard;
-  }
 
   vec2 octahedralUv = clamp(
     encodeHemiOctahedral(normalize(vLocalViewDirection)),
@@ -418,7 +401,7 @@ void main() {
   vec4 atlasColor;
 
   if (uBlendViews < 0.5) {
-    atlasColor = sampleFrame(nearestFrame, vUv);
+    atlasColor = sampleFrame(nearestFrame, vUv, frameUvDx, frameUvDy);
   } else {
     vec2 selectedFrame = nearestFrame;
     // The stochastic frame index is intentionally not allowed to influence
@@ -458,7 +441,7 @@ void main() {
     }
     // Stable stochastic bilinear selection reproduces the four-view average
     // with one atlas fetch while the card is large enough to benefit from it.
-    atlasColor = sampleFrame(selectedFrame, vUv);
+    atlasColor = sampleFrame(selectedFrame, vUv, frameUvDx, frameUvDy);
   }
 
   float cutoff = mix(
@@ -466,9 +449,8 @@ void main() {
     ${IMPOSTOR_MINIFIED_ALPHA_CUTOFF.toFixed(2)},
     minification
   );
-  // Keep derivatives in uniform control flow. `fullyMinified` is screen-space
-  // data and can diverge at a quad boundary, so derivative operations inside
-  // that branch would be undefined on some GPUs.
+  // This derivative also executes before the first fragment discard. Once any
+  // lane has discarded, derivatives later in the shader are not portable.
   float alphaWidth = max(
     fwidth(atlasColor.a),
     ${IMPOSTOR_ALPHA_MIN_WIDTH}
@@ -499,6 +481,28 @@ void main() {
     if (alphaThreshold >= alphaCoverage) {
       discard;
     }
+  }
+
+  float effectiveCoverage =
+    vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
+  // Fine stochastic coverage is useful where real mid blades overlap the cards.
+  // Once cards become tiny, field/stream coverage resolves per subpatch so no
+  // low-coverage source can turn into isolated pixels at the horizon. This test
+  // deliberately comes after all derivatives; it is still before color work.
+  float dither = fullyMinified
+    ? coverageNoise(
+        vec2(
+          vSubpatchIndex,
+          vSubpatchIndex * ${IMPOSTOR_MINIFIED_COVERAGE_SUBPATCH_SCALE.toFixed(11)}
+        ),
+        vInstanceSeed * 97.0 + ${IMPOSTOR_MINIFIED_COVERAGE_SEED_OFFSET.toFixed(2)}
+      )
+    : coverageNoise(
+        floor(vUv * uFrameResolution),
+        vInstanceSeed * 97.0 + vSubpatchIndex * 0.217
+      );
+  if (dither >= effectiveCoverage) {
+    discard;
   }
 
   vec3 bladeData = clamp(
