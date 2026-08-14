@@ -29,7 +29,10 @@ import { WorldMinimap } from "./WorldMinimap";
 import { WorldFrameMetrics, type WorldFrameSubsystem } from "./WorldFrameMetrics";
 import { WorldRuntimeGuard } from "./WorldRuntimeGuard";
 import { WorldStatusHud } from "./WorldStatusHud";
+import { attachWorldStatsPanel } from "./WorldStatsPanel";
 import type { WorldActorProofContext } from "./WorldActorProofContext";
+import { WorldRevealController } from "../runtime/WorldRevealController";
+import { WorldScenicLayer } from "../world/scenic/WorldScenicLayer";
 import {
   WORLD_COMPACT_GRASS_BUILD_RESERVE_MS,
   WORLD_COMPACT_STONE_BUILD_RESERVE_MS,
@@ -57,6 +60,8 @@ export class WorldApp {
   private readonly controls: WorldController;
   private readonly minimap: WorldMinimap;
   private readonly environment: WorldEnvironmentController;
+  private readonly scenic: WorldScenicLayer;
+  private readonly reveal = new WorldRevealController();
   private readonly frameMetrics = new WorldFrameMetrics();
   private readonly runtimeGuard: WorldRuntimeGuard;
   private readonly statusHud = new WorldStatusHud(document.querySelector<HTMLElement>("#world-stats"));
@@ -103,7 +108,7 @@ export class WorldApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.applyRendererSize();
 
     this.field = new TerrainField(config);
@@ -159,7 +164,7 @@ export class WorldApp {
     }
     const artKey = resolveGrassArtDirectionKey(params.get("grassArt"));
     this.applyGrassArtDirection(GRASS_ART_DIRECTIONS[artKey]);
-    if (profile.showGui) {
+    if (profile.showGui && params.get("diagnostics") === "1") {
       this.artMenu = new GrassArtMenu(artKey, this.applyGrassArtDirection);
     }
     this.controls = useFlyControls
@@ -181,6 +186,14 @@ export class WorldApp {
           spawn,
         );
     this.minimap = new WorldMinimap(this.field, config, this.controls);
+    this.scenic = new WorldScenicLayer(
+      this.scene,
+      this.field,
+      config,
+      profile,
+      spawn.position,
+      profile.shadows && !useFlyControls,
+    );
 
     console.info(
       `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
@@ -207,10 +220,11 @@ export class WorldApp {
       !profile.compact &&
       new URLSearchParams(window.location.search).get("stats") === "1"
     ) {
-      try {
-        await app.setupStats();
-      } catch (error) {
-        console.warn("[Drusniel World] Optional stats panel unavailable.", error);
+      const stats = await attachWorldStatsPanel(app.renderer);
+      if (app.disposed) {
+        stats?.dom.remove();
+      } else {
+        app.stats = stats;
       }
     }
     void app.initializeGrass();
@@ -262,6 +276,8 @@ export class WorldApp {
     cancelAnimationFrame(this.frameHandle);
     window.clearInterval(this.watchdogHandle);
     this.runtimeGuard.dispose();
+    this.reveal.dispose();
+    this.scenic.dispose();
     this.minimap.dispose();
     this.controls.dispose();
     this.terrain.dispose();
@@ -372,6 +388,11 @@ export class WorldApp {
   private readonly updateControls = (deltaSeconds: number): void => {
     this.controls.update(deltaSeconds);
     this.environment.updateShadow(this.controls.getStreamingPosition());
+    this.scenic.update(deltaSeconds, this.controls.getStreamingPosition());
+    this.reveal.noteHeroRing(
+      !this.grassInitializing && this.grassEnabled,
+      this.grassEnabled && this.grass.isHeroRingReady() ? 4 : 0,
+    );
   };
 
   private readonly updateTerrain = (): void => {
@@ -479,21 +500,6 @@ export class WorldApp {
       THREE.MathUtils.degToRad(this.camera.fov) * 0.5,
     );
     this.grass.setViewportPixelScale((2 * halfFovTangent) / bufferHeight);
-  }
-
-  private async setupStats(): Promise<void> {
-    const { default: StatsPanel } = await import("stats-gl");
-    if (this.disposed) {
-      return;
-    }
-    const stats = new StatsPanel({ minimal: true });
-    stats.init(this.renderer);
-    if (this.disposed) {
-      stats.dom.remove();
-      return;
-    }
-    document.body.appendChild(stats.dom);
-    this.stats = stats;
   }
 
   private readonly updateHud = (deltaSeconds: number): void => {

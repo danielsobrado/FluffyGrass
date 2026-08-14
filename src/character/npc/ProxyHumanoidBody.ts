@@ -27,8 +27,16 @@ export function buildProxyHumanoidBody(
 ): ProxyHumanoidBody {
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.Material[] = [];
-  const cloth = new THREE.MeshLambertMaterial({ color: 0x4a5c74 });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xc9a583 });
+  const cloth = new THREE.MeshStandardMaterial({
+    color: 0x4a5c74,
+    roughness: 0.82,
+    metalness: 0,
+  });
+  const skin = new THREE.MeshStandardMaterial({
+    color: 0xc9a583,
+    roughness: 0.7,
+    metalness: 0,
+  });
   materials.push(cloth, skin);
 
   attach(rigInstance, bones.chest, geometries, cloth, cylinder(0.15, 0.18, 0.46), 0, 0.2, 0);

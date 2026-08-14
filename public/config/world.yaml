@@ -224,11 +224,11 @@ characterJumpHoldGravityScale: 0.42
 characterLandingRecoveryTime: 0.3
 characterLandingImpactForFullEffect: 10.5
 
-characterCameraDistance: 6
+characterCameraDistance: 4
 characterCameraMinDistance: 2.8
 characterCameraMaxDistance: 10
-characterCameraLookHeight: 1.32
-characterCameraElevationDegrees: 18
+characterCameraLookHeight: 1.28
+characterCameraElevationDegrees: 14
 characterCameraMinElevationDegrees: 6
 characterCameraMaxElevationDegrees: 58
 characterCameraFollowRate: 4.5

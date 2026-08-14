@@ -282,6 +282,11 @@ export function validateWorldConfig(config: WorldConfig): void {
       "characterCameraDistance must be between its minimum and maximum.",
     );
   }
+  if (config.characterCameraDistance + 1.5 > config.grassUltraNearDistance) {
+    throw new Error(
+      "characterCameraDistance must keep the hero inside the ultra-near grass band.",
+    );
+  }
   if (
     config.characterCameraMinElevationDegrees >=
     config.characterCameraElevationDegrees ||

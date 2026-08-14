@@ -14,9 +14,9 @@ interface Disposable {
 
 const WORLD_NAME = "Drusniel World";
 const THIRD_PERSON_HELP =
-  "Desktop: click, mouse orbit, WASD, Shift run, Space jump, wheel zoom, F reset · Mobile: left drag move, right drag look, JUMP/RUN/⌂ · Add ?control=fly for flight";
+  "Click to look · WASD move · Shift run · Space jump · F reset · M map";
 const FLY_HELP =
-  "Desktop: click, mouse look, WASD, Q/E, Shift, wheel, F reset · Mobile: left drag move, right drag look, ⌂ dense field, ▲/▼ altitude";
+  "Click to look · WASD move · Q/E altitude · Shift boost · F reset";
 
 async function bootstrap(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#canvas");

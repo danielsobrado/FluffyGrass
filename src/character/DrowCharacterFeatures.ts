@@ -11,6 +11,7 @@ export function addDrowCharacterFeatures(rig: SnowflowCharacterRig): void {
 
   addCheekbones(rig, skin);
   addNose(rig, skin);
+  addMouth(rig, skin);
   addEar(rig, skin, -1);
   addEar(rig, skin, 1);
   addHair(rig, hair);
@@ -41,13 +42,25 @@ function addNose(rig: SnowflowCharacterRig, material: THREE.Material): void {
   const bridge = addMesh(
     rig.head,
     rig,
-    new THREE.ConeGeometry(0.021, 0.076, 6),
+    new THREE.CapsuleGeometry(0.012, 0.04, 3, 6),
     material,
   );
   bridge.name = "drow-nose";
-  bridge.position.set(0, -0.004, 0.1);
-  bridge.rotation.x = Math.PI * 0.5 + 0.34;
-  bridge.scale.set(0.72, 1, 0.72);
+  bridge.position.set(0, -0.006, 0.102);
+  bridge.rotation.x = Math.PI * 0.5 + 0.22;
+  bridge.scale.set(0.78, 1, 0.7);
+}
+
+function addMouth(rig: SnowflowCharacterRig, material: THREE.Material): void {
+  const mouth = addMesh(
+    rig.head,
+    rig,
+    new THREE.BoxGeometry(0.038, 0.006, 0.01),
+    material,
+  );
+  mouth.name = "drow-mouth";
+  mouth.position.set(0, -0.042, 0.1);
+  mouth.scale.set(1, 0.55, 0.8);
 }
 
 function addEar(

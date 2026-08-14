@@ -13,7 +13,7 @@ body {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  background: #9eb8c5;
+  background: #c2d6b8;
   color: #f7f7f2;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
@@ -257,6 +257,50 @@ html[data-ui-minimized="true"] .grass-art-menu {
   display: none !important;
 }
 
+html:not([data-diagnostics="true"]) #world-stats,
+html:not([data-diagnostics="true"]) .grass-art-menu {
+  display: none !important;
+}
+
+html[data-diagnostics="true"] .world-fps,
+html[data-help-dismissed="true"] .flight-help {
+  display: none !important;
+}
+
+.world-fps {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 100;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  background: rgb(18 24 22 / 55%);
+  color: #edf5e9;
+  font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.world-reveal {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  background: #c2d6b8;
+  color: #31402c;
+  font: 600 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  transition: opacity 0.7s ease;
+}
+
+.world-reveal[data-revealed="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 html[data-viewport="compact"] .app-title {
   max-width: calc(100vw - 28px);
 }
@@ -301,7 +345,9 @@ html[data-viewport="compact"] .grass-art-menu {
 
 body[data-scene="island"] #world-stats,
 body[data-scene="island"] .flight-help,
-body[data-scene="island"] .ui-toggle {
+body[data-scene="island"] .ui-toggle,
+body[data-scene="island"] .world-reveal,
+body[data-scene="island"] .world-fps {
   display: none;
 }
 

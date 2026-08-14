@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 const main = read("src/main.ts");
 const world = read("src/app/WorldApp.ts");
+const statsPanel = read("src/app/WorldStatsPanel.ts");
 const island = read("src/app/IslandApp.ts");
 const islandGrass = read("src/grass/GrassSystem.ts");
 const seededRandom = read("src/grass/internal/SeededRandom.ts");
@@ -46,8 +47,10 @@ assert(
 );
 assert(
   main.includes('statsPanelEnabled: params.get("stats") === "1"') &&
-    world.includes('await import("stats-gl")') &&
+    world.includes("attachWorldStatsPanel") &&
     world.includes("this.stats?.update()") &&
+    statsPanel.includes('await import("stats-gl")') &&
+    statsPanel.includes("Optional stats panel unavailable") &&
     diagnosticsController.includes("options.gpuTiming && !options.statsPanelEnabled"),
   "The lazy stats-gl panel and custom GPU timer must not issue overlapping GPU timing queries.",
 );
@@ -68,7 +71,7 @@ assert(
 assert(
   world.includes("private disposed = false") &&
     world.includes("Number.isFinite(rawDeltaSeconds)") &&
-    world.includes("Optional stats panel unavailable") &&
+    statsPanel.includes("Optional stats panel unavailable") &&
     /await import\(\s*"\.\.\/world\/grass\/WorldDetailFoliageAtlasDebug"\s*\)/.test(world) &&
     !world.includes('import { appendDetailFoliageAtlasDebugCanvas }'),
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",

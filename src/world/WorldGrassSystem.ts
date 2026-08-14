@@ -425,6 +425,12 @@ export class WorldGrassSystem {
     return this.nearField.getDetailFoliageAtlas();
   }
 
+  isHeroRingReady(): boolean {
+    return (
+      this.initialized && this.nearField.getBuildDiagnostics().nearTiles >= 4
+    );
+  }
+
   getDiagnostics(): WorldGrassDiagnostics {
     let visibleNearPatches = 0;
     let visibleMidPatches = 0;

@@ -1,25 +1,20 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import { WorldSky } from "../world/sky/WorldSky";
 import {
   WORLD_DEFAULT_COMPACT_FOG_DENSITY,
   WORLD_DEFAULT_DESKTOP_FOG_DENSITY,
+  WORLD_DEFAULT_EXPOSURE,
+  WORLD_DEFAULT_FOG,
   WORLD_DEFAULT_HEMISPHERE_GROUND,
   WORLD_DEFAULT_HEMISPHERE_INTENSITY,
   WORLD_DEFAULT_HEMISPHERE_SKY,
-  WORLD_DEFAULT_SKY,
   WORLD_DEFAULT_SUN,
   WORLD_DEFAULT_SUN_INTENSITY,
   WORLD_SUN_DIRECTION,
   WORLD_SUN_SHADOW_DISTANCE,
   WORLD_SUN_SHADOW_HALF_EXTENT,
-  WORLD_ZELDA_EXPOSURE,
-  WORLD_ZELDA_FOG,
-  WORLD_ZELDA_FOG_DENSITY,
-  WORLD_ZELDA_HEMISPHERE_GROUND,
-  WORLD_ZELDA_HEMISPHERE_INTENSITY,
-  WORLD_ZELDA_SKY,
-  WORLD_ZELDA_SUN,
 } from "./WorldEnvironmentTuning";
 
 const SUN_DIRECTION = new THREE.Vector3(...WORLD_SUN_DIRECTION).normalize();
@@ -34,6 +29,7 @@ const SHADOW_AXIS_Y = new THREE.Vector3()
 export class WorldEnvironmentController {
   private readonly sun: THREE.DirectionalLight;
   private readonly hemisphere: THREE.HemisphereLight;
+  private readonly sky: WorldSky;
   private readonly shadowTexelSize: number;
   private shadowFocusX = Number.NaN;
   private shadowFocusY = Number.NaN;
@@ -63,34 +59,23 @@ export class WorldEnvironmentController {
     this.sun.castShadow = shadowsEnabled;
     this.configureShadow();
     this.scene.add(this.hemisphere, this.sun, this.sun.target);
+    this.sky = new WorldSky(this.scene, this.renderer, this.profile.compact);
     this.applyArtDirection();
   }
 
-  applyArtDirection(direction?: GrassArtDirection): void {
-    const zelda = direction?.key === "zelda-field";
-    this.scene.background = new THREE.Color(
-      zelda ? WORLD_ZELDA_SKY : WORLD_DEFAULT_SKY,
-    );
+  applyArtDirection(_direction?: GrassArtDirection): void {
     this.scene.fog = new THREE.FogExp2(
-      zelda ? WORLD_ZELDA_FOG : WORLD_DEFAULT_SKY,
-      zelda
-        ? WORLD_ZELDA_FOG_DENSITY
-        : this.profile.compact
-          ? WORLD_DEFAULT_COMPACT_FOG_DENSITY
-          : WORLD_DEFAULT_DESKTOP_FOG_DENSITY,
+      WORLD_DEFAULT_FOG,
+      this.profile.compact
+        ? WORLD_DEFAULT_COMPACT_FOG_DENSITY
+        : WORLD_DEFAULT_DESKTOP_FOG_DENSITY,
     );
-    this.renderer.toneMappingExposure = zelda ? WORLD_ZELDA_EXPOSURE : 1;
-    this.sun.color.set(zelda ? WORLD_ZELDA_SUN : WORLD_DEFAULT_SUN);
+    this.renderer.toneMappingExposure = WORLD_DEFAULT_EXPOSURE;
+    this.sun.color.set(WORLD_DEFAULT_SUN);
     this.sun.intensity = WORLD_DEFAULT_SUN_INTENSITY;
-    this.hemisphere.color.set(
-      zelda ? WORLD_ZELDA_SKY : WORLD_DEFAULT_HEMISPHERE_SKY,
-    );
-    this.hemisphere.groundColor.set(
-      zelda ? WORLD_ZELDA_HEMISPHERE_GROUND : WORLD_DEFAULT_HEMISPHERE_GROUND,
-    );
-    this.hemisphere.intensity = zelda
-      ? WORLD_ZELDA_HEMISPHERE_INTENSITY
-      : WORLD_DEFAULT_HEMISPHERE_INTENSITY;
+    this.hemisphere.color.set(WORLD_DEFAULT_HEMISPHERE_SKY);
+    this.hemisphere.groundColor.set(WORLD_DEFAULT_HEMISPHERE_GROUND);
+    this.hemisphere.intensity = WORLD_DEFAULT_HEMISPHERE_INTENSITY;
   }
 
   updateShadow(focus: THREE.Vector3): void {
@@ -129,6 +114,7 @@ export class WorldEnvironmentController {
   }
 
   dispose(): void {
+    this.sky.dispose();
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);
   }
 
@@ -141,6 +127,8 @@ export class WorldEnvironmentController {
     this.sun.shadow.camera.far = WORLD_SUN_SHADOW_DISTANCE * 2;
     this.sun.shadow.camera.updateProjectionMatrix();
     this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.radius = 3;
+    this.sun.shadow.bias = -0.0008;
     this.sun.shadow.mapSize.set(
       this.profile.shadowMapSize,
       this.profile.shadowMapSize,

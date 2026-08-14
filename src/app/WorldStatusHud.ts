@@ -75,6 +75,7 @@ export interface WorldStatusSnapshot {
 
 export class WorldStatusHud {
   private elapsedSeconds = 0;
+  private readonly fpsElement = document.querySelector<HTMLElement>("#world-fps");
 
   constructor(private readonly element: HTMLElement | null) {}
 
@@ -98,6 +99,9 @@ export class WorldStatusHud {
     const grassStatus = snapshot.grassInitializationError
       ? `Grass error: ${snapshot.grassInitializationError}`
       : snapshot.grass.status;
+    if (this.fpsElement) {
+      this.fpsElement.textContent = `${snapshot.averageFps.toFixed(0)} FPS`;
+    }
     this.element.textContent = [
       `Frame ${snapshot.frameCount.toLocaleString()} · ${snapshot.averageFps.toFixed(1)} FPS · ${snapshot.runtimeError ? "DEGRADED" : "running"} · ${snapshot.controlMode}`,
       `Focus ${snapshot.focus.x.toFixed(0)} / ${snapshot.focus.y.toFixed(0)} / ${snapshot.focus.z.toFixed(0)}`,

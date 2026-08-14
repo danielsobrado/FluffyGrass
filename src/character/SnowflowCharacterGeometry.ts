@@ -168,15 +168,25 @@ function buildTorso(
   const chest = addMesh(
     torso,
     geometries,
-    new THREE.CylinderGeometry(0.146, 0.178, 0.46, 18, 4, false),
+    new THREE.CapsuleGeometry(0.15, 0.22, 5, 12),
     materials.tunic,
     0,
-    0.2,
+    0.18,
     0,
   );
-  chest.scale.z = 0.74;
+  chest.scale.set(0.96, 1, 0.72);
 
-  // The belt rides the pelvis, not the chest, so a spine bend does not drag it.
+  const hips = addMesh(
+    pelvis,
+    geometries,
+    new THREE.SphereGeometry(0.16, 14, 10),
+    materials.robe,
+    0,
+    0.02,
+    0,
+  );
+  hips.scale.set(1.05, 0.62, 0.82);
+
   const belt = addMesh(
     pelvis,
     geometries,
@@ -210,14 +220,15 @@ function buildHead(
   const jaw = addMesh(
     head,
     geometries,
-    new THREE.CylinderGeometry(0.11, 0.055, 0.098, 12, 2, false),
+    new THREE.SphereGeometry(0.078, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
     materials.skin,
     0,
-    -0.067,
-    0.018,
+    -0.062,
+    0.03,
   );
   jaw.name = "drow-jaw";
-  jaw.scale.set(0.8, 1, 0.9);
+  jaw.scale.set(0.78, 0.72, 0.86);
+  jaw.rotation.x = 0.18;
 
   const neckGuard = addMesh(
     head,
@@ -242,7 +253,7 @@ function buildArm(
   const upperMesh = addMesh(
     upperArm,
     geometries,
-    new THREE.CylinderGeometry(0.048, 0.062, 0.3, 14, 3, false),
+    new THREE.CapsuleGeometry(0.052, 0.2, 4, 10),
     materials.tunic,
     side * 0.018,
     -0.145,
@@ -253,7 +264,7 @@ function buildArm(
   addMesh(
     forearm,
     geometries,
-    new THREE.CylinderGeometry(0.04, 0.05, 0.28, 14, 3, false),
+    new THREE.CapsuleGeometry(0.042, 0.18, 4, 10),
     materials.tunic,
     0,
     -0.135,
@@ -262,23 +273,35 @@ function buildArm(
   addMesh(
     forearm,
     geometries,
-    new THREE.CylinderGeometry(0.054, 0.048, 0.14, 14, 2, false),
+    new THREE.CapsuleGeometry(0.048, 0.08, 3, 10),
     materials.leather,
     0,
     -0.19,
     0.012,
   );
 
-  const handMesh = addMesh(
+  const palm = addMesh(
     hand,
     geometries,
-    new THREE.SphereGeometry(0.048, 12, 8),
+    new THREE.BoxGeometry(0.055, 0.09, 0.035, 1, 1, 1),
     materials.skin,
     0,
-    -0.055,
-    0.025,
+    -0.05,
+    0.028,
   );
-  handMesh.scale.set(0.86, 1.22, 0.8);
+  palm.scale.set(0.92, 1, 0.85);
+  for (let finger = 0; finger < 4; finger += 1) {
+    const digit = addMesh(
+      hand,
+      geometries,
+      new THREE.CapsuleGeometry(0.007, 0.032, 2, 5),
+      materials.skin,
+      (finger - 1.5) * 0.014,
+      -0.1,
+      0.04,
+    );
+    digit.rotation.x = 0.35;
+  }
 }
 
 function buildLeg(
@@ -291,7 +314,7 @@ function buildLeg(
   addMesh(
     thigh,
     geometries,
-    new THREE.CylinderGeometry(0.077, 0.098, 0.44, 14, 4, false),
+    new THREE.CapsuleGeometry(0.082, 0.28, 4, 10),
     materials.robe,
     0,
     -0.22,
@@ -300,7 +323,7 @@ function buildLeg(
   addMesh(
     shin,
     geometries,
-    new THREE.CylinderGeometry(0.063, 0.077, 0.37, 14, 4, false),
+    new THREE.CapsuleGeometry(0.066, 0.24, 4, 10),
     materials.leather,
     0,
     -0.185,
@@ -309,13 +332,13 @@ function buildLeg(
   const boot = addMesh(
     foot,
     geometries,
-    new THREE.BoxGeometry(0.12, 0.11, 0.27, 2, 2, 3),
+    new THREE.BoxGeometry(0.11, 0.1, 0.28, 2, 2, 3),
     materials.leather,
     0,
-    -0.035,
-    0.085,
+    -0.03,
+    0.09,
   );
-  boot.geometry.translate(0, 0, 0.025);
+  boot.geometry.translate(0, 0, 0.02);
 }
 
 function namedGroup(name: string): THREE.Group {

@@ -53,9 +53,8 @@ export function createSnowflowCharacterMaterials(): SnowflowCharacterMaterialSet
     skin,
     trim: createMaterial(PALETTE.trim, 0.7, THREE.DoubleSide),
     fur: createMaterial(PALETTE.fur, 0.94, THREE.DoubleSide),
-    // The scene has no environment map, so keep metalness low: fully metallic
-    // surfaces would have nothing to reflect and render near-black.
-    metal: createMaterial(PALETTE.metal, 0.34, THREE.FrontSide, 0.25),
+    // The scene now has a sky IBL, so a little metalness actually reads.
+    metal: createMaterial(PALETTE.metal, 0.34, THREE.FrontSide, 0.55),
     hair: createMaterial(PALETTE.hair, 0.82, THREE.DoubleSide),
     eye,
     // The cloak panels are drawn twice off one geometry: the outer shell takes

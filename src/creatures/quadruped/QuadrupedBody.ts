@@ -25,8 +25,16 @@ export function buildQuadrupedBody(
 ): QuadrupedBody {
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.Material[] = [];
-  const hide = new THREE.MeshLambertMaterial({ color: 0x8a6f4d });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x5c4630 });
+  const hide = new THREE.MeshStandardMaterial({
+    color: 0x8a6f4d,
+    roughness: 0.86,
+    metalness: 0,
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    color: 0x5c4630,
+    roughness: 0.9,
+    metalness: 0,
+  });
   materials.push(hide, dark);
 
   const barrel = new THREE.CylinderGeometry(0.19, 0.17, QUADRUPED_BODY_HALF_LENGTH * 2.1, 12, 1, false);
