@@ -229,21 +229,23 @@ export class ActorRigBuilder {
     for (const [maskName, request] of this.maskRequests) {
       masks.set(maskName, buildActorMask(parents, request));
     }
+    // Snapshot the builder's mutable collections so later authoring cannot
+    // mutate a definition whose packed buffers were already finalized.
     const definition: ActorRigDefinition = {
       name: this.name,
       boneCount,
-      bones: this.bones,
+      bones: this.bones.slice(),
       parents,
       bindPositions: new Float32Array(this.positions),
       bindRotations: new Float32Array(this.rotations),
       translatableFlags,
       secondaryFlags,
-      roles: this.roles,
-      chains: this.chains,
-      effectors: this.effectors,
+      roles: new Map(this.roles),
+      chains: new Map(this.chains),
+      effectors: new Map(this.effectors),
       masks,
-      sockets: this.sockets,
-      jointLimits: this.jointLimits,
+      sockets: new Map(this.sockets),
+      jointLimits: this.jointLimits.slice(),
     };
     validateActorRigDefinition(definition);
     return definition;
