@@ -7,6 +7,8 @@ import {
 import { isActorJointLimitOrdered } from "./ActorJointLimits";
 import type { ActorRigDefinition } from "./ActorRigDefinition";
 
+const UNIT_VECTOR_TOLERANCE = 1e-4;
+
 /**
  * Structural validation for a rig definition.
  *
@@ -58,6 +60,9 @@ export function validateActorRigDefinition(
     seenNames.add(definitionBone.name);
 
     const parent = parents[bone];
+    if (definitionBone.parent !== parent) {
+      fail(`bone "${definitionBone.name}" disagrees with the packed parent table.`);
+    }
     if (parent === ACTOR_NO_BONE) {
       rootCount += 1;
     } else if (!isActorBoneIndex(parent, boneCount)) {
@@ -70,6 +75,21 @@ export function validateActorRigDefinition(
       );
     }
 
+    const translatable = definition.translatableFlags[bone];
+    const secondary = definition.secondaryFlags[bone];
+    if (
+      (translatable !== 0 && translatable !== 1) ||
+      (translatable === 1) !== definitionBone.allowTranslation
+    ) {
+      fail(`bone "${definitionBone.name}" has an inconsistent translation flag.`);
+    }
+    if (
+      (secondary !== 0 && secondary !== 1) ||
+      (secondary === 1) !== definitionBone.secondary
+    ) {
+      fail(`bone "${definitionBone.name}" has an inconsistent secondary flag.`);
+    }
+
     for (let axis = 0; axis < 3; axis += 1) {
       if (!Number.isFinite(definition.bindPositions[bone * 3 + axis])) {
         fail(`bone "${definitionBone.name}" has a non-finite bind position.`);
@@ -77,6 +97,11 @@ export function validateActorRigDefinition(
     }
     if (!isNormalizedQuaternion(definition.bindRotations, bone)) {
       fail(`bone "${definitionBone.name}" has a denormalized bind rotation.`);
+    }
+
+    const role = definitionBone.role;
+    if (role !== undefined && definition.roles.get(role) !== bone) {
+      fail(`bone "${definitionBone.name}" has an unresolved semantic role.`);
     }
   }
   if (rootCount !== 1) {
@@ -87,9 +112,15 @@ export function validateActorRigDefinition(
     if (!isActorBoneIndex(bone, boneCount)) {
       fail(`role "${role}" resolves outside the bone range.`);
     }
+    if (bones[bone].role !== role) {
+      fail(`role "${role}" disagrees with its bone declaration.`);
+    }
   }
 
   for (const [chainName, chain] of definition.chains) {
+    if (chainName.length === 0 || chain.name !== chainName) {
+      fail(`chain "${chainName}" has an inconsistent name.`);
+    }
     for (const [label, bone] of [
       ["root", chain.root],
       ["mid", chain.mid],
@@ -111,22 +142,53 @@ export function validateActorRigDefinition(
     ) {
       fail(`chain "${chainName}" has an out-of-range terminal bone.`);
     }
-    if (!(chain.upperLength > 0) || !(chain.lowerLength > 0)) {
+    if (
+      !Number.isFinite(chain.upperLength) ||
+      !Number.isFinite(chain.lowerLength) ||
+      !(chain.upperLength > 0) ||
+      !(chain.lowerLength > 0)
+    ) {
       fail(`chain "${chainName}" has a non-positive segment length.`);
     }
-    if (Math.hypot(chain.poleX, chain.poleY, chain.poleZ) < 1e-6) {
+
+    const upperAxisLength = Math.hypot(
+      chain.upperAxisX,
+      chain.upperAxisY,
+      chain.upperAxisZ,
+    );
+    const lowerAxisLength = Math.hypot(
+      chain.lowerAxisX,
+      chain.lowerAxisY,
+      chain.lowerAxisZ,
+    );
+    if (
+      !Number.isFinite(upperAxisLength) ||
+      !Number.isFinite(lowerAxisLength) ||
+      Math.abs(upperAxisLength - 1) > UNIT_VECTOR_TOLERANCE ||
+      Math.abs(lowerAxisLength - 1) > UNIT_VECTOR_TOLERANCE
+    ) {
+      fail(`chain "${chainName}" has a non-unit segment axis.`);
+    }
+
+    const poleLength = Math.hypot(chain.poleX, chain.poleY, chain.poleZ);
+    if (!Number.isFinite(poleLength) || poleLength < 1e-6) {
       fail(`chain "${chainName}" has no usable bend-pole direction.`);
     }
     if (
-      !(chain.minBendRadians <= chain.maxBendRadians) ||
       !Number.isFinite(chain.minBendRadians) ||
-      !Number.isFinite(chain.maxBendRadians)
+      !Number.isFinite(chain.maxBendRadians) ||
+      chain.minBendRadians < 0 ||
+      chain.minBendRadians > Math.PI ||
+      !(chain.minBendRadians <= chain.maxBendRadians)
     ) {
       fail(`chain "${chainName}" has an invalid bend range.`);
     }
   }
 
   for (const [effectorName, effector] of definition.effectors) {
+    if (effectorName.length === 0 || effector.name !== effectorName) {
+      fail(`effector "${effectorName}" has an inconsistent name.`);
+    }
     if (!definition.chains.has(effector.chain)) {
       fail(`effector "${effectorName}" references an undeclared chain.`);
     }
@@ -136,6 +198,9 @@ export function validateActorRigDefinition(
   }
 
   for (const [maskName, mask] of definition.masks) {
+    if (maskName.length === 0) {
+      fail("a mask has no name.");
+    }
     if (mask.length !== boneCount) {
       fail(`mask "${maskName}" does not match the bone count.`);
     }
@@ -148,18 +213,25 @@ export function validateActorRigDefinition(
   }
 
   for (const [socketKey, socket] of definition.sockets) {
+    if (socketKey.length === 0 || socket.key !== socketKey) {
+      fail(`socket "${socketKey}" has an inconsistent key.`);
+    }
     if (!isActorBoneIndex(socket.parent, boneCount)) {
       fail(`socket "${socketKey}" has an out-of-range parent bone.`);
     }
     if (
       !Number.isFinite(socket.positionX) ||
       !Number.isFinite(socket.positionY) ||
-      !Number.isFinite(socket.positionZ)
+      !Number.isFinite(socket.positionZ) ||
+      !Number.isFinite(socket.rotationX) ||
+      !Number.isFinite(socket.rotationY) ||
+      !Number.isFinite(socket.rotationZ)
     ) {
-      fail(`socket "${socketKey}" has a non-finite offset.`);
+      fail(`socket "${socketKey}" has a non-finite offset or rotation.`);
     }
   }
 
+  const limitedBones = new Set<number>();
   for (const limit of definition.jointLimits) {
     if (!isActorBoneIndex(limit.bone, boneCount)) {
       fail("a joint limit references an out-of-range bone.");
@@ -167,5 +239,9 @@ export function validateActorRigDefinition(
     if (!isActorJointLimitOrdered(limit)) {
       fail(`joint limit on "${bones[limit.bone].name}" is reversed or non-finite.`);
     }
+    if (limitedBones.has(limit.bone)) {
+      fail(`joint limit on "${bones[limit.bone].name}" is declared more than once.`);
+    }
+    limitedBones.add(limit.bone);
   }
 }
