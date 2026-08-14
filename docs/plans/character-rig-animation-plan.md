@@ -1,112 +1,294 @@
-# Procedural Character Rig and Animation — Implementation Plan
+# Procedural Actor Rig and Animation — Implementation Plan
 
 ## Status
 
 - Target branch: `main`
 - Scope: planning and implementation contract
 - Current state: not started
-- Character strategy: procedural geometry + real skeletal rig + procedural animation layers + targeted skinning + IK
+- Primary implementation target: existing Snowflow player character
+- Architecture target: reusable actor animation foundation for player characters, humanoid NPCs, quadrupeds, birds, and later creature archetypes
+- Rendering strategy: procedural geometry + skeletal articulation + targeted skinning + rigid attachments + procedural secondary motion
 - External DCC dependency: none required
 - Deployment: manual GitHub Pages deployment; no GitHub Actions
-- Goal: evolve the current procedural character into a production-quality articulated character capable of natural locomotion, crouching, hiding, rolling, spell casting, aiming, interacting, and future combat actions without turning `SnowflowCharacter` into a monolithic pose state machine.
+- Goal: replace the current player-specific pose system with a small, production-quality actor animation architecture that remains efficient for one hero character but does not require a second animation framework when NPCs and animals are added.
 
-## Product goal
+## Review result
 
-The character must remain visually consistent with the existing stylized procedural world while gaining a real animation architecture.
+The original plan had a strong player-character migration path, but it was too humanoid-specific in several foundational places.
 
-The finished system must support:
+The main problems were:
 
-- A true `THREE.Bone` hierarchy and `THREE.Skeleton`.
-- Smooth, bounded articulation through shoulders, spine, hips, knees, elbows, wrists, neck, feet, and toes.
-- Procedural locomotion that retains the current walk/run/jump visual identity.
+- A single closed `CharacterBoneId` would make the runtime fast for one humanoid but would not represent quadrupeds, birds, tails, wings, horns, or creature-specific chains cleanly.
+- Static masks such as `upperBody`, `leftArm`, and `rightArm` assumed every animated actor was humanoid.
+- `CharacterLegIk`, `CharacterArmIk`, and player-oriented action naming placed reusable solver logic inside the player domain.
+- The proposed `src/character/...` ownership boundary would encourage NPC and animal code either to depend on player code or duplicate the same pose/blending/IK infrastructure.
+- A single locomotion graph containing `crouch`, `roll`, and `spell` states would make those abilities appear structurally mandatory even for actors that cannot perform them.
+- The performance contract assumed one hero character. NPC groups and animals require animation LOD, bounded update frequency, shared immutable definitions, and predictable per-instance memory.
+- The instruction to avoid a generic skeleton definition was correct while there was only one character, but NPCs and animals are now an explicit requirement. A reusable rig definition is therefore justified rather than speculative abstraction.
+
+The revised architecture fixes those issues without building a general-purpose game engine. It introduces only the abstractions that are now required by at least two materially different actor families.
+
+## Product goals
+
+The finished foundation must support the current player character and later actors without compromising the player's visual quality.
+
+The player path must support:
+
+- A real `THREE.Bone` hierarchy and `THREE.Skeleton`.
+- Smooth, bounded shoulders, spine, hips, knees, elbows, wrists, neck, feet, and toes.
+- Existing idle/walk/run/jump/land behavior preserved during migration.
 - Terrain-aware foot placement and pelvis compensation.
 - Crouch idle and crouch locomotion.
 - A low stance suitable for hiding in tall grass.
-- Dodge/evade rolling with controlled root movement and recovery.
-- Upper-body action animation while locomotion continues underneath.
-- One-hand and two-hand spell-casting poses.
-- Arm IK toward dynamic spell or interaction targets.
-- Head/look targeting.
-- Hand, palm, weapon, back, chest, head, and spell-effect sockets.
-- Simple hand/finger pose support for fist, open palm, point, grip, and casting shapes.
-- Existing cape, skirt, and hair secondary motion integrated after primary skeletal posing.
-- Stable behavior on desktop and compact/mobile profiles.
-- Zero per-frame garbage from the animation hot path after initialization.
-- Configuration-driven gameplay and animation tuning with validation.
-- Static verification for rig structure, animation boundaries, and action transitions.
+- Deterministic dodge/evade rolling.
+- Layered upper-body actions while locomotion continues underneath.
+- One-hand and two-hand spell casting.
+- Arm IK, look IK, semantic sockets, and simple hand poses.
+- Existing cape, skirt, and hair secondary motion.
 
-## Why the current architecture must change
+The shared actor foundation must additionally support:
 
-The current character already has a useful articulated object hierarchy: pelvis, torso, neck, head, upper arms, forearms, wrists, thighs, shins, feet, cloak sections, skirt sections, and hair sections. That hierarchy made the first procedural walk/run/jump implementation fast and appropriate.
-
-The limitation is that animation behavior is now concentrated in direct group rotations and state-specific pose equations. Continuing to add crouch, crouch-walk, roll, spell casting, aiming, interactions, attacks, blocks, swimming, and future abilities to the same pose method would create several problems:
-
-- Locomotion and actions would overwrite each other.
-- Every combined state would require another special case.
-- Arm animation could not cleanly layer over walking.
-- Foot placement would remain disconnected from actual terrain contact.
-- A roll would mix gameplay movement, collision state, animation, and cape behavior in one method.
-- Smooth joints would be difficult because rigid primitive pieces are only parented to pivot groups.
-- Joint limits would remain implicit and inconsistent.
-- Testing individual animation responsibilities would become difficult.
-
-The target architecture therefore separates skeletal structure, pose generation, blending, IK, gameplay actions, and secondary motion.
+- Multiple rig topologies without forcing them into a humanoid bone list.
+- Multiple locomotion implementations using the same pose/blending runtime.
+- Two-legged and four-legged terrain contact.
+- Actors with no hands, no spell system, no crouch, or no roll.
+- Optional tails, wings, ears, horns, jaws, and other species-specific bones.
+- Player control, scripted movement, NPC AI, and animal AI producing the same animation-facing facts.
+- Shared humanoid rig definitions for the player and humanoid NPCs.
+- Independent species/rig definitions for animals.
+- Animation quality/LOD policies suitable for many non-player actors.
+- Stable performance and zero steady-state hot-path allocations for each active actor instance.
 
 ## Architectural principles
 
-1. **Preserve visual behavior before adding capability** — the first skeletal milestone must reproduce the existing idle/walk/run/jump behavior closely enough that the migration itself is not also an art-direction rewrite.
-2. **One skeleton, multiple layers** — locomotion, actions, additives, IK, and secondary motion must not become separate competing rigs.
-3. **Bones own articulation** — gameplay code must not directly rotate render meshes.
-4. **Gameplay owns intent** — animation can represent a roll or spell, but controller/action code owns whether the action is allowed and how it affects movement.
-5. **Procedural first** — do not require Blender, Mixamo, GLTF animation clips, or an offline asset pipeline to ship the first production system.
-6. **Hybrid skinning** — use skinning where deformation matters and rigid bone attachments where it does not. Armor and accessories should not pay a skinning cost merely to follow a bone.
-7. **Analytic IK over generic solvers** — use deterministic two-bone leg and arm IK rather than a general CCD/FABRIK system unless future requirements prove it necessary.
-8. **Layered pose composition** — base locomotion, upper-body actions, additive motion, IK, and secondary motion are applied in a fixed documented order.
-9. **Configuration driven** — tunable speeds, angles, durations, joint limits, blends, and action settings belong in validated configuration/tuning modules rather than being scattered through animation code.
-10. **No frame allocations** — pose buffers, scratch quaternions, vectors, masks, and solver state are allocated once.
-11. **Small modules** — each animation concern must remain independently testable and within the repository's architecture-size expectations.
-12. **Manual deployment remains unchanged** — implementation must not introduce GitHub Actions.
+1. **Actor animation is driven by facts, not by input source** — keyboard, touch, NPC AI, scripted movement, and animal behavior must converge into the same animation snapshot contract.
+2. **Rig topology is data, not a global humanoid enum** — each rig definition owns a fixed indexed bone table created once at initialization.
+3. **Runtime indexes stay fixed and allocation-free** — extensibility must not mean string lookups or dynamic maps in per-frame code.
+4. **Humanoid behavior is a profile, not the engine** — crouch, roll, arms, hands, and spell casting are humanoid/player capabilities layered on the shared core.
+5. **Species own locomotion style** — a humanoid gait, quadruped gait, bird ground gait, and future creature locomotion may all generate poses through the same pose-buffer API without sharing inappropriate equations.
+6. **Shared solvers operate on declared chains/effectors** — the two-bone IK primitive must not care whether a chain is called an arm, front leg, hind leg, or bird leg.
+7. **Optional capabilities are explicit** — absence of a hand, tail, wing, roll action, spell layer, or IK chain must be valid rather than represented by fake bones.
+8. **One actor instance, one authoritative rig** — locomotion, actions, additives, IK, and secondary motion compose on the same pose rather than maintaining competing skeletons.
+9. **Gameplay owns intent and movement authority** — animation represents actions; controllers/AI/gameplay decide whether they are legal and own world displacement.
+10. **Hybrid rendering** — skin only geometry that benefits from deformation. Rigid armor, claws, horns, beaks, equipment, and accessories should attach directly to bones/sockets.
+11. **Procedural first** — no Blender, Mixamo, GLTF animation clips, or offline animation pipeline is required for the initial production implementation.
+12. **Configuration driven** — product tuning belongs in validated YAML; structural compile-time contracts and numerical implementation constants remain in small dedicated modules.
+13. **No frame allocations** — pose buffers, masks, scratch vectors/quaternions, chain solver state, and socket objects are allocated once.
+14. **Animation LOD is part of the architecture** — it is optional for the single player but mandatory before actor populations grow.
+15. **Composition over inheritance** — do not create `Human extends Actor extends Creature` class trees. Build actors from rig definition + animation profile + optional action/secondary modules.
+16. **Prove abstraction with real differences** — add one non-player humanoid proof and one quadruped proof before considering the shared layer complete.
+17. **Small modules and explicit ownership** — actor core must not absorb gameplay AI, rendering effects, terrain generation, or input handling.
+18. **Manual deployment remains unchanged** — no GitHub Actions.
 
-## Non-goals for the first implementation
+## Non-goals
 
-The following are explicitly outside the initial rig migration:
+Do not expand this work into:
 
-- A general-purpose animation editor.
-- Motion capture support.
-- Runtime retargeting between unrelated humanoid skeletons.
-- A full inverse-kinematics framework for arbitrary chains.
-- Physically simulated cloth for the cape or robe.
+- A general animation editor.
+- Motion capture tooling.
+- Arbitrary runtime retargeting between unrelated skeletons.
+- A universal procedural creature generator.
+- Full creature AI.
+- Enemy combat AI.
 - Ragdoll physics.
-- Enemy AI or a full stealth detection system.
-- A complete combat system.
+- Physically simulated cloth.
 - Network replication.
-- Importing a replacement humanoid model.
-- Dozens of individually animated finger bones.
+- GPU crowd skinning/animation textures before profiling proves they are necessary.
+- A generic iterative IK framework before a real chain requires it.
+- Dozens of individual finger/toe bones by default.
 
-The architecture must leave room for these later without implementing them prematurely.
+The architecture must allow these later without implementing them prematurely.
 
-# 1. Target skeletal contract
+# 1. Domain model
 
-## Coordinate convention
+## Actor
 
-The rig must standardize the current world/character convention:
+An **actor** is any world entity whose visual body is animated from movement/action facts.
+
+Examples:
+
+- Player humanoid.
+- Humanoid NPC.
+- Deer-like quadruped.
+- Wolf-like quadruped.
+- Bird.
+- Future fantasy creature.
+
+The actor animation layer does not own AI or player input.
+
+## Rig definition
+
+A **rig definition** is immutable structural data shared by every actor instance using the same topology.
+
+It defines:
+
+- Bone count and stable local indexes.
+- Bone names for debugging only.
+- Parent indexes.
+- Bind transforms.
+- Semantic roles/tags.
+- Declared limb/contact/reach chains.
+- Declared masks/groups.
+- Declared sockets.
+- Optional secondary chains.
+- Joint-limit data.
+- Structural capabilities.
+
+Examples:
+
+- `HumanoidRigDefinition`.
+- `QuadrupedRigDefinition`.
+- `BirdRigDefinition` later.
+
+A rig definition is not a live Three.js object and contains no per-instance mutable transform state.
+
+## Rig instance
+
+A **rig instance** is the live Three.js representation for one actor.
+
+It owns:
+
+- `THREE.Bone` objects.
+- `THREE.Skeleton`.
+- Skinned meshes.
+- Rigid bone attachments.
+- Socket objects.
+- Per-instance pose application state.
+
+Multiple NPCs of the same species may share the same immutable rig definition while each has its own rig instance.
+
+## Animation profile
+
+An **animation profile** defines how an actor family converts facts into poses.
+
+Examples:
+
+- `HumanoidAnimationProfile`.
+- `QuadrupedAnimationProfile`.
+- Later `BirdAnimationProfile`.
+
+The profile supplies only the modules that actor family supports, such as:
+
+- Locomotion pose provider.
+- Contact IK policy.
+- Reach IK policy.
+- Look behavior.
+- Stance provider.
+- Action providers.
+- Secondary-motion modules.
+
+Do not represent unsupported behavior with empty fake bones or unreachable states.
+
+# 2. Coordinate and transform contract
+
+All rig definitions use the same world/local convention:
 
 - `+Y` = up.
-- `+Z` = character forward in local bind space.
-- `+X` = character right.
-- Left-side bones use negative local X offsets.
-- Bone transforms are relative to the parent bone.
-- Bind pose is a neutral standing pose, not a walk-cycle frame.
-- Bone local forward/up conventions must be documented once and reused by IK and sockets.
+- `+Z` = actor forward in local bind space.
+- `+X` = actor right.
+- Bone transforms are local to parent.
+- Bind pose is a neutral species-appropriate reference pose.
+- Root/world placement is separate from anatomical articulation.
+- Chain solvers consume explicit bend-plane/pole data from rig definitions; they do not infer axes from names.
 
-Do not allow individual solvers to invent different axis assumptions.
+Species may have different neutral postures. A quadruped is not required to use a humanoid standing bind pose.
 
-## Required primary bones
+# 3. Rig definition architecture
 
-The initial production skeleton should contain these semantic bones:
+## Core modules
+
+Add shared modules under:
+
+`src/actor/rig/`
+
+Recommended files:
+
+- `ActorRigDefinition.ts`
+- `ActorRigBuilder.ts`
+- `ActorRigInstance.ts`
+- `ActorBoneIndex.ts`
+- `ActorRigRoles.ts`
+- `ActorRigChains.ts`
+- `ActorRigMasks.ts`
+- `ActorSockets.ts`
+- `ActorJointLimits.ts`
+- `ActorSkinWeights.ts`
+
+Player-specific geometry may remain under `src/character/` while consuming this core.
+
+## Bone identity
+
+Do not use one global `CharacterBoneId` enum for every creature.
+
+Instead:
+
+- A rig definition owns a contiguous local integer index range `0..boneCount-1`.
+- Bone indexes are stable for that definition.
+- Debug names are resolved only outside hot loops.
+- Profile code receives typed/resolved indexes during initialization and stores them directly.
+- No animation update may repeatedly call `getObjectByName()` or search string maps.
+
+A small branded numeric type may be used for safety:
+
+```ts
+export type ActorBoneIndex = number & { readonly __actorBoneIndex: unique symbol };
+```
+
+Do not add wrapper objects around indexes in hot paths.
+
+## Semantic roles
+
+Provide a small shared role vocabulary only where multiple families genuinely share meaning.
+
+Useful common roles include:
+
+- `root`
+- `center`
+- `head`
+- `look`
+- `mouth`
+- `primaryEffectOrigin`
+
+Do not create universal roles such as `leftArm` for animals that do not have arms.
+
+Family-specific roles belong to the family definition:
+
+Humanoid examples:
+
+- `pelvis`
+- `chest`
+- `hand.L`
+- `hand.R`
+- `foot.L`
+- `foot.R`
+
+Quadruped examples:
+
+- `pelvis`
+- `chest`
+- `frontPaw.L`
+- `frontPaw.R`
+- `hindPaw.L`
+- `hindPaw.R`
+- `tailRoot`
+
+Bird examples later:
+
+- `body`
+- `wingTip.L`
+- `wingTip.R`
+- `foot.L`
+- `foot.R`
+- `beak`
+
+The shared runtime cares about indexes and chain descriptors, not these debug/semantic strings every frame.
+
+# 4. Required humanoid rig
+
+The existing player and humanoid NPCs should initially share one humanoid topology:
 
 ```text
-characterRoot
+actorRoot
 └── pelvis
     ├── spineLower
     │   └── spineUpper
@@ -131,11 +313,9 @@ characterRoot
                 └── toe.R
 ```
 
-`characterRoot` remains the world-placement/root-motion object. It is not used as an anatomical bone.
+`actorRoot` is world/root-motion placement and is not an anatomical bend joint.
 
-## Optional hand bones
-
-Do not begin with a full human hand skeleton. Add only the minimum required controls when spell and grip poses are implemented:
+Optional hand bones are added only when hand poses are implemented:
 
 ```text
 hand.L
@@ -151,184 +331,114 @@ hand.R
 └── fingers.R
 ```
 
-The grouped `fingers` bone represents ring + little fingers initially.
+The grouped `fingers` bone initially represents ring + little fingers.
 
-## Secondary-motion hierarchy
+# 5. Quadruped extension contract
 
-Cape, hair, and skirt should remain separate from the primary locomotion skeleton contract. They may use bones or procedural deformers internally, but they must consume the final primary pose instead of influencing primary locomotion.
+The first animal proof should use a deliberately small quadruped skeleton sufficient to validate the architecture.
 
-Recommended cape hierarchy if/when the current geometry deformation migrates to bones:
+Recommended topology:
 
 ```text
-capeRoot
-├── capeBack.01
-│   └── capeBack.02
-│       └── capeBack.03
-├── capeLeft.01
-│   └── capeLeft.02
-└── capeRight.01
-    └── capeRight.02
+actorRoot
+└── bodyCenter
+    ├── pelvis
+    │   ├── hindUpper.L
+    │   │   └── hindLower.L
+    │   │       └── hindPaw.L
+    │   ├── hindUpper.R
+    │   │   └── hindLower.R
+    │   │       └── hindPaw.R
+    │   └── tail.01
+    │       └── tail.02
+    │           └── tail.03
+    └── spine
+        └── chest
+            ├── neck
+            │   └── head
+            ├── frontUpper.L
+            │   └── frontLower.L
+            │       └── frontPaw.L
+            └── frontUpper.R
+                └── frontLower.R
+                    └── frontPaw.R
 ```
 
-The existing cape spring/deformation system should remain functional during the skeletal migration. Replacing it is not a prerequisite for the rig.
+This is a validation topology, not a claim that every real quadruped uses identical anatomy.
 
-# 2. Bone IDs and runtime representation
+Requirements:
 
-## Stable bone IDs
+- Four contact effectors.
+- Separate front/hind limb chains.
+- Spine pitch/bend support.
+- Head/look support.
+- Optional tail chain.
+- No hand, spell, crouch, or roll requirement.
 
-Introduce a closed semantic bone identifier rather than passing arbitrary strings through hot paths.
+A more anatomically detailed horse/deer/dog leg may later add metacarpal/hock segments. The shared pose system must not require changing when a family uses a three-segment leg; only that family's solver/profile may need a new chain implementation.
 
-Proposed module:
+# 6. Bird and other future rigs
 
-`src/character/rig/CharacterBoneId.ts`
+Do not implement a bird during the initial migration, but keep the definition contract able to express:
 
-Responsibilities:
+- Wing chains.
+- Two ground-contact legs.
+- Tail feathers/bones.
+- Beak/head socket.
+- Flight locomotion without terrain contact IK.
 
-- Define all production bone identifiers.
-- Define a stable index for each animated bone.
-- Provide display/debug names outside the hot path.
-- Prevent spelling differences such as `leftUpperArm`, `upper_arm_l`, and `UpperArm.L` from creating multiple contracts.
+The core must not assume:
 
-Do not build a dynamic generic skeleton registry unless a real future requirement needs one.
+- Every actor is grounded.
+- Every actor has exactly two or four contact limbs.
+- Every actor has hands.
+- Every action uses upper/lower-body masks.
 
-## Character rig object
+# 7. Rig chains and effectors
 
-Proposed module:
+## Generic chain descriptor
 
-`src/character/rig/CharacterRig.ts`
+Reusable IK must operate on chain descriptors rather than hardcoded humanoid names.
 
-Responsibilities:
+A two-bone chain descriptor needs resolved indexes for:
 
-- Own `THREE.Bone` instances.
-- Own `THREE.Skeleton`.
-- Expose semantic bone lookup by `CharacterBoneId`.
-- Expose bind-pose local transforms.
-- Expose character sockets.
-- Own rigid bone attachments.
-- Own skinned meshes that share the skeleton.
-- Dispose owned geometry/material resources safely.
+- Root joint.
+- Mid joint.
+- End effector.
+- Optional terminal orientation bone.
+- Rest segment lengths.
+- Preferred bend/pole direction.
+- Joint constraints.
 
-It must not:
+Examples using the same primitive:
 
-- Decide locomotion state.
-- Read user input.
-- Sample terrain.
-- Execute IK.
-- Implement spell effects.
-- Implement cape dynamics.
+- Humanoid thigh → shin → foot.
+- Humanoid upper arm → forearm → hand.
+- Quadruped front upper → front lower → paw.
+- Quadruped hind upper → hind lower → paw.
+- Bird upper leg → lower leg → foot.
 
-# 3. Mesh strategy: hybrid rigid + skinned
+## Effector definitions
 
-## Keep rigid attachments where appropriate
+Rig definitions may declare effectors such as:
 
-The following should normally remain rigid meshes attached to the appropriate bone or socket:
+- Ground contact.
+- Reach target.
+- Look origin.
+- Effect/spell origin.
+- Mouth/bite origin.
 
-- Shoulder armor.
-- Belt components.
-- Medallion/chest ornament.
-- Bracers.
-- Boots where deformation is not visible.
-- Hood hardware.
-- Weapon props.
-- Future staff/sword/shield props.
+Animation profiles decide which effectors are active. The core does not automatically solve every declared effector.
 
-This is cheaper and visually cleaner than skinning every accessory.
+# 8. Masks and groups
 
-## Skin only geometry that benefits from deformation
+Do not hardcode a global mask list requiring every rig to implement `upperBody` or `hands`.
 
-Initial skinning candidates:
+Each animation profile resolves the masks it needs once at initialization.
 
-- Torso/tunic around the waist and shoulders.
-- Upper/lower robe regions around pelvis/hips.
-- Limb transition geometry where rigid cylinders currently expose disconnected joints.
-- Optional shoulder/upper-arm cloth transition.
+Shared pose code only needs a numeric per-bone mask buffer.
 
-The goal is not one giant fully skinned mesh. Multiple small `THREE.SkinnedMesh` objects may share the same skeleton where that keeps procedural construction simple.
-
-## Procedural skin-weight generation
-
-Add:
-
-`src/character/rig/CharacterSkinWeights.ts`
-
-The weight generator should:
-
-- Assign at most four influences per vertex.
-- Prefer two influences for simple joint bands.
-- Use deterministic distance/height bands around joints.
-- Normalize every vertex weight set.
-- Reject NaN/negative weights.
-- Avoid weights on unrelated bones.
-- Keep rigid regions at a single weight of 1.0.
-
-Required verification:
-
-- Every skinned vertex has total weight approximately `1.0`.
-- No vertex references a bone outside the mesh's allowed influence set.
-- No vertex has more than four non-zero influences.
-- Bind pose reproduces the generated geometry without visible offset.
-
-# 4. Joint limits
-
-Create one joint-limit contract rather than clamping angles differently in every animation.
-
-Proposed files:
-
-- `src/character/rig/CharacterJointLimits.ts`
-- `src/character/rig/CharacterRigTuning.ts`
-
-The first implementation should define conservative limits for:
-
-- Neck pitch/yaw/roll.
-- Spine lower pitch/yaw/roll.
-- Spine upper pitch/yaw/roll.
-- Clavicle elevation/protraction.
-- Shoulder pitch/yaw/roll.
-- Elbow bend.
-- Wrist pitch/yaw/roll.
-- Hip pitch/yaw/roll.
-- Knee bend.
-- Ankle pitch/roll.
-- Toe bend.
-
-Joint-limit enforcement belongs after pose generation and before final application, or inside constrained IK where necessary.
-
-The limits must be broad enough for rolling and casting; do not tune them only for walking.
-
-# 5. Pose representation
-
-## Pose buffer
-
-Add:
-
-`src/character/animation/CharacterPose.ts`
-
-Use reusable indexed buffers rather than allocating object maps each frame.
-
-A pose channel needs:
-
-- Local rotation quaternion.
-- Optional local translation for bones that legitimately translate, primarily pelvis/root.
-- Weight/mask information supplied by the layer, not stored redundantly per bone if avoidable.
-
-Required operations:
-
-- Reset to bind pose.
-- Copy.
-- Blend two poses.
-- Add an additive rotation/translation delta.
-- Blend using a bone mask.
-- Apply to rig.
-
-The implementation must avoid Euler-angle interpolation. Pose blending uses quaternions.
-
-## Bone masks
-
-Add:
-
-`src/character/animation/CharacterBoneMask.ts`
-
-Required masks:
+Humanoid masks may include:
 
 - Full body.
 - Lower body.
@@ -339,318 +449,673 @@ Required masks:
 - Head/neck.
 - Hands.
 
-Masks should be static immutable data, not rebuilt every frame.
+Quadruped masks may include:
 
-# 6. Animation composition order
+- Full body.
+- Spine/head.
+- Front limbs.
+- Hind limbs.
+- Tail.
 
-The production update order must be explicit and stable:
+Masks are immutable after profile initialization and never rebuilt per frame.
 
-1. Resolve gameplay/action intent.
-2. Generate base locomotion pose.
-3. Blend locomotion state transitions.
-4. Apply action layer using a bone mask.
-5. Apply additive breathing/lean/look-prep motion.
-6. Enforce pre-IK joint constraints where needed.
-7. Apply pelvis/leg terrain IK.
-8. Apply arm/interaction/spell IK.
-9. Apply head/look IK.
-10. Enforce final joint limits.
-11. Apply pose to bones.
-12. Update sockets/world matrices.
-13. Apply cape/skirt/hair secondary motion.
-14. Update effect systems attached to sockets.
+# 9. Rig instance and rendering ownership
 
-No module may silently change this order.
+`ActorRigInstance` should:
 
-# 7. Animation graph
+- Create/own `THREE.Bone` objects from a definition.
+- Create `THREE.Skeleton`.
+- Apply bind transforms.
+- Expose direct indexed bone access.
+- Own sockets and rigid attachments.
+- Own or reference per-instance skinned meshes.
+- Dispose only resources it actually owns.
+
+It must not:
+
+- Read player input.
+- Read NPC AI state directly.
+- Decide locomotion.
+- Execute gameplay actions.
+- Sample terrain by itself.
+- Spawn spell/particle effects.
+
+Shared immutable geometry/material data should be reused between identical NPC/animal instances where practical. Ownership must be explicit so one actor cannot dispose resources still used by another.
+
+# 10. Mesh strategy: rigid + targeted skinning
+
+Keep rigid attachments where deformation is unnecessary.
+
+Humanoid examples:
+
+- Shoulder armor.
+- Belt hardware.
+- Medallion.
+- Bracers.
+- Boots.
+- Weapons.
+
+Animal examples:
+
+- Horns/antlers.
+- Claws/hooves.
+- Beak.
+- Saddle/equipment later.
+- Eye meshes.
+
+Skin only geometry where joint deformation visibly matters.
+
+Initial humanoid candidates:
+
+- Torso/tunic shoulders and waist.
+- Hip/robe transition.
+- Elbow/knee transition pieces where rigid gaps are visible.
+
+Initial quadruped proof may remain largely rigid/articulated if that is enough to validate the runtime. Do not add animal skinning merely to prove extensibility.
+
+## Procedural skin weights
+
+`ActorSkinWeights` should operate from mesh-specific influence declarations rather than humanoid bone names.
+
+Requirements:
+
+- Maximum four influences per vertex.
+- Prefer one/two influences where possible.
+- Finite, non-negative weights.
+- Normalized sums.
+- No references outside the mesh's allowed influence set.
+- Bind pose reproduces generated geometry exactly enough to avoid visible offset.
+
+# 11. Joint limits
+
+Joint limits belong to rig/family definitions.
+
+Shared code provides limit application primitives; humanoid and quadruped profiles provide different values and supported axes.
+
+Humanoid limits cover:
+
+- Spine.
+- Neck/head.
+- Clavicles.
+- Shoulders/elbows/wrists.
+- Hips/knees/ankles/toes.
+
+Quadruped limits cover:
+
+- Spine/neck/head.
+- Front/hind limb joints.
+- Paw/hoof orientation as needed.
+- Tail segments if constrained.
+
+Do not encode human joint names in the generic constraint engine.
+
+# 12. Pose representation
+
+## Actor pose buffer
 
 Add:
 
-`src/character/animation/CharacterAnimationGraph.ts`
+`src/actor/animation/ActorPose.ts`
 
-The graph coordinates layers but should not contain the mathematical implementation of every pose.
+A pose is sized from `rigDefinition.boneCount` during actor initialization.
 
-## Base locomotion states
+Per bone it stores reusable local transform data:
 
-Initial base states:
+- Rotation quaternion.
+- Translation where permitted.
+
+Required operations:
+
+- Reset to bind pose.
+- Copy.
+- Blend.
+- Add additive deltas.
+- Blend through numeric mask.
+- Apply to rig instance.
+
+Rules:
+
+- No Euler interpolation.
+- No per-frame object maps.
+- No dependence on a specific bone count.
+- Buffers are allocated once and reused.
+
+## Pose scratch pool
+
+Each actor animation runtime owns a bounded set of pose buffers needed by its active graph/layers.
+
+Do not create a global mutable pool shared across concurrently updating actors.
+
+# 13. Animation input contract
+
+## Actor animation snapshot
+
+Animation consumes runtime facts, not controller classes.
+
+Add:
+
+`src/actor/animation/ActorAnimationInput.ts`
+
+Common fields should remain small and universal:
+
+```text
+worldPosition
+worldVelocity
+facing
+grounded
+groundNormal
+speed
+normalizedSpeed
+acceleration
+verticalVelocity
+movementDirection
+teleported/reset flag
+```
+
+Family/action extensions are supplied through typed profile state owned outside the shared base snapshot rather than growing one universal object with every future ability.
+
+Humanoid player extensions may include:
+
+```text
+jump phase facts
+stance
+roll action snapshot
+spell action snapshot
+look target
+```
+
+Animal extensions may include:
+
+```text
+gait mode
+turn rate
+alert/look target
+optional tail/behavior parameters
+```
+
+The shared runtime must not know where those facts came from.
+
+# 14. Control and AI boundary
+
+The same animation stack must work for all control sources.
+
+## Player path
+
+`ThirdPersonController` continues to own:
+
+- Player movement intent.
+- Jump physics.
+- Grounding/collision.
+- Camera.
+- Semantic action requests.
+- Gameplay root position.
+
+It creates animation facts for the actor runtime.
+
+## Humanoid NPC path
+
+Future NPC movement/AI owns:
+
+- Navigation/steering.
+- Desired speed/facing.
+- Grounding/collision.
+- NPC action intent.
+
+It produces the same humanoid animation facts without depending on `ThirdPersonController`.
+
+## Animal path
+
+Future animal behavior owns:
+
+- Wander/flee/follow/idle decisions.
+- Navigation/steering.
+- Desired gait.
+- Grounding.
+- Species-specific action intent.
+
+It produces generic movement facts plus its animal profile state.
+
+Animation code must never call AI decision methods or read DOM/input state.
+
+# 15. Animation runtime and composition pipeline
+
+Add:
+
+`src/actor/animation/ActorAnimationRuntime.ts`
+
+The runtime coordinates reusable pose composition but delegates pose generation to the actor's profile.
+
+Stable update order:
+
+1. Receive resolved movement/action facts.
+2. Ask locomotion provider for base pose.
+3. Apply locomotion transition blending.
+4. Apply supported action layers through profile masks.
+5. Apply additive motion.
+6. Enforce required pre-IK constraints.
+7. Apply contact IK when enabled.
+8. Apply reach/interaction IK when enabled.
+9. Apply look IK when enabled.
+10. Enforce final joint limits.
+11. Apply final pose to rig bones.
+12. Update required world matrices/sockets once.
+13. Update supported secondary-motion modules.
+14. Publish socket/effect transforms/events.
+
+A profile may skip any unsupported stage.
+
+No module may silently reorder the pipeline for one species.
+
+# 16. Locomotion provider interface
+
+Do not put humanoid and animal gait equations into one giant locomotion class.
+
+Use a small provider contract such as:
+
+```text
+generatePose(input, gaitState, targetPose)
+reset()
+```
+
+Concrete implementations:
+
+- `HumanoidLocomotionLayer`.
+- `QuadrupedLocomotionLayer`.
+- Later `BirdGroundLocomotionLayer` / `BirdFlightLocomotionLayer` if required.
+
+The shared runtime owns blending and pose buffers. The species layer owns how its bones move.
+
+# 17. Gait/contact model
+
+The original single `CharacterGait` concept must become effector-based so it works with two or four feet.
+
+Add:
+
+`src/actor/animation/ActorGait.ts`
+
+Responsibilities:
+
+- Maintain normalized gait cycle phase.
+- Resolve per-effector plant/swing weight.
+- Resolve stride frequency/length facts.
+- Allow profile-defined phase offsets.
+- Expose contact phase to terrain IK and environment interaction.
+
+Humanoid walking typically uses two foot effectors approximately phase-opposed.
+
+Quadruped profiles may define different phase tables for:
+
+- Walk.
+- Trot.
+- Run/gallop later.
+
+Do not implement every real gait initially. The quadruped proof needs idle + one walk gait sufficient to validate four contact phases.
+
+Grass/water/environment interaction should eventually consume declared contact effectors rather than assuming exactly two human feet.
+
+# 18. State machines and capabilities
+
+## Shared runtime state
+
+The shared runtime needs only concepts that are universal enough to justify central ownership, such as:
+
+- Current locomotion state key.
+- Previous/current transition.
+- Blend progress.
+- Active profile layer weights.
+
+## Profile states
+
+Humanoid locomotion states may include:
 
 - `idle`
 - `walk`
 - `run`
-- `crouchIdle`
-- `crouchWalk`
 - `takeoff`
 - `rise`
 - `apex`
 - `fall`
 - `land`
+- `crouchIdle`
+- `crouchWalk`
 - `roll`
 
-Future states such as swim/climb must be addable without changing the pose-buffer abstraction.
+Quadruped locomotion may initially include:
 
-## Action states
+- `idle`
+- `walk`
+- optional `run` later
 
-Initial action-layer states:
+Bird states later may include ground and flight modes.
 
-- `none`
-- `spellWindup`
-- `spellCharge`
-- `spellRelease`
-- `spellRecover`
-- `interact`
+Do not create one global state enum containing every possible actor state.
 
-Do not add melee states until a combat requirement exists.
+## Optional capabilities
 
-## Transition requirements
+Capability is represented by installed profile modules/definitions rather than dozens of booleans.
 
-Every transition defines:
+Examples:
 
-- Source state(s).
-- Destination state.
-- Entry condition.
-- Minimum residence time if required.
-- Blend duration.
-- Whether movement remains player-controlled.
-- Whether the action may be interrupted.
-- Whether upper-body actions survive the base-state transition.
+- A humanoid profile has a stance provider, roll provider, arm reach solver, hand pose provider, spell action provider.
+- A deer profile has none of those but has four contact limbs and a tail secondary-motion provider.
 
-Transition tuning belongs in validated configuration/tuning data.
+Code that needs an optional behavior should resolve it at initialization or through an explicit optional profile field, not repeatedly test strings in the frame loop.
 
-# 8. Preserve current locomotion first
+# 19. Transition blending
 
-## Migration objective
+Add shared:
 
-Before implementing crouch or spells, port the existing visual behavior to the new pose/layer system.
+`src/actor/animation/ActorPoseBlender.ts`
 
-The first skeletal locomotion implementation must reproduce:
+Requirements:
+
+- Preserve current blended source pose when a transition starts.
+- Generate destination continuously.
+- Quaternion blend rotations.
+- Blend translations only where valid.
+- Use a small fixed easing set.
+- Allow interruption without allocations.
+- Work with any rig bone count.
+- Never assume humanoid state names.
+
+Transition definitions belong to each animation profile.
+
+# 20. Generic two-bone IK primitive
+
+Add:
+
+`src/actor/ik/TwoBoneIk.ts`
+
+It must operate entirely on resolved transforms/chain descriptors.
+
+It must not know terms such as arm, knee, paw, or hand.
+
+Requirements:
+
+- Analytic solution.
+- Explicit bend/pole direction.
+- Reach clamping.
+- Stable behavior close to full extension.
+- Bounded joint constraints.
+- Reusable scratch state.
+- No allocation per solve.
+
+This primitive should serve:
+
+- Humanoid legs.
+- Humanoid arms.
+- Quadruped front/hind two-segment proof limbs.
+- Future compatible animal limbs.
+
+If a later species genuinely needs a three-segment or spline IK solver, add that solver separately. Do not complicate `TwoBoneIk` now.
+
+# 21. Generic contact IK
+
+Replace player-specific `CharacterLegIk` ownership with:
+
+`src/actor/ik/ActorContactIk.ts`
+
+It accepts a profile-defined set of contact chains/effectors.
+
+For each enabled effector:
+
+1. Resolve expected animated contact position.
+2. Sample terrain height/normal through an injected terrain-contact sampler.
+3. Build desired effector target.
+4. Read gait plant weight.
+5. Blend IK strongly while planted and weakly/zero while swinging.
+6. Solve the declared chain.
+7. Align terminal foot/paw/hoof orientation as configured.
+
+## Body-height compensation
+
+Do not name the generic system `pelvis compensation` because quadrupeds may adjust a body center/spine anchor.
+
+Add a profile-defined body support solver that can request a bounded vertical/tilt correction before contact limbs solve.
+
+Humanoid implementation:
+
+- Adjust pelvis height so both legs remain feasible.
+
+Quadruped implementation:
+
+- Initially adjust body center height with conservative pitch/roll limits from four contacts.
+- Do not attempt full physically based body stabilization in the proof phase.
+
+## Contact IK acceptance
+
+Humanoid:
+
+- Both feet contact slopes without obvious penetration.
+- No knee inversion or leg stretch.
+
+Quadruped proof:
+
+- Four paws follow representative uneven terrain.
+- Body does not visibly snap between contacts.
+- Front/hind limbs bend in intended directions.
+- Gait swing limbs are not pinned to ground.
+
+# 22. Reach IK
+
+Add shared chain solving under:
+
+`src/actor/ik/ActorReachIk.ts`
+
+Humanoid profile initially uses it for arms.
+
+Requirements:
+
+- Resolve target in world or actor local space once.
+- Explicit pole control.
+- Reach clamping.
+- Optional proximal/clavicle contribution supplied by humanoid profile.
+- Blend less than 1.0 when procedural action pose should remain visible.
+
+Animals are not required to install reach IK merely because the module exists.
+
+Future creatures could use the same mechanism for a forelimb interaction if appropriate.
+
+# 23. Look system
+
+Add shared:
+
+`src/actor/ik/ActorLookIk.ts`
+
+A profile declares its look chain and weight distribution.
+
+Humanoid example:
+
+- Small upper-spine contribution.
+- Medium neck contribution.
+- Head final contribution.
+
+Quadruped example:
+
+- Optional upper spine/chest contribution.
+- Neck.
+- Head.
+
+Requirements:
+
+- Bounded yaw/pitch.
+- Smooth acquire/release.
+- No target retained after teleport/reset.
+- Profile can reduce/disable look during incompatible actions.
+
+# 24. Sockets
+
+Sockets are rig-definition data, not player-only code.
+
+Add:
+
+`src/actor/rig/ActorSockets.ts`
+
+Common semantic socket keys may include:
+
+- `head`
+- `mouth`
+- `chest`
+- `effect.primary`
+
+Humanoid sockets may additionally include:
+
+- `hand.L`
+- `hand.R`
+- `palm.L`
+- `palm.R`
+- `weapon.L`
+- `weapon.R`
+- `backWeapon`
+- `spellOrigin`
+
+Animal sockets may include:
+
+- `mouth`
+- `head`
+- `back`
+- `tailTip`
+
+Effect/gameplay systems must request documented sockets from the actor capability/profile they require. They must not query arbitrary bone geometry.
+
+Missing mandatory sockets should fail at initialization for that feature, not silently fall back to world origin.
+
+# 25. Secondary motion
+
+Secondary motion is profile-specific and consumes the final primary pose.
+
+Shared interface:
+
+```text
+update(delta, actorFacts, rigInstance)
+reset()
+dispose()
+```
+
+Player humanoid modules:
+
+- Cape.
+- Hair.
+- Skirt/robe.
+
+Quadruped examples:
+
+- Tail.
+- Ears later.
+
+Bird examples later:
+
+- Tail/feather secondary response if needed.
+
+Do not make cape concepts part of `ActorAnimationRuntime` beyond a generic secondary-module hook.
+
+# 26. Preserve current player locomotion first
+
+Before adding new player abilities, port the current visual behavior through the shared actor foundation.
+
+The humanoid locomotion profile must reproduce:
 
 - Idle breathing/bob.
 - Walk gait.
 - Run gait.
 - Acceleration lean.
-- Stride-driven arm opposition.
+- Opposed arm swing.
 - Takeoff compression.
 - Rise pose.
 - Apex tuck.
 - Fall pose.
-- Landing compression and recovery.
+- Landing compression/recovery.
 - Slope alignment.
 - Existing cape/hair response.
 
-Do not redesign the gait during the migration unless a defect prevents the skeletal architecture.
+Do not redesign the player gait during the infrastructure migration unless a defect blocks the new architecture.
 
-## Proposed modules
+# 27. Humanoid player actions
 
-- `src/character/animation/CharacterLocomotionLayer.ts`
-- `src/character/animation/CharacterLocomotionTuning.ts`
-- `src/character/animation/CharacterGait.ts`
+These remain character-specific modules built on the shared actor runtime.
 
-`CharacterGait` owns stride phase and planted-foot phase semantics so grass interaction, foot IK, and visual leg motion can share the same gait timing rather than re-deriving unrelated phases.
+Recommended location:
 
-# 9. State blending
+`src/character/actions/`
 
-All base-state changes must blend rather than snap.
+They must not migrate into `src/actor/` merely because they use actor poses.
 
-Add:
+## Stance/crouch
 
-`src/character/animation/CharacterPoseBlender.ts`
-
-Requirements:
-
-- Preserve the previous pose at transition start.
-- Generate the destination pose continuously.
-- Blend using normalized transition progress.
-- Support easing curves from a small fixed set.
-- Avoid restarting a blend when the destination state remains unchanged.
-- Handle interruption by using the current blended pose as the new transition source.
-- No allocation on interruption.
-
-Initial recommended blend ranges should be tuned visually, not fixed in this document.
-
-# 10. Terrain-aware leg IK
-
-## Solver choice
-
-Use an analytic two-bone solver for each leg.
-
-Add:
-
-- `src/character/ik/TwoBoneIk.ts`
-- `src/character/ik/CharacterLegIk.ts`
-- `src/character/ik/CharacterLegIkTuning.ts`
-
-Do not introduce CCD/FABRIK for the legs.
-
-## Foot target sampling
-
-For each foot:
-
-1. Resolve the animated foot's expected horizontal position.
-2. Sample terrain height below/around that point.
-3. Sample terrain normal.
-4. Construct a desired ankle/foot target with sole clearance.
-5. Determine whether the current gait phase considers the foot planted.
-6. Blend IK strongly while planted and weakly/zero while swinging.
-7. Solve hip and knee.
-8. Align foot pitch/roll partially to the surface normal.
-9. Apply toe adjustment only when useful.
-
-## Pelvis compensation
-
-Before solving individual legs:
-
-- Determine whether either requested foot target would overextend its leg.
-- Lower/raise pelvis within bounded limits so both legs remain feasible.
-- Smooth pelvis correction over time.
-- Never allow IK compensation to create vertical jitter from terrain micro-noise.
-
-A small spatial/temporal filter is acceptable. Do not resample terrain excessively per frame.
-
-## IK acceptance criteria
-
-- Standing on a slope: both feet contact terrain without obvious penetration.
-- One foot on higher terrain: corresponding knee bends naturally.
-- Walking uphill/downhill: planted feet do not skate excessively.
-- Running: IK fades enough to preserve the authored/procedural gait.
-- Jumping/falling: ground IK is disabled until landing contact becomes relevant.
-- No knee inversion.
-- No leg stretch beyond configured tolerance.
-- No visible frame-to-frame ankle jitter on normal terrain.
-
-# 11. Crouch and hiding stance
-
-## Gameplay stance
-
-Introduce an explicit stance independent from animation state:
+Humanoid stance initially supports:
 
 ```text
 standing
 crouched
 ```
 
-Future prone states are not required.
+Crouch pose coordinates:
 
-Proposed module:
-
-`src/character/actions/CharacterStance.ts`
-
-The controller/action layer owns stance intent. The animation graph consumes it.
-
-## Crouch pose requirements
-
-A correct crouch must coordinate:
-
-- Pelvis down and slightly back.
+- Pelvis down/back.
 - Hip flexion.
 - Knee flexion.
 - Ankle compensation.
-- Torso forward lean.
-- Spine compensation so the head remains readable.
-- Clavicle/shoulder relaxation.
-- Reduced vertical head height.
-- Feet remaining planted through IK.
+- Torso lean.
+- Spine/head compensation.
+- Reduced shoulder motion.
+- Terrain contact IK.
 
-Do not implement crouch by translating only the root/pelvis.
+Crouch walk uses shorter stride, lower center of mass, reduced arm swing, and persistent knee bend.
 
-## Crouch locomotion
+Expose approximate head/body height for later hiding/visibility logic. Stealth AI remains outside this plan.
 
-Crouch walk must:
+## Roll/dodge
 
-- Use a shorter stride.
-- Reduce gait frequency/speed appropriately.
-- Keep knees bent throughout the cycle.
-- Reduce arm swing.
-- Keep center of mass low.
-- Preserve foot IK.
-- Transition smoothly to/from standing locomotion.
+`CharacterRollAction` owns semantic phase and desired root displacement profile.
 
-## Hiding support
+Recommended phases:
 
-The rig phase only needs to expose useful character data for future stealth logic:
+1. Anticipation.
+2. Compression.
+3. Launch.
+4. Rotation.
+5. Recovery.
 
-- Current stance.
-- Approximate head height.
-- Approximate body visibility height.
-- Whether the character is moving.
+Gameplay/controller owns actual world displacement.
 
-A later stealth system may compare those values with grass/cover height. Enemy awareness logic is out of scope.
+Animation requirements:
 
-# 12. Roll/dodge action
+- Lower pelvis.
+- Curl spine.
+- Tuck head.
+- Draw knees in.
+- Protect head/chest with arms.
+- Stable recovery planting.
+- Camera follows gameplay root, not visual somersault orientation.
+- Cape/skirt receive action-specific secondary motion facts.
 
-## Responsibility split
+## Upper-body action layer
 
-Animation alone must not move the gameplay character independently of the controller.
-
-Add:
-
-- `src/character/actions/CharacterRollAction.ts`
-- `src/character/actions/CharacterActionState.ts`
-
-The roll action should expose a normalized action phase and desired movement profile. The third-person controller applies approved root displacement to gameplay position.
-
-## Roll phases
-
-Recommended semantic phases:
-
-1. `anticipation`
-2. `compression`
-3. `launch`
-4. `rotation`
-5. `recovery`
-
-Durations are tuning values.
-
-## Roll pose requirements
-
-During the roll:
-
-- Pelvis lowers before launch.
-- Spine curls.
-- Head tucks.
-- Knees draw toward the torso.
-- Arms protect the head/chest rather than remaining in locomotion swing.
-- Root orientation follows the roll direction.
-- Recovery plants feet before returning full movement control.
-- Cape motion receives a roll/action impulse or strongly damped fold target rather than clipping through the whole body.
-
-## Gameplay requirements
-
-- Roll direction is captured at action start.
-- Direction does not oscillate with later input.
-- Movement distance is deterministic from config.
-- Steering during the roll is either disabled or deliberately bounded.
-- Roll cannot start while already rolling.
-- Roll cannot start in incompatible airborne states unless explicitly designed later.
-- Camera remains stable and does not inherit the visual body's full somersault rotation.
-- Character world root must not rotate the camera upside down.
-
-No invulnerability frames are required by the rig plan; that belongs to future combat design.
-
-# 13. Upper-body action layer
-
-Add:
-
-`src/character/animation/CharacterActionLayer.ts`
-
-This layer must be able to animate chest/spine/clavicles/arms/hands while the lower body continues locomotion.
+Humanoid profile supports a mask-based upper-body layer so actions can continue over locomotion.
 
 Examples:
 
-- Walk while charging a spell.
+- Walk while charging spell.
 - Stand while two-hand casting.
-- Crouch while holding a readied spell.
-- Aim one hand while the opposite arm remains relaxed.
+- Crouch while readying spell if later enabled.
 
-The layer uses masks; it must not manually restore leg pose values after modifying them.
+## Spell casting
 
-# 14. Spell-casting architecture
+Initial cast modes:
 
-## Spell animation is target driven
+- `oneHand`
+- `twoHand`
 
-The rig should not hardcode one spell visual effect. It should expose animation intent:
+Semantic phases:
+
+1. Windup.
+2. Charge.
+3. Release.
+4. Recover.
+
+Spell animation consumes target-driven facts rather than effect implementation:
 
 ```text
-castMode
 castProgress
 primaryHandTarget
 secondaryHandTarget
@@ -660,356 +1125,269 @@ chargeAmount
 releasePulse
 ```
 
-Proposed modules:
+Spell effects attach to sockets and remain outside animation.
 
-- `src/character/actions/CharacterSpellAction.ts`
-- `src/character/animation/CharacterSpellPose.ts`
-- `src/character/animation/CharacterSpellTuning.ts`
-
-## Initial cast modes
-
-Implement only enough modes to prove the architecture:
-
-- `oneHand`
-- `twoHand`
-
-Future weapon/staff modes must not require changing the pose buffer.
-
-## Spell phases
-
-Recommended semantic phases:
-
-1. `windup`
-2. `charge`
-3. `release`
-4. `recover`
-
-`charge` may be held for a bounded or gameplay-controlled duration.
-
-## Spell pose behavior
-
-One-hand cast:
-
-- Chest turns partly toward target.
-- Casting clavicle follows shoulder elevation.
-- Upper arm aims generally toward the target.
-- Elbow maintains a natural bend using IK pole control.
-- Hand/palm points toward the spell target.
-- Opposite arm uses a supporting or balanced pose.
-- Head looks toward target within neck limits.
-
-Two-hand cast:
-
-- Both clavicles participate.
-- Chest/spine carry more of the turn.
-- Hands converge around a configurable spell center.
-- Elbows remain separated enough to avoid collapsing into the torso.
-- Release may add a short additive recoil/expansion.
-
-# 15. Arm IK
-
-Add:
-
-`src/character/ik/CharacterArmIk.ts`
-
-Reuse the generic analytic `TwoBoneIk` primitive where possible.
-
-Requirements:
-
-- Shoulder origin comes from the final chest/clavicle pose.
-- Hand target may be world- or character-local and is resolved once.
-- Elbow pole direction is explicitly controlled to prevent elbow flipping.
-- Arm reach is clamped to feasible length.
-- Clavicle contributes to large reaches before the elbow/shoulder is forced to limits.
-- IK blend can be less than 1.0 so procedural spell pose and target correction combine naturally.
-- Left and right arms solve independently.
-
-Acceptance criteria:
-
-- Hand can target points above, below, left, right, and forward within reasonable reach.
-- Elbow does not suddenly flip at the centerline.
-- Shoulder does not detach visually from torso.
-- Walking continues under an upper-body cast.
-- A moving target does not cause visible one-frame snapping.
-
-# 16. Look IK
-
-Add:
-
-`src/character/ik/CharacterLookIk.ts`
-
-Distribute look rotation across:
-
-- `spineUpper` small contribution.
-- `neck` medium contribution.
-- `head` final contribution.
-
-Requirements:
-
-- Clamp yaw/pitch.
-- Smooth target acquisition and release.
-- Disable or reduce look IK during roll phases where the body pose should dominate.
-- Allow spell actions to provide a high-priority look target.
-- Idle look behavior may be added later; do not invent random head motion in the first implementation.
-
-# 17. Character sockets
-
-Add:
-
-`src/character/rig/CharacterSockets.ts`
-
-Required initial sockets:
-
-- `hand.L`
-- `hand.R`
-- `palm.L`
-- `palm.R`
-- `weapon.L`
-- `weapon.R`
-- `backWeapon`
-- `chest`
-- `head`
-- `spellOrigin`
-
-Sockets are reusable `THREE.Object3D`/`THREE.Group` attachments parented to bones.
-
-Effect/render systems receive socket world transforms rather than querying arbitrary bone geometry.
-
-The spell system must not depend on the character mesh implementation to find a palm position.
-
-# 18. Hand poses
-
-Add:
-
-`src/character/animation/CharacterHandPose.ts`
+## Hands
 
 Initial semantic poses:
 
-- `relaxed`
-- `fist`
-- `open`
-- `point`
-- `grip`
-- `cast`
+- Relaxed.
+- Fist.
+- Open.
+- Point.
+- Grip.
+- Cast.
 
-Hand poses should be parameterized/blendable rather than six unrelated hard switches where practical.
+Finger articulation is applied after arm reach/orientation has stabilized.
 
-Finger articulation is applied after arm IK so the hand orientation is stable first.
+# 28. NPC reuse contract
 
-# 19. Secondary motion integration
+Humanoid NPCs must reuse:
 
-## Cape
+- `HumanoidRigDefinition`.
+- Humanoid pose buffers/masks.
+- Humanoid locomotion layer.
+- Humanoid contact IK.
+- Humanoid look IK.
+- Shared joint limits.
+- Shared socket definitions where appropriate.
 
-Keep `CapeMotion` as the production cape system during the rig migration.
+They may use different:
 
-Refactor only its input contract if necessary so it can consume:
+- Appearance geometry/materials.
+- Scale/proportions within validated bounds.
+- Locomotion tuning profile.
+- AI/controller.
+- Action set.
+- Animation quality/LOD level.
 
-- Character local velocity.
-- Vertical velocity.
-- Acceleration/turning.
-- Grounded/airborne state.
-- Landing impact.
-- Roll phase.
-- Crouch/stance.
+The NPC architecture must not instantiate `ThirdPersonController` or fake player input.
 
-During roll:
+## NPC proof requirement
 
-- Reduce uncontrolled outward spread.
-- Bias cloth toward the body during the tightest rotation.
-- Add recovery impulse as the character stands.
+Before the actor foundation is considered reusable, create a development-only/scripted non-player humanoid actor that:
 
-Do not replace the cape with expensive cloth physics.
+- Uses the same humanoid rig definition as the player.
+- Walks a deterministic short path or circle.
+- Stops/starts.
+- Turns.
+- Uses shared locomotion blending.
+- Uses shared contact IK when close enough for full quality.
+- Has no dependency on player input classes.
 
-## Hair
+This is an architectural proof, not NPC AI work.
 
-Hair remains spring-driven and follows the final head transform.
+# 29. Animal proof contract
 
-## Skirt/robe
+The first animal proof should be a simple quadruped procedural actor.
 
-Skirt sections should respond to:
+It only needs enough art/behavior to validate infrastructure:
 
-- Leg pose.
-- Crouch amount.
-- Horizontal speed.
-- Vertical velocity.
-- Roll phase.
+- Distinct procedural quadruped body.
+- Four articulated limbs.
+- Spine/neck/head.
+- Optional simple tail.
+- Idle pose.
+- Walk gait.
+- Four contact phases.
+- Terrain contact IK.
+- Turn/facing response.
+- Look target support if simple to include.
 
-The robe must not remain in a standing silhouette while knees are deeply crouched.
+It does not need:
 
-# 20. Controller and gameplay integration
+- Production animal art quality.
+- Full AI.
+- Running/galloping.
+- Attacks.
+- Feeding.
+- Herd behavior.
+- Complex skinning.
 
-## Keep `ThirdPersonController` focused
+The proof must be good enough to expose hidden humanoid assumptions in the core.
 
-Do not put pose equations into the controller.
+# 30. Animation LOD and actor populations
 
-The controller should eventually own/coordinate only:
+The player remains full fidelity. NPCs/animals need scalable cost.
 
-- Movement intent.
-- Jump intent.
-- Stance intent.
-- Action requests.
-- World position/velocity.
-- Terrain collision/grounding.
-- Camera behavior.
+Add later:
 
-A dedicated character action coordinator should resolve whether crouch, roll, or spell actions are active.
+`src/actor/animation/ActorAnimationQuality.ts`
 
-Recommended modules:
+Quality policy should be configuration-driven and based on distance/importance/runtime profile.
 
-- `src/character/actions/CharacterActionController.ts`
-- `src/character/actions/CharacterActionConfig.ts`
+Recommended conceptual levels:
 
-## Animation input snapshot
+## Full
 
-Replace an ever-growing positional parameter list with a stable snapshot consumed by `SnowflowCharacter`/animation graph.
+For player and nearby important actors:
 
-It should contain only runtime facts needed by animation, for example:
+- Update every render frame.
+- Full locomotion blending.
+- Contact/reach/look IK.
+- Secondary motion.
+- Full skinning.
 
-```text
-position
-velocity
-facing
-groundNormal
-grounded
-speed
-runSpeed
-acceleration
-distanceTravelled
-verticalVelocity
-jumpStarted
-landed
-landingImpact
-stance
-rollState
-spellState
-lookTarget
-```
+## Reduced
 
-Do not pass raw input devices into character animation.
+For nearby/mid-distance NPCs/animals:
 
-# 21. Camera behavior for new actions
+- Pose generation may run at a lower configured frequency and interpolate visually.
+- Simplified/less frequent contact IK.
+- Reduced look updates.
+- Optional secondary motion disabled or reduced.
 
-Crouch:
+## Minimal
 
-- Camera target lowers smoothly with effective head/torso height.
-- Do not instantly snap the camera down on stance toggle.
+For distant actors:
 
-Roll:
+- Coarse locomotion phase.
+- No terrain/reach IK unless required.
+- No secondary motion.
+- Lower update rate.
+- Consider rigid or simpler LOD geometry.
 
-- Camera follows gameplay root, not the visual body's somersault orientation.
-- Apply only a bounded optional action offset if testing proves it improves readability.
-- Prevent camera-terrain collision exactly as normal movement does.
+## Culled
 
-Spell casting:
+Outside relevant visual range:
 
-- No forced cinematic camera in the first implementation.
-- Optional mild look-target assistance may be added later through explicit gameplay requirements.
+- No animation work.
+- Gameplay/AI may continue at its own independent cadence.
 
-# 22. Input integration
+Do not hardcode distances/rates in the animation classes.
 
-Input bindings are implemented only after the underlying action is functional and testable from a development hook.
+## Performance rules for populations
 
-Recommended semantic input actions:
+- Share immutable rig definitions.
+- Share immutable geometry/material resources where visually appropriate.
+- Reuse per-instance pose buffers.
+- Avoid one JavaScript object per bone per frame.
+- Avoid updating socket world matrices that no active system reads.
+- Skip IK before doing terrain samples when quality policy disables it.
+- Skip secondary motion before spring work when disabled.
+- Do not implement GPU crowd animation until CPU profiling shows it is needed.
+- Pool actor instances only if spawn/despawn churn proves allocation cost matters.
 
-- `toggleCrouch` or `holdCrouch` — choose one behavior deliberately.
-- `roll`
-- `castPrimary`
-- `castSecondary` only when there is a second gameplay spell requirement.
+# 31. Configuration strategy
 
-Desktop and touch input must map to the same semantic action API.
+Gameplay/art tuning belongs in YAML when it is expected to change without code edits.
 
-Do not couple animation code to keyboard key codes or DOM buttons.
+The existing player values may continue in `public/config/world.yaml` during migration.
 
-# 23. Configuration plan
+When the first non-player actor/species becomes production functionality, introduce a validated actor/species configuration file rather than adding endless species keys to `world.yaml`.
 
-Gameplay-visible tuning belongs in `public/config/world.yaml` with schema validation when it is genuinely product tuning.
+Recommended future file:
 
-Likely future world config values include:
+`public/config/actors.yaml`
 
-```yaml
-# Character stance/action gameplay tuning.
-characterCrouchSpeedMultiplier: ...
-characterCrouchTransitionTime: ...
-characterRollDistance: ...
-characterRollDuration: ...
-characterRollRecoveryTime: ...
-characterSpellWindupTime: ...
-characterSpellReleaseTime: ...
-characterSpellRecoveryTime: ...
-```
+Potential categories:
 
-Low-level implementation constants that are not expected to be product tuning belong in dedicated `*Tuning.ts` modules rather than YAML.
+- Humanoid movement profile.
+- Player action tuning.
+- NPC humanoid locomotion variants.
+- Quadruped walk speed/gait/stride tuning.
+- Contact IK strength/clearance.
+- Animation LOD thresholds/update rates.
+- Species scale/proportion ranges where art-directed.
 
-Examples:
+Do not put structural rig topology in YAML merely to avoid TypeScript. Bone parent graphs and solver bindings are compile-time structural contracts and should remain small typed definitions unless runtime-authored creatures become a real product requirement.
 
-- Numerical epsilons.
-- Solver iteration-free thresholds.
-- Bone-name/index layout.
-- Static mask definitions.
-- Fixed coordinate conventions.
+Every new product config field requires:
 
-Every new YAML field must update:
+- Typed config representation.
+- Schema validation.
+- Cross-field validation where needed.
+- Config contract verifier coverage.
+- Documented defaults in the YAML file.
 
-- `WorldConfig`.
-- `WORLD_CONFIG_SCHEMA`.
-- Cross-field validation if needed.
-- `public/config/world.yaml`.
-- Config contract verification.
+# 32. Proposed source layout
 
-# 24. Proposed source layout
-
-Target organization:
+Target shared organization:
 
 ```text
-src/character/
-  SnowflowCharacter.ts
+src/
+  actor/
+    rig/
+      ActorRigDefinition.ts
+      ActorRigBuilder.ts
+      ActorRigInstance.ts
+      ActorBoneIndex.ts
+      ActorRigRoles.ts
+      ActorRigChains.ts
+      ActorRigMasks.ts
+      ActorJointLimits.ts
+      ActorSkinWeights.ts
+      ActorSockets.ts
 
-  rig/
-    CharacterBoneId.ts
-    CharacterRig.ts
-    CharacterRigBuilder.ts
-    CharacterRigTuning.ts
-    CharacterJointLimits.ts
-    CharacterSkinWeights.ts
-    CharacterSockets.ts
+    animation/
+      ActorAnimationInput.ts
+      ActorAnimationRuntime.ts
+      ActorAnimationProfile.ts
+      ActorPose.ts
+      ActorPoseBlender.ts
+      ActorGait.ts
+      ActorAnimationQuality.ts
 
-  animation/
-    CharacterPose.ts
-    CharacterBoneMask.ts
-    CharacterPoseBlender.ts
-    CharacterAnimationGraph.ts
-    CharacterLocomotionLayer.ts
-    CharacterLocomotionTuning.ts
-    CharacterGait.ts
-    CharacterActionLayer.ts
-    CharacterSpellPose.ts
-    CharacterSpellTuning.ts
-    CharacterHandPose.ts
+    ik/
+      TwoBoneIk.ts
+      ActorContactIk.ts
+      ActorReachIk.ts
+      ActorLookIk.ts
 
-  ik/
-    TwoBoneIk.ts
-    CharacterLegIk.ts
-    CharacterLegIkTuning.ts
-    CharacterArmIk.ts
-    CharacterLookIk.ts
+    secondary/
+      ActorSecondaryMotion.ts
 
-  actions/
-    CharacterActionState.ts
-    CharacterActionConfig.ts
-    CharacterActionController.ts
-    CharacterStance.ts
-    CharacterRollAction.ts
-    CharacterSpellAction.ts
+  character/
+    SnowflowCharacter.ts
 
-  secondary/
-    CapeMotion.ts
-    CapeMotionGeometry.ts
-    CapeMotionTuning.ts
+    rig/
+      HumanoidRigDefinition.ts
+      HumanoidRigBuilder.ts
+      HumanoidRigTuning.ts
+      HumanoidJointLimits.ts
+      HumanoidSkinWeights.ts
+      HumanoidSockets.ts
+
+    animation/
+      HumanoidAnimationProfile.ts
+      HumanoidLocomotionLayer.ts
+      HumanoidLocomotionTuning.ts
+      HumanoidGaitProfile.ts
+      HumanoidBoneMasks.ts
+      CharacterHandPose.ts
+      CharacterSpellPose.ts
+      CharacterSpellTuning.ts
+
+    actions/
+      CharacterActionState.ts
+      CharacterActionController.ts
+      CharacterStance.ts
+      CharacterRollAction.ts
+      CharacterSpellAction.ts
+
+    secondary/
+      CapeMotion.ts
+      CapeMotionGeometry.ts
+      CapeMotionTuning.ts
+      CharacterHairMotion.ts
+      CharacterSkirtMotion.ts
+
+  creatures/
+    quadruped/
+      QuadrupedRigDefinition.ts
+      QuadrupedRigBuilder.ts
+      QuadrupedAnimationProfile.ts
+      QuadrupedLocomotionLayer.ts
+      QuadrupedGaitProfile.ts
+      QuadrupedJointLimits.ts
+      QuadrupedSecondaryMotion.ts
 ```
 
-Existing files may be moved incrementally rather than in one large rename commit. Avoid churn that makes functional changes harder to review.
+Do not create every listed file up front. Create a module only when its phase requires it.
 
-# 25. Migration strategy
+Existing files should move incrementally. Avoid rename churn mixed with behavioral changes.
+
+# 33. Migration strategy
 
 The migration must remain bisectable and visually testable after every phase.
 
@@ -1019,15 +1397,27 @@ Do not perform a flag-day rewrite.
 
 During early phases:
 
-- Keep the public `SnowflowCharacter.update(...)` contract stable where practical.
-- Build the new skeleton behind the existing character facade.
+- Keep `SnowflowCharacter.update(...)` stable where practical.
+- Build shared actor/rig primitives behind the player facade.
 - Keep current cape/hair systems connected.
 - Port one responsibility at a time.
-- Delete old pivot/group animation only after equivalent skeletal behavior is active and verified.
+- Delete old pivot/group animation only after equivalent skeletal behavior is verified.
 
-A temporary migration adapter is acceptable if it has an explicit TODO and is removed by the cleanup phase.
+Temporary migration adapters are allowed only with an explicit TODO and a named removal phase.
 
-# 26. Implementation phases
+## Extensibility checkpoint rule
+
+Do not postpone NPC/animal validation until after all player actions are implemented.
+
+The shared actor abstraction must be tested with:
+
+1. Player humanoid.
+2. Non-player humanoid.
+3. Minimal quadruped.
+
+If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the shared API is wrong and must be corrected before continuing.
+
+# 34. Implementation phases
 
 ## Phase 0 — Baseline and regression contract
 
@@ -1035,597 +1425,700 @@ A temporary migration adapter is acceptable if it has an explicit TODO and is re
 
 ### Work
 
-- Capture current rig hierarchy and important local transforms.
-- Record current character dimensions: total height, shoulder width, hip width, arm lengths, leg lengths, foot dimensions.
-- Record current locomotion state thresholds and landing/takeoff timing.
-- Add a static character-rig verification script before restructuring.
-- Add deterministic pose-snapshot checks for representative locomotion inputs.
-- Define performance baseline on compact/mobile and desktop.
-
-### Files
-
-- Add `scripts/verify-character-rig.mjs` or equivalent TypeScript verifier.
-- Extend `package.json` build verification chain manually; no GitHub Actions.
+- Record current player rig hierarchy/transforms/dimensions.
+- Record locomotion thresholds and jump/landing timing.
+- Capture deterministic representative player pose snapshots/invariants.
+- Record desktop and compact/mobile player animation baseline.
+- Add rig/motion verification before restructuring.
 
 ### Acceptance gate
 
-- Existing build/tests pass.
-- Baseline verifier can detect a missing arm/leg joint.
-- Current visual behavior remains unchanged.
+- Existing build passes.
+- Baseline verifier detects missing/broken current joints.
+- Visual behavior remains unchanged.
 
 ---
 
-## Phase 1 — Real skeleton and semantic rig
+## Phase 1 — Shared actor rig definition core
 
 **Status:** pending
 
 ### Work
 
-- Create `CharacterBoneId`.
-- Build the `THREE.Bone` hierarchy.
-- Create `THREE.Skeleton`.
-- Reattach current rigid procedural body pieces to semantic bones without changing appearance.
-- Add clavicles, lower/upper spine, chest, neck, and toes even if initial animation leaves some at bind pose.
-- Add socket infrastructure.
+- Add `ActorRigDefinition`.
+- Add stable per-definition numeric bone indexes.
+- Add chain/mask/socket descriptors.
+- Add generic joint-limit representation.
+- Add definition validation.
+- No player visual changes yet.
 
 ### Acceptance gate
 
-- Character looks substantially identical in bind/idle pose.
-- Every required bone exists exactly once.
-- Bone hierarchy verifier passes.
-- Existing cape/hair/skirt attachments still follow the character.
+- A small synthetic test rig can be defined/validated without humanoid assumptions.
+- Definition validation rejects duplicate/invalid parent indexes, invalid chains, invalid sockets, and cyclic hierarchy.
+- Runtime hot-path API exposes resolved indexes rather than string search.
+
+---
+
+## Phase 2 — Humanoid skeletal rig on shared core
+
+**Status:** pending
+
+### Work
+
+- Define `HumanoidRigDefinition`.
+- Build real `THREE.Bone` hierarchy.
+- Create rig instance/skeleton.
+- Reattach existing rigid procedural body pieces with minimal visual change.
+- Add clavicles/spine/chest/neck/toes.
+- Add humanoid sockets required later.
+- Keep cape/hair/skirt working.
+
+### Acceptance gate
+
+- Player looks substantially identical in bind/idle pose.
+- Every required humanoid bone exists once.
+- Shared definition validator passes.
 - No per-frame allocations introduced.
 
 ---
 
-## Phase 2 — Pose buffers and locomotion port
+## Phase 3 — Shared pose buffers, masks, blending runtime
 
 **Status:** pending
 
 ### Work
 
-- Add reusable pose buffers.
-- Add quaternion blending.
-- Add bone masks.
-- Port current idle/walk/run/takeoff/rise/apex/fall/land math to `CharacterLocomotionLayer`.
-- Make `SnowflowCharacter` orchestrate rather than directly calculate every bone rotation.
-- Keep existing gait timing initially.
+- Add `ActorPose` sized by rig definition.
+- Add mask buffers.
+- Add quaternion pose blender.
+- Add `ActorAnimationRuntime` pipeline shell.
+- Add profile interface.
+- No new player actions yet.
 
 ### Acceptance gate
 
-- Existing locomotion states visually match the pre-rig baseline closely.
-- No direct render-mesh rotations remain in locomotion code.
-- All animation goes through semantic bones/pose buffers.
+- Runtime works with arbitrary validated bone count.
+- No global humanoid bone count is assumed.
+- Pose buffers/masks allocate only at initialization.
+
+---
+
+## Phase 4 — Port current player locomotion
+
+**Status:** pending
+
+### Work
+
+- Add `HumanoidAnimationProfile` and `HumanoidLocomotionLayer`.
+- Port current idle/walk/run/takeoff/rise/apex/fall/land equations.
+- Add shared gait/contact phase model for two feet.
+- Move locomotion state selection/blending out of `SnowflowCharacter`.
+- Keep current cape behavior.
+
+### Acceptance gate
+
+- Existing player locomotion visually matches baseline closely.
+- `SnowflowCharacter` is primarily orchestration.
+- Locomotion modifies pose buffers/bones, not render meshes directly.
 - Jump/cape behavior remains intact.
 
 ---
 
-## Phase 3 — Animation graph and state blending
+## Phase 5 — Non-player humanoid reuse proof
 
 **Status:** pending
 
 ### Work
 
-- Add the animation graph.
-- Add transition blending.
-- Move locomotion state selection out of raw pose generation.
-- Ensure interrupted transitions continue from current blended pose.
-- Add architecture verifier rules preventing `SnowflowCharacter` from regrowing into a pose monolith.
+- Instantiate a second humanoid through the same rig/profile infrastructure behind a development-only proof path.
+- Drive it with scripted movement facts, not player input.
+- Verify independent pose state, transitions, and disposal.
+- Verify immutable rig definition can be shared safely.
 
 ### Acceptance gate
 
-- Idle↔walk↔run transitions are smooth.
-- Landing recovery blends cleanly to idle/walk/run.
-- Rapid direction/speed changes do not cause pose snapping.
-- No large per-frame object churn.
+- Player and scripted NPC animate simultaneously.
+- NPC has no dependency on `ThirdPersonController`/DOM input.
+- No shared mutable pose state leaks between actors.
+- Shared geometry/material ownership is disposal-safe.
 
 ---
 
-## Phase 4 — Foot IK and pelvis compensation
+## Phase 6 — Generic contact IK and humanoid foot grounding
 
 **Status:** pending
 
 ### Work
 
-- Add analytic two-bone solver.
-- Add per-foot terrain targets.
-- Share gait plant phase.
-- Add pelvis height compensation.
-- Add foot normal alignment.
-- Add smoothing appropriate for terrain micro-detail.
+- Add `TwoBoneIk`.
+- Add profile-driven `ActorContactIk`.
+- Add humanoid two-foot targets.
+- Add pelvis compensation.
+- Add foot normal alignment/smoothing.
 
 ### Acceptance gate
 
-- Standing/walking on representative slopes looks grounded.
-- Feet do not visibly penetrate normal terrain.
-- Knees do not flip.
-- Running remains visually energetic rather than over-constrained.
-- IK automatically disables while airborne.
+- Player feet ground correctly on representative slopes.
+- Knees do not invert.
+- IK disables appropriately while airborne.
+- Contact system itself contains no humanoid bone-name assumptions.
 
 ---
 
-## Phase 5 — Targeted skinning and joint quality
+## Phase 7 — Minimal quadruped proof
 
 **Status:** pending
 
 ### Work
 
-- Identify the most visibly rigid joint transitions after real articulation exists.
-- Add procedural skin weights to those regions only.
-- Improve shoulder/hip/elbow/knee geometry where the new motion range exposes gaps.
+- Add minimal `QuadrupedRigDefinition`.
+- Add simple procedural quadruped geometry.
+- Add idle + walk locomotion provider.
+- Define four gait effectors/contact phases.
+- Reuse shared pose/blending runtime.
+- Reuse generic two-bone/contact IK for proof limbs.
+- Add conservative four-contact body-height stabilization.
+- Optional simple tail spring if small.
+
+### Acceptance gate
+
+- Quadruped walks independently of humanoid code.
+- Four paws plant/swing in profile-defined phases.
+- Terrain IK works without pretending front limbs are arms/hands.
+- Shared runtime requires no humanoid-only state.
+- Player and quadruped can animate in the same scene.
+
+This phase is the primary architecture validation gate. Do not continue extending the shared API if passing it requires species-specific hacks in `src/actor/`.
+
+---
+
+## Phase 8 — Targeted humanoid skinning and joint quality
+
+**Status:** pending
+
+### Work
+
+- Identify visible rigid-joint defects after skeletal articulation.
+- Add procedural weights only where needed.
+- Improve shoulder/hip/elbow/knee transitions.
 - Keep armor/accessories rigid.
 
 ### Acceptance gate
 
-- Crouch-ready knee/hip range does not expose unacceptable gaps.
-- Raised arms do not visibly disconnect shoulders.
+- Raised arms and deep leg bends do not expose unacceptable gaps.
 - Skin weights validate.
-- Character remains within mobile performance budget.
+- Compact/mobile player performance remains acceptable.
 
 ---
 
-## Phase 6 — Crouch and crouch locomotion
+## Phase 9 — Crouch and crouch locomotion
 
 **Status:** pending
 
 ### Work
 
-- Add stance state.
-- Add crouch pose parameter.
-- Add crouch idle.
-- Add crouch walk.
-- Integrate feet/pelvis IK.
-- Add camera target height transition.
-- Add controller speed multiplier.
-- Add input only after development controls prove animation behavior.
+- Add humanoid stance state.
+- Add crouch blend amount.
+- Add crouch idle/walk.
+- Integrate contact IK.
+- Add camera target-height transition.
+- Add gameplay speed/collision integration.
+- Add input only after development testing.
 
 ### Acceptance gate
 
-- Character can enter/exit crouch while idle and moving.
-- Feet stay grounded.
-- Head/body visibly lower enough for cover gameplay.
-- Crouch does not look like a vertically scaled standing animation.
-- Mobile control remains usable.
+- Player crouches while idle/moving.
+- Feet remain grounded.
+- Head/body clearly lower for cover gameplay.
+- NPC humanoid could consume the same stance animation if later its gameplay profile enables crouch.
 
 ---
 
-## Phase 7 — Roll/dodge
+## Phase 10 — Roll/dodge
 
 **Status:** pending
 
 ### Work
 
-- Add action controller/state.
-- Add deterministic roll phases.
-- Add root-displacement profile owned by gameplay action/controller.
-- Add curled skeletal roll pose.
-- Decouple camera orientation from visual body rotation.
+- Add character action coordinator if not already present.
+- Add deterministic roll phases/root displacement profile.
+- Add curled pose.
+- Decouple camera from visual roll orientation.
 - Add cape/skirt roll response.
-- Add roll input after the action API is stable.
 
 ### Acceptance gate
 
-- Roll distance/duration are deterministic.
-- Roll works from idle/walk/run.
-- Camera remains readable.
-- Character returns to locomotion without snapping.
-- Cape does not explode outward or obviously clip through the body for most of the roll.
+- Deterministic distance/duration.
+- Works from idle/walk/run.
+- Camera stays readable.
+- Locomotion resumes without pose snap.
+- Roll remains a humanoid/character module, not a mandatory actor-core state.
 
 ---
 
-## Phase 8 — Upper-body layering
+## Phase 11 — Upper-body layering, reach IK, look IK, sockets
 
 **Status:** pending
 
 ### Work
 
-- Add upper-body action mask/layer.
-- Demonstrate a non-spell test pose while walking/running/crouching.
-- Verify locomotion legs remain untouched.
-- Add chest/clavicle contribution.
+- Add humanoid upper-body layer/masks.
+- Add shared `ActorReachIk` on `TwoBoneIk`.
+- Add humanoid clavicle participation.
+- Add shared profile-driven look IK.
+- Finalize player sockets.
+- Add development-only target/socket visualization.
 
 ### Acceptance gate
 
-- Upper body can animate independently while lower body continues locomotion.
-- State transitions do not erase active upper-body actions.
-- Layering remains deterministic and testable.
+- Walking legs remain intact under upper-body actions.
+- Hands track moving targets without elbow flipping.
+- Player and quadruped look systems can use different chains through same look interface.
+- Debug visualization has zero production update cost when disabled.
 
 ---
 
-## Phase 9 — Arm IK, look IK, sockets
-
-**Status:** pending
-
-### Work
-
-- Implement arm IK with elbow poles.
-- Implement clavicle participation.
-- Implement look IK.
-- Finalize required sockets.
-- Add debug visualization for hand targets, elbow poles, foot targets, and socket axes behind a development-only flag.
-
-### Acceptance gate
-
-- Both hands can track moving targets without elbow flipping.
-- Head tracks target within limits.
-- Socket transforms are stable and correct after animation/IK.
-- Debug visualization has no production cost when disabled.
-
----
-
-## Phase 10 — Spell casting
+## Phase 12 — Spell casting and hand articulation
 
 **Status:** pending
 
 ### Work
 
 - Add spell action phases.
-- Add one-hand cast.
-- Add two-hand cast.
-- Add open/cast hand poses.
-- Drive palm/spell origin sockets.
-- Expose release pulse/event for a separate spell-effect system.
-- Support casting while idle and walking first; evaluate crouch casting afterward.
+- Add one-hand/two-hand casts.
+- Add minimal finger bones/poses.
+- Drive palm/spell sockets.
+- Emit deterministic release event to separate effect system.
 
 ### Acceptance gate
 
-- One-hand and two-hand casts read clearly from front/back/side.
-- Hands aim at target through IK.
-- Locomotion continues under compatible cast modes.
-- Spell effects can attach to sockets without knowing bone geometry.
-- Animation action emits one deterministic release event per cast.
+- Casts read clearly from multiple views.
+- Locomotion continues under compatible casts.
+- Effects attach through sockets without mesh knowledge.
+- Exactly one release event per cast.
+- No spell concepts leak into shared animal runtime.
 
 ---
 
-## Phase 11 — Hand articulation and interaction foundation
+## Phase 13 — Secondary-motion generalization
 
 **Status:** pending
 
 ### Work
 
-- Add minimal finger bones.
-- Add relaxed/fist/open/point/grip/cast poses.
-- Add interaction reach target through arm IK.
-- Prove gripping a simple procedural prop/socket attachment.
+- Move cape/hair/skirt behind generic secondary-module interface without rewriting their physics.
+- Tune player secondary response for crouch/roll/cast.
+- Add/retain simple quadruped tail module if useful.
+- Ensure reset/teleport clears all module state.
 
 ### Acceptance gate
 
-- Hand silhouettes visibly differ by pose.
-- Grip pose can hold a prop without arbitrary prop-specific offsets in animation code.
-- Finger complexity remains small and performant.
+- Player cloth behavior remains stable.
+- Quadruped does not depend on cape concepts.
+- Secondary modules are optional and independently reset/disposed.
 
 ---
 
-## Phase 12 — Secondary-motion polish
+## Phase 14 — Animation LOD for NPCs/animals
 
 **Status:** pending
 
 ### Work
 
-- Tune cape for crouch/roll/casting.
-- Tune skirt for deep knee/hip bends.
-- Tune hair for aggressive action motion.
-- Ensure secondary motion consumes final skeletal pose/action facts.
-- Add secondary-motion reset behavior for teleport/reset.
+- Add `ActorAnimationQuality` policy.
+- Keep player pinned to full quality.
+- Add reduced/minimal/cull paths for non-player actors.
+- Gate IK, look, socket updates, and secondary motion before expensive work.
+- Add interpolation for reduced pose-update cadence if required visually.
 
 ### Acceptance gate
 
-- Crouch and roll do not leave cloth in a standing pose.
-- Teleport/reset produces no delayed cloth explosion.
-- Casting arm motion and cape motion do not fight each other.
+- Multiple proof actors scale cost predictably.
+- Distant actors do not perform terrain IK or secondary work unnecessarily.
+- Quality transitions do not visibly snap at reviewed distances.
+- LOD thresholds/rates are validated configuration values.
 
 ---
 
-## Phase 13 — Performance, verification, and cleanup
+## Phase 15 — Performance, verification, cleanup
 
 **Status:** pending
 
 ### Work
 
-- Profile animation CPU cost on compact/mobile and desktop.
-- Confirm no per-frame allocations in steady locomotion/action updates.
-- Confirm shared skeleton/skinned-mesh matrix updates are bounded.
-- Remove migration adapters and obsolete group-pose code.
-- Split any file that violates architecture-size rules.
-- Expand `verify-character-motion` or replace it with focused rig/animation/action verifiers.
-- Update this plan's status section and phase checkboxes.
-- Manual visual regression test on GitHub Pages build.
+- Profile player, one humanoid NPC, and representative actor groups on desktop/compact.
+- Confirm no meaningful steady-state allocation in actor animation updates.
+- Remove migration adapters/obsolete direct-pivot player pose code.
+- Split oversized modules.
+- Expand static verifiers.
+- Update this plan status.
+- Manual GitHub Pages regression test.
 
 ### Acceptance gate
 
 - Full production build passes.
-- Character verifier passes.
-- Config verifier passes.
-- Architecture verifier passes.
-- Motion verifier passes.
-- Desktop and compact/mobile remain within reviewed performance budget.
-- No deprecated parallel character pose path remains.
+- Rig-definition verifier passes.
+- Humanoid verifier passes.
+- Quadruped proof verifier passes.
+- Config/architecture/motion verifiers pass.
+- Player quality is not reduced.
+- Non-player animation cost is bounded by quality policy.
+- No duplicate player-only animation framework remains.
 
-# 27. Verification plan
+# 35. Verification plan
 
-## Static rig verification
+## Shared rig-definition verification
 
-The verifier should assert:
+Assert for every rig definition:
 
-- Every required primary bone exists once.
-- Bone parent relationships match the declared hierarchy.
-- No required bone has zero/NaN scale.
-- Limb segment lengths are positive and within expected ranges.
-- Left/right limb lengths remain approximately symmetric unless deliberately changed.
-- Socket parents are correct.
-- Joint limits are finite and ordered.
-- Pose buffer size matches the bone ID count.
+- Bone count is positive and bounded.
+- Every index is unique/in range.
+- Exactly one structural root exists.
+- Parent indexes form an acyclic tree.
+- Bind transforms are finite.
+- Scale is finite/non-zero where allowed.
+- Chains reference valid indexes.
+- Chain segment lengths are positive.
+- Sockets reference valid parent bones.
+- Masks match bone count.
+- Joint limits are finite/ordered.
+- Required profile roles resolve exactly once.
 
-## Skinning verification
+## Pose runtime verification
 
 Assert:
 
-- Skin index values are valid integers within the skeleton.
-- Skin weights are finite and non-negative.
-- Weight sums are approximately one.
-- Maximum active influences per vertex is four.
-- Rigid regions remain rigid where specified.
+- Pose buffer size follows definition bone count.
+- Blend/mask operations never access outside bounds.
+- Quaternion outputs remain normalized within tolerance.
+- Reset restores bind-compatible pose.
+- Two actor instances do not share mutable pose buffers.
 
-## Animation verification
+## Humanoid verification
 
-Create deterministic test snapshots for:
+Representative snapshots:
 
 - Idle.
-- Mid-walk left-foot plant.
-- Mid-walk right-foot plant.
-- Full run.
-- Takeoff compression.
+- Left/right walk plant.
+- Run.
+- Takeoff.
 - Apex.
 - Fall.
-- Full landing impact.
-- Crouch idle.
-- Crouch walk.
+- Landing.
+- Crouch idle/walk.
 - Mid-roll.
-- One-hand cast at forward target.
-- Two-hand cast at elevated target.
+- One-hand cast.
+- Two-hand cast.
 
-Assertions should test invariants rather than fragile exact floating-point art values where possible.
+Invariants:
 
-Examples:
+- Knees bend intended direction.
+- Arms remain opposed in gait.
+- Crouch lowers pelvis/head.
+- Roll tucks body.
+- Casting hand aims approximately toward target.
+- Joint limits remain respected.
 
-- Knees bend in the correct direction.
-- Crouch pelvis/head is lower than standing.
-- Roll torso/head is tucked relative to standing.
-- Casting hand points approximately toward target.
-- Opposite locomotion arms remain phase-opposed.
-- Joint limits are never exceeded after final solve.
+## NPC reuse verification
+
+- Two humanoid instances update independently.
+- Shared immutable definition is not mutated.
+- Disposing NPC does not break player resources.
+- Scripted NPC can idle/walk/turn without player controller.
+
+## Quadruped verification
+
+- Four limb chains resolve.
+- Four contact effectors have valid profile phases.
+- Walk produces alternating/supporting contacts as configured.
+- Paw IK does not pin swing legs.
+- Body stabilization stays bounded.
+- Head/look chain works when enabled.
+- Tail/secondary module reset is safe if present.
 
 ## Runtime visual matrix
 
-Manual checks must include:
+Player checks:
 
-- Front view.
-- Rear view.
-- Left/right side views.
-- Flat ground.
-- Moderate uphill/downhill.
-- Uneven terrain under each foot.
+- Front/rear/side.
+- Flat/moderate slope/uneven feet.
 - Idle/walk/run transitions.
-- Jump from idle.
-- Jump while running.
-- Land and immediately move.
-- Crouch while idle.
-- Crouch while moving.
-- Stand while moving.
-- Roll from idle/walk/run.
-- Roll near slope changes.
-- Cast while idle.
-- Cast while walking.
-- Cast at target above/below the character.
-- Rapid action cancellation where allowed.
-- Reset/teleport during normal movement and after actions.
+- Jump and landing.
+- Crouch transitions.
+- Roll.
+- Cast at high/low/side targets.
+- Teleport/reset during and after actions.
 
-# 28. Performance contract
+NPC checks:
 
-The character is a single important hero object, so correctness and visual quality matter more than micro-optimizing every quaternion. The system must still obey these rules:
+- Player + NPC simultaneously.
+- NPC stop/start/turn.
+- Independent animation phases.
+- Dispose/recreate NPC.
 
-- Allocate bones, pose buffers, masks, solver scratch objects, and socket objects once.
-- No new arrays/maps/object literals in steady-state `update` methods.
-- No string-based bone lookup in the per-frame hot path.
-- No generic iterative IK for two-bone limbs.
-- Avoid recomputing world matrices multiple times inside separate solvers; establish a deliberate update boundary.
-- Terrain foot sampling must be bounded and must reuse existing terrain APIs efficiently.
-- Debug helpers must be disabled and non-updating in production.
-- Skin only the geometry that needs deformation.
-- Keep cape/cloth procedural and bounded.
+Quadruped checks:
 
-Measure before introducing caching that complicates code.
+- Idle/walk.
+- Front/rear/side views.
+- Flat and uneven terrain.
+- Turning.
+- Four visible paw contacts.
+- Player + humanoid NPC + quadruped simultaneously.
 
-# 29. Failure and reset behavior
+# 36. Performance contract
 
-All animation/action state must reset cleanly after:
+## Player
 
-- Character reset.
+The player is a hero object. Preserve quality first while respecting:
+
+- No per-frame allocations.
+- Bounded terrain samples.
+- Analytic two-bone IK.
+- Minimal skinning.
+- One deliberate world-matrix/socket update boundary.
+
+## NPCs and animals
+
+For non-player populations:
+
+- Share immutable definitions/tuning.
+- Share geometry/material assets when possible.
+- Allocate pose state once per live actor.
+- Use animation LOD before reducing visual quality of the player.
+- Disable work by quality stage before executing it.
+- Avoid generic map/string operations in hot paths.
+- Update only sockets requested by active systems if profiling shows socket matrix cost matters.
+- Do not run IK on culled/minimal actors.
+- Do not run secondary motion when its quality level disables it.
+- Keep AI update cadence independent from animation cadence.
+
+Measure before adding GPU skinning instancing, worker animation, or large object pools.
+
+# 37. Reset and failure behavior
+
+Every actor animation runtime must reset cleanly after:
+
+- Spawn/reset.
 - Teleport.
-- Mode switch if the character is deactivated.
-- Invalid/NaN external target.
-- Lost spell target.
+- Deactivation/reactivation.
+- Invalid external target.
 - Interrupted action.
+- Rig/profile replacement during development if supported.
 
 Reset must:
 
-- Clear action state.
-- Clear blend history.
+- Clear transitions/blend history.
 - Restore bind/idle-compatible pose.
 - Reset IK filters.
-- Reset cape/hair/skirt springs.
-- Update socket transforms before effects resume.
+- Clear stale world-space targets.
+- Reset secondary modules.
+- Update required socket transforms before effects resume.
 
-No solver may retain a stale world-space target after teleport.
+Player-specific reset additionally clears roll/spell action state.
 
-# 30. Logging and error policy
+No shared solver may retain targets from a previously disposed/reused actor instance.
 
-Production code should not spam animation diagnostics every frame.
+Initialization contract failures must fail clearly rather than continue with malformed rigs.
 
-Use errors for initialization contract failures such as:
+Examples:
 
-- Missing required bone.
-- Invalid skeleton index.
-- Impossible config/joint-limit range.
-- Invalid skin-weight construction.
+- Invalid parent graph.
+- Missing required profile role.
+- Invalid chain.
+- Invalid skin index/weights.
+- Impossible joint limits.
+- Mandatory socket missing for an enabled feature.
 
-Use development-only diagnostics for:
+Production logging must not emit per-frame animation spam.
 
-- Current locomotion/action state.
-- IK target visualization.
-- Joint-limit hits.
-- Pose-layer weights.
+# 38. Architecture boundaries
 
-Do not silently continue with a malformed skeleton.
+## `src/actor`
 
-# 31. Refactoring constraints
+Owns only reusable animation mechanics justified by multiple actor families:
 
-During implementation:
+- Rig definitions/instances.
+- Pose buffers/blending.
+- Generic animation runtime.
+- Generic gait contact representation.
+- Generic analytic IK primitives.
+- Generic profile-driven contact/reach/look orchestration.
+- Generic sockets/constraints/quality policy.
 
-- Keep `SnowflowCharacter` as a facade/orchestrator.
-- Keep geometry generation independent from gameplay action decisions.
-- Keep IK independent from DOM/input.
-- Keep action state independent from Three.js render geometry.
-- Keep spell visuals/effects separate from spell body animation.
-- Keep cape/hair/skirt secondary motion separate from locomotion pose generation.
-- Do not create a general engine framework unless more than the character needs it.
-- Prefer composition over inheritance.
-- Remove obsolete code once the replacement is verified.
+It must not know:
 
-# 32. Expected end-state responsibilities
+- Third-person input.
+- Player camera.
+- Spell gameplay rules.
+- NPC behavior trees.
+- Animal AI.
+- Cape-specific geometry.
+- Exact humanoid state names.
 
-## `SnowflowCharacter`
+## `src/character`
 
-Should eventually do little more than:
+Owns humanoid/player specifics:
 
-1. Receive an animation input snapshot.
-2. Ask the animation graph for the primary pose.
-3. Apply IK/layers through the graph pipeline.
-4. Apply the final pose to the rig.
-5. Update secondary motion.
-6. Expose state/sockets needed by the app.
-7. Dispose resources.
+- Snowflow geometry/appearance.
+- Humanoid rig definition/profile.
+- Player/humanoid locomotion pose math.
+- Crouch/roll/spell/hand behavior.
+- Cape/hair/skirt implementation.
 
-It should not contain several hundred lines of per-state limb equations.
+Humanoid NPCs may reuse the humanoid profile without depending on player input or player camera.
 
-## `ThirdPersonController`
+## `src/creatures`
 
-Should own:
+Owns species/family-specific behavior:
 
-- Movement and grounding.
-- Jump physics.
-- Gameplay root position.
-- Camera.
-- Semantic action requests.
+- Quadruped topology/profile.
+- Quadruped procedural geometry.
+- Quadruped gait math.
+- Animal-specific secondary motion.
 
-It should not own:
+Future species are added beside quadruped rather than modifying the actor core unless they reveal a genuinely reusable missing primitive.
 
-- Elbow angles.
-- Knee pose equations.
-- Spell hand positions.
-- Cape geometry deformation.
+# 39. Definition of done
 
-## Animation graph
+The overall rig project is complete when:
 
-Should own:
+### Shared actor foundation
 
-- State selection from animation facts.
-- Pose layer order.
-- Transition blending.
-- Action masks.
-- Solver orchestration.
-
-It should not own:
-
-- Keyboard/touch state.
-- Terrain generation internals.
-- Spell particle rendering.
-
-# 33. Definition of done
-
-The character-rig project is complete when all of the following are true:
-
-- [ ] Current procedural character appearance is preserved or deliberately improved.
-- [ ] Character uses a real semantic bone hierarchy.
-- [ ] Skeleton structure is statically verified.
-- [ ] Current idle/walk/run/jump/land behavior is ported to pose layers.
-- [ ] Locomotion state transitions blend smoothly.
-- [ ] Feet use terrain-aware IK with pelvis compensation.
-- [ ] Targeted skinning removes the worst rigid-joint artifacts.
-- [ ] Character can crouch and crouch-walk.
-- [ ] Crouch exposes useful low-profile data for future hiding logic.
-- [ ] Character can perform a deterministic dodge roll.
-- [ ] Camera remains stable during roll.
-- [ ] Upper-body actions layer over locomotion.
-- [ ] Both arms support target-driven IK.
-- [ ] Head/look IK works within joint limits.
-- [ ] Character exposes stable hand/palm/chest/head/spell sockets.
-- [ ] Character supports one-hand and two-hand spell-casting poses.
-- [ ] Minimal hand/finger poses support open/fist/point/grip/cast silhouettes.
-- [ ] Cape, skirt, and hair respond correctly to crouch/roll/cast actions.
-- [ ] Reset/teleport clears animation and solver state safely.
+- [ ] Shared rig definition supports variable bone topology/count.
+- [ ] Runtime uses stable resolved numeric indexes.
+- [ ] Pose buffers/blending are rig-size-independent.
+- [ ] Generic chain/contact/reach/look systems contain no humanoid bone-name assumptions.
+- [ ] Shared runtime has no player input/AI dependency.
 - [ ] Animation hot path produces no meaningful steady-state garbage.
-- [ ] Desktop performance remains acceptable.
-- [ ] Compact/mobile performance remains acceptable.
-- [ ] Full repository build and static verification pass.
-- [ ] Obsolete direct-pivot pose implementation is removed.
-- [ ] This plan is updated with final implementation status.
+- [ ] Animation LOD exists for non-player populations.
 
-# 34. Recommended implementation order for commits
+### Player humanoid
 
-Keep commits small enough to review and revert independently. A practical sequence is:
+- [ ] Existing appearance preserved or deliberately improved.
+- [ ] Real semantic humanoid bone hierarchy.
+- [ ] Existing idle/walk/run/jump/land ported.
+- [ ] Smooth locomotion transitions.
+- [ ] Terrain foot IK + pelvis compensation.
+- [ ] Targeted skinning fixes worst joint artifacts.
+- [ ] Crouch/crouch walk.
+- [ ] Deterministic dodge roll.
+- [ ] Stable roll camera.
+- [ ] Upper-body layering.
+- [ ] Arm reach IK.
+- [ ] Look IK.
+- [ ] Stable hand/palm/chest/head/spell sockets.
+- [ ] One/two-hand spell poses.
+- [ ] Minimal hand poses.
+- [ ] Cape/skirt/hair work with new actions.
 
-1. `test(character): establish rig and pose regression baseline`
-2. `refactor(character): add semantic skeletal rig`
-3. `refactor(character): add pose buffers and masks`
-4. `refactor(character): port procedural locomotion to pose layer`
-5. `feat(character): add animation transition blending`
-6. `feat(character): add analytic leg IK and pelvis compensation`
-7. `feat(character): improve procedural joint skinning`
-8. `feat(character): add crouch stance and crouch locomotion`
-9. `feat(character): add roll action and root-motion profile`
-10. `feat(character): add upper-body animation layer`
-11. `feat(character): add arm and look IK`
-12. `feat(character): add semantic sockets`
-13. `feat(character): add procedural spell-casting poses`
-14. `feat(character): add minimal hand articulation`
-15. `polish(character): integrate secondary motion with actions`
-16. `test(character): expand action and IK verification`
-17. `refactor(character): remove migration pose path`
-18. `perf(character): profile and remove verified hot-path waste`
-19. `docs(character): mark rig plan complete`
+### Humanoid NPC extensibility proof
 
-Do not combine all phases into one commit.
+- [ ] Scripted NPC uses same humanoid rig/profile without player controller.
+- [ ] Player/NPC mutable animation state is independent.
+- [ ] Shared resource disposal is safe.
 
-# 35. First implementation checkpoint
+### Animal extensibility proof
 
-The first coding checkpoint should stop after **Phase 2** if necessary.
+- [ ] Minimal quadruped uses a different rig definition.
+- [ ] Quadruped uses same pose/blending runtime.
+- [ ] Four contacts use generic gait/contact/IK infrastructure.
+- [ ] No fake hand/arm/spell/crouch concepts required by actor core.
+- [ ] Player, NPC, and quadruped animate together.
 
-At that point the project should already have:
+### Production quality
 
-- A real skeleton.
-- Semantic bone IDs.
-- A pose buffer.
-- Bone masks.
-- Existing locomotion running through the new system.
+- [ ] Reset/teleport clears all solver/action state.
+- [ ] Static rig/profile/animation verification passes.
+- [ ] Full repository build passes.
+- [ ] Desktop performance acceptable.
+- [ ] Compact/mobile performance acceptable.
+- [ ] Obsolete direct-pivot player pose implementation removed.
+- [ ] This plan updated with final status.
+
+# 40. Recommended commit sequence
+
+Keep implementation commits reviewable and independently revertible.
+
+1. `test(actor): establish player rig and motion baseline`
+2. `refactor(actor): add reusable rig definition contracts`
+3. `refactor(character): build humanoid skeleton on actor rig core`
+4. `refactor(actor): add generic pose buffers masks and blending`
+5. `refactor(character): port humanoid locomotion to actor runtime`
+6. `test(actor): prove second humanoid instance independence`
+7. `feat(actor): add analytic two-bone and contact IK`
+8. `feat(character): ground humanoid feet with contact IK`
+9. `test(creature): add minimal quadruped rig and walk proof`
+10. `feat(character): improve targeted humanoid skinning`
+11. `feat(character): add crouch stance and crouch locomotion`
+12. `feat(character): add deterministic roll action`
+13. `feat(actor): add reusable reach and look IK`
+14. `feat(character): add upper-body layer and humanoid sockets`
+15. `feat(character): add procedural spell-casting poses`
+16. `feat(character): add minimal hand articulation`
+17. `refactor(actor): generalize optional secondary-motion interface`
+18. `polish(character): integrate cape skirt and hair with actions`
+19. `feat(actor): add non-player animation quality levels`
+20. `test(actor): expand humanoid npc and quadruped verification`
+21. `refactor(character): remove migration pose path`
+22. `perf(actor): profile and remove verified population hot-path waste`
+23. `docs(actor): mark actor rig plan complete`
+
+Do not combine all phases into a single commit.
+
+# 41. Major checkpoints
+
+## Checkpoint A — Shared foundation + current player
+
+Stop after Phase 4 if needed.
+
+Must have:
+
+- Shared rig definition.
+- Real humanoid skeleton.
+- Generic pose buffers/masks/blending runtime.
+- Existing player locomotion running through it.
 - Existing cape/hair behavior intact.
-- No crouch/roll/spell features yet.
 
-That checkpoint proves the foundation before action complexity is added.
+No new player abilities required yet.
 
-The second major checkpoint should stop after **Phase 6**:
+## Checkpoint B — Extensibility proven
 
-- Smooth animation graph.
-- Foot IK.
+Stop after Phase 7.
+
+Must additionally have:
+
+- Scripted non-player humanoid using same humanoid profile.
+- Generic contact IK.
+- Minimal quadruped using a different topology.
+- Four-contact quadruped walk/terrain proof.
+
+This checkpoint is mandatory before calling the architecture reusable.
+
+## Checkpoint C — Player action system
+
+Stop after Phase 12.
+
+Must additionally have:
+
 - Targeted skinning.
-- Crouch/crouch walk.
-
-The third major checkpoint should stop after **Phase 10**:
-
+- Crouch.
 - Roll.
-- Layered upper-body actions.
-- Arm/look IK.
+- Upper-body layering.
+- Reach/look IK.
 - Sockets.
 - Spell casting.
+- Hand poses.
 
-This sequencing prevents feature work from hiding architectural defects in the rig foundation.
+## Checkpoint D — Population-ready
+
+Stop after Phase 15.
+
+Must additionally have:
+
+- Optional secondary-motion abstraction.
+- NPC/animal animation LOD.
+- Full performance/verification pass.
+- Obsolete player pose path removed.
+
+This sequencing keeps the player quality goal intact while proving early that the same architecture can animate NPCs and genuinely different animal bodies without creating a second system.
