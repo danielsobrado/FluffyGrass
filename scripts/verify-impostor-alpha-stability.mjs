@@ -30,8 +30,21 @@ function readConstant(source, name) {
   return value;
 }
 
+function readYamlNumber(source, key) {
+  const value = Number(
+    source.match(new RegExp(`^${key}:\\s*([0-9.]+)$`, "m"))?.[1],
+  );
+  if (!Number.isFinite(value)) {
+    fail(`Unable to read ${key} from configuration.`);
+  }
+  return value;
+}
+
 const material = read("src/world/grass/WorldGrassImpostorMaterial.ts");
 const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
+const limits = read("src/grass/GrassImpostorLimits.ts");
+const validator = read("src/grass/internal/GrassConfigValidator.ts");
+const grassConfig = read("public/config/grass.yaml");
 
 const alphaCutoff = readConstant(tuning, "IMPOSTOR_ALPHA_CUTOFF");
 const minifiedAlphaCutoff = readConstant(
@@ -50,6 +63,8 @@ const viewDitherGridScale = readConstant(
   tuning,
   "IMPOSTOR_VIEW_DITHER_GRID_SCALE",
 );
+const minimumPadding = readConstant(limits, "GRASS_IMPOSTOR_MIN_PADDING");
+const configuredPadding = readYamlNumber(grassConfig, "impostorPadding");
 
 assert(
   alphaCutoff > 0 &&
@@ -64,6 +79,14 @@ assert(
 assert(
   viewDitherGridScale > 0 && viewDitherGridScale <= 1,
   "View dither resolution must remain a positive fraction of the configured frame resolution.",
+);
+assert(
+  minimumPadding >= minificationFull && configuredPadding >= minimumPadding,
+  "Atlas padding must isolate neighbouring frames through the stochastic minification range.",
+);
+assert(
+  validator.includes("config.impostor.padding < GRASS_IMPOSTOR_MIN_PADDING"),
+  "Grass config validation must reject mip-unsafe impostor padding.",
 );
 
 assert(
@@ -101,5 +124,6 @@ assert(
 
 console.log(
   `[impostor-alpha] ${alphaCutoff.toFixed(2)} -> ${minifiedAlphaCutoff.toFixed(2)} cutoff, ` +
-    `${minificationStart.toFixed(1)}-${minificationFull.toFixed(1)} texels/pixel hardening verified.`,
+    `${minificationStart.toFixed(1)}-${minificationFull.toFixed(1)} texels/pixel hardening, ` +
+    `${minimumPadding}px minimum gutter verified.`,
 );
