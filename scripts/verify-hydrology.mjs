@@ -57,6 +57,9 @@ try {
     WATER_BED_NOISE_SIZE,
     sampleWaterBedPixel,
   } = await server.ssrLoadModule("/src/world/hydrology/WaterBedTexture.ts");
+  const { WaterBedMaterialController } = await server.ssrLoadModule(
+    "/src/world/hydrology/WaterBedMaterialController.ts",
+  );
   const { WaterMaterialController } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterMaterialController.ts",
   );
@@ -135,8 +138,6 @@ try {
     for (let x = 0; x < WATER_BED_NOISE_SIZE; x += 4) {
       sampleWaterBedPixel(x, y, config.seed, bedPixel);
       if (bedPixel[0] > 0.5) bedRelief += 1;
-      // Matches the floor WaterBedShader thresholds at, so this tracks the algae
-      // that actually reaches the screen rather than the raw noise underneath.
       if (bedPixel[2] > 0.66) bedAlgae += 1;
     }
   }
@@ -231,12 +232,6 @@ try {
   assert(wetPoint, "Hydrology verification needs at least one open-water point.");
   assert(riverPoint, "Hydrology verification needs a river-only sample.");
 
-  // A lake only ever resolves the spacing cell its sample falls in, so every band
-  // it feeds has to reach zero before that cell's edge. When the reserved margin
-  // is too small the outer humidity halo is instead cut off mid-value, leaving a
-  // step along an invisible grid line. Extra seeds are pinned because containment
-  // is a placement property: the shipped seed alone happens to clear the old bound
-  // and would leave the regression untested.
   const CONTAINMENT_CELL_RANGE = 12;
   const CONTAINMENT_STEP = 2;
   const CONTAINMENT_NUDGE = 1e-6;
@@ -271,9 +266,6 @@ try {
       }
     }
 
-    // Guard the sweep itself: those edges must be silent because lakes stay clear
-    // of them, not because this seed has no lakes to clip. The stride stays well
-    // under the narrowest humidity halo, so no live lake is missed.
     for (let z = -extent; z <= extent; z += 40) {
       for (let x = -extent; x <= extent; x += 40) {
         lakes.sample(x, z, bedHeight, lakeSample);
@@ -338,6 +330,7 @@ try {
   const chunkZ = Math.floor(riverPoint.z / config.chunkSize);
   const terrainMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
   const waterMaterial = new THREE.MeshBasicMaterial({ transparent: true });
+  const waterBedMaterial = new THREE.MeshBasicMaterial({ transparent: true });
   const builder = new TerrainChunkBuilder(
     chunkX,
     chunkZ,
@@ -349,24 +342,34 @@ try {
     terrainMaterial,
     waterMaterial,
     false,
+    waterBedMaterial,
   );
   let chunk;
   while (!chunk) chunk = builder.advance(1000);
-  assert(chunk.waterMesh, "A river terrain chunk must build a water mesh.");
+  assert(
+    chunk.waterMesh && chunk.waterBedMesh,
+    "A river terrain chunk must build both the surface and depth-tested bed passes.",
+  );
+  assert(
+    chunk.waterMesh.geometry === chunk.waterBedMesh.geometry,
+    "Water surface and bed must share one sparse wet-cell geometry allocation.",
+  );
   assert(
     chunk.mesh.geometry.getAttribute("terrainEnvironment")?.itemSize === 4,
     "Terrain must carry altitude/humidity/water/stone environment channels.",
   );
   const terrainIndexCount = chunk.mesh.geometry.getIndex()?.count ?? 0;
   const waterIndexCount = chunk.waterMesh.geometry.getIndex()?.count ?? 0;
+  const waterBedIndexCount = chunk.waterBedMesh.geometry.getIndex()?.count ?? 0;
   assert(
     waterIndexCount > 0 && waterIndexCount < terrainIndexCount,
     "River water must submit only wet cells instead of the complete terrain grid.",
   );
+  assert(waterBedIndexCount === waterIndexCount, "Riverbed and surface topology must match.");
   assertClose(
     chunk.getTriangleCount(),
-    (terrainIndexCount + waterIndexCount) / 3,
-    "Terrain diagnostics must include streamed water triangles.",
+    (terrainIndexCount + waterIndexCount + waterBedIndexCount) / 3,
+    "Terrain diagnostics must include both streamed water draws.",
   );
 
   const waterData = chunk.waterMesh.geometry.getAttribute("waterData");
@@ -401,6 +404,7 @@ try {
   chunk.dispose();
   terrainMaterial.dispose();
   waterMaterial.dispose();
+  waterBedMaterial.dispose();
 
   const fakeStoneField = {
     sampleGrassClearance(x, z) {
@@ -458,30 +462,17 @@ try {
     "waterCaustic",
     "waterGlint",
     "waterStoneFoam",
-    "waterSampleRiverBed",
-    "waterResolveBedPosition",
-    "waterBedRelief",
-    "waterBedVisibility",
-    "uWaterAlgaeStrength",
   ]) {
     assert(shader.fragmentShader.includes(token), `Water shader is missing ${token}.`);
   }
   assert(
+    !shader.fragmentShader.includes("waterSampleRiverBed") &&
+      !shader.fragmentShader.includes("uWaterBedNoise"),
+    "The transparent water surface must never composite riverbed pebbles over scene geometry.",
+  );
+  assert(
     shader.uniforms.uWaterFlowNoise?.value?.isDataTexture === true,
     "Water must bind the generated deterministic flow-noise texture.",
-  );
-  assert(
-    shader.uniforms.uWaterBedNoise?.value?.isDataTexture === true &&
-      shader.uniforms.uWaterBedNoise.value.wrapS === THREE.RepeatWrapping &&
-      shader.uniforms.uWaterBedNoise.value.wrapT === THREE.RepeatWrapping,
-    "Water must bind the riverbed map as a repeating texture.",
-  );
-  // The bed is sampled at the depth it actually sits at, bent by the wave slope;
-  // reading it flat at the surface would paste pebbles onto the water instead.
-  const bedCall = shader.fragmentShader.indexOf("waterResolveBedPosition(waterSlope");
-  assert(
-    bedCall > shader.fragmentShader.indexOf("vec2 waterSlope =") && bedCall > 0,
-    "The riverbed lookup must be displaced by the resolved wave slope, not the flat surface.",
   );
   assert(
     shader.fragmentShader.includes(
@@ -489,9 +480,6 @@ try {
     ),
     "CPU water topology and shader clipping must share one coverage threshold.",
   );
-  // A screen-space derivative is constant across a triangle and collapses on one seen
-  // edge-on, which shows up as a single mis-shaded triangle at the bank. The sheet
-  // carries real vertex normals instead, so shading and flow both interpolate.
   assert(
     !shader.fragmentShader.includes("dFdx(vWaterWorldPosition)") &&
       !shader.fragmentShader.includes("dFdy(vWaterWorldPosition)"),
@@ -514,10 +502,43 @@ try {
       waterController.material.side === THREE.DoubleSide,
     "Water must be transparent, avoid depth writes, and remain visible from below.",
   );
+
+  const waterBedController = new WaterBedMaterialController(config);
+  const bedShader = {
+    uniforms: {},
+    vertexShader: "#include <common>\n#include <begin_vertex>",
+    fragmentShader: "#include <common>\n#include <color_fragment>",
+  };
+  waterBedController.material.onBeforeCompile(bedShader, {});
+  assert(
+    bedShader.vertexShader.includes("attribute vec4 waterData") &&
+      bedShader.vertexShader.includes("transformed.y -= max(0.0, waterData.y)"),
+    "The riverbed pass must move shared water topology down to the real bed depth.",
+  );
+  assert(
+    bedShader.fragmentShader.includes("waterSampleRiverBed") &&
+      bedShader.fragmentShader.includes("waterBedDepthVisibility") &&
+      bedShader.fragmentShader.includes("uWaterBedRefraction"),
+    "The riverbed pass must own its cobble, depth fade, and apparent refraction shading.",
+  );
+  assert(
+    bedShader.uniforms.uWaterBedNoise?.value?.isDataTexture === true &&
+      bedShader.uniforms.uWaterBedNoise.value.wrapS === THREE.RepeatWrapping &&
+      bedShader.uniforms.uWaterBedNoise.value.wrapT === THREE.RepeatWrapping,
+    "Riverbed shading must bind its deterministic repeating bed texture.",
+  );
+  assert(
+    waterBedController.material.transparent === true &&
+      waterBedController.material.depthWrite === false &&
+      waterBedController.material.polygonOffset === true,
+    "Riverbed shading must depth-test without replacing terrain depth.",
+  );
+
+  waterBedController.dispose();
   waterController.dispose();
 
   console.log(
-    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow noise, caustics, glints, stone wakes, depth, and physical water verified.`,
+    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow noise, caustics, glints, stone wakes, depth-tested riverbed, and physical water verified.`,
   );
 } finally {
   await server.close();

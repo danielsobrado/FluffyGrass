@@ -8,7 +8,7 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 // orchestration hook the development-only extensibility proof attaches to; the
 // proof itself lives outside the production bundle in src/dev.
 const WORLD_APP_MAX_LINES = 560;
-const TERRAIN_STREAMER_MAX_LINES = 300;
+const TERRAIN_STREAMER_MAX_LINES = 320;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;
 const WATER_CHUNK_GEOMETRY_MAX_LINES = 180;
@@ -17,10 +17,9 @@ const WATER_FLOW_NOISE_MAX_LINES = 220;
 const WATER_FLOW_SHADER_MAX_LINES = 100;
 const WATER_BED_SHADER_MAX_LINES = 100;
 const WATER_BED_TEXTURE_MAX_LINES = 220;
+const WATER_BED_MATERIAL_MAX_LINES = 160;
+const WATER_BED_MATERIAL_SHADER_MAX_LINES = 140;
 const WATER_MATERIAL_MAX_LINES = 180;
-// Raised for the riverbed composite. The bed's map generation and GLSL live in
-// WaterBedTexture/WaterBedShader under their own limits, so what landed here is
-// only the surface blend this file exists to own.
 const WATER_SHADER_MAX_LINES = 275;
 const STONE_GEOMETRY_MAX_LINES = 340;
 // Raised for the streamed-ring coverage mask. Chunk residency lives in
@@ -71,6 +70,10 @@ const waterFlowNoise = read("src/world/hydrology/WaterFlowNoiseTexture.ts");
 const waterFlowShader = read("src/world/hydrology/WaterFlowShader.ts");
 const waterBedShader = read("src/world/hydrology/WaterBedShader.ts");
 const waterBedTexture = read("src/world/hydrology/WaterBedTexture.ts");
+const waterBedMaterial = read("src/world/hydrology/WaterBedMaterialController.ts");
+const waterBedMaterialShader = read(
+  "src/world/hydrology/WaterBedMaterialShader.ts",
+);
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const waterShader = read("src/world/hydrology/WaterShader.ts");
 const horizonShell = read("src/world/horizon/WorldHorizonShell.ts");
@@ -183,6 +186,7 @@ assert(
   lineCount(terrainStreamer) <= TERRAIN_STREAMER_MAX_LINES &&
     terrainStreamer.includes("TerrainMaterialController") &&
     terrainStreamer.includes("WaterMaterialController") &&
+    terrainStreamer.includes("WaterBedMaterialController") &&
     terrainStreamer.includes("WaterInteractionField") &&
     terrainStreamer.includes("private disposed = false") &&
     terrainStreamer.includes("chunk.getTriangleCount()") &&
@@ -190,16 +194,18 @@ assert(
     !terrainStreamer.includes("TERRAIN_DETAIL_COLOR") &&
     !terrainStreamer.includes("MeshPhongMaterial") &&
     !terrainStreamer.includes("MeshPhysicalMaterial"),
-  "TerrainStreamer must own residency/build scheduling and diagnostics, not shader or material construction.",
+  "TerrainStreamer must own residency/build scheduling and material lifecycles, not shader construction.",
 );
 assert(
   terrainChunk.includes("WaterChunkGeometryBuilder") &&
     terrainChunk.includes("waterGeometryBuilder.writeVertex") &&
     terrainChunk.includes("waterGeometryBuilder.createGeometry") &&
+    terrainChunk.includes("waterBedMesh") &&
+    terrainChunk.includes("WATER_BED_RENDER_ORDER") &&
     terrainChunk.includes("getTriangleCount()") &&
     !terrainChunk.includes("createWaterIndices") &&
     !terrainChunk.includes("WATER_VISIBLE_COVERAGE_THRESHOLD"),
-  "Terrain chunks must delegate water packing/topology and expose their complete triangle cost.",
+  "Terrain chunks must delegate water topology, expose the separate bed draw, and report complete triangle cost.",
 );
 assert(
   lineCount(waterChunkGeometry) <= WATER_CHUNK_GEOMETRY_MAX_LINES &&
@@ -269,12 +275,21 @@ assert(
 );
 assert(
   lineCount(waterBedShader) <= WATER_BED_SHADER_MAX_LINES &&
+    lineCount(waterBedMaterial) <= WATER_BED_MATERIAL_MAX_LINES &&
+    lineCount(waterBedMaterialShader) <= WATER_BED_MATERIAL_SHADER_MAX_LINES &&
     waterBedShader.includes("waterSampleRiverBed") &&
-    waterBedShader.includes("waterResolveBedPosition") &&
+    !waterBedShader.includes("waterResolveBedPosition") &&
     !waterBedShader.includes("THREE.") &&
-    waterShader.includes('from "./WaterBedShader"') &&
-    waterShader.includes("waterResolveBedPosition(waterSlope, waterDepth)"),
-  "Riverbed GLSL must stay a separate helper that the surface shader only composites.",
+    waterBedMaterial.includes("class WaterBedMaterialController") &&
+    waterBedMaterial.includes("MeshLambertMaterial") &&
+    waterBedMaterial.includes("createWaterBedTexture") &&
+    waterBedMaterial.includes("bedTexture.dispose()") &&
+    waterBedMaterialShader.includes('from "./WaterBedShader"') &&
+    waterBedMaterialShader.includes("transformed.y -= max(0.0, waterData.y)") &&
+    waterBedMaterialShader.includes("waterSampleRiverBed") &&
+    !waterShader.includes('from "./WaterBedShader"') &&
+    !waterShader.includes("waterSampleRiverBed"),
+  "Riverbed shading must be a separate depth-tested pass instead of being composited onto transparent water.",
 );
 assert(
   lineCount(waterMaterial) <= WATER_MATERIAL_MAX_LINES &&
@@ -284,8 +299,8 @@ assert(
     waterMaterial.includes("THREE.DoubleSide") &&
     waterMaterial.includes("createWaterFlowNoiseTexture") &&
     waterMaterial.includes("flowNoiseTexture.dispose()") &&
-    waterMaterial.includes("createWaterBedTexture") &&
-    waterMaterial.includes("bedTexture.dispose()") &&
+    !waterMaterial.includes("createWaterBedTexture") &&
+    !waterMaterial.includes("bedTexture") &&
     waterMaterial.includes('from "./WaterShader"') &&
     waterMaterial.includes("onBeforeCompile") &&
     waterMaterial.includes("depthWrite: false") &&
@@ -296,7 +311,7 @@ assert(
     waterShader.includes("waterLightingNormal") &&
     waterShader.includes("gl_FrontFacing") &&
     !waterMaterial.includes("waterRiverPhaseA"),
-  "Physical water lifecycle, flow helpers, and GLSL implementation must stay split and disposal-safe.",
+  "Physical water lifecycle, flow helpers, and surface GLSL must stay split and free of riverbed compositing.",
 );
 
 assert(
@@ -406,5 +421,5 @@ assert(
 );
 
 console.log(
-  "[architecture] Runtime, terrain, hydrology, advanced water, config, and stone responsibility boundaries verified.",
+  "[architecture] Runtime, terrain, hydrology, depth-tested water bed, config, and stone responsibility boundaries verified.",
 );

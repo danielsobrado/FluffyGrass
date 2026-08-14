@@ -17,7 +17,8 @@ import type {
 
 /** Every grass layer and the character stay at the default 0. */
 export const TERRAIN_RENDER_ORDER = 1;
-export const WATER_RENDER_ORDER = 2;
+export const WATER_BED_RENDER_ORDER = 2;
+export const WATER_RENDER_ORDER = 3;
 
 const VERTEX_STAGE = 0;
 const WATER_INTERACTION_STAGE = 1;
@@ -28,6 +29,7 @@ const BUILD_DEADLINE_CHECK_INTERVAL = 8;
 export class TerrainChunk {
   readonly key: string;
   readonly mesh: THREE.Mesh;
+  readonly waterBedMesh?: THREE.Mesh;
   readonly waterMesh?: THREE.Mesh;
 
   constructor(
@@ -39,6 +41,7 @@ export class TerrainChunk {
     receiveShadow: boolean,
     waterGeometry?: THREE.BufferGeometry,
     waterMaterial?: THREE.Material,
+    waterBedMaterial?: THREE.Material,
   ) {
     this.key = `${chunkX}:${chunkZ}`;
     this.mesh = new THREE.Mesh(geometry, material);
@@ -47,6 +50,13 @@ export class TerrainChunk {
     this.mesh.castShadow = false;
     this.mesh.renderOrder = TERRAIN_RENDER_ORDER;
 
+    if (waterGeometry && waterBedMaterial) {
+      this.waterBedMesh = new THREE.Mesh(waterGeometry, waterBedMaterial);
+      this.waterBedMesh.name = `water-bed-${this.key}-r${resolution}`;
+      this.waterBedMesh.receiveShadow = false;
+      this.waterBedMesh.castShadow = false;
+      this.waterBedMesh.renderOrder = WATER_BED_RENDER_ORDER;
+    }
     if (waterGeometry && waterMaterial) {
       this.waterMesh = new THREE.Mesh(waterGeometry, waterMaterial);
       this.waterMesh.name = `water-${this.key}-r${resolution}`;
@@ -59,12 +69,14 @@ export class TerrainChunk {
   getTriangleCount(): number {
     const terrainIndices = this.mesh.geometry.getIndex()?.count ?? 0;
     const waterIndices = this.waterMesh?.geometry.getIndex()?.count ?? 0;
-    return (terrainIndices + waterIndices) / 3;
+    const waterBedIndices = this.waterBedMesh?.geometry.getIndex()?.count ?? 0;
+    return (terrainIndices + waterIndices + waterBedIndices) / 3;
   }
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    this.waterMesh?.geometry.dispose();
+    const sharedWaterGeometry = this.waterMesh?.geometry ?? this.waterBedMesh?.geometry;
+    sharedWaterGeometry?.dispose();
   }
 }
 
@@ -115,6 +127,7 @@ export class TerrainChunkBuilder {
     private readonly material: THREE.Material,
     private readonly waterMaterial: THREE.Material | undefined,
     private readonly receiveShadow: boolean,
+    private readonly waterBedMaterial?: THREE.Material,
   ) {
     this.key = `${chunkX}:${chunkZ}`;
     this.resolution = resolution;
@@ -183,8 +196,6 @@ export class TerrainChunkBuilder {
       const suitability =
         this.field.sampleGrassSlopeMask(this.normal) * suitabilityWithoutSlope;
       this.field.samplePathDistances(x, z, this.pathDistances);
-      // Ecology first, from the readings above: colour is a consequence of it,
-      // not a second opinion about the same ground.
       this.field.resolveEcology(
         x,
         z,
@@ -327,6 +338,7 @@ export class TerrainChunkBuilder {
       this.receiveShadow,
       waterGeometry,
       waterGeometry ? this.waterMaterial : undefined,
+      waterGeometry ? this.waterBedMaterial : undefined,
     );
   }
 }

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
+import { WaterBedMaterialController } from "./hydrology/WaterBedMaterialController";
 import { WaterInteractionField } from "./hydrology/WaterInteractionField";
 import { WaterMaterialController } from "./hydrology/WaterMaterialController";
 import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
@@ -35,6 +36,7 @@ export class TerrainStreamer {
   private readonly desired = new Map<string, ChunkRequest>();
   private readonly materialController: TerrainMaterialController;
   private readonly waterMaterialController?: WaterMaterialController;
+  private readonly waterBedMaterialController?: WaterBedMaterialController;
   private readonly surfaceField: TerrainSurfaceField;
   private readonly waterInteractionField: WaterInteractionField;
   /**
@@ -61,6 +63,9 @@ export class TerrainStreamer {
     this.materialController = new TerrainMaterialController(config, shadows);
     this.waterMaterialController =
       config.waterEnabled >= 1 ? new WaterMaterialController(config) : undefined;
+    this.waterBedMaterialController = config.waterEnabled >= 1
+      ? new WaterBedMaterialController(config)
+      : undefined;
     this.surfaceField = new TerrainSurfaceField(config);
     this.waterInteractionField = new WaterInteractionField(config);
     this.horizon = config.horizonEnabled >= 1
@@ -75,7 +80,9 @@ export class TerrainStreamer {
     if (this.disposed) {
       return;
     }
-    this.waterMaterialController?.update(performance.now() * 0.001);
+    const waterTime = performance.now() * 0.001;
+    this.waterMaterialController?.update(waterTime);
+    this.waterBedMaterialController?.update(waterTime);
     const chunkX = Math.floor(position.x / this.config.chunkSize);
     const chunkZ = Math.floor(position.z / this.config.chunkSize);
     if (chunkX !== this.centerChunkX || chunkZ !== this.centerChunkZ) {
@@ -119,6 +126,7 @@ export class TerrainStreamer {
     this.desired.clear();
     this.materialController.dispose();
     this.waterMaterialController?.dispose();
+    this.waterBedMaterialController?.dispose();
     this.horizon?.dispose();
   }
 
@@ -237,6 +245,7 @@ export class TerrainStreamer {
         this.materialController.material,
         this.waterMaterialController?.material,
         this.materialController.shadows,
+        this.waterBedMaterialController?.material,
       );
     }
 
@@ -278,6 +287,9 @@ export class TerrainStreamer {
     }
     this.chunks.set(chunk.key, chunk);
     this.scene.add(chunk.mesh);
+    if (chunk.waterBedMesh) {
+      this.scene.add(chunk.waterBedMesh);
+    }
     if (chunk.waterMesh) {
       this.scene.add(chunk.waterMesh);
     }
@@ -288,6 +300,9 @@ export class TerrainStreamer {
   private removeChunk(chunk: TerrainChunk): void {
     this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
     this.scene.remove(chunk.mesh);
+    if (chunk.waterBedMesh) {
+      this.scene.remove(chunk.waterBedMesh);
+    }
     if (chunk.waterMesh) {
       this.scene.remove(chunk.waterMesh);
     }

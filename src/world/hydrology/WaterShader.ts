@@ -1,4 +1,3 @@
-import { WATER_BED_FRAGMENT_FUNCTIONS } from "./WaterBedShader";
 import { WATER_FLOW_FRAGMENT_FUNCTIONS } from "./WaterFlowShader";
 import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
 
@@ -35,32 +34,19 @@ uniform float uWaterFlowNoiseStrength;
 uniform float uWaterCausticStrength;
 uniform float uWaterGlintStrength;
 uniform float uWaterStoneWakeStrength;
-uniform sampler2D uWaterBedNoise;
-uniform float uWaterBedScale;
-uniform float uWaterBedStrength;
-uniform float uWaterBedRefraction;
-uniform float uWaterAlgaeStrength;
 uniform vec3 uWaterShallow;
 uniform vec3 uWaterDeep;
 uniform vec3 uWaterReflection;
 uniform vec3 uWaterFoam;
-uniform vec3 uWaterPebbleDark;
-uniform vec3 uWaterPebbleLight;
-uniform vec3 uWaterSand;
-uniform vec3 uWaterAlgae;
 varying vec4 vWaterData;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
 varying vec3 vWaterWorldNormal;
 ${WATER_FLOW_FRAGMENT_FUNCTIONS}
-${WATER_BED_FRAGMENT_FUNCTIONS}
 `;
 
 export const WATER_SURFACE_FRAGMENT = `
 float waterCoverageRaw = saturate(vWaterData.x);
-// Interpolated from the settled water levels, so the sheet shades smoothly across a
-// quad. Guarded because an interpolated normal can still shorten to nothing where
-// two steep banks meet, and a flat sheet is the honest answer when it does.
 float waterNormalLength = length(vWaterWorldNormal);
 vec3 waterGeometricNormal = waterNormalLength > 1e-4
   ? vWaterWorldNormal / waterNormalLength
@@ -72,8 +58,6 @@ float waterCoverage = smoothstep(0.015, 0.34, waterCoverageRaw);
 float waterDepth = max(0.0, vWaterData.y);
 vec2 waterPackedFlow = vWaterData.zw;
 float waterRiverAmount = saturate(length(waterPackedFlow));
-// Already pointing downhill: the direction is settled per vertex on the CPU, so it
-// interpolates instead of being decided once per triangle.
 vec2 waterFlowDirection = waterRiverAmount > 0.001
   ? waterPackedFlow / waterRiverAmount
   : normalize(vec2(0.78, 0.63));
@@ -189,18 +173,6 @@ vec3 waterSurfaceColor = mix(
   uWaterDeep,
   saturate(waterDepthFactor * 0.82 + waterCoverage * 0.18)
 );
-float waterBedRelief = 0.0;
-vec3 waterBedColor = waterSampleRiverBed(
-  waterResolveBedPosition(waterSlope, waterDepth),
-  waterFlowDirection,
-  waterTime,
-  waterRiverAmount,
-  waterBedRelief
-);
-// Only worth drawing while the water is still shallow enough to see through.
-float waterBedVisibility = uWaterBedStrength * waterDetailWeight *
-  (1.0 - smoothstep(0.0, uWaterDepthFade * 2.6, waterDepth));
-waterSurfaceColor = mix(waterSurfaceColor, waterBedColor, waterBedVisibility);
 
 float waterShallowLight =
   (1.0 - smoothstep(0.18, 2.4, waterDepth)) * waterDetailWeight;
@@ -246,8 +218,7 @@ float waterFoamAmount = saturate(
 waterSurfaceColor = mix(waterSurfaceColor, uWaterFoam, waterFoamAmount);
 roughnessFactor = clamp(
   roughnessFactor + waterRiverAmount * waterDetailWeight * 0.035 +
-    waterStoneActivity * 0.08 + waterFoamAmount * 0.48 - waterGlint * 0.025 +
-    waterBedRelief * waterBedVisibility * 0.07,
+    waterStoneActivity * 0.08 + waterFoamAmount * 0.48 - waterGlint * 0.025,
   0.02,
   0.75
 );
@@ -257,8 +228,5 @@ float waterDepthOpacity = mix(0.58, 1.0, waterDepthFactor);
 float waterFresnelOpacity = mix(0.78, 1.0, waterFresnelVisual);
 float waterAlpha = uWaterOpacity * waterCoverage * waterDepthOpacity * waterFresnelOpacity;
 waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.22), waterFoamAmount);
-// The bed replaces what the terrain underneath was showing, so it has to carry
-// enough alpha to be seen rather than ghosting over the flat riverbed colour.
-waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.34), waterBedVisibility);
 diffuseColor.a *= waterAlpha;
 `;
