@@ -109,6 +109,35 @@ vec3 grassResolvePalette(
     ${toGlslFloat(tuning.shadeLightMaximum)},
     shade
   );
-  return paletteColor * rootLight * bladeVariation * rootAo;
+  float occlusion = rootLight * bladeVariation * rootAo;
+  vec3 shadedColor = paletteColor * occlusion;
+  // Every term above is a scalar, so a blade gets darker without its green ever
+  // getting less pure — and a dark, fully saturated green is not a colour ACES
+  // can carry. Its output matrix takes red negative and the clamp eats it: in a
+  // settled capture 7.5% of near-field vegetation pixels had red at exactly
+  // zero, against 0.0% in the far field. That clipping is most of what reads as
+  // a neon carpet rather than a meadow, and no amount of palette retuning fixes
+  // it while the darkening stays purely multiplicative.
+  //
+  // Shadowed vegetation is lit by the sky and by bounce off the ground, not by
+  // nothing, so it loses saturation as it darkens. Letting it do that here puts
+  // the albedo back inside the gamut as a side effect of being more correct.
+  //
+  // The blend runs toward the colour's own luminance, so it cannot shift the
+  // field's brightness — which is what lets one shared function change every
+  // LOD at once without moving the near/mid/far parity budget.
+  return mix(
+    shadedColor,
+    vec3(dot(shadedColor, vec3(
+      ${toGlslFloat(GRASS_LUMINANCE_WEIGHTS.x)},
+      ${toGlslFloat(GRASS_LUMINANCE_WEIGHTS.y)},
+      ${toGlslFloat(GRASS_LUMINANCE_WEIGHTS.z)}
+    ))),
+    clamp(
+      (1.0 - occlusion) * ${toGlslFloat(tuning.shadowDesaturation)},
+      0.0,
+      1.0
+    )
+  );
 }
 `;

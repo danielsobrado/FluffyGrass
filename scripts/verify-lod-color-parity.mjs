@@ -107,6 +107,7 @@ const TUNING_NUMBER_FIELDS = [
   "rootFadeEnd",
   "shadeLightMinimum",
   "shadeLightMaximum",
+  "shadowDesaturation",
 ];
 
 function fail(message) {
@@ -313,7 +314,21 @@ function resolvePalette(preset, palette, progress, shade, dryness, rootAo) {
     tuning.shadeLightMaximum,
     shade,
   );
-  return multiplyColor(paletteColor, rootLight * bladeVariation * rootAo);
+  // Mirrors the shadow desaturation in GRASS_PALETTE_GLSL. The blend runs
+  // toward the colour's own luminance, so it is luminance-preserving and the
+  // ΔL bounds below are unaffected; it is replicated here because the p95
+  // colour distance is not.
+  const occlusion = rootLight * bladeVariation * rootAo;
+  const shadedColor = multiplyColor(paletteColor, occlusion);
+  const shadowDesaturation = clamp(
+    (1 - occlusion) * tuning.shadowDesaturation,
+    0,
+    1,
+  );
+  const shadedLuminance = luminance(shadedColor);
+  return shadedColor.map((value) =>
+    lerp(value, shadedLuminance, shadowDesaturation),
+  );
 }
 
 function resolveImpostorPalette(

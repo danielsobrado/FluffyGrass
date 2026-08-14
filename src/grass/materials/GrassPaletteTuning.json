@@ -11,5 +11,6 @@
   "drynessMaximum": 0.12,
   "rootFadeEnd": 0.55,
   "shadeLightMinimum": 0.82,
-  "shadeLightMaximum": 1.15
+  "shadeLightMaximum": 1.15,
+  "shadowDesaturation": 0.55
 }

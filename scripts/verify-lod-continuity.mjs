@@ -290,10 +290,20 @@ const paletteTemplate = sharedPalette.slice(
 const injectedPaletteScalars = [
   ...paletteTemplate.matchAll(/\$\{([^}]+)\}/g),
 ].map((match) => match[1].trim());
+// Art values must come from the tuning file so a preset cannot be silently
+// hard-coded into the shader. GRASS_LUMINANCE_WEIGHTS is admitted alongside it
+// because it is not an art value: it is the Rec. 709 luma vector, already
+// exported and already shared with setBalancedGrassPaletteColors, so injecting
+// it keeps one source of truth rather than creating a second. What the rule is
+// really protecting either way is that nothing reaches the GLSL as a bare
+// literal, which the toGlslFloat prefix is what actually guarantees.
+const PALETTE_SCALAR_SOURCES = ["tuning.", "GRASS_LUMINANCE_WEIGHTS."];
 assert(
   injectedPaletteScalars.length > 0 &&
     injectedPaletteScalars.every((expression) =>
-      expression.startsWith("toGlslFloat(tuning."),
+      PALETTE_SCALAR_SOURCES.some((source) =>
+        expression.startsWith(`toGlslFloat(${source}`),
+      ),
     ) &&
     sharedPalette.includes("Number.isInteger(value)"),
   "Every generated palette scalar must be emitted as a GLSL float literal.",
