@@ -188,8 +188,10 @@ export class ActorContactIk implements ActorPoseStage {
       this.targetPoint.fromArray(this.contactTargets, index * 3);
       this.modelPoint.lerp(this.targetPoint, plant);
       this.solver.solve(effector.chain, this.modelPoint, this.space, pose);
+      // The next chain must see the pose produced by this solve even when the
+      // current effector does not request terminal alignment.
+      this.space.update(pose);
       if (effector.alignBone >= 0) {
-        this.space.update(pose);
         this.alignToGround(effector, index, plant, pose);
       }
     }
