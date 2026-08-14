@@ -12,6 +12,19 @@ function read(relativePath) {
   );
 }
 
+/**
+ * Strips comments so a shader contract reads code, not prose.
+ *
+ * These modules explain at length which techniques they deliberately avoid, and
+ * a bare substring check will happily match the warning against a technique as
+ * though it were the technique itself.
+ */
+function stripComments(source) {
+  return source
+    .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+    .replaceAll(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 function fail(message) {
   throw new Error(`[grass-performance] ${message}`);
 }
@@ -521,16 +534,26 @@ assert(
     tileFactory.includes("placementLru"),
   "Near tiles must retain eviction hysteresis and the bounded placement LRU.",
 );
+// Coverage is remapped from the atlas alpha itself, which is already geometric
+// coverage from rasterization and mip filtering. Differentiating the stochastic
+// view sample would measure view noise as silhouette width, so the cutoff rides
+// minification instead — assert that mechanism rather than a derivative call.
+const impostorMaterialCode = stripComments(impostorMaterial);
 assert(
   impostorAtlasFactory.includes("THREE.LinearMipmapLinearFilter") &&
     impostorAtlasFactory.includes("texture.generateMipmaps = true") &&
     impostorAtlasFactory.includes("grassSubpatchOffset") &&
     impostorAtlasFactory.includes("partitionBlades") &&
-    impostorMaterial.includes("fwidth(atlasColor.a)") &&
-    impostorMaterial.includes("IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE") &&
-    impostorMaterial.includes("cylindricalRight") &&
-    impostorMaterial.includes("atlasElevation"),
-  "Far atlases must use genuine subpatch cards, upright horizon billboards, and derivative-aware alpha coverage.",
+    impostorMaterialCode.includes("IMPOSTOR_MINIFIED_ALPHA_CUTOFF") &&
+    impostorMaterialCode.includes("float cutoff = mix(") &&
+    impostorMaterialCode.includes("minification") &&
+    impostorMaterialCode.includes("cylindricalRight") &&
+    impostorMaterialCode.includes("atlasElevation"),
+  "Far atlases must use genuine subpatch cards, upright horizon billboards, and minification-aware alpha coverage.",
+);
+assert(
+  !impostorMaterialCode.includes("fwidth(atlasColor.a)"),
+  "Impostor coverage must not differentiate the stochastic view sample; that measures view noise as silhouette width.",
 );
 
 const maxBiomes = Number(
@@ -943,7 +966,13 @@ assert(
 assert(worldGrassSystem.includes("mesh.receiveShadow = false"), "Mid/far grass must not perform per-blade shadow reads.");
 const underfill = Number(lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1]);
 assert(underfill === 0, "Far-card underfill must remain disabled in the full mid band.");
-assert(!impostorMaterial.includes("vec4 color00 = sampleFrame") && impostorMaterial.includes("atlasColor = sampleFrame(selectedFrame, vUv)"), "Far views must reconstruct the blend stochastically with one atlas fetch, at every distance.");
+// The fetch may carry explicit gradients; what matters is that there is one of
+// it and no four-tap blend behind it.
+assert(
+  !impostorMaterialCode.includes("vec4 color00 = sampleFrame") &&
+    impostorMaterialCode.includes("atlasColor = sampleFrame(selectedFrame, vUv"),
+  "Far views must reconstruct the blend stochastically with one atlas fetch, at every distance.",
+);
 assert(
   !/\.onBeforeRender\s*=/.test(nearMaterial) &&
     !/\.onBeforeRender\s*=/.test(impostorMaterial),
