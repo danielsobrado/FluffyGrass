@@ -189,6 +189,10 @@ void main() {
   vFieldCoverage = instanceCoverage * cardWeight;
   float effectiveCoverage =
     vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
+  if (effectiveCoverage <= 0.001) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   // Nothing overlaps the far-to-terrain handoff, so a fragment screen-door
   // there becomes visible horizon dust. Fade whole 2x2 m subpatch cards instead;
   // at this range each card is small while its internal silhouette stays intact.
@@ -197,7 +201,7 @@ void main() {
     grassSubpatchIndex * 0.41421356237 +
     uDitherSeed * 1.32471795724
   );
-  if (terrainDither >= terrainCoverage || effectiveCoverage <= 0.001) {
+  if (terrainDither >= terrainCoverage) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
