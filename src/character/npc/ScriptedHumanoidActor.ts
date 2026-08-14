@@ -103,7 +103,9 @@ export class ScriptedHumanoidActor {
     this.previousPosition.copy(this.worldPosition);
     this.placeOnPath(this.pathTime);
 
-    const travelled = this.previousPosition.distanceTo(this.worldPosition);
+    const deltaX = this.worldPosition.x - this.previousPosition.x;
+    const deltaZ = this.worldPosition.z - this.previousPosition.z;
+    const travelled = Math.hypot(deltaX, deltaZ);
     this.distanceTravelled += travelled;
     const speed = delta > 0 ? travelled / delta : 0;
     this.worldVelocity

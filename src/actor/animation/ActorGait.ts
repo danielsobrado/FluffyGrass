@@ -34,7 +34,8 @@ export class ActorGait {
   /** Swing progress per effector in `[0, 1]`, only meaningful while swinging. */
   private readonly swingProgress: Float32Array;
 
-  constructor(private profile: ActorGaitProfile) {
+  constructor(private readonly profile: ActorGaitProfile) {
+    validateProfile(profile);
     this.plantWeights = new Float32Array(profile.effectors.length);
     this.stanceProgress = new Float32Array(profile.effectors.length);
     this.stanceFlags = new Uint8Array(profile.effectors.length);
@@ -75,11 +76,10 @@ export class ActorGait {
    * locked to the ground at any speed and never skates.
    */
   setFromDistance(distanceTravelled: number): void {
-    const stride = this.profile.strideLengthMeters;
-    if (!(stride > 0) || !Number.isFinite(distanceTravelled)) {
+    if (!Number.isFinite(distanceTravelled)) {
       return;
     }
-    const cycles = distanceTravelled / stride;
+    const cycles = distanceTravelled / this.profile.strideLengthMeters;
     this.phase = cycles - Math.floor(cycles);
     this.resolveEffectors();
   }
@@ -114,6 +114,28 @@ export class ActorGait {
         this.swingProgress[index] =
           swingSpan > 0 ? (local - duty) / swingSpan : 0;
       }
+    }
+  }
+}
+
+function validateProfile(profile: ActorGaitProfile): void {
+  if (
+    !Number.isFinite(profile.strideLengthMeters) ||
+    profile.strideLengthMeters <= 0
+  ) {
+    throw new Error("Actor gait strideLengthMeters must be a positive finite number.");
+  }
+  for (let index = 0; index < profile.effectors.length; index += 1) {
+    const effector = profile.effectors[index];
+    if (!Number.isFinite(effector.phaseOffset)) {
+      throw new Error(`Actor gait effector ${index} has a non-finite phase offset.`);
+    }
+    if (
+      !Number.isFinite(effector.dutyFactor) ||
+      effector.dutyFactor < 0 ||
+      effector.dutyFactor > 1
+    ) {
+      throw new Error(`Actor gait effector ${index} duty factor must be within 0..1.`);
     }
   }
 }
