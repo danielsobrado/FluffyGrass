@@ -33,7 +33,6 @@ import {
   IMPOSTOR_AERIAL_BLEND_START,
   IMPOSTOR_ALPHA_CUTOFF,
   IMPOSTOR_ALPHA_DITHER_SEED,
-  IMPOSTOR_ALPHA_MIN_WIDTH,
   IMPOSTOR_BASE_COLOR_BLEND,
   IMPOSTOR_COLOR_SCALE,
   IMPOSTOR_DITHER_SEED,
@@ -449,20 +448,15 @@ void main() {
     ${IMPOSTOR_MINIFIED_ALPHA_CUTOFF.toFixed(2)},
     minification
   );
-  // This derivative also executes before the first fragment discard. Once any
-  // lane has discarded, derivatives later in the shader are not portable.
-  float alphaWidth = max(
-    fwidth(atlasColor.a),
-    ${IMPOSTOR_ALPHA_MIN_WIDTH}
-  );
-  float alphaCoverage = smoothstep(
-    cutoff - alphaWidth,
-    cutoff + alphaWidth,
-    atlasColor.a
+  // The atlas alpha channel is already geometric coverage from canvas
+  // rasterization and mip filtering. Remap it directly instead of differentiating
+  // the stochastic view sample: neighbouring pixels may intentionally choose
+  // different view frames, so fwidth(atlasColor.a) would measure view noise as
+  // silhouette width and could resurrect low-alpha mip fragments.
+  float alphaCoverage = saturate(
+    (atlasColor.a - cutoff) / max(1.0 - cutoff, 0.001)
   );
   if (fullyMinified) {
-    // At minification == 1 the smoothstep + 0.5 threshold is exactly equivalent
-    // to this hard cut. Skip the hash work where it can no longer change output.
     if (atlasColor.a <= cutoff) {
       discard;
     }
@@ -476,7 +470,7 @@ void main() {
     // A strict >= is required: with >, a hash value of exactly zero survives an
     // alphaCoverage of zero and paints an opaque palette pixel in transparent
     // atlas space. Bias the stochastic threshold toward 0.5 as minification
-    // rises; the fully-minified branch above takes over at the exact hard cut.
+    // rises; the fully-minified branch above takes over at the hard cut.
     float alphaThreshold = mix(alphaDither, 0.5, minification);
     if (alphaThreshold >= alphaCoverage) {
       discard;
@@ -488,7 +482,8 @@ void main() {
   // Fine stochastic coverage is useful where real mid blades overlap the cards.
   // Once cards become tiny, field/stream coverage resolves per subpatch so no
   // low-coverage source can turn into isolated pixels at the horizon. This test
-  // deliberately comes after all derivatives; it is still before color work.
+  // deliberately comes after the atlas sample and alpha cut; no derivatives are
+  // evaluated after a fragment can be discarded.
   float dither = fullyMinified
     ? coverageNoise(
         vec2(
