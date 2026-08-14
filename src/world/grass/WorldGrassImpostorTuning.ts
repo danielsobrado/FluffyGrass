@@ -16,7 +16,6 @@ export const IMPOSTOR_MINIFICATION_START_TEXELS_PER_PIXEL = 1.5;
 export const IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL = 4;
 /** View-selection dither resolution relative to the configured atlas frame. */
 export const IMPOSTOR_VIEW_DITHER_GRID_SCALE = 0.75;
-export const IMPOSTOR_ALPHA_MIN_WIDTH = 1 / 255;
 export const IMPOSTOR_ALPHA_DITHER_SEED = 0.61;
 /** Stable hash terms for the coherent far-to-terrain subpatch fade. */
 export const IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE = 53;
