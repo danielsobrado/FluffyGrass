@@ -52,6 +52,49 @@ Verified by reading the implementation, not by inference from behaviour.
 Nineteen of twenty-two substantive items were already present, several built
 further than the review described.
 
+## Correction: the audit was right about the code and wrong about the frame
+
+Everything above is true of the source. It is not true of what the renderer was
+putting on screen. A settled capture at 7.2 M blades showed the same flat green
+carpet, speckled horizon, and murky sky the review complained about — so the
+review's *diagnosis* was fair even where its prescription was redundant.
+
+The lesson is that "the system exists" and "the system reads" are different
+claims, and only the second one is about the look. What follows was found by
+sampling rendered pixels, not by reading code.
+
+### The sky was never the colour it was configured to be
+
+Measured at frame centre, climbing: `#5b8447`, `#5a8455`, `#507a60`, `#477268` —
+a dark olive-teal. The palette plus ACES says that band should read `#d6dcd1`
+fading to `#b3cfdf`: a pale blue-white haze.
+
+Two defects in `WorldSky`, compounding:
+
+1. `linearColor()` did `new THREE.Color(hex).convertSRGBToLinear()`. Colour
+   management is on, so the constructor had already taken the literal into the
+   linear working space; the explicit call applied the transfer function a
+   second time.
+2. The dome is a `ShaderMaterial`, which gets none of the output pipeline
+   automatically, and its fragment shader ended at `gl_FragColor = ...`. No
+   `<tonemapping_fragment>`, no `<colorspace_fragment>` — so it wrote linear
+   radiance straight into an sRGB framebuffer and skipped the ACES curve every
+   other material in the scene is graded through.
+
+Reproducing both in plain JS predicts `#598244` and `#5b8448` where the frame
+measured `#5b8447` and `#5a8455` — within 3/255 per channel, which is what
+turned this from a suspicion into a diagnosis. The horizon shell and the reveal
+overlay were both ruled out first by disabling them and re-measuring.
+
+The blast radius is larger than the sky, because the PMREM environment is baked
+from a clone of this same material: every reflection in the world — water,
+metal, and the character's environment light — was being handed a dark green
+sky. After the fix the same band measures `#d0dad9`–`#d6dcd1`.
+
+**This brightens the whole scene's ambient.** The exposure grade was tuned
+against the broken sky, so `WORLD_DEFAULT_EXPOSURE` deserves a fresh look now
+that it is lit by the intended one.
+
 ## The gaps that were real
 
 ### 1. Nothing the character does reaches the grass

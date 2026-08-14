@@ -39,6 +39,18 @@ void main() {
   float disc = smoothstep(0.9992, 0.99985, sunFacing);
   color += uSkySunColor * (glow * 0.42 + disc * 1.65);
   gl_FragColor = vec4(color, 1.0);
+
+  // A ShaderMaterial gets none of the output pipeline for free, so both chunks
+  // have to be asked for by name. Without them the dome wrote linear radiance
+  // straight into an sRGB framebuffer, which is a little over half the intended
+  // brightness, and skipped the ACES curve every other material in the scene is
+  // graded through.
+  //
+  // Both are no-ops during the PMREM bake below: the generator forces
+  // NoToneMapping and renders into a linear target, so the environment still
+  // receives the linear radiance it wants.
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 
@@ -106,6 +118,12 @@ export class WorldSky {
   }
 }
 
+/**
+ * Colour management is on, so `new THREE.Color(hex)` has already taken the sRGB
+ * literal into the linear working space. Calling `convertSRGBToLinear` on the
+ * result, as this did, applied the transfer function a second time and left
+ * every sky colour far darker and more olive than the palette it was read from.
+ */
 function linearColor(hex: string): THREE.Color {
-  return new THREE.Color(hex).convertSRGBToLinear();
+  return new THREE.Color(hex);
 }
