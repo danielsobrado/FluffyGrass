@@ -120,9 +120,13 @@ assert(
   "Coverage dither must track the configured atlas frame resolution.",
 );
 assert(
-  material.includes("uBlendViews < 0.5 || fullyMinified") &&
-    material.includes("IMPOSTOR_VIEW_DITHER_GRID_SCALE.toFixed(2)"),
-  "Strongly minified cards must stop stochastic view selection and view dither must scale with frame resolution.",
+  material.includes("return textureGrad(") &&
+    material.includes("dFdx(localUv) * atlasGradientScale") &&
+    material.includes("dFdy(localUv) * atlasGradientScale") &&
+    material.includes("if (uBlendViews < 0.5)") &&
+    material.includes("if (!fullyMinified)") &&
+    !material.includes("return texture2D(uAtlas"),
+  "Stochastic frame selection must use explicit local-frame gradients so atlas-cell jumps cannot force coarse cross-frame mips.",
 );
 assert(
   material.includes("float terrainCoverage = 1.0 - smoothstep(") &&
@@ -146,6 +150,15 @@ assert(
     material.includes("if (alphaThreshold >= alphaCoverage)") &&
     !material.includes("if (alphaDither > alphaCoverage)"),
   "Alpha coverage must use the equivalent cheap hard cut when fully minified and a strict zero-safe stochastic threshold before it.",
+);
+const alphaDerivativeIndex = material.indexOf("float alphaWidth = max(");
+const hardAlphaBranchIndex = material.indexOf(
+  "if (fullyMinified) {",
+  alphaDerivativeIndex,
+);
+assert(
+  alphaDerivativeIndex >= 0 && hardAlphaBranchIndex > alphaDerivativeIndex,
+  "Alpha derivatives must execute before the screen-space minification branch so derivative flow stays defined.",
 );
 for (const varying of [
   "flat varying vec3 vLocalViewDirection;",
