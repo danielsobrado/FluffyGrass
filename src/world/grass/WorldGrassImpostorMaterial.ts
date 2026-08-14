@@ -79,7 +79,6 @@ varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
 varying float vFarEntry;
-varying float vTerrainCoverage;
 varying float vFieldCoverage;
 varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
@@ -173,7 +172,7 @@ void main() {
     1.0,
     fullFarEntry
   );
-  vTerrainCoverage = 1.0 - smoothstep(
+  float terrainCoverage = 1.0 - smoothstep(
     uFarDistance - uTransitionDistance,
     uFarDistance + uTransitionDistance,
     cameraDistance
@@ -189,8 +188,16 @@ void main() {
   }
   vFieldCoverage = instanceCoverage * cardWeight;
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
-  if (effectiveCoverage <= 0.001) {
+    vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
+  // Nothing overlaps the far-to-terrain handoff, so a fragment screen-door
+  // there becomes visible horizon dust. Fade whole 2x2 m subpatch cards instead;
+  // at this range each card is small while its internal silhouette stays intact.
+  float terrainDither = fract(
+    instanceVariation.x * 53.0 +
+    grassSubpatchIndex * 0.41421356237 +
+    uDitherSeed * 1.32471795724
+  );
+  if (terrainDither >= terrainCoverage || effectiveCoverage <= 0.001) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
@@ -294,7 +301,6 @@ varying float vInstanceSeed;
 varying float vDryness;
 varying float vRootAo;
 varying float vFarEntry;
-varying float vTerrainCoverage;
 varying float vFieldCoverage;
 varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
@@ -361,10 +367,10 @@ void main() {
     atlasTexelsPerPixel >= ${IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL.toFixed(2)};
 
   float effectiveCoverage =
-    vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
-  // Keep the existing per-texel crossfade while the card is large. At strong
-  // minification switch to one stable decision per subpatch so low terrain or
-  // ecology coverage removes coherent grass cards instead of isolated pixels.
+    vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
+  // Fine stochastic coverage is useful where real mid blades overlap the cards.
+  // Once cards become tiny, field/stream coverage also resolves per subpatch so
+  // no other low-coverage source can turn into isolated pixels at the horizon.
   float dither = fullyMinified
     ? coverageNoise(
         vec2(vSubpatchIndex, vSubpatchIndex * 0.61803398875),
