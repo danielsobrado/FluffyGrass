@@ -106,9 +106,17 @@ assert(
   "Strongly minified cards must stop stochastic view selection and view dither must scale with frame resolution.",
 );
 assert(
+  material.includes("float terrainCoverage = 1.0 - smoothstep(") &&
+    material.includes("float terrainDither = fract(") &&
+    material.includes("terrainDither >= terrainCoverage") &&
+    !material.includes("vTerrainCoverage"),
+  "The unoverlapped far-to-terrain handoff must fade coherent subpatch cards instead of screen-door fragments.",
+);
+assert(
   material.includes("float dither = fullyMinified") &&
+    material.includes("vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0)") &&
     material.includes("if (dither >= effectiveCoverage)"),
-  "Strongly minified coverage must become coherent per subpatch and use a strict zero-safe threshold.",
+  "Mid/field coverage must retain a strict zero-safe threshold and become coherent once cards are strongly minified.",
 );
 assert(
   material.includes("float alphaThreshold = mix(alphaDither, 0.5, minification)") &&
@@ -125,5 +133,5 @@ assert(
 console.log(
   `[impostor-alpha] ${alphaCutoff.toFixed(2)} -> ${minifiedAlphaCutoff.toFixed(2)} cutoff, ` +
     `${minificationStart.toFixed(1)}-${minificationFull.toFixed(1)} texels/pixel hardening, ` +
-    `${minimumPadding}px minimum gutter verified.`,
+    `${minimumPadding}px minimum gutter, coherent terrain fade verified.`,
 );
