@@ -353,6 +353,13 @@ vec4 sampleFrame(
     vec2(uPadding) +
     safeUv * uFrameResolution;
   vec2 atlasUv = pixel / uAtlasSize;
+  if (uBlendViews < 0.5) {
+    float texelsPerPixel = uFrameResolution * max(
+      length(localUvDx),
+      length(localUvDy)
+    );
+    return textureLod(uAtlas, atlasUv, log2(max(texelsPerPixel, 1.0)));
+  }
   vec2 atlasGradientScale = vec2(uFrameResolution / uAtlasSize);
   return textureGrad(
     uAtlas,
