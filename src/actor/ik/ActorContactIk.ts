@@ -73,8 +73,10 @@ export class ActorContactIk implements ActorPoseStage {
   /** Per-effector ground normal in actor model space, 3 elements each. */
   private readonly contactNormals: Float32Array;
   private supportOffset = 0;
+  private gaitValidated = false;
 
   constructor(private readonly options: ActorContactIkOptions) {
+    validateOptions(options);
     this.space = new ActorPoseSpace(options.definition);
     this.solver = new TwoBoneIk(options.definition);
     this.contactTargets = new Float32Array(options.effectors.length * 3);
@@ -87,6 +89,11 @@ export class ActorContactIk implements ActorPoseStage {
     gait: ActorGait,
     pose: ActorPose,
   ): void {
+    if (!this.gaitValidated) {
+      validateGaitEffectors(this.options.effectors, gait.effectorCount);
+      this.gaitValidated = true;
+    }
+
     const effectors = this.options.effectors;
     if (!input.grounded) {
       // Airborne actors have no ground to solve against. Release the support
@@ -129,7 +136,10 @@ export class ActorContactIk implements ActorPoseStage {
       this.worldPoint.y = this.sample.height;
       this.modelPoint.copy(this.worldPoint).applyMatrix4(this.toModel);
       this.modelPoint.y += effector.soleOffset;
-      this.modelPoint.toArray(this.contactTargets, index * 3);
+      const contactBase = index * 3;
+      this.contactTargets[contactBase] = this.modelPoint.x;
+      this.contactTargets[contactBase + 1] = this.modelPoint.y;
+      this.contactTargets[contactBase + 2] = this.modelPoint.z;
 
       const animatedY = this.space.positions[endBone * 3 + 1];
       const lift = this.modelPoint.y - animatedY;
@@ -142,7 +152,9 @@ export class ActorContactIk implements ActorPoseStage {
       } else {
         this.groundNormal.normalize();
       }
-      this.groundNormal.toArray(this.contactNormals, index * 3);
+      this.contactNormals[contactBase] = this.groundNormal.x;
+      this.contactNormals[contactBase + 1] = this.groundNormal.y;
+      this.contactNormals[contactBase + 2] = this.groundNormal.z;
 
       // Swinging effectors are not support constraints. Fade their influence in
       // with the same plant weight used by the chain solve to avoid body snaps.
@@ -238,6 +250,61 @@ export class ActorContactIk implements ActorPoseStage {
     const bone = this.options.supportBone;
     const base = bone * 3;
     pose.translations[base + 1] += this.supportOffset;
+  }
+}
+
+function validateOptions(options: ActorContactIkOptions): void {
+  const boneCount = options.definition.boneCount;
+  if (
+    !Number.isInteger(options.supportBone) ||
+    options.supportBone < 0 ||
+    options.supportBone >= boneCount
+  ) {
+    throw new Error("Actor contact IK support bone is out of range.");
+  }
+  if (options.definition.translatableFlags[options.supportBone] !== 1) {
+    throw new Error("Actor contact IK support bone must allow translation.");
+  }
+  if (!Number.isFinite(options.maxSupportDrop) || options.maxSupportDrop < 0) {
+    throw new Error("Actor contact IK maxSupportDrop must be finite and non-negative.");
+  }
+  if (!Number.isFinite(options.maxAlignRadians) || options.maxAlignRadians < 0) {
+    throw new Error("Actor contact IK maxAlignRadians must be finite and non-negative.");
+  }
+  if (!Number.isFinite(options.smoothingRate) || options.smoothingRate < 0) {
+    throw new Error("Actor contact IK smoothingRate must be finite and non-negative.");
+  }
+
+  for (let index = 0; index < options.effectors.length; index += 1) {
+    const effector = options.effectors[index];
+    if (!Number.isInteger(effector.gaitEffector) || effector.gaitEffector < 0) {
+      throw new Error(`Actor contact IK effector ${index} has an invalid gait index.`);
+    }
+    if (!Number.isFinite(effector.soleOffset)) {
+      throw new Error(`Actor contact IK effector ${index} has a non-finite sole offset.`);
+    }
+    if (
+      effector.alignBone !== -1 &&
+      (!Number.isInteger(effector.alignBone) ||
+        effector.alignBone < 0 ||
+        effector.alignBone >= boneCount)
+    ) {
+      throw new Error(`Actor contact IK effector ${index} has an invalid align bone.`);
+    }
+    if (options.definition.chains.get(effector.chain.name) !== effector.chain) {
+      throw new Error(`Actor contact IK effector ${index} uses a foreign chain definition.`);
+    }
+  }
+}
+
+function validateGaitEffectors(
+  effectors: readonly ActorContactEffectorConfig[],
+  gaitEffectorCount: number,
+): void {
+  for (let index = 0; index < effectors.length; index += 1) {
+    if (effectors[index].gaitEffector >= gaitEffectorCount) {
+      throw new Error(`Actor contact IK effector ${index} references a missing gait effector.`);
+    }
   }
 }
 
