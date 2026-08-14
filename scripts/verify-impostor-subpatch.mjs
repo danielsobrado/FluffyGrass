@@ -200,9 +200,10 @@ assert(
 assert(
   material.includes("cylindricalRight") &&
     material.includes("atlasElevation") &&
-    material.includes("fwidth(atlasColor.a)") &&
+    material.includes("return textureGrad(") &&
+    material.includes("float alphaCoverage = saturate(") &&
     material.includes("uSubpatchesPerAxis"),
-  "Far material must retain upright horizon cards and derivative-aware alpha coverage.",
+  "Far material must retain upright horizon cards, explicit mip gradients, and stable alpha coverage.",
 );
 assert(
   workloadProbe.includes("FAR_INDICES_PER_CARD = 6") &&
