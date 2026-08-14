@@ -196,12 +196,12 @@ export class TerrainStreamer {
         this.queue.push(request);
       }
     }
-    this.queue.sort((left, right) => left.distance - right.distance);
+    this.queue.sort((left, right) => right.distance - left.distance);
   }
 
   private processBuildQueue(buildDeadline: number): void {
     while (!this.activeBuild && this.queue.length > 0) {
-      const request = this.queue.shift();
+      const request = this.queue.pop();
       const desired = request ? this.desired.get(request.key) : undefined;
       if (!request || desired?.resolution !== request.resolution) {
         continue;

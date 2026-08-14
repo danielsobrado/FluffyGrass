@@ -66,6 +66,10 @@ export interface GrassBiomeSample {
   blend: number;
 }
 
+export function createGrassBiomeSample(): GrassBiomeSample {
+  return { indexA: 0, indexB: 0, blend: 0 };
+}
+
 function hashLattice(x: number, z: number, seed: number): number {
   let value = Math.imul(x, 374761393) ^ Math.imul(z, 668265263) ^ seed;
   value = Math.imul(value ^ (value >>> 13), 1274126177);
@@ -168,10 +172,17 @@ const BIOME_BOUNDARIES = (() => {
 })();
 
 /** Which biomes compete at this world position, and how strongly. */
-export function sampleGrassBiome(x: number, z: number): GrassBiomeSample {
+export function sampleGrassBiome(
+  x: number,
+  z: number,
+  target: GrassBiomeSample = createGrassBiomeSample(),
+): GrassBiomeSample {
   const count = GRASS_BIOME_PROFILES.length;
   if (count <= 1) {
-    return { indexA: 0, indexB: 0, blend: 0 };
+    target.indexA = 0;
+    target.indexB = 0;
+    target.blend = 0;
+    return target;
   }
 
   const field = uniformField(x, z);
@@ -189,19 +200,22 @@ export function sampleGrassBiome(x: number, z: number): GrassBiomeSample {
   const belowDistance = field - lowerEdge;
   const aboveDistance = upperEdge - field;
   const edgeDistance = Math.min(belowDistance, aboveDistance);
+  target.indexA = indexA;
   if (edgeDistance >= BIOME_BORDER_WIDTH) {
-    return { indexA, indexB: indexA, blend: 0 };
+    target.indexB = indexA;
+    target.blend = 0;
+    return target;
   }
 
   const neighbor = belowDistance < aboveDistance ? indexA - 1 : indexA + 1;
   if (neighbor < 0 || neighbor >= count) {
-    return { indexA, indexB: indexA, blend: 0 };
+    target.indexB = indexA;
+    target.blend = 0;
+    return target;
   }
-  return {
-    indexA,
-    indexB: neighbor,
-    blend: 0.5 * (1 - edgeDistance / BIOME_BORDER_WIDTH),
-  };
+  target.indexB = neighbor;
+  target.blend = 0.5 * (1 - edgeDistance / BIOME_BORDER_WIDTH);
+  return target;
 }
 
 /** The single biome row a blade rooted at (x, z) belongs to. */

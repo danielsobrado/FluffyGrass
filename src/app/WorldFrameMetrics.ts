@@ -1,5 +1,6 @@
 import {
   WORLD_FPS_SAMPLE_INTERVAL_SECONDS,
+  WORLD_FRAME_TIMING_SAMPLE_INTERVAL_FRAMES,
   WORLD_FRAME_TIMING_SMOOTHING,
 } from "./WorldAppTuning";
 
@@ -25,6 +26,7 @@ export class WorldFrameMetrics {
   private fpsSampleFrames = 0;
   private fpsSampleElapsed = 0;
   private averageFps = 0;
+  private sampleTimings = true;
   private readonly timings: WorldFrameTimings = {
     controls: 0,
     terrain: 0,
@@ -36,6 +38,8 @@ export class WorldFrameMetrics {
 
   beginFrame(deltaSeconds: number): void {
     this.frameCount += 1;
+    this.sampleTimings =
+      (this.frameCount - 1) % WORLD_FRAME_TIMING_SAMPLE_INTERVAL_FRAMES === 0;
     this.fpsSampleFrames += 1;
     this.fpsSampleElapsed += deltaSeconds;
     if (this.fpsSampleElapsed < WORLD_FPS_SAMPLE_INTERVAL_SECONDS) {
@@ -54,6 +58,10 @@ export class WorldFrameMetrics {
     callback: (deltaSeconds: number) => void,
     deltaSeconds: number,
   ): void {
+    if (!this.sampleTimings) {
+      callback(deltaSeconds);
+      return;
+    }
     const startedAt = performance.now();
     callback(deltaSeconds);
     this.timings[subsystem] +=

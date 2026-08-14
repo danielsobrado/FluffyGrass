@@ -8,8 +8,10 @@ import { GRASS_BIOME_PROFILES } from "../../grass/biome/GrassBiomeProfile";
 import type { HydrologySample } from "../hydrology/HydrologyField";
 import type { WorldConfig } from "../WorldConfig";
 import {
+  createGrassBiomeSample,
   resolveGrassBiomeDensity,
   sampleGrassBiome,
+  type GrassBiomeSample,
 } from "../grass/WorldBiomeField";
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 
@@ -29,6 +31,8 @@ function clamp01(value: number): number {
 
 /** Converts shared grass and hydrology semantics into stable terrain inputs. */
 export class TerrainSurfaceField {
+  private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
+
   constructor(private readonly config: WorldConfig) {}
 
   sample(
@@ -41,7 +45,7 @@ export class TerrainSurfaceField {
   ): void {
     const vigor = sampleGrassMacroVigor(x, z);
     const macroDryness = sampleGrassMacroDryness(x, z);
-    const biome = sampleGrassBiome(x, z);
+    const biome = sampleGrassBiome(x, z, this.biomeSample);
     const profileA = GRASS_BIOME_PROFILES[biome.indexA];
     const profileB = GRASS_BIOME_PROFILES[biome.indexB];
     const drynessBias = THREE.MathUtils.lerp(

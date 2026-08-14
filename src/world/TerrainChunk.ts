@@ -23,6 +23,7 @@ const VERTEX_STAGE = 0;
 const WATER_INTERACTION_STAGE = 1;
 const INDEX_STAGE = 2;
 const FINALIZE_STAGE = 3;
+const BUILD_DEADLINE_CHECK_INTERVAL = 8;
 
 export class TerrainChunk {
   readonly key: string;
@@ -166,7 +167,9 @@ export class TerrainChunkBuilder {
     let processed = 0;
     while (
       this.nextVertex < total &&
-      (processed === 0 || performance.now() < deadline)
+      (processed === 0 ||
+        processed % BUILD_DEADLINE_CHECK_INTERVAL !== 0 ||
+        performance.now() < deadline)
     ) {
       const xIndex = this.nextVertex % this.resolution;
       const zIndex = Math.floor(this.nextVertex / this.resolution);
@@ -268,7 +271,9 @@ export class TerrainChunkBuilder {
     let processed = 0;
     while (
       this.nextCell < total &&
-      (processed === 0 || performance.now() < deadline)
+      (processed === 0 ||
+        processed % BUILD_DEADLINE_CHECK_INTERVAL !== 0 ||
+        performance.now() < deadline)
     ) {
       const xIndex = this.nextCell % this.cells;
       const zIndex = Math.floor(this.nextCell / this.cells);
