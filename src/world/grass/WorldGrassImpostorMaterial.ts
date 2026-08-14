@@ -41,6 +41,11 @@ import {
   IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL,
   IMPOSTOR_MINIFICATION_START_TEXELS_PER_PIXEL,
   IMPOSTOR_MINIFIED_ALPHA_CUTOFF,
+  IMPOSTOR_MINIFIED_COVERAGE_SEED_OFFSET,
+  IMPOSTOR_MINIFIED_COVERAGE_SUBPATCH_SCALE,
+  IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE,
+  IMPOSTOR_TERRAIN_DITHER_SEED_SCALE,
+  IMPOSTOR_TERRAIN_DITHER_SUBPATCH_SCALE,
   IMPOSTOR_TERRAIN_UP_BLEND,
   IMPOSTOR_VIEW_DITHER_GRID_SCALE,
 } from "./WorldGrassImpostorTuning";
@@ -197,9 +202,9 @@ void main() {
   // there becomes visible horizon dust. Fade whole 2x2 m subpatch cards instead;
   // at this range each card is small while its internal silhouette stays intact.
   float terrainDither = fract(
-    instanceVariation.x * 53.0 +
-    grassSubpatchIndex * 0.41421356237 +
-    uDitherSeed * 1.32471795724
+    instanceVariation.x * ${IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE.toFixed(1)} +
+    grassSubpatchIndex * ${IMPOSTOR_TERRAIN_DITHER_SUBPATCH_SCALE.toFixed(11)} +
+    uDitherSeed * ${IMPOSTOR_TERRAIN_DITHER_SEED_SCALE.toFixed(11)}
   );
   if (terrainDither >= terrainCoverage) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -353,11 +358,11 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
-  // Dithered alpha works while a card is large enough for several atlas texels
-  // to land on one screen pixel. Once it is strongly minified, screen-door
-  // coverage turns into the isolated horizon speckles that TAA would normally
-  // hide. Resolve that from projected size rather than world distance so FOV,
-  // viewport size, and device pixel ratio cannot make the policy drift.
+  // Dithered alpha works while the atlas is not strongly minified. Once several
+  // atlas texels collapse into one screen pixel, screen-door coverage becomes
+  // the isolated horizon speckles that TAA would normally hide. Resolve that
+  // from projected size rather than world distance so FOV, viewport size, and
+  // device pixel ratio cannot make the policy drift.
   float atlasTexelsPerPixel = uFrameResolution * max(
     fwidth(vUv.x),
     fwidth(vUv.y)
@@ -377,8 +382,11 @@ void main() {
   // no other low-coverage source can turn into isolated pixels at the horizon.
   float dither = fullyMinified
     ? coverageNoise(
-        vec2(vSubpatchIndex, vSubpatchIndex * 0.61803398875),
-        vInstanceSeed * 97.0 + 0.43
+        vec2(
+          vSubpatchIndex,
+          vSubpatchIndex * ${IMPOSTOR_MINIFIED_COVERAGE_SUBPATCH_SCALE.toFixed(11)}
+        ),
+        vInstanceSeed * 97.0 + ${IMPOSTOR_MINIFIED_COVERAGE_SEED_OFFSET.toFixed(2)}
       )
     : coverageNoise(
         floor(vUv * uFrameResolution),
