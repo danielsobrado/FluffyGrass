@@ -18,6 +18,8 @@ import { ActorPoseBlender } from "./ActorPoseBlender";
  */
 export class ActorAnimationRuntime {
   private readonly pose: ActorPose;
+  /** Last blended locomotion pose, before stages that are reapplied every frame. */
+  private readonly locomotionPose: ActorPose;
   private readonly blender: ActorPoseBlender;
   private state = 0;
   private stateTime = 0;
@@ -28,6 +30,7 @@ export class ActorAnimationRuntime {
     private readonly rigInstance: ActorRigInstance,
   ) {
     this.pose = new ActorPose(profile.definition);
+    this.locomotionPose = new ActorPose(profile.definition);
     this.blender = new ActorPoseBlender(profile.definition);
   }
 
@@ -53,8 +56,10 @@ export class ActorAnimationRuntime {
     );
     if (nextState !== this.state) {
       if (this.started) {
+        // Stages are reapplied below, so transition from the previous blended
+        // locomotion pose rather than baking prior IK/support into the source.
         this.blender.begin(
-          this.pose,
+          this.locomotionPose,
           this.profile.locomotion.transitionDuration(this.state, nextState),
           this.profile.locomotion.transitionEasing(this.state, nextState),
         );
@@ -73,6 +78,7 @@ export class ActorAnimationRuntime {
       this.pose,
     );
     this.blender.apply(this.pose, delta);
+    this.locomotionPose.copyFrom(this.pose);
 
     // 4-6. Action layers and additives are profile stages; constraints that
     // must hold before IK reads the pose run here.
@@ -111,6 +117,7 @@ export class ActorAnimationRuntime {
     this.stateTime = 0;
     this.started = false;
     this.pose.resetToBind();
+    this.locomotionPose.resetToBind();
     this.blender.reset();
     this.profile.gait.reset();
     this.profile.locomotion.reset();
