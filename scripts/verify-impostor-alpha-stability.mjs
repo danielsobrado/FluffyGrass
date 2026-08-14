@@ -116,6 +116,13 @@ assert(
   "Impostor minification must be driven by projected atlas derivatives captured before any discard.",
 );
 assert(
+  material.includes("float safeMipTexelsPerPixel = max(1.0, uPadding * 2.0)") &&
+    material.includes("safeMipTexelsPerPixel / max(atlasTexelsPerPixel, 0.0001)") &&
+    material.includes("vec2 sampleUvDx = frameUvDx * mipGradientScale") &&
+    material.includes("vec2 sampleUvDy = frameUvDy * mipGradientScale"),
+  "Packed-atlas sampling must cap its mip footprint to the two padding gutters between neighbouring frames.",
+);
+assert(
   material.includes("floor(vUv * uFrameResolution)") &&
     !material.includes("floor(vUv * 64.0)"),
   "Coverage dither must track the configured atlas frame resolution.",
@@ -124,12 +131,12 @@ assert(
   material.includes("return textureGrad(") &&
     material.includes("localUvDx * atlasGradientScale") &&
     material.includes("localUvDy * atlasGradientScale") &&
-    material.includes("sampleFrame(nearestFrame, vUv, frameUvDx, frameUvDy)") &&
-    material.includes("sampleFrame(selectedFrame, vUv, frameUvDx, frameUvDy)") &&
+    material.includes("sampleFrame(nearestFrame, vUv, sampleUvDx, sampleUvDy)") &&
+    material.includes("sampleFrame(selectedFrame, vUv, sampleUvDx, sampleUvDy)") &&
     material.includes("if (uBlendViews < 0.5)") &&
     material.includes("if (!fullyMinified)") &&
     !material.includes("return texture2D(uAtlas"),
-  "Stochastic frame selection must use explicit pre-discard local-frame gradients so atlas-cell jumps cannot force coarse cross-frame mips.",
+  "Stochastic frame selection must use explicit capped local-frame gradients so atlas-cell jumps and extreme minification cannot select cross-frame mips.",
 );
 assert(
   material.includes("float terrainCoverage = 1.0 - smoothstep(") &&
@@ -164,11 +171,11 @@ const frameDerivativeIndex = material.indexOf(
   mainStartIndex,
 );
 const nearestSampleIndex = material.indexOf(
-  "sampleFrame(nearestFrame, vUv, frameUvDx, frameUvDy)",
+  "sampleFrame(nearestFrame, vUv, sampleUvDx, sampleUvDy)",
   mainStartIndex,
 );
 const selectedSampleIndex = material.indexOf(
-  "sampleFrame(selectedFrame, vUv, frameUvDx, frameUvDy)",
+  "sampleFrame(selectedFrame, vUv, sampleUvDx, sampleUvDy)",
   mainStartIndex,
 );
 const firstFragmentDiscardIndex = material.indexOf("discard;", mainStartIndex);
