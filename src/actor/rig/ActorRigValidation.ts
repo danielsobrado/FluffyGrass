@@ -178,7 +178,7 @@ export function validateActorRigDefinition(
       !Number.isFinite(chain.minBendRadians) ||
       !Number.isFinite(chain.maxBendRadians) ||
       chain.minBendRadians < 0 ||
-      chain.minBendRadians > Math.PI ||
+      chain.maxBendRadians > Math.PI ||
       !(chain.minBendRadians <= chain.maxBendRadians)
     ) {
       fail(`chain "${chainName}" has an invalid bend range.`);
