@@ -47,7 +47,7 @@ export interface WorldHorizonDiagnostics {
  */
 export class WorldHorizonShell {
   private readonly axis: WorldHorizonAxis;
-  private readonly worldHalfExtent: number;
+  private readonly apronRings: number;
   private readonly coverage: WorldHorizonCoverage;
   private readonly materialController: WorldHorizonMaterial;
   private readonly heights: Float32Array;
@@ -56,6 +56,7 @@ export class WorldHorizonShell {
   private readonly colors: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly normal = new THREE.Vector3();
+  private readonly shadeNormal = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private mesh?: THREE.Mesh;
   private stage = HEIGHT_STAGE;
@@ -76,7 +77,7 @@ export class WorldHorizonShell {
       config.horizonApronRings,
       config.horizonApronGrowth,
     );
-    this.worldHalfExtent = config.worldSize * 0.5;
+    this.apronRings = config.horizonApronRings;
     const radius = compact
       ? config.terrainRadiusCompact
       : config.terrainRadiusDesktop;
@@ -232,29 +233,51 @@ export class WorldHorizonShell {
     const x = axis[column];
     const z = axis[row];
     const height = this.heights[index];
-    this.resolveNormal(column, row, axis, size);
+    this.resolveNormal(column, row, axis, size, this.normal);
 
-    // Colour is read at the nearest point inside the world, not at the vertex.
-    // Grass suitability is defined as zero beyond the world bounds, and feeding
-    // that straight into the palette turns the whole apron to bare soil — a
-    // brown ring around the horizon exactly where the eye is looking for haze.
-    // The height stays the real one, so the silhouette out there is genuine
-    // terrain; only its colouring is carried outward from the edge it adjoins.
-    const half = this.worldHalfExtent;
-    const shadeX = x < -half ? -half : x > half ? half : x;
-    const shadeZ = z < -half ? -half : z > half ? half : z;
+    // Palette inputs are read at the nearest vertex inside the world. Geometry
+    // keeps the apron vertex's real height and normal, so only colour is carried
+    // outward and the distant silhouette remains genuine terrain.
+    const firstInterior = this.apronRings;
+    const lastInterior = firstInterior + this.axis.interiorCells;
+    const shadeColumn =
+      column < firstInterior
+        ? firstInterior
+        : column > lastInterior
+          ? lastInterior
+          : column;
+    const shadeRow =
+      row < firstInterior
+        ? firstInterior
+        : row > lastInterior
+          ? lastInterior
+          : row;
+    const shadeIndex = shadeRow * size + shadeColumn;
+    const shadeX = axis[shadeColumn];
+    const shadeZ = axis[shadeRow];
+    const shadeHeight = this.heights[shadeIndex];
+    const shadeNormal =
+      shadeIndex === index
+        ? this.normal
+        : this.resolveNormal(
+            shadeColumn,
+            shadeRow,
+            axis,
+            size,
+            this.shadeNormal,
+          );
     const suitability = this.field.sampleGrassSuitability(
       shadeX,
       shadeZ,
-      height,
-      this.normal,
+      shadeHeight,
+      shadeNormal,
     );
     this.field.sampleColor(
       shadeX,
       shadeZ,
-      height,
+      shadeHeight,
       suitability,
-      this.field.sampleEcologyAt(shadeX, shadeZ, height),
+      this.field.sampleEcologyAt(shadeX, shadeZ, shadeHeight),
       this.color,
     );
 
@@ -280,7 +303,8 @@ export class WorldHorizonShell {
     row: number,
     axis: Float32Array,
     size: number,
-  ): void {
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
     const last = size - 1;
     const west = column > 0 ? column - 1 : 0;
     const east = column < last ? column + 1 : last;
@@ -292,7 +316,7 @@ export class WorldHorizonShell {
     const slopeZ =
       (this.heights[south * size + column] - this.heights[north * size + column]) /
       Math.max(1e-6, axis[south] - axis[north]);
-    this.normal.set(-slopeX, 1, -slopeZ).normalize();
+    return target.set(-slopeX, 1, -slopeZ).normalize();
   }
 
   private advanceIndices(deadline: number): void {
