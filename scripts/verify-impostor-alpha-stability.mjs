@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
+const TERRAIN_DITHER_SAMPLES = 4096;
+const MAX_TERRAIN_COVERAGE_ERROR = 0.002;
 
 function read(relativePath) {
   return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
@@ -40,6 +42,10 @@ function readYamlNumber(source, key) {
   return value;
 }
 
+function fract(value) {
+  return value - Math.floor(value);
+}
+
 const material = read("src/world/grass/WorldGrassImpostorMaterial.ts");
 const tuning = read("src/world/grass/WorldGrassImpostorTuning.ts");
 const limits = read("src/grass/GrassImpostorLimits.ts");
@@ -63,6 +69,19 @@ const viewDitherGridScale = readConstant(
   tuning,
   "IMPOSTOR_VIEW_DITHER_GRID_SCALE",
 );
+const terrainInstanceScale = readConstant(
+  tuning,
+  "IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE",
+);
+const terrainSubpatchScale = readConstant(
+  tuning,
+  "IMPOSTOR_TERRAIN_DITHER_SUBPATCH_SCALE",
+);
+const terrainSeedScale = readConstant(
+  tuning,
+  "IMPOSTOR_TERRAIN_DITHER_SEED_SCALE",
+);
+const ditherSeed = readConstant(tuning, "IMPOSTOR_DITHER_SEED");
 const minimumPadding = readConstant(limits, "GRASS_IMPOSTOR_MIN_PADDING");
 const configuredPadding = readYamlNumber(grassConfig, "impostorPadding");
 
@@ -109,8 +128,11 @@ assert(
   material.includes("float terrainCoverage = 1.0 - smoothstep(") &&
     material.includes("float terrainDither = fract(") &&
     material.includes("terrainDither >= terrainCoverage") &&
+    material.includes("IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE.toFixed(1)") &&
+    material.includes("IMPOSTOR_TERRAIN_DITHER_SUBPATCH_SCALE.toFixed(11)") &&
+    material.includes("IMPOSTOR_TERRAIN_DITHER_SEED_SCALE.toFixed(11)") &&
     !material.includes("vTerrainCoverage"),
-  "The unoverlapped far-to-terrain handoff must fade coherent subpatch cards instead of screen-door fragments.",
+  "The unoverlapped far-to-terrain handoff must fade coherent subpatch cards from named stable hash tuning.",
 );
 assert(
   material.includes("float dither = fullyMinified") &&
@@ -129,6 +151,31 @@ assert(
     !material.includes("IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE"),
   "Alpha stability must stay screen-space driven and must not retain the old distance-coupled cutoff path.",
 );
+
+for (const coverage of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+  let kept = 0;
+  const subpatches = 4;
+  const total = TERRAIN_DITHER_SAMPLES * subpatches;
+  for (let index = 0; index < TERRAIN_DITHER_SAMPLES; index += 1) {
+    const instanceSeed =
+      (Math.imul(index + 1, 0x9e3779b1) >>> 0) / 0x1_0000_0000;
+    for (let subpatch = 0; subpatch < subpatches; subpatch += 1) {
+      const dither = fract(
+        instanceSeed * terrainInstanceScale +
+          subpatch * terrainSubpatchScale +
+          ditherSeed * terrainSeedScale,
+      );
+      if (dither < coverage) {
+        kept += 1;
+      }
+    }
+  }
+  const measured = kept / total;
+  assert(
+    Math.abs(measured - coverage) <= MAX_TERRAIN_COVERAGE_ERROR,
+    `Terrain dither coverage ${coverage} measured ${measured}.`,
+  );
+}
 
 console.log(
   `[impostor-alpha] ${alphaCutoff.toFixed(2)} -> ${minifiedAlphaCutoff.toFixed(2)} cutoff, ` +
