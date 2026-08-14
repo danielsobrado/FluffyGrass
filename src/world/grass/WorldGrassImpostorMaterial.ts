@@ -384,6 +384,17 @@ void main() {
   );
   bool fullyMinified =
     atlasTexelsPerPixel >= ${IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL.toFixed(2)};
+  // Packed frames are separated by two padding gutters. Once the natural mip
+  // footprint grows beyond that separation, coarser mip levels can average a
+  // neighbouring view into this one. Cap only the sampling gradients; retain
+  // the real footprint above for minification policy and alpha hardening.
+  float safeMipTexelsPerPixel = max(1.0, uPadding * 2.0);
+  float mipGradientScale = min(
+    1.0,
+    safeMipTexelsPerPixel / max(atlasTexelsPerPixel, 0.0001)
+  );
+  vec2 sampleUvDx = frameUvDx * mipGradientScale;
+  vec2 sampleUvDy = frameUvDy * mipGradientScale;
 
   vec2 octahedralUv = clamp(
     encodeHemiOctahedral(normalize(vLocalViewDirection)),
@@ -400,7 +411,7 @@ void main() {
   vec4 atlasColor;
 
   if (uBlendViews < 0.5) {
-    atlasColor = sampleFrame(nearestFrame, vUv, frameUvDx, frameUvDy);
+    atlasColor = sampleFrame(nearestFrame, vUv, sampleUvDx, sampleUvDy);
   } else {
     vec2 selectedFrame = nearestFrame;
     // The stochastic frame index is intentionally not allowed to influence
@@ -440,7 +451,7 @@ void main() {
     }
     // Stable stochastic bilinear selection reproduces the four-view average
     // with one atlas fetch while the card is large enough to benefit from it.
-    atlasColor = sampleFrame(selectedFrame, vUv, frameUvDx, frameUvDy);
+    atlasColor = sampleFrame(selectedFrame, vUv, sampleUvDx, sampleUvDy);
   }
 
   float cutoff = mix(
