@@ -174,12 +174,7 @@ export function multiplyQuaternions(
   target[targetBase + 3] = aw * bw - ax * bx - ay * by - az * bz;
 }
 
-/**
- * Writes `a * conjugate(b)` into `target`.
- *
- * With `b` a bind rotation and `a` a posed rotation, this yields the rotation
- * delta from bind that an additive layer contributes.
- */
+/** Writes `a * conjugate(b)` into `target`. */
 export function multiplyQuaternionConjugate(
   target: Float32Array,
   targetOffset: number,
@@ -197,6 +192,37 @@ export function multiplyQuaternionConjugate(
   const bx = -b[bBase];
   const by = -b[bBase + 1];
   const bz = -b[bBase + 2];
+  const bw = b[bBase + 3];
+  const targetBase = targetOffset * 4;
+  target[targetBase] = aw * bx + ax * bw + ay * bz - az * by;
+  target[targetBase + 1] = aw * by - ax * bz + ay * bw + az * bx;
+  target[targetBase + 2] = aw * bz + ax * by - ay * bx + az * bw;
+  target[targetBase + 3] = aw * bw - ax * bx - ay * by - az * bz;
+}
+
+/**
+ * Writes `conjugate(a) * b` into `target`.
+ *
+ * With `a` as a bind rotation and `b` as an authored pose rotation, this is the
+ * local-space delta that can be post-multiplied onto another local pose.
+ */
+export function multiplyConjugateQuaternion(
+  target: Float32Array,
+  targetOffset: number,
+  a: Float32Array,
+  aOffset: number,
+  b: Float32Array,
+  bOffset: number,
+): void {
+  const aBase = aOffset * 4;
+  const bBase = bOffset * 4;
+  const ax = -a[aBase];
+  const ay = -a[aBase + 1];
+  const az = -a[aBase + 2];
+  const aw = a[aBase + 3];
+  const bx = b[bBase];
+  const by = b[bBase + 1];
+  const bz = b[bBase + 2];
   const bw = b[bBase + 3];
   const targetBase = targetOffset * 4;
   target[targetBase] = aw * bx + ax * bw + ay * bz - az * by;
