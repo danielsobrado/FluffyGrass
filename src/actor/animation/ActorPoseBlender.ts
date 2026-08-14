@@ -6,11 +6,10 @@ export type ActorEasing = "linear" | "smooth" | "easeOut";
 /**
  * Locomotion transition blending.
  *
- * When a transition starts the blender freezes whatever pose was on screen,
+ * When a transition starts the blender freezes the current locomotion pose,
  * then blends that frozen source toward a continuously regenerated destination.
- * That is what lets a transition be interrupted mid-blend without a snap, and
- * it works for any rig size and any state naming — the blender never sees a
- * state name.
+ * That lets a transition be interrupted mid-blend without a snap while keeping
+ * post-locomotion stages such as IK outside the transition source.
  */
 export class ActorPoseBlender {
   /** Pose captured when the current transition started. */
@@ -31,8 +30,8 @@ export class ActorPoseBlender {
   /**
    * Starts a transition away from `current`.
    *
-   * Interrupting an in-flight blend is safe and allocates nothing: the pose
-   * that was actually on screen becomes the new source.
+   * Interrupting an in-flight blend is safe and allocates nothing: the current
+   * blended locomotion pose becomes the new source.
    */
   begin(current: ActorPose, durationSeconds: number, easing: ActorEasing): void {
     if (!(durationSeconds > 0)) {

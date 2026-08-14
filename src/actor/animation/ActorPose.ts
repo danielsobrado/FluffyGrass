@@ -1,5 +1,5 @@
 import {
-  multiplyQuaternionConjugate,
+  multiplyConjugateQuaternion,
   multiplyQuaternions,
   setQuaternionFromEulerXyz,
   slerpQuaternion,
@@ -96,10 +96,11 @@ export class ActorPose {
       return;
     }
     for (let bone = 0; bone < this.boneCount; bone += 1) {
-      const boneWeight = mask[bone] * weight;
-      if (boneWeight <= 0) {
+      const maskedWeight = mask[bone] * weight;
+      if (!(maskedWeight > 0)) {
         continue;
       }
+      const boneWeight = maskedWeight >= 1 ? 1 : maskedWeight;
       slerpQuaternion(
         this.rotations,
         bone,
@@ -107,7 +108,7 @@ export class ActorPose {
         bone,
         target.rotations,
         bone,
-        boneWeight > 1 ? 1 : boneWeight,
+        boneWeight,
       );
       const base = bone * 3;
       for (let axis = 0; axis < 3; axis += 1) {
@@ -121,9 +122,9 @@ export class ActorPose {
   /**
    * Applies an additive delta pose on top of this one.
    *
-   * `delta` holds rotations relative to the bind pose, so an additive layer —
-   * an acceleration lean, a breath, a flinch — composes onto whatever
-   * locomotion and actions produced without knowing what that was.
+   * `delta` is authored as a normal absolute pose. Its rotation relative to the
+   * bind pose is recovered in each bone's local space, then composed on top of
+   * whatever locomotion and actions already produced.
    */
   addAdditive(delta: ActorPose, weight: number): void {
     if (weight <= 0) {
@@ -131,13 +132,12 @@ export class ActorPose {
     }
     const scaled = Math.min(weight, 1);
     for (let bone = 0; bone < this.boneCount; bone += 1) {
-      // delta relative to bind, scaled by weight, then composed onto current.
-      multiplyQuaternionConjugate(
+      multiplyConjugateQuaternion(
         scratchDelta,
         0,
-        delta.rotations,
-        bone,
         this.definition.bindRotations,
+        bone,
+        delta.rotations,
         bone,
       );
       slerpQuaternion(scratchDelta, 0, IDENTITY, 0, scratchDelta, 0, scaled);

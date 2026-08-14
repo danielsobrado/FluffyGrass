@@ -25,6 +25,8 @@ export class TwoBoneIk {
   private readonly lowerDirection = new THREE.Vector3();
   private readonly segmentAxis = new THREE.Vector3();
   private readonly parentRotation = new THREE.Quaternion();
+  private readonly currentLocal = new THREE.Quaternion();
+  private readonly currentModel = new THREE.Quaternion();
   private readonly rootModel = new THREE.Quaternion();
   private readonly swing = new THREE.Quaternion();
   private readonly localRotation = new THREE.Quaternion();
@@ -51,8 +53,12 @@ export class TwoBoneIk {
     this.toTarget.subVectors(this.targetPosition, this.rootPosition);
 
     const reach = upper + lower;
-    const minimumReach = Math.abs(upper - lower) + REACH_MARGIN;
-    const maximumReach = reach - REACH_MARGIN;
+    // A fixed margin cannot exceed the available reach interval on very short
+    // or highly asymmetric chains. Scale it down before deriving the bounds so
+    // minimumReach always remains below maximumReach.
+    const reachMargin = Math.min(REACH_MARGIN, Math.min(upper, lower) * 0.5);
+    const minimumReach = Math.abs(upper - lower) + reachMargin;
+    const maximumReach = reach - reachMargin;
     let distance = this.toTarget.length();
     if (distance < 1e-6) {
       return;
@@ -84,7 +90,6 @@ export class TwoBoneIk {
         chain.minBendRadians,
         chain.maxBendRadians,
       );
-      // Re-derive the root angle for the distance the clamped bend implies.
       const clampedDistance = Math.sqrt(
         Math.max(
           upper * upper +
@@ -93,18 +98,29 @@ export class TwoBoneIk {
           1e-8,
         ),
       );
+      this.toTarget.multiplyScalar(clampedDistance / distance);
+      distance = clampedDistance;
+      this.targetPosition.copy(this.rootPosition).add(this.toTarget);
       rootAngle = Math.acos(
         clampUnit(
-          (upper * upper + clampedDistance * clampedDistance - lower * lower) /
-            (2 * upper * clampedDistance),
+          (upper * upper + distance * distance - lower * lower) /
+            (2 * upper * distance),
         ),
       );
     }
 
-    // Bend plane: the pole, made perpendicular to the root-to-target line.
+    // The pole is authored in the chain root's parent space. Rotate it into the
+    // same model space as the target before deriving the bend plane.
+    const rootParent = this.definition.parents[chain.root];
+    if (rootParent < 0) {
+      this.parentRotation.identity();
+    } else {
+      this.parentRotation.fromArray(space.rotations, rootParent * 4);
+    }
     this.toTarget.normalize();
     this.pole
       .set(chain.poleX, chain.poleY, chain.poleZ)
+      .applyQuaternion(this.parentRotation)
       .normalize();
     this.bendAxis.crossVectors(this.toTarget, this.pole);
     if (this.bendAxis.lengthSq() < 1e-8) {
@@ -182,8 +198,10 @@ export class TwoBoneIk {
   /**
    * Rotates `bone` so its declared segment axis points along `desired`.
    *
-   * The swing is computed in model space and then expressed in the bone's local
-   * space, which is what the pose buffer stores.
+   * The swing is computed in model space and then composed onto the bone's
+   * current local rotation. Keeping the current rotation preserves bind-pose
+   * orientation and twist instead of assuming every chain bone starts at the
+   * identity quaternion.
    */
   private aimSegmentUnderParent(
     bone: number,
@@ -194,14 +212,17 @@ export class TwoBoneIk {
     parentModel: THREE.Quaternion,
     pose: ActorPose,
   ): void {
-    this.segmentAxis.set(axisX, axisY, axisZ).applyQuaternion(parentModel);
+    this.currentLocal.fromArray(pose.rotations, bone * 4);
+    this.currentModel.copy(parentModel).multiply(this.currentLocal);
+    this.segmentAxis.set(axisX, axisY, axisZ).applyQuaternion(this.currentModel);
     this.swing.setFromUnitVectors(this.segmentAxis, desired);
-    // local = parent^-1 * swing * parent
+    // newLocal = parent^-1 * swing * parent * currentLocal
     this.localRotation
       .copy(parentModel)
       .invert()
       .multiply(this.swing)
-      .multiply(parentModel);
+      .multiply(parentModel)
+      .multiply(this.currentLocal);
     pose.rotations[bone * 4] = this.localRotation.x;
     pose.rotations[bone * 4 + 1] = this.localRotation.y;
     pose.rotations[bone * 4 + 2] = this.localRotation.z;

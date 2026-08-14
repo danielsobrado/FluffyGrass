@@ -18,16 +18,26 @@ import { ActorPoseBlender } from "./ActorPoseBlender";
  */
 export class ActorAnimationRuntime {
   private readonly pose: ActorPose;
+  /** Last blended locomotion pose, before stages that are reapplied every frame. */
+  private readonly locomotionPose: ActorPose;
   private readonly blender: ActorPoseBlender;
   private state = 0;
   private stateTime = 0;
   private started = false;
+  private disposed = false;
 
   constructor(
     private readonly profile: ActorAnimationProfile,
     private readonly rigInstance: ActorRigInstance,
   ) {
+    if (rigInstance.definition !== profile.definition) {
+      throw new Error(
+        `Actor rig "${profile.definition.name}" runtime received an instance from a different definition.`,
+      );
+    }
+    validateStateCount(profile.locomotion.stateCount, profile.definition.name);
     this.pose = new ActorPose(profile.definition);
+    this.locomotionPose = new ActorPose(profile.definition);
     this.blender = new ActorPoseBlender(profile.definition);
   }
 
@@ -40,10 +50,14 @@ export class ActorAnimationRuntime {
   }
 
   update(deltaSeconds: number, input: ActorAnimationInput): void {
+    if (this.disposed) {
+      return;
+    }
     const delta = Number.isFinite(deltaSeconds) && deltaSeconds > 0
       ? deltaSeconds
       : 0;
     this.stateTime += delta;
+    this.profile.locomotion.advanceTime(delta);
 
     // 1-3. Locomotion state selection, base pose, and transition blending.
     const nextState = this.profile.locomotion.selectState(
@@ -51,11 +65,27 @@ export class ActorAnimationRuntime {
       this.state,
       this.stateTime,
     );
+    validateState(
+      nextState,
+      this.profile.locomotion.stateCount,
+      this.profile.definition.name,
+    );
     if (nextState !== this.state) {
       if (this.started) {
+        // Stages are reapplied below, so transition from the previous blended
+        // locomotion pose rather than baking prior IK/support into the source.
+        const duration = this.profile.locomotion.transitionDuration(
+          this.state,
+          nextState,
+        );
+        if (!Number.isFinite(duration) || duration < 0) {
+          throw new Error(
+            `Actor rig "${this.profile.definition.name}" returned an invalid locomotion transition duration.`,
+          );
+        }
         this.blender.begin(
-          this.pose,
-          this.profile.locomotion.transitionDuration(this.state, nextState),
+          this.locomotionPose,
+          duration,
           this.profile.locomotion.transitionEasing(this.state, nextState),
         );
       }
@@ -73,6 +103,7 @@ export class ActorAnimationRuntime {
       this.pose,
     );
     this.blender.apply(this.pose, delta);
+    this.locomotionPose.copyFrom(this.pose);
 
     // 4-6. Action layers and additives are profile stages; constraints that
     // must hold before IK reads the pose run here.
@@ -107,10 +138,14 @@ export class ActorAnimationRuntime {
    * from before the reset, and no transition may blend across it.
    */
   reset(input: ActorAnimationInput): void {
+    if (this.disposed) {
+      return;
+    }
     this.state = 0;
     this.stateTime = 0;
     this.started = false;
     this.pose.resetToBind();
+    this.locomotionPose.resetToBind();
     this.blender.reset();
     this.profile.gait.reset();
     this.profile.locomotion.reset();
@@ -126,6 +161,10 @@ export class ActorAnimationRuntime {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     const secondary = this.profile.secondaryMotion;
     if (secondary !== undefined) {
       for (let index = 0; index < secondary.length; index += 1) {
@@ -160,5 +199,21 @@ export class ActorAnimationRuntime {
     for (let index = 0; index < stages.length; index += 1) {
       stages[index].reset();
     }
+  }
+}
+
+function validateStateCount(stateCount: number, rigName: string): void {
+  if (!Number.isInteger(stateCount) || stateCount <= 0) {
+    throw new Error(
+      `Actor rig "${rigName}" locomotion stateCount must be a positive integer.`,
+    );
+  }
+}
+
+function validateState(state: number, stateCount: number, rigName: string): void {
+  if (!Number.isInteger(state) || state < 0 || state >= stateCount) {
+    throw new Error(
+      `Actor rig "${rigName}" selected locomotion state ${state} outside 0..${stateCount - 1}.`,
+    );
   }
 }

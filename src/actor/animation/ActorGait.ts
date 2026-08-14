@@ -27,11 +27,18 @@ export class ActorGait {
   private phase = 0;
   /** Plant weight per effector, 1 while planted and 0 mid-swing. */
   private readonly plantWeights: Float32Array;
+  /** Progress through each stance in `[0, 1]`. */
+  private readonly stanceProgress: Float32Array;
+  /** Whether each effector is currently inside its stance interval. */
+  private readonly stanceFlags: Uint8Array;
   /** Swing progress per effector in `[0, 1]`, only meaningful while swinging. */
   private readonly swingProgress: Float32Array;
 
-  constructor(private profile: ActorGaitProfile) {
+  constructor(private readonly profile: ActorGaitProfile) {
+    validateProfile(profile);
     this.plantWeights = new Float32Array(profile.effectors.length);
+    this.stanceProgress = new Float32Array(profile.effectors.length);
+    this.stanceFlags = new Uint8Array(profile.effectors.length);
     this.swingProgress = new Float32Array(profile.effectors.length);
     this.resolveEffectors();
   }
@@ -49,7 +56,17 @@ export class ActorGait {
     return this.plantWeights[effector];
   }
 
-  /** Progress through the swing arc, for foot lift and stride placement. */
+  /** Whether an effector is in the stance part of its gait cycle. */
+  isInStance(effector: number): boolean {
+    return this.stanceFlags[effector] === 1;
+  }
+
+  /** Progress through the stance arc in `[0, 1]`. */
+  getStanceProgress(effector: number): number {
+    return this.stanceProgress[effector];
+  }
+
+  /** Progress through the swing arc in `[0, 1]`, only meaningful while swinging. */
   getSwingProgress(effector: number): number {
     return this.swingProgress[effector];
   }
@@ -59,11 +76,10 @@ export class ActorGait {
    * locked to the ground at any speed and never skates.
    */
   setFromDistance(distanceTravelled: number): void {
-    const stride = this.profile.strideLengthMeters;
-    if (!(stride > 0) || !Number.isFinite(distanceTravelled)) {
+    if (!Number.isFinite(distanceTravelled)) {
       return;
     }
-    const cycles = distanceTravelled / stride;
+    const cycles = distanceTravelled / this.profile.strideLengthMeters;
     this.phase = cycles - Math.floor(cycles);
     this.resolveEffectors();
   }
@@ -87,13 +103,38 @@ export class ActorGait {
           band > 0
             ? Math.min(local / band, (duty - local) / band, 1)
             : 1;
+        this.stanceFlags[index] = 1;
+        this.stanceProgress[index] = local / duty;
         this.swingProgress[index] = 0;
       } else {
         this.plantWeights[index] = 0;
+        this.stanceFlags[index] = 0;
+        this.stanceProgress[index] = 0;
         const swingSpan = 1 - duty;
-        this.swingProgress[index] =
-          swingSpan > 0 ? (local - duty) / swingSpan : 0;
+        this.swingProgress[index] = (local - duty) / swingSpan;
       }
+    }
+  }
+}
+
+function validateProfile(profile: ActorGaitProfile): void {
+  if (
+    !Number.isFinite(profile.strideLengthMeters) ||
+    profile.strideLengthMeters <= 0
+  ) {
+    throw new Error("Actor gait strideLengthMeters must be a positive finite number.");
+  }
+  for (let index = 0; index < profile.effectors.length; index += 1) {
+    const effector = profile.effectors[index];
+    if (!Number.isFinite(effector.phaseOffset)) {
+      throw new Error(`Actor gait effector ${index} has a non-finite phase offset.`);
+    }
+    if (
+      !Number.isFinite(effector.dutyFactor) ||
+      effector.dutyFactor <= 0 ||
+      effector.dutyFactor >= 1
+    ) {
+      throw new Error(`Actor gait effector ${index} duty factor must be strictly within 0..1.`);
     }
   }
 }

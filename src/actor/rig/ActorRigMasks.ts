@@ -32,9 +32,12 @@ export function buildActorMask(
   const included = new Uint8Array(boneCount);
   const includeDescendants = request.includeDescendants !== false;
   const weight = request.weight ?? 1;
+  if (!Number.isFinite(weight) || weight < 0 || weight > 1) {
+    throw new Error("Actor mask weight must be finite and within 0..1.");
+  }
 
   for (const root of request.roots) {
-    if (root < 0 || root >= boneCount) {
+    if (!Number.isInteger(root) || root < 0 || root >= boneCount) {
       throw new Error(`Actor mask root ${root} is out of range.`);
     }
     included[root] = 1;
@@ -51,7 +54,7 @@ export function buildActorMask(
   if (request.exclude !== undefined) {
     const excluded = new Uint8Array(boneCount);
     for (const bone of request.exclude) {
-      if (bone < 0 || bone >= boneCount) {
+      if (!Number.isInteger(bone) || bone < 0 || bone >= boneCount) {
         throw new Error(`Actor mask exclusion ${bone} is out of range.`);
       }
       excluded[bone] = 1;

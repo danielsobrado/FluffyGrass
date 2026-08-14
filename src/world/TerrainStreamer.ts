@@ -281,10 +281,12 @@ export class TerrainStreamer {
     if (chunk.waterMesh) {
       this.scene.add(chunk.waterMesh);
     }
+    this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true);
     this.activeBuild = undefined;
   }
 
   private removeChunk(chunk: TerrainChunk): void {
+    this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
     this.scene.remove(chunk.mesh);
     if (chunk.waterMesh) {
       this.scene.remove(chunk.waterMesh);

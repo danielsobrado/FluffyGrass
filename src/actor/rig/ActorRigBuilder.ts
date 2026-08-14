@@ -75,7 +75,8 @@ export interface ActorJointLimitRequest {
   readonly maxZ?: number;
 }
 
-const UNLIMITED = Math.PI * 2;
+const UNLIMITED_JOINT_ROTATION = Math.PI * 2;
+const MAX_CHAIN_BEND = Math.PI;
 
 /**
  * Authoring surface for immutable rig definitions.
@@ -163,7 +164,7 @@ export class ActorRigBuilder {
       poleY: request.poleY ?? 0,
       poleZ: request.poleZ ?? 1,
       minBendRadians: request.minBendRadians ?? 0,
-      maxBendRadians: request.maxBendRadians ?? UNLIMITED,
+      maxBendRadians: request.maxBendRadians ?? MAX_CHAIN_BEND,
     });
   }
 
@@ -205,12 +206,12 @@ export class ActorRigBuilder {
   addJointLimit(request: ActorJointLimitRequest): void {
     this.jointLimits.push({
       bone: request.bone,
-      minX: request.minX ?? -UNLIMITED,
-      maxX: request.maxX ?? UNLIMITED,
-      minY: request.minY ?? -UNLIMITED,
-      maxY: request.maxY ?? UNLIMITED,
-      minZ: request.minZ ?? -UNLIMITED,
-      maxZ: request.maxZ ?? UNLIMITED,
+      minX: request.minX ?? -UNLIMITED_JOINT_ROTATION,
+      maxX: request.maxX ?? UNLIMITED_JOINT_ROTATION,
+      minY: request.minY ?? -UNLIMITED_JOINT_ROTATION,
+      maxY: request.maxY ?? UNLIMITED_JOINT_ROTATION,
+      minZ: request.minZ ?? -UNLIMITED_JOINT_ROTATION,
+      maxZ: request.maxZ ?? UNLIMITED_JOINT_ROTATION,
     });
   }
 
@@ -228,21 +229,23 @@ export class ActorRigBuilder {
     for (const [maskName, request] of this.maskRequests) {
       masks.set(maskName, buildActorMask(parents, request));
     }
+    // Snapshot the builder's mutable collections so later authoring cannot
+    // mutate a definition whose packed buffers were already finalized.
     const definition: ActorRigDefinition = {
       name: this.name,
       boneCount,
-      bones: this.bones,
+      bones: this.bones.slice(),
       parents,
       bindPositions: new Float32Array(this.positions),
       bindRotations: new Float32Array(this.rotations),
       translatableFlags,
       secondaryFlags,
-      roles: this.roles,
-      chains: this.chains,
-      effectors: this.effectors,
+      roles: new Map(this.roles),
+      chains: new Map(this.chains),
+      effectors: new Map(this.effectors),
       masks,
-      sockets: this.sockets,
-      jointLimits: this.jointLimits,
+      sockets: new Map(this.sockets),
+      jointLimits: this.jointLimits.slice(),
     };
     validateActorRigDefinition(definition);
     return definition;
