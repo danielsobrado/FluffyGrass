@@ -108,12 +108,13 @@ export class QuadrupedLocomotionLayer implements ActorLocomotionLayer {
     for (let index = 0; index < 2; index += 1) {
       const effector = index === 0 ? leftEffector : rightEffector;
       const planted = gait.getPlantWeight(effector);
+      const stance = gait.getStanceProgress(effector);
       const swing = gait.getSwingProgress(effector);
-      // Planted limbs sweep back under the body; swinging limbs reach forward.
-      const stride =
-        planted > 0
-          ? Math.cos(Math.PI * (1 - planted)) * 0.5
-          : Math.cos(Math.PI * (1 - swing)) * -0.5;
+      // Stance and swing traverse the same arc in opposite directions. Contact
+      // weight is only a blend factor and must not be used as phase progress.
+      const stride = gait.isInStance(effector)
+        ? Math.cos(Math.PI * (1 - stance)) * 0.5
+        : Math.cos(Math.PI * (1 - swing)) * -0.5;
       target.setEuler(upper[index], stride * LIMB_SWING * gaitBlend, 0, 0);
       const fold = (1 - planted) * (1 - Math.abs(swing * 2 - 1));
       target.setEuler(

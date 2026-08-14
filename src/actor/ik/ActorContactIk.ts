@@ -29,7 +29,7 @@ export interface ActorContactIkOptions {
   readonly sampler: ActorTerrainContactSampler;
   /** The object whose world matrix maps actor model space into the world. */
   readonly placement: THREE.Object3D;
-  /** Bone lowered so every contact stays reachable — a pelvis or body centre. */
+  /** Bone lowered so planted contacts stay reachable — a shared body support. */
   readonly supportBone: number;
   /** Largest downward support correction, in actor units. */
   readonly maxSupportDrop: number;
@@ -47,8 +47,8 @@ const UP = new THREE.Vector3(0, 1, 0);
  * Nothing here is anatomical. A profile hands over a set of contact effectors —
  * two for a humanoid, four for a quadruped — each naming a chain, a gait phase,
  * and how far its sole sits below the end bone. The stage samples the ground
- * under each effector's animated position, lowers the shared support bone until
- * every contact is reachable, and then solves each chain by the amount the gait
+ * under each effector's animated position, lowers the shared support bone for
+ * weighted planted contacts, and then solves each chain by the amount the gait
  * says that limb is planted, so swinging limbs are never pinned to the ground.
  */
 export class ActorContactIk implements ActorPoseStage {
@@ -119,13 +119,16 @@ export class ActorContactIk implements ActorPoseStage {
       this.contactNormals[index * 3] = this.sample.normalX;
       this.contactNormals[index * 3 + 1] = this.sample.normalY;
       this.contactNormals[index * 3 + 2] = this.sample.normalZ;
-      if (lift < deepestLift) {
-        deepestLift = lift;
+      // Swinging effectors are not support constraints. Fade their influence in
+      // with the same plant weight used by the chain solve to avoid body snaps.
+      const supportLift = lift * gait.getPlantWeight(effector.gaitEffector);
+      if (supportLift < deepestLift) {
+        deepestLift = supportLift;
       }
     }
 
-    // 2. Lower the support bone so the effector that needs the most drop stays
-    // inside its chain's reach, then re-resolve model space beneath it.
+    // 2. Lower the support bone so the weighted planted contacts stay inside
+    // their chains' reach, then re-resolve model space beneath it.
     const desiredSupport = Math.max(deepestLift, -this.options.maxSupportDrop);
     this.supportOffset = approach(
       this.supportOffset,
