@@ -24,6 +24,7 @@ export class ActorAnimationRuntime {
   private state = 0;
   private stateTime = 0;
   private started = false;
+  private disposed = false;
 
   constructor(
     private readonly profile: ActorAnimationProfile,
@@ -49,6 +50,9 @@ export class ActorAnimationRuntime {
   }
 
   update(deltaSeconds: number, input: ActorAnimationInput): void {
+    if (this.disposed) {
+      return;
+    }
     const delta = Number.isFinite(deltaSeconds) && deltaSeconds > 0
       ? deltaSeconds
       : 0;
@@ -134,6 +138,9 @@ export class ActorAnimationRuntime {
    * from before the reset, and no transition may blend across it.
    */
   reset(input: ActorAnimationInput): void {
+    if (this.disposed) {
+      return;
+    }
     this.state = 0;
     this.stateTime = 0;
     this.started = false;
@@ -154,6 +161,10 @@ export class ActorAnimationRuntime {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     const secondary = this.profile.secondaryMotion;
     if (secondary !== undefined) {
       for (let index = 0; index < secondary.length; index += 1) {
