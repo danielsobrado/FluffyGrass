@@ -7,12 +7,13 @@ import {
   TERRAIN_DETAIL_NORMAL,
   TERRAIN_DETAIL_POSITION,
   TERRAIN_DETAIL_VERTEX,
+  TERRAIN_WET_SHEEN,
 } from "./TerrainMaterialShader";
 import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v3-hydrology";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v4-wet-sheen";
 
 export class TerrainMaterialController {
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -53,6 +54,10 @@ export class TerrainMaterialController {
       uTerrainPathGrassFeather: { value: PATH_GRASS_FEATHER },
       uTerrainPathCoreDarkening: { value: config.terrainPathCoreDarkening },
       uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
+      // Restrained on purpose: the sheen is meant to catch the eye as the
+      // camera swings past the bank, not to turn the shore into chrome.
+      uTerrainWetSheenStrength: { value: 0.55 },
+      uTerrainWetSheenPower: { value: 42 },
       uTerrainSoilRich: { value: new THREE.Color("#40382b") },
       uTerrainSoilDry: { value: new THREE.Color("#66513b") },
       uTerrainPathSoil: { value: new THREE.Color("#574833") },
@@ -101,6 +106,10 @@ export class TerrainMaterialController {
         .replace(
           "#include <normal_fragment_maps>",
           `#include <normal_fragment_maps>${TERRAIN_DETAIL_NORMAL}`,
+        )
+        .replace(
+          "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
+          `vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;${TERRAIN_WET_SHEEN}`,
         );
     };
     this.material.customProgramCacheKey = () => MATERIAL_CACHE_KEY;

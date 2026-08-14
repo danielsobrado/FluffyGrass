@@ -77,6 +77,8 @@ uniform float uTerrainPathClearance;
 uniform float uTerrainPathGrassFeather;
 uniform float uTerrainPathCoreDarkening;
 uniform float uTerrainPathVergeDryness;
+uniform float uTerrainWetSheenStrength;
+uniform float uTerrainWetSheenPower;
 uniform vec3 uTerrainSoilRich;
 uniform vec3 uTerrainSoilDry;
 uniform vec3 uTerrainPathSoil;
@@ -289,6 +291,43 @@ float terrainMicroHeight = (
   (terrainMicroNoise.b - 0.5) * 0.7 +
   (terrainMicroNoise.a - 0.5) * 0.3
 ) * mix(1.0, 0.58, terrainWaterProximity);
+
+// The damp margin at the water's edge. terrainWaterProximity is a humidity
+// halo that reaches waterHumidityRadius — tens of metres — which is right for
+// deciding what grows but far too wide for what glistens. Only the very top of
+// that ramp is ground actually wetted by the water, so the band is cut from
+// there; the numbers below put it a few metres out from the bank.
+//
+// Grass cancels it. A wet meadow does not shine, because the blades hide the
+// film of water that does: the sheen belongs to exposed mud, sand, and stone.
+float terrainWetBand = smoothstep(0.94, 1.0, terrainWaterProximity) *
+  (1.0 - terrainCoverage * 0.7);
+`;
+
+// Wet ground reads as wet through gloss, not through colour: darkening the
+// albedo alone (which the soil mix above already does) just makes a muddy
+// patch, not a wet one. Lambert has no specular lobe to modulate, so this adds
+// one — narrow, and only where the water is.
+//
+// Kept in view space off the light's own direction rather than a sun uniform,
+// so it cannot drift out of agreement with the light that is actually shading
+// the terrain, and skipped entirely away from the water, where the branch is
+// coherent across whole chunks.
+export const TERRAIN_WET_SHEEN = `
+#if NUM_DIR_LIGHTS > 0
+  if (terrainWetBand > 0.001) {
+    vec3 terrainSheenView = normalize(vViewPosition);
+    vec3 terrainSheenHalf = normalize(
+      directionalLights[0].direction + terrainSheenView
+    );
+    float terrainSheenLobe = pow(
+      saturate(dot(normal, terrainSheenHalf)),
+      uTerrainWetSheenPower
+    );
+    outgoingLight += directionalLights[0].color *
+      (terrainSheenLobe * uTerrainWetSheenStrength * terrainWetBand);
+  }
+#endif
 `;
 
 export const TERRAIN_DETAIL_NORMAL = `
