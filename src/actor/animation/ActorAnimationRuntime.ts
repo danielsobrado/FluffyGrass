@@ -29,6 +29,7 @@ export class ActorAnimationRuntime {
     private readonly profile: ActorAnimationProfile,
     private readonly rigInstance: ActorRigInstance,
   ) {
+    validateStateCount(profile.locomotion.stateCount, profile.definition.name);
     this.pose = new ActorPose(profile.definition);
     this.locomotionPose = new ActorPose(profile.definition);
     this.blender = new ActorPoseBlender(profile.definition);
@@ -54,13 +55,27 @@ export class ActorAnimationRuntime {
       this.state,
       this.stateTime,
     );
+    validateState(
+      nextState,
+      this.profile.locomotion.stateCount,
+      this.profile.definition.name,
+    );
     if (nextState !== this.state) {
       if (this.started) {
         // Stages are reapplied below, so transition from the previous blended
         // locomotion pose rather than baking prior IK/support into the source.
+        const duration = this.profile.locomotion.transitionDuration(
+          this.state,
+          nextState,
+        );
+        if (!Number.isFinite(duration) || duration < 0) {
+          throw new Error(
+            `Actor rig "${this.profile.definition.name}" returned an invalid locomotion transition duration.`,
+          );
+        }
         this.blender.begin(
           this.locomotionPose,
-          this.profile.locomotion.transitionDuration(this.state, nextState),
+          duration,
           this.profile.locomotion.transitionEasing(this.state, nextState),
         );
       }
@@ -167,5 +182,21 @@ export class ActorAnimationRuntime {
     for (let index = 0; index < stages.length; index += 1) {
       stages[index].reset();
     }
+  }
+}
+
+function validateStateCount(stateCount: number, rigName: string): void {
+  if (!Number.isInteger(stateCount) || stateCount <= 0) {
+    throw new Error(
+      `Actor rig "${rigName}" locomotion stateCount must be a positive integer.`,
+    );
+  }
+}
+
+function validateState(state: number, stateCount: number, rigName: string): void {
+  if (!Number.isInteger(state) || state < 0 || state >= stateCount) {
+    throw new Error(
+      `Actor rig "${rigName}" selected locomotion state ${state} outside 0..${stateCount - 1}.`,
+    );
   }
 }

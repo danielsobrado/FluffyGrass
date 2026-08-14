@@ -104,15 +104,14 @@ export class ActorGait {
             ? Math.min(local / band, (duty - local) / band, 1)
             : 1;
         this.stanceFlags[index] = 1;
-        this.stanceProgress[index] = duty > 0 ? local / duty : 0;
+        this.stanceProgress[index] = local / duty;
         this.swingProgress[index] = 0;
       } else {
         this.plantWeights[index] = 0;
         this.stanceFlags[index] = 0;
         this.stanceProgress[index] = 0;
         const swingSpan = 1 - duty;
-        this.swingProgress[index] =
-          swingSpan > 0 ? (local - duty) / swingSpan : 0;
+        this.swingProgress[index] = (local - duty) / swingSpan;
       }
     }
   }
@@ -132,10 +131,10 @@ function validateProfile(profile: ActorGaitProfile): void {
     }
     if (
       !Number.isFinite(effector.dutyFactor) ||
-      effector.dutyFactor < 0 ||
-      effector.dutyFactor > 1
+      effector.dutyFactor <= 0 ||
+      effector.dutyFactor >= 1
     ) {
-      throw new Error(`Actor gait effector ${index} duty factor must be within 0..1.`);
+      throw new Error(`Actor gait effector ${index} duty factor must be strictly within 0..1.`);
     }
   }
 }
