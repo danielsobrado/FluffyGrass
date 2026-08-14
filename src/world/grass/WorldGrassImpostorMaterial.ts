@@ -348,7 +348,14 @@ vec4 sampleFrame(vec2 frameIndex, vec2 localUv) {
     frameIndex * cellSize +
     vec2(uPadding) +
     safeUv * uFrameResolution;
-  return texture2D(uAtlas, pixel / uAtlasSize);
+  vec2 atlasUv = pixel / uAtlasSize;
+  vec2 atlasGradientScale = vec2(uFrameResolution / uAtlasSize);
+  return textureGrad(
+    uAtlas,
+    atlasUv,
+    dFdx(localUv) * atlasGradientScale,
+    dFdy(localUv) * atlasGradientScale
+  );
 }
 
 float coverageNoise(vec2 position, float seed) {
@@ -403,49 +410,52 @@ void main() {
   );
   vec2 framePosition = octahedralUv * uViewsPerAxis - 0.5;
   float maximumFrame = uViewsPerAxis - 1.0;
+  vec2 nearestFrame = clamp(
+    floor(framePosition + 0.5),
+    vec2(0.0),
+    vec2(maximumFrame)
+  );
   vec4 atlasColor;
 
-  // Once the card is minified enough to use coherent coverage, stochastic view
-  // selection cannot add useful detail; it can only reintroduce salt-and-pepper
-  // silhouette noise. Nearest-frame sampling is also cheaper in this band.
-  if (uBlendViews < 0.5 || fullyMinified) {
-    vec2 nearestFrame = clamp(
-      floor(framePosition + 0.5),
-      vec2(0.0),
-      vec2(maximumFrame)
-    );
+  if (uBlendViews < 0.5) {
     atlasColor = sampleFrame(nearestFrame, vUv);
   } else {
-    vec2 frameBase = floor(framePosition);
-    vec2 frameBlend = fract(framePosition);
-    vec2 frame00 = clamp(frameBase, vec2(0.0), vec2(maximumFrame));
-    vec2 frame11 = min(frame00 + vec2(1.0), vec2(maximumFrame));
+    vec2 selectedFrame = nearestFrame;
+    // The stochastic frame index is intentionally not allowed to influence
+    // texture gradients: neighbouring pixels can select frames a whole atlas
+    // cell apart, which would otherwise request a catastrophically coarse mip.
+    if (!fullyMinified) {
+      vec2 frameBase = floor(framePosition);
+      vec2 frameBlend = fract(framePosition);
+      vec2 frame00 = clamp(frameBase, vec2(0.0), vec2(maximumFrame));
+      vec2 frame11 = min(frame00 + vec2(1.0), vec2(maximumFrame));
 
-    if (frameBase.x < 0.0 || frameBase.x >= maximumFrame) {
-      frameBlend.x = 0.0;
-      frame11.x = frame00.x;
-    }
-    if (frameBase.y < 0.0 || frameBase.y >= maximumFrame) {
-      frameBlend.y = 0.0;
-      frame11.y = frame00.y;
-    }
+      if (frameBase.x < 0.0 || frameBase.x >= maximumFrame) {
+        frameBlend.x = 0.0;
+        frame11.x = frame00.x;
+      }
+      if (frameBase.y < 0.0 || frameBase.y >= maximumFrame) {
+        frameBlend.y = 0.0;
+        frame11.y = frame00.y;
+      }
 
-    float weight00 = (1.0 - frameBlend.x) * (1.0 - frameBlend.y);
-    float weight10 = frameBlend.x * (1.0 - frameBlend.y);
-    float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
-    float viewDither = coverageNoise(
-      floor(vUv * (
-        uFrameResolution * ${IMPOSTOR_VIEW_DITHER_GRID_SCALE.toFixed(2)}
-      )),
-      vInstanceSeed * 173.0 + vSubpatchIndex * 0.131 + 0.37
-    );
-    vec2 selectedFrame = viewDither < weight00
-      ? frame00
-      : viewDither < weight00 + weight10
-        ? vec2(frame11.x, frame00.y)
-        : viewDither < weight00 + weight10 + weight01
-          ? vec2(frame00.x, frame11.y)
-          : frame11;
+      float weight00 = (1.0 - frameBlend.x) * (1.0 - frameBlend.y);
+      float weight10 = frameBlend.x * (1.0 - frameBlend.y);
+      float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
+      float viewDither = coverageNoise(
+        floor(vUv * (
+          uFrameResolution * ${IMPOSTOR_VIEW_DITHER_GRID_SCALE.toFixed(2)}
+        )),
+        vInstanceSeed * 173.0 + vSubpatchIndex * 0.131 + 0.37
+      );
+      selectedFrame = viewDither < weight00
+        ? frame00
+        : viewDither < weight00 + weight10
+          ? vec2(frame11.x, frame00.y)
+          : viewDither < weight00 + weight10 + weight01
+            ? vec2(frame00.x, frame11.y)
+            : frame11;
+    }
     // Stable stochastic bilinear selection reproduces the four-view average
     // with one atlas fetch while the card is large enough to benefit from it.
     atlasColor = sampleFrame(selectedFrame, vUv);
@@ -456,23 +466,25 @@ void main() {
     ${IMPOSTOR_MINIFIED_ALPHA_CUTOFF.toFixed(2)},
     minification
   );
+  // Keep derivatives in uniform control flow. `fullyMinified` is screen-space
+  // data and can diverge at a quad boundary, so derivative operations inside
+  // that branch would be undefined on some GPUs.
+  float alphaWidth = max(
+    fwidth(atlasColor.a),
+    ${IMPOSTOR_ALPHA_MIN_WIDTH}
+  );
+  float alphaCoverage = smoothstep(
+    cutoff - alphaWidth,
+    cutoff + alphaWidth,
+    atlasColor.a
+  );
   if (fullyMinified) {
-    // At minification == 1 the previous smoothstep + 0.5 threshold is exactly
-    // equivalent to this hard cut. Skip derivative and hash work in the band
-    // where those terms can no longer change the result.
+    // At minification == 1 the smoothstep + 0.5 threshold is exactly equivalent
+    // to this hard cut. Skip the hash work where it can no longer change output.
     if (atlasColor.a <= cutoff) {
       discard;
     }
   } else {
-    float alphaWidth = max(
-      fwidth(atlasColor.a),
-      ${IMPOSTOR_ALPHA_MIN_WIDTH}
-    );
-    float alphaCoverage = smoothstep(
-      cutoff - alphaWidth,
-      cutoff + alphaWidth,
-      atlasColor.a
-    );
     float alphaDither = coverageNoise(
       floor(vUv * uFrameResolution),
       vInstanceSeed * 211.0 +
