@@ -4,7 +4,10 @@ import {
 } from "../../grass/GrassImpostorLimits";
 
 export const IMPOSTOR_ALPHA_CUTOFF = 0.16;
-export const IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE = 1.15;
+// Distant mip levels average blade tips into low-alpha islands. Raising the
+// cutoff to 0.5 at the far limit removes those sub-pixel fragments while the
+// near side of the impostor band keeps the detailed 0.16 threshold.
+export const IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE = 3.125;
 export const IMPOSTOR_ALPHA_MIN_WIDTH = 1 / 255;
 export const IMPOSTOR_ALPHA_DITHER_SEED = 0.61;
 export const IMPOSTOR_SUBPATCHES_PER_AXIS = GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS;
