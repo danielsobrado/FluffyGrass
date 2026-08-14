@@ -111,7 +111,6 @@ export class SnowflowCharacter {
     // space, so placement is resolved before the pose pipeline runs.
     this.rig.root.updateMatrixWorld(true);
     this.syncAnimationInput(pose);
-    this.profile.locomotion.advanceTime(delta);
     this.runtime.update(delta, this.animationInput);
   }
 
