@@ -103,8 +103,17 @@ assert(
     character.includes(
       "this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true)",
     ) &&
-    controller.includes("this.character.reset({"),
+    controller.includes("this.character.reset(this.syncCharacterPose())"),
   "Controller reset must explicitly clear persistent character motion state and immediately apply the spawn slope.",
+);
+assert(
+  controller.indexOf("this.jumpStarted = false") <
+      controller.indexOf("this.character.reset(this.syncCharacterPose())") &&
+    controller.indexOf("this.landed = false") <
+      controller.indexOf("this.character.reset(this.syncCharacterPose())") &&
+    controller.indexOf("this.landingImpact = 0") <
+      controller.indexOf("this.character.reset(this.syncCharacterPose())"),
+  "The reused animation pose must have its one-frame jump and landing impulses cleared before it is handed to a character reset.",
 );
 assert(
   input.includes('direction: "north-west"') &&

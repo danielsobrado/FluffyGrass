@@ -565,17 +565,26 @@ for (const profile of orderedBiomes) {
 }
 assert(
   biomeField.includes("sampleGrassBiome") &&
-    tileFactory.includes("sampleGrassBiome(x, z)") &&
-    worldGrassSystem.includes("sampleGrassBiome(x, z)") &&
+    // Build-time callers may pass a reused sample object as a third argument,
+    // so match the call rather than one exact argument list.
+    tileFactory.includes("sampleGrassBiome(x, z") &&
+    worldGrassSystem.includes("sampleGrassBiome(x, z") &&
     !lodController.includes("BiomeField") &&
     !lodController.includes("sampleGrassBiome") &&
     !nearMaterial.includes("sampleGrassBiome") &&
     !impostorMaterial.includes("sampleGrassBiome"),
   "Biome resolution must remain build-time-only, never on a per-frame path.",
 );
+const suitabilityRejection = tileFactory.indexOf(
+  "if (suitability < MIN_SUITABILITY",
+);
+const nearBiomeSample = tileFactory.indexOf(
+  "const biomeSample = sampleGrassBiome(x, z",
+);
 assert(
-  tileFactory.indexOf("if (suitability < MIN_SUITABILITY") <
-    tileFactory.indexOf("const biomeSample = sampleGrassBiome(x, z)"),
+  suitabilityRejection >= 0 &&
+    nearBiomeSample >= 0 &&
+    suitabilityRejection < nearBiomeSample,
   "Near tiles must sample the biome only for blades that survive placement.",
 );
 const totalWorldShare = orderedBiomes.reduce(
