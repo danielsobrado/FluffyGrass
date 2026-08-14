@@ -1,5 +1,10 @@
 import * as THREE from "three";
+import { ActorRigInstance } from "../actor/rig/ActorRigInstance";
 import { addDrowCostumeGeometry } from "./DrowCostumeGeometry";
+import {
+  humanoidRig,
+  type HumanoidRig,
+} from "./rig/HumanoidRigDefinition";
 import {
   createSnowflowCharacterMaterials,
   type SnowflowCharacterMaterialSet,
@@ -8,37 +13,48 @@ import {
 const SHADOW_RECEIVER = true;
 const SHADOW_CASTER = true;
 
+/**
+ * The player's renderable rig.
+ *
+ * `root`, `slope`, and `heading` are world placement and stay plain groups —
+ * they are not anatomical joints. Everything below them is a bone owned by the
+ * shared {@link ActorRigInstance}; the named fields here are the same joints
+ * the costume and cloth modules have always attached to, now resolved by index
+ * instead of by name search.
+ */
 export interface SnowflowCharacterRig {
   root: THREE.Group;
   slope: THREE.Group;
   heading: THREE.Group;
-  body: THREE.Group;
-  pelvis: THREE.Group;
-  torso: THREE.Group;
-  neck: THREE.Group;
-  head: THREE.Group;
-  hood: THREE.Group;
-  skirt: THREE.Group;
-  skirtFront: THREE.Group;
-  skirtLeft: THREE.Group;
-  skirtRight: THREE.Group;
-  cloakBack: THREE.Group;
-  cloakLeft: THREE.Group;
-  cloakRight: THREE.Group;
-  hairLeft: THREE.Group;
-  hairRight: THREE.Group;
-  leftUpperArm: THREE.Group;
-  leftForearm: THREE.Group;
-  leftWrist: THREE.Group;
-  rightUpperArm: THREE.Group;
-  rightForearm: THREE.Group;
-  rightWrist: THREE.Group;
-  leftThigh: THREE.Group;
-  leftShin: THREE.Group;
-  leftFoot: THREE.Group;
-  rightThigh: THREE.Group;
-  rightShin: THREE.Group;
-  rightFoot: THREE.Group;
+  rigInstance: ActorRigInstance;
+  humanoid: HumanoidRig;
+  body: THREE.Object3D;
+  pelvis: THREE.Object3D;
+  torso: THREE.Object3D;
+  neck: THREE.Object3D;
+  head: THREE.Object3D;
+  hood: THREE.Object3D;
+  skirt: THREE.Object3D;
+  skirtFront: THREE.Object3D;
+  skirtLeft: THREE.Object3D;
+  skirtRight: THREE.Object3D;
+  cloakBack: THREE.Object3D;
+  cloakLeft: THREE.Object3D;
+  cloakRight: THREE.Object3D;
+  hairLeft: THREE.Object3D;
+  hairRight: THREE.Object3D;
+  leftUpperArm: THREE.Object3D;
+  leftForearm: THREE.Object3D;
+  leftWrist: THREE.Object3D;
+  rightUpperArm: THREE.Object3D;
+  rightForearm: THREE.Object3D;
+  rightWrist: THREE.Object3D;
+  leftThigh: THREE.Object3D;
+  leftShin: THREE.Object3D;
+  leftFoot: THREE.Object3D;
+  rightThigh: THREE.Object3D;
+  rightShin: THREE.Object3D;
+  rightFoot: THREE.Object3D;
   materialSet: SnowflowCharacterMaterialSet;
   materials: THREE.Material[];
   geometries: THREE.BufferGeometry[];
@@ -53,102 +69,87 @@ export function buildSnowflowCharacter(
   const root = namedGroup("drusniel-character");
   const slope = namedGroup("character-slope");
   const heading = namedGroup("character-heading");
-  const body = namedGroup("character-body");
-  const pelvis = namedGroup("character-pelvis");
-  const torso = namedGroup("character-torso");
-  const neck = namedGroup("character-neck");
-  const head = namedGroup("character-head");
-  const hood = namedGroup("character-folded-hood");
-  const skirt = namedGroup("character-skirt");
-  const skirtFront = namedGroup("character-skirt-front");
-  const skirtLeft = namedGroup("character-skirt-left");
-  const skirtRight = namedGroup("character-skirt-right");
-  const cloakBack = namedGroup("character-cloak-back");
-  const cloakLeft = namedGroup("character-cloak-left");
-  const cloakRight = namedGroup("character-cloak-right");
-  const hairLeft = namedGroup("character-hair-left");
-  const hairRight = namedGroup("character-hair-right");
 
   root.scale.setScalar(scale);
   root.add(slope);
   slope.add(heading);
-  heading.add(body);
-  body.add(pelvis);
-  pelvis.position.y = 0.9;
-  pelvis.add(torso, skirt);
-  torso.position.y = 0.28;
-  torso.add(neck, hood, cloakBack, cloakLeft, cloakRight);
-  neck.position.y = 0.43;
-  neck.add(head);
-  head.position.y = 0.14;
-  head.add(hairLeft, hairRight);
-  skirt.position.y = 0.08;
-  skirt.add(skirtFront, skirtLeft, skirtRight);
   scene.add(root);
 
-  buildTorso(torso, geometries, materials);
-  buildHead(head, geometries, materials);
+  const humanoid = humanoidRig();
+  const rigInstance = new ActorRigInstance(humanoid.definition, heading);
+  const bone = (index: number): THREE.Object3D => rigInstance.getBone(index);
+  const bones = humanoid.bones;
 
-  const leftUpperArm = buildArm(
-    torso,
+  const pelvis = bone(bones.pelvis);
+  const torso = bone(bones.chest);
+  const head = bone(bones.head);
+
+  buildTorso(torso, pelvis, geometries, materials);
+  buildHead(head, geometries, materials);
+  buildArm(
+    bone(bones.upperArmLeft),
+    bone(bones.forearmLeft),
+    bone(bones.handLeft),
     geometries,
     materials,
     -1,
-    "left",
   );
-  const rightUpperArm = buildArm(
-    torso,
+  buildArm(
+    bone(bones.upperArmRight),
+    bone(bones.forearmRight),
+    bone(bones.handRight),
     geometries,
     materials,
     1,
-    "right",
   );
-  const leftThigh = buildLeg(
-    pelvis,
+  buildLeg(
+    bone(bones.thighLeft),
+    bone(bones.shinLeft),
+    bone(bones.footLeft),
     geometries,
     materials,
-    -1,
-    "left",
   );
-  const rightThigh = buildLeg(
-    pelvis,
+  buildLeg(
+    bone(bones.thighRight),
+    bone(bones.shinRight),
+    bone(bones.footRight),
     geometries,
     materials,
-    1,
-    "right",
   );
 
   const rig: SnowflowCharacterRig = {
     root,
     slope,
     heading,
-    body,
+    rigInstance,
+    humanoid,
+    body: bone(bones.actorRoot),
     pelvis,
     torso,
-    neck,
+    neck: bone(bones.neck),
     head,
-    hood,
-    skirt,
-    skirtFront,
-    skirtLeft,
-    skirtRight,
-    cloakBack,
-    cloakLeft,
-    cloakRight,
-    hairLeft,
-    hairRight,
-    leftUpperArm,
-    leftForearm: requireGroup(leftUpperArm, "left-forearm"),
-    leftWrist: requireGroup(leftUpperArm, "left-wrist"),
-    rightUpperArm,
-    rightForearm: requireGroup(rightUpperArm, "right-forearm"),
-    rightWrist: requireGroup(rightUpperArm, "right-wrist"),
-    leftThigh,
-    leftShin: requireGroup(leftThigh, "left-shin"),
-    leftFoot: requireGroup(leftThigh, "left-foot"),
-    rightThigh,
-    rightShin: requireGroup(rightThigh, "right-shin"),
-    rightFoot: requireGroup(rightThigh, "right-foot"),
+    hood: bone(bones.hood),
+    skirt: bone(bones.skirt),
+    skirtFront: bone(bones.skirtFront),
+    skirtLeft: bone(bones.skirtLeft),
+    skirtRight: bone(bones.skirtRight),
+    cloakBack: bone(bones.cloakBack),
+    cloakLeft: bone(bones.cloakLeft),
+    cloakRight: bone(bones.cloakRight),
+    hairLeft: bone(bones.hairLeft),
+    hairRight: bone(bones.hairRight),
+    leftUpperArm: bone(bones.upperArmLeft),
+    leftForearm: bone(bones.forearmLeft),
+    leftWrist: bone(bones.handLeft),
+    rightUpperArm: bone(bones.upperArmRight),
+    rightForearm: bone(bones.forearmRight),
+    rightWrist: bone(bones.handRight),
+    leftThigh: bone(bones.thighLeft),
+    leftShin: bone(bones.shinLeft),
+    leftFoot: bone(bones.footLeft),
+    rightThigh: bone(bones.thighRight),
+    rightShin: bone(bones.shinRight),
+    rightFoot: bone(bones.footRight),
     materialSet: materials,
     materials: Object.values(materials),
     geometries,
@@ -159,7 +160,8 @@ export function buildSnowflowCharacter(
 }
 
 function buildTorso(
-  torso: THREE.Group,
+  torso: THREE.Object3D,
+  pelvis: THREE.Object3D,
   geometries: THREE.BufferGeometry[],
   materials: SnowflowCharacterMaterialSet,
 ): void {
@@ -174,8 +176,9 @@ function buildTorso(
   );
   chest.scale.z = 0.74;
 
+  // The belt rides the pelvis, not the chest, so a spine bend does not drag it.
   const belt = addMesh(
-    torso.parent ?? torso,
+    pelvis,
     geometries,
     new THREE.TorusGeometry(0.17, 0.025, 8, 28),
     materials.leather,
@@ -188,7 +191,7 @@ function buildTorso(
 }
 
 function buildHead(
-  head: THREE.Group,
+  head: THREE.Object3D,
   geometries: THREE.BufferGeometry[],
   materials: SnowflowCharacterMaterialSet,
 ): void {
@@ -229,18 +232,13 @@ function buildHead(
 }
 
 function buildArm(
-  parent: THREE.Group,
+  upperArm: THREE.Object3D,
+  forearm: THREE.Object3D,
+  hand: THREE.Object3D,
   geometries: THREE.BufferGeometry[],
   materials: SnowflowCharacterMaterialSet,
   side: -1 | 1,
-  name: "left" | "right",
-): THREE.Group {
-  const upperArm = namedGroup(`${name}-upper-arm`);
-  // Shoulders sit ahead of the spine, which also keeps the swing arc in front
-  // of the cloak side panels hanging off the back of the torso.
-  upperArm.position.set(side * 0.215, 0.33, 0.03);
-  parent.add(upperArm);
-
+): void {
   const upperMesh = addMesh(
     upperArm,
     geometries,
@@ -252,9 +250,6 @@ function buildArm(
   );
   upperMesh.rotation.z = side * -0.12;
 
-  const forearm = namedGroup(`${name}-forearm`);
-  forearm.position.set(side * 0.038, -0.29, 0);
-  upperArm.add(forearm);
   addMesh(
     forearm,
     geometries,
@@ -274,11 +269,8 @@ function buildArm(
     0.012,
   );
 
-  const wrist = namedGroup(`${name}-wrist`);
-  wrist.position.set(0, -0.275, 0.012);
-  forearm.add(wrist);
-  const hand = addMesh(
-    wrist,
+  const handMesh = addMesh(
+    hand,
     geometries,
     new THREE.SphereGeometry(0.048, 12, 8),
     materials.skin,
@@ -286,20 +278,16 @@ function buildArm(
     -0.055,
     0.025,
   );
-  hand.scale.set(0.86, 1.22, 0.8);
-  return upperArm;
+  handMesh.scale.set(0.86, 1.22, 0.8);
 }
 
 function buildLeg(
-  parent: THREE.Group,
+  thigh: THREE.Object3D,
+  shin: THREE.Object3D,
+  foot: THREE.Object3D,
   geometries: THREE.BufferGeometry[],
   materials: SnowflowCharacterMaterialSet,
-  side: -1 | 1,
-  name: "left" | "right",
-): THREE.Group {
-  const thigh = namedGroup(`${name}-thigh`);
-  thigh.position.set(side * 0.1, -0.02, 0);
-  parent.add(thigh);
+): void {
   addMesh(
     thigh,
     geometries,
@@ -309,10 +297,6 @@ function buildLeg(
     -0.22,
     0,
   );
-
-  const shin = namedGroup(`${name}-shin`);
-  shin.position.set(0, -0.44, 0);
-  thigh.add(shin);
   addMesh(
     shin,
     geometries,
@@ -322,10 +306,6 @@ function buildLeg(
     -0.185,
     0,
   );
-
-  const foot = namedGroup(`${name}-foot`);
-  foot.position.set(0, -0.37, 0);
-  shin.add(foot);
   const boot = addMesh(
     foot,
     geometries,
@@ -336,20 +316,11 @@ function buildLeg(
     0.085,
   );
   boot.geometry.translate(0, 0, 0.025);
-  return thigh;
 }
 
 function namedGroup(name: string): THREE.Group {
   const group = new THREE.Group();
   group.name = name;
-  return group;
-}
-
-function requireGroup(parent: THREE.Group, name: string): THREE.Group {
-  const group = parent.getObjectByName(name);
-  if (!(group instanceof THREE.Group)) {
-    throw new Error(`Character rig group ${name} is missing.`);
-  }
   return group;
 }
 

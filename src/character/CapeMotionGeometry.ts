@@ -27,9 +27,9 @@ export class CapeMotionGeometry {
   private previousFlutterAmplitude = Number.NaN;
 
   constructor(
-    back: THREE.Group,
-    left: THREE.Group,
-    right: THREE.Group,
+    back: THREE.Object3D,
+    left: THREE.Object3D,
+    right: THREE.Object3D,
   ) {
     this.panels = [
       ...collectPanels(back, 0, 1, 0.55),
@@ -109,7 +109,7 @@ export class CapeMotionGeometry {
 }
 
 function collectPanels(
-  group: THREE.Group,
+  group: THREE.Object3D,
   phase: number,
   flexScale: number,
   lateralScale: number,

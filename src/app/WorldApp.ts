@@ -29,6 +29,7 @@ import { WorldMinimap } from "./WorldMinimap";
 import { WorldFrameMetrics, type WorldFrameSubsystem } from "./WorldFrameMetrics";
 import { WorldRuntimeGuard } from "./WorldRuntimeGuard";
 import { WorldStatusHud } from "./WorldStatusHud";
+import type { WorldActorProofContext } from "./WorldActorProofContext";
 import {
   WORLD_COMPACT_GRASS_BUILD_RESERVE_MS,
   WORLD_COMPACT_STONE_BUILD_RESERVE_MS,
@@ -49,6 +50,7 @@ export class WorldApp {
   private stats?: Stats;
   private artMenu?: GrassArtMenu;
   private readonly field: TerrainField;
+  private readonly frameObservers = new Set<(deltaSeconds: number) => void>();
   private readonly terrain: TerrainStreamer;
   private readonly stones: WorldStoneSystem;
   private readonly grass: WorldGrassSystem;
@@ -229,12 +231,33 @@ export class WorldApp {
     );
   }
 
+  /**
+   * Development-only hook for the actor extensibility proof (`?actorProof=1`).
+   *
+   * Hands a standalone actor the scene and terrain it needs plus a per-frame
+   * subscription. Nothing on the production path calls this, and the proof
+   * module is only imported when its query parameter is present.
+   */
+  attachActorProof(
+    observer: (deltaSeconds: number) => void,
+  ): WorldActorProofContext {
+    this.frameObservers.add(observer);
+    return {
+      scene: this.scene,
+      field: this.field,
+      detach: (): void => {
+        this.frameObservers.delete(observer);
+      },
+    };
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
     this.running = false;
+    this.frameObservers.clear();
     this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
     window.clearInterval(this.watchdogHandle);
@@ -319,6 +342,10 @@ export class WorldApp {
 
     if (this.controlsEnabled) {
       this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
+    }
+
+    for (const observer of this.frameObservers) {
+      observer(deltaSeconds);
     }
 
     if (this.terrainEnabled) {

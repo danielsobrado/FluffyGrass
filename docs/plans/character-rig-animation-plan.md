@@ -4,7 +4,7 @@
 
 - Target branch: `main`
 - Scope: planning and implementation contract
-- Current state: not started
+- Current state: Checkpoint B reached — phases 0 through 7 complete; the shared architecture is proven by the player, a scripted humanoid NPC, and a quadruped animating together
 - Primary implementation target: existing Snowflow player character
 - Architecture target: reusable actor animation foundation for player characters, humanoid NPCs, quadrupeds, birds, and later creature archetypes
 - Rendering strategy: procedural geometry + skeletal articulation + targeted skinning + rigid attachments + procedural secondary motion
@@ -1421,7 +1421,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 0 — Baseline and regression contract
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1441,7 +1441,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 1 — Shared actor rig definition core
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1462,7 +1462,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 2 — Humanoid skeletal rig on shared core
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1485,7 +1485,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 3 — Shared pose buffers, masks, blending runtime
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1506,7 +1506,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 4 — Port current player locomotion
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1527,7 +1527,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 5 — Non-player humanoid reuse proof
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1547,7 +1547,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 6 — Generic contact IK and humanoid foot grounding
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 
@@ -1568,7 +1568,7 @@ If the quadruped requires fake `arm`, `hand`, `crouch`, or `spell` concepts, the
 
 ## Phase 7 — Minimal quadruped proof
 
-**Status:** pending
+**Status:** complete
 
 ### Work
 

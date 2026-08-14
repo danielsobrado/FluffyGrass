@@ -65,6 +65,7 @@ async function bootstrap(): Promise<void> {
 
   let app: RunnableApp | undefined;
   let diagnostics: Disposable | undefined;
+  let actorProof: Disposable | undefined;
   try {
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
@@ -88,6 +89,12 @@ async function bootstrap(): Promise<void> {
           statsPanelEnabled: params.get("stats") === "1",
         });
       }
+      if (params.get("actorProof") === "1") {
+        const { ActorExtensibilityProof } = await import(
+          "./dev/ActorExtensibilityProof"
+        );
+        actorProof = ActorExtensibilityProof.attach(world);
+      }
     }
 
     app.start();
@@ -97,11 +104,13 @@ async function bootstrap(): Promise<void> {
         return;
       }
       disposed = true;
+      actorProof?.dispose();
       diagnostics?.dispose();
       uiController.dispose();
       app?.dispose();
     });
   } catch (error) {
+    actorProof?.dispose();
     diagnostics?.dispose();
     app?.dispose();
     uiController.dispose();

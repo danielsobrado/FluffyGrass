@@ -80,9 +80,9 @@ export class CapeMotion {
   private previousSideVelocity = 0;
 
   constructor(
-    private readonly back: THREE.Group,
-    private readonly left: THREE.Group,
-    private readonly right: THREE.Group,
+    private readonly back: THREE.Object3D,
+    private readonly left: THREE.Object3D,
+    private readonly right: THREE.Object3D,
   ) {
     this.geometry = new CapeMotionGeometry(back, left, right);
     this.reset();

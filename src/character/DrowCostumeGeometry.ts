@@ -133,7 +133,7 @@ function addCloakPanels(
 }
 
 function addCloakSidePanel(
-  parent: THREE.Group,
+  parent: THREE.Object3D,
   materials: SnowflowCharacterMaterialSet,
   geometries: THREE.BufferGeometry[],
   side: -1 | 1,

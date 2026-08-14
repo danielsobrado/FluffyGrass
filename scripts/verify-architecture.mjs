@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
-const WORLD_APP_MAX_LINES = 540;
+// Raised for the actor-proof frame subscription. What landed here is a small
+// orchestration hook the development-only extensibility proof attaches to; the
+// proof itself lives outside the production bundle in src/dev.
+const WORLD_APP_MAX_LINES = 560;
 const TERRAIN_STREAMER_MAX_LINES = 300;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;

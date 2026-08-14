@@ -10,6 +10,7 @@ import {
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { DenseWorldSpawn } from "../world/DenseSpawnLocator";
 import type { TerrainField } from "../world/TerrainField";
+import { WorldTerrainContactSampler } from "../world/WorldTerrainContactSampler";
 import type { WorldConfig } from "../world/WorldConfig";
 import { ThirdPersonInput } from "./ThirdPersonInput";
 import type { WorldController, WorldControlMode } from "./WorldController";
@@ -93,6 +94,7 @@ export class ThirdPersonController implements WorldController {
       scene,
       config.characterScale,
       config.characterLandingRecoveryTime,
+      new WorldTerrainContactSampler(field),
     );
     grassInteractionField.configure({
       strength: config.grassInteractionStrength,

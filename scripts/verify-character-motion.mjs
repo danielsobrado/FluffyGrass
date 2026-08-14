@@ -34,6 +34,7 @@ const motion = read("src/character/CapeMotion.ts");
 const geometry = read("src/character/CapeMotionGeometry.ts");
 const tuning = read("src/character/CapeMotionTuning.ts");
 const character = read("src/character/SnowflowCharacter.ts");
+const cloth = read("src/character/secondary/SnowflowClothMotion.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
 const spring = read("src/character/CharacterSpring.ts");
@@ -90,16 +91,19 @@ assert(
   "Shared cape shell geometry must only be deformed once per frame.",
 );
 assert(
-  character.includes("this.updateSecondaryMotion(delta, pose)") &&
-    character.includes("this.capeMotion.reset()") &&
-    character.includes("Number.isFinite(deltaSeconds) ? deltaSeconds : 0"),
+  character.includes("Number.isFinite(deltaSeconds) ? deltaSeconds : 0") &&
+    character.includes("if (delta <= 0)") &&
+    character.includes("this.cloth.reset()") &&
+    cloth.includes("this.capeMotion.reset()") &&
+    cloth.includes("update(deltaSeconds: number"),
   "Character animation must feed sanitized frame time and reset cape state without treating zero-time frames as full resets.",
 );
 assert(
   character.includes("reset(pose: SnowflowCharacterPose)") &&
-    character.includes('this.state = "idle"') &&
-    character.includes("this.animationTime = 0") &&
-    character.includes("this.landingStrength = 0") &&
+    character.includes("this.profile.facts.jumpStarted = false") &&
+    character.includes("this.profile.facts.landed = false") &&
+    character.includes("this.profile.facts.landingImpact = 0") &&
+    character.includes("this.runtime.reset(this.animationInput)") &&
     character.includes(
       "this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true)",
     ) &&

@@ -113,7 +113,7 @@ function addHair(rig: SnowflowCharacterRig, material: THREE.Material): void {
 }
 
 function addHairSide(
-  parent: THREE.Group,
+  parent: THREE.Object3D,
   rig: SnowflowCharacterRig,
   material: THREE.Material,
   side: -1 | 1,
