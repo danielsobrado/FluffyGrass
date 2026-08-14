@@ -96,10 +96,11 @@ export class ActorPose {
       return;
     }
     for (let bone = 0; bone < this.boneCount; bone += 1) {
-      const boneWeight = mask[bone] * weight;
-      if (boneWeight <= 0) {
+      const maskedWeight = mask[bone] * weight;
+      if (!(maskedWeight > 0)) {
         continue;
       }
+      const boneWeight = maskedWeight >= 1 ? 1 : maskedWeight;
       slerpQuaternion(
         this.rotations,
         bone,
@@ -107,7 +108,7 @@ export class ActorPose {
         bone,
         target.rotations,
         bone,
-        boneWeight > 1 ? 1 : boneWeight,
+        boneWeight,
       );
       const base = bone * 3;
       for (let axis = 0; axis < 3; axis += 1) {
