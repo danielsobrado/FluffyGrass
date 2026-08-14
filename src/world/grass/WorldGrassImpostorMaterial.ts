@@ -37,9 +37,12 @@ import {
   IMPOSTOR_BASE_COLOR_BLEND,
   IMPOSTOR_COLOR_SCALE,
   IMPOSTOR_DITHER_SEED,
-  IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE,
   IMPOSTOR_HORIZON_ATLAS_ELEVATION,
+  IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL,
+  IMPOSTOR_MINIFICATION_START_TEXELS_PER_PIXEL,
+  IMPOSTOR_MINIFIED_ALPHA_CUTOFF,
   IMPOSTOR_TERRAIN_UP_BLEND,
+  IMPOSTOR_VIEW_DITHER_GRID_SCALE,
 } from "./WorldGrassImpostorTuning";
 
 const VERTEX_SHADER = `
@@ -69,7 +72,6 @@ uniform float uArtDensityScale;
 uniform float uCardsPerPatch;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
-varying float vCameraDistance;
 varying float vGustNoise;
 flat varying float vBiome;
 flat varying float vSubpatchIndex;
@@ -253,7 +255,6 @@ void main() {
     dot(toCamera, basisZ)
   );
   vLocalViewDirection = normalize(localViewDirection);
-  vCameraDistance = cameraDistance;
   vGustNoise = gustNoise;
   vBiome = instanceBiome;
   vSubpatchIndex = grassSubpatchIndex;
@@ -277,8 +278,6 @@ uniform float uBlendViews;
 uniform float uBaseColorBlend;
 uniform float uColorScale;
 uniform float uArtDensityScale;
-uniform float uMidDistance;
-uniform float uFarDistance;
 uniform vec3 uBiomeBase[${GRASS_MAX_BIOMES}];
 uniform vec3 uBiomeTip[${GRASS_MAX_BIOMES}];
 uniform vec3 uBiomeDry[${GRASS_MAX_BIOMES}];
@@ -288,7 +287,6 @@ uniform float uAmbientBoost;
 uniform float uBacklightStrength;
 varying vec2 vUv;
 varying vec3 vLocalViewDirection;
-varying float vCameraDistance;
 varying float vGustNoise;
 flat varying float vBiome;
 flat varying float vSubpatchIndex;
@@ -345,16 +343,38 @@ float coverageNoise(vec2 position, float seed) {
 }
 
 void main() {
+  // Dithered alpha works while a card is large enough for several atlas texels
+  // to land on one screen pixel. Once it is strongly minified, screen-door
+  // coverage turns into the isolated horizon speckles that TAA would normally
+  // hide. Resolve that from projected size rather than world distance so FOV,
+  // viewport size, and device pixel ratio cannot make the policy drift.
+  float atlasTexelsPerPixel = uFrameResolution * max(
+    fwidth(vUv.x),
+    fwidth(vUv.y)
+  );
+  float minification = smoothstep(
+    ${IMPOSTOR_MINIFICATION_START_TEXELS_PER_PIXEL.toFixed(2)},
+    ${IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL.toFixed(2)},
+    atlasTexelsPerPixel
+  );
+  bool fullyMinified =
+    atlasTexelsPerPixel >= ${IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL.toFixed(2)};
+
   float effectiveCoverage =
     vFarEntry * vTerrainCoverage * min(vFieldCoverage * uArtDensityScale, 1.0);
-  // Cards with no coverage at all are already clipped in the vertex stage, so
-  // only the stochastic cut is left here. Subpatch-specific seeds prevent the
-  // four cards from exposing the same dissolving pixel pattern.
-  float dither = coverageNoise(
-    floor(vUv * 64.0),
-    vInstanceSeed * 97.0 + vSubpatchIndex * 0.217
-  );
-  if (dither > effectiveCoverage) {
+  // Keep the existing per-texel crossfade while the card is large. At strong
+  // minification switch to one stable decision per subpatch so low terrain or
+  // ecology coverage removes coherent grass cards instead of isolated pixels.
+  float dither = fullyMinified
+    ? coverageNoise(
+        vec2(vSubpatchIndex, vSubpatchIndex * 0.61803398875),
+        vInstanceSeed * 97.0 + 0.43
+      )
+    : coverageNoise(
+        floor(vUv * uFrameResolution),
+        vInstanceSeed * 97.0 + vSubpatchIndex * 0.217
+      );
+  if (dither >= effectiveCoverage) {
     discard;
   }
 
@@ -367,7 +387,10 @@ void main() {
   float maximumFrame = uViewsPerAxis - 1.0;
   vec4 atlasColor;
 
-  if (uBlendViews < 0.5) {
+  // Once the card is minified enough to use coherent coverage, stochastic view
+  // selection cannot add useful detail; it can only reintroduce salt-and-pepper
+  // silhouette noise. Nearest-frame sampling is also cheaper in this band.
+  if (uBlendViews < 0.5 || fullyMinified) {
     vec2 nearestFrame = clamp(
       floor(framePosition + 0.5),
       vec2(0.0),
@@ -393,7 +416,9 @@ void main() {
     float weight10 = frameBlend.x * (1.0 - frameBlend.y);
     float weight01 = (1.0 - frameBlend.x) * frameBlend.y;
     float viewDither = coverageNoise(
-      floor(vUv * 48.0),
+      floor(vUv * (
+        uFrameResolution * ${IMPOSTOR_VIEW_DITHER_GRID_SCALE.toFixed(2)}
+      )),
       vInstanceSeed * 173.0 + vSubpatchIndex * 0.131 + 0.37
     );
     vec2 selectedFrame = viewDither < weight00
@@ -404,19 +429,14 @@ void main() {
           ? vec2(frame00.x, frame11.y)
           : frame11;
     // Stable stochastic bilinear selection reproduces the four-view average
-    // with one atlas fetch. Real mid blades still cover the noisier transition.
+    // with one atlas fetch while the card is large enough to benefit from it.
     atlasColor = sampleFrame(selectedFrame, vUv);
   }
 
-  float distanceProgress = smoothstep(
-    uMidDistance,
-    uFarDistance,
-    vCameraDistance
-  );
-  float cutoff = uAlphaCutoff * mix(
-    1.0,
-    ${IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE.toFixed(2)},
-    distanceProgress
+  float cutoff = mix(
+    uAlphaCutoff,
+    ${IMPOSTOR_MINIFIED_ALPHA_CUTOFF.toFixed(2)},
+    minification
   );
   float alphaWidth = max(
     fwidth(atlasColor.a),
@@ -433,7 +453,12 @@ void main() {
       vSubpatchIndex * 0.173 +
       ${IMPOSTOR_ALPHA_DITHER_SEED.toFixed(2)}
   );
-  if (alphaDither > alphaCoverage) {
+  // A strict >= is required: with >, a hash value of exactly zero survives an
+  // alphaCoverage of zero and paints an opaque palette pixel in transparent
+  // atlas space. Harden the stochastic threshold to a conventional 0.5 alpha
+  // test as minification rises so mip-averaged blade tips cannot become dust.
+  float alphaThreshold = mix(alphaDither, 0.5, minification);
+  if (alphaThreshold >= alphaCoverage) {
     discard;
   }
 
