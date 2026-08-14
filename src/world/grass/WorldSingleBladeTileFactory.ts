@@ -24,9 +24,11 @@ import {
   resolveGrassBladeArcPoint,
 } from "./GrassRuntimeMath";
 import {
+  createGrassBiomeSample,
   pickGrassBiomeIndex,
   resolveGrassBiomeDensity,
   sampleGrassBiome,
+  type GrassBiomeSample,
 } from "./WorldBiomeField";
 
 export interface WorldSingleBladeTile {
@@ -291,6 +293,7 @@ export class WorldSingleBladeTileFactory {
   private readonly localPosition = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
   private readonly matrix = new THREE.Matrix4();
+  private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
   private readonly placementCache = new Map<string, WorldSingleBladePlacement>();
   private readonly placementLru = new Map<string, WorldSingleBladePlacement>();
   private readonly emptyPlacementCache = new Map<string, true>();
@@ -597,7 +600,7 @@ export class WorldSingleBladeTileFactory {
       // octaves plus a binary search over the rank table, which is the same
       // order as the terrain masks above, and most enumerated blades never get
       // this far on broken ground or under a path.
-      const biomeSample = sampleGrassBiome(x, z);
+      const biomeSample = sampleGrassBiome(x, z, this.biomeSample);
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
 
