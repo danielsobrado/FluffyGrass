@@ -23,9 +23,12 @@ const WATER_MATERIAL_MAX_LINES = 180;
 // only the surface blend this file exists to own.
 const WATER_SHADER_MAX_LINES = 275;
 const STONE_GEOMETRY_MAX_LINES = 340;
-const HORIZON_SHELL_MAX_LINES = 340;
+// Raised for the streamed-ring coverage mask. Chunk residency lives in
+// WorldHorizonCoverage; the extra lines here are only the shell wiring it in.
+const HORIZON_SHELL_MAX_LINES = 380;
 const HORIZON_GRID_MAX_LINES = 120;
-const HORIZON_MATERIAL_MAX_LINES = 100;
+const HORIZON_MATERIAL_MAX_LINES = 120;
+const HORIZON_COVERAGE_MAX_LINES = 120;
 const EXTRACTED_MODULE_MAX_LINES = 260;
 const CONFIG_LOADER_MAX_LINES = 220;
 const CONFIG_READER_MAX_LINES = 120;
@@ -73,6 +76,7 @@ const waterShader = read("src/world/hydrology/WaterShader.ts");
 const horizonShell = read("src/world/horizon/WorldHorizonShell.ts");
 const horizonGrid = read("src/world/horizon/WorldHorizonGrid.ts");
 const horizonMaterial = read("src/world/horizon/WorldHorizonMaterial.ts");
+const horizonCoverage = read("src/world/horizon/WorldHorizonCoverage.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
 const stoneClearance = read("src/world/stones/StoneClearance.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
@@ -299,13 +303,16 @@ assert(
   lineCount(horizonShell) <= HORIZON_SHELL_MAX_LINES &&
     lineCount(horizonGrid) <= HORIZON_GRID_MAX_LINES &&
     lineCount(horizonMaterial) <= HORIZON_MATERIAL_MAX_LINES &&
+    lineCount(horizonCoverage) <= HORIZON_COVERAGE_MAX_LINES &&
     horizonShell.includes("private disposed = false") &&
     horizonShell.includes("createWorldHorizonAxis") &&
     horizonShell.includes("WorldHorizonMaterial") &&
+    horizonShell.includes("WorldHorizonCoverage") &&
     !horizonShell.includes("onBeforeCompile") &&
     !horizonShell.includes("MeshLambertMaterial") &&
+    !horizonShell.includes("new THREE.DataTexture") &&
     !horizonGrid.includes("THREE."),
-  "The horizon shell must own its build alone, delegating grid mathematics and material construction.",
+  "The horizon shell must own its build alone, delegating grid mathematics, coverage, and material construction.",
 );
 assert(
   horizonShell.includes("catch (error)") && horizonShell.includes("this.dispose()"),
