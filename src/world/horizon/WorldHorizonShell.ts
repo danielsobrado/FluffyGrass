@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
+import { WorldHorizonCoverage } from "./WorldHorizonCoverage";
 import {
   createWorldHorizonAxis,
   type WorldHorizonAxis,
@@ -34,19 +35,20 @@ export interface WorldHorizonDiagnostics {
  * view with four fifths of its contrast intact: a mountain crossing the ring
  * boundary appeared and vanished as a hard edge against the sky.
  *
- * This is the invariant that fixes it — anything capable of breaking the
- * skyline always has a representation. The shell is built once, never
- * unloaded, and never rebuilt, so no mountain can ever pop into existence; the
- * streamed ring only ever overlays detail onto ground that is already there.
+ * Anything capable of breaking the skyline therefore always has a coarse
+ * representation. Resident detailed chunks explicitly mask out their matching
+ * shell fragments, so the two terrain meshes never compete for the same pixels
+ * on steep slopes; the streamed ring only overlays detail where it really
+ * exists while the shell remains available everywhere else.
  *
  * At a 2 km world the shell can simply cover everything, which is what makes
- * this cheap enough to be unconditional. There is no streaming, no residency
- * set, no LOD selection and no hysteresis to get wrong, and the whole thing is
- * one draw call.
+ * this cheap enough to be unconditional. There is no horizon streaming or LOD
+ * selection, and the whole shell stays one draw call.
  */
 export class WorldHorizonShell {
   private readonly axis: WorldHorizonAxis;
   private readonly worldHalfExtent: number;
+  private readonly coverage: WorldHorizonCoverage;
   private readonly materialController: WorldHorizonMaterial;
   private readonly heights: Float32Array;
   private readonly positions: Float32Array;
@@ -78,9 +80,11 @@ export class WorldHorizonShell {
     const radius = compact
       ? config.terrainRadiusCompact
       : config.terrainRadiusDesktop;
+    this.coverage = new WorldHorizonCoverage(config.worldSize, config.chunkSize);
     this.materialController = new WorldHorizonMaterial(
       radius * config.chunkSize,
       (radius + 1) * config.chunkSize,
+      this.coverage,
     );
 
     const vertexCount = this.axis.size * this.axis.size;
@@ -93,6 +97,11 @@ export class WorldHorizonShell {
       vertexCount <= 65535
         ? new Uint16Array(cells * cells * 6)
         : new Uint32Array(cells * cells * 6);
+  }
+
+  /** Updates exact ownership when a streamed terrain chunk enters or leaves. */
+  setChunkCovered(chunkX: number, chunkZ: number, covered: boolean): void {
+    this.coverage.setChunkCovered(chunkX, chunkZ, covered);
   }
 
   /**
@@ -163,6 +172,7 @@ export class WorldHorizonShell {
       this.mesh = undefined;
     }
     this.materialController.dispose();
+    this.coverage.dispose();
   }
 
   /**

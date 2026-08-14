@@ -1,32 +1,17 @@
 import * as THREE from "three";
+import type { WorldHorizonCoverage } from "./WorldHorizonCoverage";
 import { WORLD_HORIZON_SINK_DEPTH } from "./WorldHorizonTuning";
 
-const MATERIAL_CACHE_KEY = "world-horizon-shell-v2";
+const MATERIAL_CACHE_KEY = "world-horizon-shell-v3";
 
-/**
- * Sinks the shell beneath whatever the terrain streamer is currently holding,
- * then lets it rise to its true height once it is past the ring.
- *
- * The ring is a square block of chunks centred on the camera's chunk, so the
- * fade is measured in Chebyshev distance rather than radial distance. A radial
- * fade cannot describe a square boundary: tuned to clear the ring along the
- * axes it would surface the shell inside the ring's own corners, and tuned to
- * clear the corners it would leave the shell sunk in a visible trench beyond
- * where the ring actually ends.
- *
- * The streaming focus may sit anywhere within its own chunk, so the ring only
- * reaches a guaranteed `radius * chunkSize` and never extends past
- * `(radius + 1) * chunkSize`. The ramp runs exactly between those two, which is
- * the narrowest band that is fully buried at one end and certainly clear at the
- * other.
- */
-const HORIZON_SINK_VERTEX = /* glsl */ `
+const HORIZON_VERTEX = /* glsl */ `
   uniform float uHorizonSinkDepth;
   uniform vec2 uHorizonSinkFade;
   uniform vec2 uHorizonSinkFocus;
+  varying vec2 vHorizonWorldXZ;
 `;
 
-const HORIZON_SINK_POSITION = /* glsl */ `
+const HORIZON_POSITION = /* glsl */ `
   vec2 horizonToFocus = abs(transformed.xz - uHorizonSinkFocus);
   float horizonRingDistance = max(horizonToFocus.x, horizonToFocus.y);
   float horizonBuried = 1.0 - smoothstep(
@@ -35,25 +20,47 @@ const HORIZON_SINK_POSITION = /* glsl */ `
     horizonRingDistance
   );
   transformed.y -= uHorizonSinkDepth * horizonBuried;
+  vHorizonWorldXZ = transformed.xz;
+`;
+
+const HORIZON_FRAGMENT = /* glsl */ `
+  uniform sampler2D uTerrainCoverage;
+  uniform float uTerrainCoverageHalfExtent;
+  uniform float uTerrainCoverageWorldSize;
+  varying vec2 vHorizonWorldXZ;
+`;
+
+const HORIZON_COVERAGE_DISCARD = /* glsl */ `
+  vec2 horizonCoverageUv =
+    (vHorizonWorldXZ + vec2(uTerrainCoverageHalfExtent)) /
+    uTerrainCoverageWorldSize;
+  if (
+    horizonCoverageUv.x >= 0.0 && horizonCoverageUv.y >= 0.0 &&
+    horizonCoverageUv.x < 1.0 && horizonCoverageUv.y < 1.0 &&
+    texture2D(uTerrainCoverage, horizonCoverageUv).r > 0.5
+  ) {
+    discard;
+  }
 `;
 
 /**
- * The shell's material: the terrain's lighting model with none of its surface
- * work.
+ * Cheap far-terrain material with exact streamed-chunk ownership.
  *
- * This is the cheap end of the atmospheric LOD. The streamed terrain spends its
- * fragment shader on procedural meso and micro noise, path wear, ecology
- * blending, and a perturbed normal, all of which describe detail measured in
- * centimetres. The shell is never seen closer than a few hundred metres, where
- * one of its 16 m cells is a handful of pixels, so it carries vertex colour and
- * the scene's own lighting and fog and nothing else.
+ * The vertical sink remains as a fallback around chunks that are still being
+ * built. Once a detailed chunk is resident, the coverage mask prevents the
+ * coarse shell from rasterizing beneath it at all. This removes mountain
+ * poke-through without increasing horizon tessellation or global sink depth.
  */
 export class WorldHorizonMaterial {
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
   private readonly sinkFade = new THREE.Vector2();
   private readonly sinkFocus = new THREE.Vector2();
 
-  constructor(ringGuaranteedRadius: number, ringOuterRadius: number) {
+  constructor(
+    ringGuaranteedRadius: number,
+    ringOuterRadius: number,
+    coverage: WorldHorizonCoverage,
+  ) {
     this.sinkFade.set(ringGuaranteedRadius, ringOuterRadius);
     this.material.name = "world-horizon-material";
     this.material.dithering = true;
@@ -61,11 +68,22 @@ export class WorldHorizonMaterial {
       shader.uniforms.uHorizonSinkDepth = { value: WORLD_HORIZON_SINK_DEPTH };
       shader.uniforms.uHorizonSinkFade = { value: this.sinkFade };
       shader.uniforms.uHorizonSinkFocus = { value: this.sinkFocus };
+      shader.uniforms.uTerrainCoverage = { value: coverage.texture };
+      shader.uniforms.uTerrainCoverageHalfExtent = {
+        value: coverage.worldHalfExtent,
+      };
+      shader.uniforms.uTerrainCoverageWorldSize = { value: coverage.worldSize };
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", `#include <common>${HORIZON_SINK_VERTEX}`)
+        .replace("#include <common>", `#include <common>${HORIZON_VERTEX}`)
         .replace(
           "#include <begin_vertex>",
-          `#include <begin_vertex>${HORIZON_SINK_POSITION}`,
+          `#include <begin_vertex>${HORIZON_POSITION}`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>${HORIZON_FRAGMENT}`)
+        .replace(
+          "#include <clipping_planes_fragment>",
+          `#include <clipping_planes_fragment>${HORIZON_COVERAGE_DISCARD}`,
         );
     };
     this.material.customProgramCacheKey = () => MATERIAL_CACHE_KEY;
