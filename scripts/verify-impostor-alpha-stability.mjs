@@ -141,15 +141,36 @@ assert(
   "Mid/field coverage must retain a strict zero-safe threshold and become coherent once cards are strongly minified.",
 );
 assert(
-  material.includes("float alphaThreshold = mix(alphaDither, 0.5, minification)") &&
+  material.includes("if (atlasColor.a <= cutoff)") &&
+    material.includes("float alphaThreshold = mix(alphaDither, 0.5, minification)") &&
     material.includes("if (alphaThreshold >= alphaCoverage)") &&
     !material.includes("if (alphaDither > alphaCoverage)"),
-  "Alpha coverage must harden to a conventional cutout and never allow zero-coverage hash ties to survive.",
+  "Alpha coverage must use the equivalent cheap hard cut when fully minified and a strict zero-safe stochastic threshold before it.",
 );
+for (const varying of [
+  "flat varying vec3 vLocalViewDirection;",
+  "flat varying float vGustNoise;",
+  "flat varying float vInstanceSeed;",
+  "flat varying float vFarEntry;",
+  "flat varying float vFieldCoverage;",
+  "flat varying vec3 vGrassIrradiance;",
+]) {
+  assert(
+    material.includes(varying),
+    `Per-card impostor value must avoid perspective interpolation: ${varying}`,
+  );
+}
 assert(
   !material.includes("vCameraDistance") &&
     !material.includes("IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE"),
   "Alpha stability must stay screen-space driven and must not retain the old distance-coupled cutoff path.",
+);
+assert(
+  material.includes("let createdMaterial: THREE.ShaderMaterial | undefined") &&
+    material.includes("createdMaterial?.dispose()") &&
+    material.includes("atlas.texture.dispose()") &&
+    material.includes("atlas.geometry.dispose()"),
+  "Impostor construction must release atlas GPU resources when material setup fails.",
 );
 
 for (const coverage of [0.1, 0.25, 0.5, 0.75, 0.9]) {
