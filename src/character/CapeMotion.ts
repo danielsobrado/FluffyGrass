@@ -67,6 +67,10 @@ export class CapeMotion {
   private readonly rightZ = new CharacterSpring(CAPE_SIDE_REST_ANGLE);
   private readonly tailX = new CharacterSpring();
   private readonly tailZ = new CharacterSpring();
+  private readonly pose: CapeMotionPose = {
+    bendX: CAPE_BASE_BACK_ANGLE,
+    bendZ: 0,
+  };
   private readonly geometry: CapeMotionGeometry;
   private elapsedSeconds = 0;
   private airborneTime = 0;
@@ -95,7 +99,10 @@ export class CapeMotion {
     const forwardVelocity = finiteOrZero(input.forwardVelocity);
     const sideVelocity = finiteOrZero(input.sideVelocity);
     const verticalVelocity = finiteOrZero(input.verticalVelocity);
-    const runSpeed = Math.max(Math.abs(finiteOrZero(input.runSpeed)), Number.EPSILON);
+    const runSpeed = Math.max(
+      Math.abs(finiteOrZero(input.runSpeed)),
+      Number.EPSILON,
+    );
     const forward01 = THREE.MathUtils.clamp(
       forwardVelocity / runSpeed,
       -1,
@@ -257,10 +264,9 @@ export class CapeMotion {
       flutterAmplitude,
     );
 
-    return {
-      bendX,
-      bendZ: (leftZ + rightZ) * 0.5,
-    };
+    this.pose.bendX = bendX;
+    this.pose.bendZ = (leftZ + rightZ) * 0.5;
+    return this.pose;
   }
 
   reset(): void {
@@ -277,6 +283,8 @@ export class CapeMotion {
     this.rightZ.reset(CAPE_SIDE_REST_ANGLE);
     this.tailX.reset();
     this.tailZ.reset();
+    this.pose.bendX = CAPE_BASE_BACK_ANGLE;
+    this.pose.bendZ = 0;
     this.back.rotation.x = CAPE_BASE_BACK_ANGLE;
     this.left.rotation.set(
       CAPE_BASE_BACK_ANGLE * CAPE_SIDE_PANEL_BEND_SCALE,
