@@ -148,36 +148,51 @@ assert(
   "Mid/field coverage must retain a strict zero-safe threshold and become coherent once cards are strongly minified.",
 );
 assert(
-  material.includes("if (atlasColor.a <= cutoff)") &&
+  material.includes("float alphaCoverage = saturate(") &&
+    material.includes("(atlasColor.a - cutoff) / max(1.0 - cutoff, 0.001)") &&
+    material.includes("if (atlasColor.a <= cutoff)") &&
     material.includes("float alphaThreshold = mix(alphaDither, 0.5, minification)") &&
     material.includes("if (alphaThreshold >= alphaCoverage)") &&
+    !material.includes("fwidth(atlasColor.a)") &&
     !material.includes("if (alphaDither > alphaCoverage)"),
-  "Alpha coverage must use the equivalent cheap hard cut when fully minified and a strict zero-safe stochastic threshold before it.",
+  "Atlas alpha must be remapped directly as coverage instead of differentiating stochastic view samples.",
 );
 const fragmentStartIndex = material.indexOf("const FRAGMENT_SHADER = `");
+const mainStartIndex = material.indexOf("void main() {", fragmentStartIndex);
 const frameDerivativeIndex = material.indexOf(
   "vec2 frameUvDx = dFdx(vUv)",
-  fragmentStartIndex,
+  mainStartIndex,
 );
-const alphaDerivativeIndex = material.indexOf(
-  "float alphaWidth = max(",
-  fragmentStartIndex,
+const nearestSampleIndex = material.indexOf(
+  "sampleFrame(nearestFrame, vUv, frameUvDx, frameUvDy)",
+  mainStartIndex,
 );
-const firstFragmentDiscardIndex = material.indexOf(
-  "discard;",
-  fragmentStartIndex,
+const selectedSampleIndex = material.indexOf(
+  "sampleFrame(selectedFrame, vUv, frameUvDx, frameUvDy)",
+  mainStartIndex,
 );
+const firstFragmentDiscardIndex = material.indexOf("discard;", mainStartIndex);
 const coverageDitherIndex = material.indexOf(
   "float dither = fullyMinified",
-  fragmentStartIndex,
+  mainStartIndex,
 );
 assert(
   fragmentStartIndex >= 0 &&
-    frameDerivativeIndex > fragmentStartIndex &&
-    alphaDerivativeIndex > frameDerivativeIndex &&
-    firstFragmentDiscardIndex > alphaDerivativeIndex &&
+    mainStartIndex > fragmentStartIndex &&
+    frameDerivativeIndex > mainStartIndex &&
+    nearestSampleIndex > frameDerivativeIndex &&
+    selectedSampleIndex > frameDerivativeIndex &&
+    firstFragmentDiscardIndex > nearestSampleIndex &&
+    firstFragmentDiscardIndex > selectedSampleIndex &&
     coverageDitherIndex > firstFragmentDiscardIndex,
-  "All impostor derivatives must run in converged fragment flow before stochastic alpha or coverage discards.",
+  "Impostor derivatives and atlas fetches must run before any non-uniform fragment discard.",
+);
+const postDiscardSource = material.slice(firstFragmentDiscardIndex);
+assert(
+  !postDiscardSource.includes("dFdx(") &&
+    !postDiscardSource.includes("dFdy(") &&
+    !postDiscardSource.includes("fwidth("),
+  "No derivative operation may execute after a possible fragment discard.",
 );
 for (const varying of [
   "flat varying vec3 vLocalViewDirection;",
