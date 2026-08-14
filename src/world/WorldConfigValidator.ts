@@ -1,9 +1,19 @@
 import { validateHydrologyConfig } from "./hydrology/HydrologyConfigValidator";
+import { createWorldHorizonAxis } from "./horizon/WorldHorizonGrid";
 import type { WorldConfig } from "./WorldConfig";
 
 const MAX_GRASS_PATCHES_PER_CHUNK_AXIS = 32;
 const MAX_NEAR_GRASS_TILES_PER_CHUNK_AXIS = 32;
 const MAX_SPAWN_SEARCH_STEPS_PER_RADIUS = 64;
+/**
+ * Triangle ceiling for the horizon shell.
+ *
+ * The shell is one static draw call whose whole argument is that it costs less
+ * than the pop-in it removes, and the shipped 2 km world spends about 46,000
+ * triangles on its streamed ring. A shell allowed to grow past this stops being
+ * the cheap layer and starts competing with the terrain it backs.
+ */
+const MAX_HORIZON_TRIANGLES = 120000;
 
 export function validateWorldConfig(config: WorldConfig): void {
   const worldChunks = config.worldSize / config.chunkSize;
@@ -18,6 +28,7 @@ export function validateWorldConfig(config: WorldConfig): void {
       "terrainRadiusDesktop must not exceed half of the world chunk count.",
     );
   }
+  validateHorizonShell(config);
 
   const patchesPerChunk = config.chunkSize / config.grassPatchSize;
   if (!Number.isInteger(patchesPerChunk)) {
@@ -279,6 +290,40 @@ export function validateWorldConfig(config: WorldConfig): void {
   ) {
     throw new Error(
       "Character camera elevation must be between its minimum and maximum.",
+    );
+  }
+}
+
+/**
+ * The shell's grid lines must land on the same coordinates the streamed chunks
+ * sample, so that where the two meshes share a vertex they agree exactly rather
+ * than to within a rounding error. The remaining checks bound cost and enforce
+ * minimum coverage.
+ */
+function validateHorizonShell(config: WorldConfig): void {
+  if (config.horizonEnabled < 1) {
+    return;
+  }
+  const axis = createWorldHorizonAxis(
+    config.worldSize,
+    config.horizonSpacing,
+    config.horizonApronRings,
+    config.horizonApronGrowth,
+  );
+  const cells = axis.size - 1;
+  const triangles = cells * cells * 2;
+  if (triangles > MAX_HORIZON_TRIANGLES) {
+    throw new Error(
+      `The horizon shell would cost ${triangles} triangles, above the ${MAX_HORIZON_TRIANGLES} ceiling.`,
+    );
+  }
+  const requiredApronReach =
+    (Math.max(config.terrainRadiusDesktop, config.terrainRadiusCompact) + 1) *
+    config.chunkSize;
+  const apronReach = axis.outerHalfExtent - config.worldSize * 0.5;
+  if (apronReach < requiredApronReach - 1e-3) {
+    throw new Error(
+      `The horizon apron must extend at least ${requiredApronReach} metres beyond the world edge.`,
     );
   }
 }

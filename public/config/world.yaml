@@ -14,6 +14,18 @@ terrainFarResolution: 7
 terrainChunksPerFrame: 2
 grassChunksPerFrame: 1
 
+# Permanent horizon shell. One static draw call covering the whole world plus an
+# apron beyond its edge, so nothing capable of breaking the skyline is ever
+# absent. 16 m spacing misses the true surface by 0.33 m on average and 1.98 m
+# at the 99th percentile — about four pixels at the range the shell first
+# becomes visible. The apron carries the ground out to ~3.8 km, well past the
+# 1.9 km at which this world's fog closes, so the horizon is always haze rather
+# than an edge.
+horizonEnabled: 1
+horizonSpacing: 16
+horizonApronRings: 16
+horizonApronGrowth: 1.25
+
 # Multi-blade patches are used only by the mid and far grass LODs.
 grassPatchSize: 4
 # Split each streamed chunk into independently culled 32 m render batches.

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && tsc -p tsconfig.stone-tools.json && node scripts/verify-production-policy.mjs && node scripts/verify-runtime-safety.mjs && node scripts/verify-architecture.mjs && node scripts/verify-config-contracts.mjs && node scripts/verify-terrain-surface.mjs && node scripts/verify-ecology.mjs && node scripts/verify-terrain-lattice.mjs && node scripts/verify-hydrology.mjs && node scripts/verify-water-flow.mjs && node scripts/verify-spawn.mjs && node scripts/verify-lod-continuity.mjs && node scripts/verify-grass-bridge-lod.mjs && node scripts/verify-grass-shape-continuity.mjs && node scripts/verify-flower-variety.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-streaming-performance.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-grass-placement.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && node scripts/verify-stones.mjs && node scripts/verify-navigation.mjs && vite build",
+    "build": "tsc && tsc -p tsconfig.stone-tools.json && node scripts/verify-production-policy.mjs && node scripts/verify-runtime-safety.mjs && node scripts/verify-architecture.mjs && node scripts/verify-config-contracts.mjs && node scripts/verify-terrain-surface.mjs && node scripts/verify-ecology.mjs && node scripts/verify-terrain-lattice.mjs && node scripts/verify-horizon.mjs && node scripts/verify-hydrology.mjs && node scripts/verify-water-flow.mjs && node scripts/verify-spawn.mjs && node scripts/verify-lod-continuity.mjs && node scripts/verify-grass-bridge-lod.mjs && node scripts/verify-grass-shape-continuity.mjs && node scripts/verify-flower-variety.mjs && node scripts/verify-lod-color-parity.mjs && node scripts/verify-grass-streaming-performance.mjs && node scripts/verify-grass-performance.mjs && node scripts/verify-grass-placement.mjs && node scripts/verify-impostor-subpatch.mjs && node scripts/verify-character-motion.mjs && node scripts/verify-stones.mjs && node scripts/verify-navigation.mjs && vite build",
     "test:policy": "node scripts/verify-production-policy.mjs",
     "test:runtime-safety": "node scripts/verify-runtime-safety.mjs",
     "test:architecture": "node scripts/verify-architecture.mjs",
@@ -16,6 +16,7 @@
     "test:ecology": "node scripts/verify-ecology.mjs",
     "test:terrain-surface": "node scripts/verify-terrain-surface.mjs",
     "test:terrain-lattice": "node scripts/verify-terrain-lattice.mjs",
+    "test:horizon": "node scripts/verify-horizon.mjs",
     "test:hydrology": "node scripts/verify-hydrology.mjs",
     "test:water-flow": "node scripts/verify-water-flow.mjs",
     "test:spawn": "node scripts/verify-spawn.mjs",

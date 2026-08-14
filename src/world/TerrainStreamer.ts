@@ -7,6 +7,7 @@ import type { TerrainField } from "./TerrainField";
 import { TerrainMaterialController } from "./TerrainMaterialController";
 import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfaceField } from "./terrain/TerrainSurfaceField";
+import { WorldHorizonShell } from "./horizon/WorldHorizonShell";
 
 interface ChunkRequest {
   key: string;
@@ -36,6 +37,13 @@ export class TerrainStreamer {
   private readonly waterMaterialController?: WaterMaterialController;
   private readonly surfaceField: TerrainSurfaceField;
   private readonly waterInteractionField: WaterInteractionField;
+  /**
+   * The permanent coarse shell this ring overlays. It belongs here rather than
+   * beside the streamer because it is the same residency question answered at
+   * the other end of the scale: the ring decides what detail is present near
+   * the focus, and the shell guarantees something is present everywhere else.
+   */
+  private readonly horizon?: WorldHorizonShell;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private activeBuild?: TerrainChunkBuilder;
@@ -55,6 +63,9 @@ export class TerrainStreamer {
       config.waterEnabled >= 1 ? new WaterMaterialController(config) : undefined;
     this.surfaceField = new TerrainSurfaceField(config);
     this.waterInteractionField = new WaterInteractionField(config);
+    this.horizon = config.horizonEnabled >= 1
+      ? new WorldHorizonShell(scene, field, config, compact)
+      : undefined;
   }
 
   update(
@@ -74,6 +85,10 @@ export class TerrainStreamer {
     }
 
     this.processBuildQueue(buildDeadline);
+    // After the ring, never before it: the shell is a one-time build with
+    // nothing underneath it, so ground the player is standing on keeps first
+    // claim on the frame and the shell fills in from whatever is left.
+    this.horizon?.update(position, buildDeadline);
   }
 
   getDiagnostics(): TerrainDiagnostics {
@@ -104,6 +119,7 @@ export class TerrainStreamer {
     this.desired.clear();
     this.materialController.dispose();
     this.waterMaterialController?.dispose();
+    this.horizon?.dispose();
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {

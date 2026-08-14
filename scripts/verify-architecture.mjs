@@ -20,6 +20,9 @@ const WATER_MATERIAL_MAX_LINES = 180;
 // only the surface blend this file exists to own.
 const WATER_SHADER_MAX_LINES = 275;
 const STONE_GEOMETRY_MAX_LINES = 340;
+const HORIZON_SHELL_MAX_LINES = 340;
+const HORIZON_GRID_MAX_LINES = 120;
+const HORIZON_MATERIAL_MAX_LINES = 100;
 const EXTRACTED_MODULE_MAX_LINES = 260;
 const CONFIG_LOADER_MAX_LINES = 220;
 const CONFIG_READER_MAX_LINES = 120;
@@ -64,6 +67,9 @@ const waterBedShader = read("src/world/hydrology/WaterBedShader.ts");
 const waterBedTexture = read("src/world/hydrology/WaterBedTexture.ts");
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const waterShader = read("src/world/hydrology/WaterShader.ts");
+const horizonShell = read("src/world/horizon/WorldHorizonShell.ts");
+const horizonGrid = read("src/world/horizon/WorldHorizonGrid.ts");
+const horizonMaterial = read("src/world/horizon/WorldHorizonMaterial.ts");
 const stoneSystem = read("src/world/stones/WorldStoneSystem.ts");
 const stoneClearance = read("src/world/stones/StoneClearance.ts");
 const stoneGeometry = read("src/world/stones/StoneGeometry.ts");
@@ -284,6 +290,37 @@ assert(
     waterShader.includes("gl_FrontFacing") &&
     !waterMaterial.includes("waterRiverPhaseA"),
   "Physical water lifecycle, flow helpers, and GLSL implementation must stay split and disposal-safe.",
+);
+
+assert(
+  lineCount(horizonShell) <= HORIZON_SHELL_MAX_LINES &&
+    lineCount(horizonGrid) <= HORIZON_GRID_MAX_LINES &&
+    lineCount(horizonMaterial) <= HORIZON_MATERIAL_MAX_LINES &&
+    horizonShell.includes("private disposed = false") &&
+    horizonShell.includes("createWorldHorizonAxis") &&
+    horizonShell.includes("WorldHorizonMaterial") &&
+    !horizonShell.includes("onBeforeCompile") &&
+    !horizonShell.includes("MeshLambertMaterial") &&
+    !horizonGrid.includes("THREE."),
+  "The horizon shell must own its build alone, delegating grid mathematics and material construction.",
+);
+assert(
+  horizonShell.includes("catch (error)") && horizonShell.includes("this.dispose()"),
+  "A horizon build fault must contain itself rather than take terrain streaming down with it.",
+);
+assert(
+  horizonMaterial.includes("uHorizonSinkFocus") &&
+    horizonMaterial.includes("max(horizonToFocus.x, horizonToFocus.y)"),
+  "The shell's sink must follow the streamed ring focus and its square boundary in Chebyshev distance.",
+);
+assert(
+  terrainStreamer.includes("config.horizonEnabled >= 1") &&
+    terrainStreamer.includes("this.horizon?.update(position, buildDeadline)") &&
+    terrainStreamer.includes("this.horizon?.dispose()") &&
+    terrainStreamer.indexOf("this.processBuildQueue(buildDeadline)") <
+      terrainStreamer.indexOf("this.horizon?.update") &&
+    !worldApp.includes("WorldHorizonShell"),
+  "Terrain residency must own the horizon shell, build it only after the ring, and keep it out of the composition root.",
 );
 
 assert(

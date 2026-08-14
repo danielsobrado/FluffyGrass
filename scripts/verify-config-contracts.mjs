@@ -167,6 +167,15 @@ try {
       () =>
         load(
           worldLoader,
+          worldSource.replace("horizonApronRings: 16", "horizonApronRings: 0"),
+        ),
+      /horizon apron must extend at least 448 metres beyond the world edge/i,
+      "An enabled horizon shell must cover the complete streamed ring.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
           worldSource.replace("terrainNearResolution: 25", "terrainNearResolution: 257"),
         ),
       /terrainNearResolution must be at most 129/,

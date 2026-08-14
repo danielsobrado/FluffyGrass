@@ -11,6 +11,15 @@ const MAX_TERRAIN_STREAM_RADIUS = 16;
 const MAX_TERRAIN_NEAR_RESOLUTION = 129;
 const MAX_TERRAIN_MID_RESOLUTION = 65;
 const MAX_TERRAIN_FAR_RESOLUTION = 33;
+/**
+ * Shell bounds. The spacing ceiling keeps the shell from coarsening past the
+ * point where its silhouette stops resembling the terrain it stands in for,
+ * and the ring/growth ceilings bound the apron: sixteen rings at 1.5 already
+ * reach far beyond any fog this world uses.
+ */
+const MAX_HORIZON_SPACING = 64;
+const MAX_HORIZON_APRON_RINGS = 32;
+const MAX_HORIZON_APRON_GROWTH = 1.5;
 
 export type WorldConfigSchema = {
   [Key in keyof WorldConfig]: Readonly<ConfigNumberRule>;
@@ -48,6 +57,10 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
     integer: true,
   },
   terrainChunksPerFrame: POSITIVE_INTEGER_RULE,
+  horizonEnabled: { minimum: 0, maximum: 1, integer: true },
+  horizonSpacing: { minimum: 4, maximum: MAX_HORIZON_SPACING },
+  horizonApronRings: { minimum: 0, maximum: MAX_HORIZON_APRON_RINGS, integer: true },
+  horizonApronGrowth: { minimum: 1, maximum: MAX_HORIZON_APRON_GROWTH },
   grassChunksPerFrame: POSITIVE_INTEGER_RULE,
   grassPatchSize: POSITIVE_NUMBER_RULE,
   grassRenderBatchesPerAxis: POSITIVE_INTEGER_RULE,

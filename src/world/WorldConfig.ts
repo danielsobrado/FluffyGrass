@@ -10,6 +10,14 @@ export interface WorldConfig {
   terrainMidResolution: number;
   terrainFarResolution: number;
   terrainChunksPerFrame: number;
+  /** 0 is the rollback flag for the permanent horizon shell. */
+  horizonEnabled: number;
+  /** Shell vertex spacing across the world proper, in metres. */
+  horizonSpacing: number;
+  /** Grid rings carrying the shell past the world edge into haze. */
+  horizonApronRings: number;
+  /** Per-ring growth of the apron's spacing. */
+  horizonApronGrowth: number;
   grassChunksPerFrame: number;
   grassPatchSize: number;
   grassRenderBatchesPerAxis: number;
