@@ -1,6 +1,7 @@
 import type { GrassConfig } from "../GrassConfig";
 import {
   GRASS_IMPOSTOR_MAX_ATLAS_SIZE,
+  GRASS_IMPOSTOR_MIN_PADDING,
   GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS,
 } from "../GrassImpostorLimits";
 
@@ -96,6 +97,11 @@ export function validateGrassConfig(config: GrassConfig): void {
   }
   if (config.impostor.frameResolution < 32) {
     throw new Error("impostorFrameResolution must be at least 32.");
+  }
+  if (config.impostor.padding < GRASS_IMPOSTOR_MIN_PADDING) {
+    throw new Error(
+      `impostorPadding must be at least ${GRASS_IMPOSTOR_MIN_PADDING} pixels for mip-safe atlas isolation.`,
+    );
   }
 
   const atlasSize =
