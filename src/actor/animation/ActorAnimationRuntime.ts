@@ -29,6 +29,11 @@ export class ActorAnimationRuntime {
     private readonly profile: ActorAnimationProfile,
     private readonly rigInstance: ActorRigInstance,
   ) {
+    if (rigInstance.definition !== profile.definition) {
+      throw new Error(
+        `Actor rig "${profile.definition.name}" runtime received an instance from a different definition.`,
+      );
+    }
     validateStateCount(profile.locomotion.stateCount, profile.definition.name);
     this.pose = new ActorPose(profile.definition);
     this.locomotionPose = new ActorPose(profile.definition);
