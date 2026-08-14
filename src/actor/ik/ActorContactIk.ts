@@ -40,6 +40,7 @@ export interface ActorContactIkOptions {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const IDENTITY = new THREE.Quaternion();
 
 /**
  * Profile-driven ground contact for any number of limbs.
@@ -58,23 +59,25 @@ export class ActorContactIk implements ActorPoseStage {
   private readonly sample: ActorContactSample = createActorContactSample();
   private readonly worldPoint = new THREE.Vector3();
   private readonly modelPoint = new THREE.Vector3();
+  private readonly targetPoint = new THREE.Vector3();
   private readonly groundNormal = new THREE.Vector3();
   private readonly toWorld = new THREE.Matrix4();
   private readonly toModel = new THREE.Matrix4();
+  private readonly normalToModel = new THREE.Matrix3();
   private readonly alignRotation = new THREE.Quaternion();
   private readonly parentRotation = new THREE.Quaternion();
   private readonly localRotation = new THREE.Quaternion();
   private readonly currentLocal = new THREE.Quaternion();
-  /** Per-effector contact height in actor model space. */
-  private readonly contactTargetY: Float32Array;
-  /** Per-effector ground normal, 3 elements each, sampled in the same pass. */
+  /** Per-effector contact target in actor model space, 3 elements each. */
+  private readonly contactTargets: Float32Array;
+  /** Per-effector ground normal in actor model space, 3 elements each. */
   private readonly contactNormals: Float32Array;
   private supportOffset = 0;
 
   constructor(private readonly options: ActorContactIkOptions) {
     this.space = new ActorPoseSpace(options.definition);
     this.solver = new TwoBoneIk(options.definition);
-    this.contactTargetY = new Float32Array(options.effectors.length);
+    this.contactTargets = new Float32Array(options.effectors.length * 3);
     this.contactNormals = new Float32Array(options.effectors.length * 3);
   }
 
@@ -88,13 +91,22 @@ export class ActorContactIk implements ActorPoseStage {
     if (!input.grounded) {
       // Airborne actors have no ground to solve against. Release the support
       // correction smoothly so landing does not snap the body.
-      this.supportOffset = approach(this.supportOffset, 0, deltaSeconds, this.options.smoothingRate);
+      this.supportOffset = approach(
+        this.supportOffset,
+        0,
+        deltaSeconds,
+        this.options.smoothingRate,
+      );
       this.applySupport(pose);
       return;
     }
 
     this.toWorld.copy(this.options.placement.matrixWorld);
     this.toModel.copy(this.toWorld).invert();
+    // World normals transform back to model space by the transpose of the
+    // model-to-world linear transform. This also handles the player's slope
+    // placement and non-uniform scale correctly.
+    this.normalToModel.setFromMatrix4(this.toWorld).transpose();
     this.space.update(pose);
 
     // 1. What the ground wants from each contact, in model space.
@@ -109,16 +121,29 @@ export class ActorContactIk implements ActorPoseStage {
         this.worldPoint.z,
         this.sample,
       );
-      // Desired world height of the end bone, sole clearance included.
+
+      // Project the animated contact vertically onto the sampled world surface,
+      // then keep the complete transformed model-space point. Under a tilted
+      // placement, a world-vertical correction has model-space X/Z components;
+      // discarding them moves the solved contact away from the sampled point.
       this.worldPoint.y = this.sample.height;
       this.modelPoint.copy(this.worldPoint).applyMatrix4(this.toModel);
-      const desiredY = this.modelPoint.y + effector.soleOffset;
+      this.modelPoint.y += effector.soleOffset;
+      this.modelPoint.toArray(this.contactTargets, index * 3);
+
       const animatedY = this.space.positions[endBone * 3 + 1];
-      const lift = desiredY - animatedY;
-      this.contactTargetY[index] = desiredY;
-      this.contactNormals[index * 3] = this.sample.normalX;
-      this.contactNormals[index * 3 + 1] = this.sample.normalY;
-      this.contactNormals[index * 3 + 2] = this.sample.normalZ;
+      const lift = this.modelPoint.y - animatedY;
+
+      this.groundNormal
+        .set(this.sample.normalX, this.sample.normalY, this.sample.normalZ)
+        .applyMatrix3(this.normalToModel);
+      if (this.groundNormal.lengthSq() < 1e-8) {
+        this.groundNormal.copy(UP);
+      } else {
+        this.groundNormal.normalize();
+      }
+      this.groundNormal.toArray(this.contactNormals, index * 3);
+
       // Swinging effectors are not support constraints. Fade their influence in
       // with the same plant weight used by the chain solve to avoid body snaps.
       const supportLift = lift * gait.getPlantWeight(effector.gaitEffector);
@@ -148,8 +173,8 @@ export class ActorContactIk implements ActorPoseStage {
       }
       const endBone = effector.chain.end;
       this.modelPoint.fromArray(this.space.positions, endBone * 3);
-      this.modelPoint.y +=
-        (this.contactTargetY[index] - this.modelPoint.y) * plant;
+      this.targetPoint.fromArray(this.contactTargets, index * 3);
+      this.modelPoint.lerp(this.targetPoint, plant);
       this.solver.solve(effector.chain, this.modelPoint, this.space, pose);
       if (effector.alignBone >= 0) {
         this.space.update(pose);
@@ -160,11 +185,12 @@ export class ActorContactIk implements ActorPoseStage {
 
   reset(): void {
     this.supportOffset = 0;
-    this.contactTargetY.fill(0);
+    this.contactTargets.fill(0);
+    this.contactNormals.fill(0);
   }
 
   /**
-   * Tilts a foot or paw toward the surface it is standing on.
+   * Tilts a terminal toward the surface it is standing on.
    *
    * The alignment is scaled by the plant weight and clamped, so a limb only
    * follows terrain while it is actually carrying weight.
@@ -214,8 +240,6 @@ export class ActorContactIk implements ActorPoseStage {
     pose.translations[base + 1] += this.supportOffset;
   }
 }
-
-const IDENTITY = new THREE.Quaternion();
 
 function approach(
   current: number,
