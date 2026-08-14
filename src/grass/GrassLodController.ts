@@ -138,13 +138,14 @@ export class GrassLodController {
         continue;
       }
       group.inFrustum = this.frustum.intersectsBox(group.bounds);
+      if (!group.inFrustum) {
+        group.mesh.visible = false;
+        continue;
+      }
       const farthestDistance =
         this.cameraPosition.distanceTo(group.boundingSphere.center) +
         group.boundingSphere.radius;
-      group.mesh.visible =
-        group.inFrustum &&
-        farthestDistance > farEntryStart &&
-        group.distance < cullDistance;
+      group.mesh.visible = farthestDistance > farEntryStart;
       if (group.mesh.visible) {
         this.submittedFarInstances += group.mesh.count;
       }
@@ -173,6 +174,17 @@ export class GrassLodController {
       farEntry,
     );
 
+    if (!patch.inFrustum) {
+      if (patch.nearMesh) {
+        patch.nearMesh.visible = false;
+      }
+      patch.midMesh.visible = false;
+      if (patch.farMesh) {
+        patch.farMesh.visible = false;
+      }
+      return;
+    }
+
     const farthestDistance =
       this.cameraPosition.distanceTo(patch.boundingSphere.center) +
       patch.boundingSphere.radius;
@@ -190,20 +202,16 @@ export class GrassLodController {
     // The streamed world path builds no near clump mesh at all; single-blade
     // tiles cover the whole near band.
     if (patch.nearMesh) {
-      patch.nearMesh.visible = patch.inFrustum && patch.distance < nearFadeEnd;
+      patch.nearMesh.visible = patch.distance < nearFadeEnd;
     }
     patch.midMesh.visible =
-      patch.inFrustum &&
-      farthestDistance > nearFadeStart &&
-      patch.distance < farEntryEnd;
+      farthestDistance > nearFadeStart && patch.distance < farEntryEnd;
     if (patch.midMesh.visible) {
       this.trimMidDraw(patch, farthestDistance);
     }
     if (patch.farMesh) {
       patch.farMesh.visible =
-        patch.inFrustum &&
-        farthestDistance > farEntryStart &&
-        patch.distance < terrainFadeEnd;
+        farthestDistance > farEntryStart && patch.distance < terrainFadeEnd;
     }
     // Coverage itself is resolved per instance from world-space distance inside
     // both materials. The patch-level values survive only as diagnostics.
@@ -264,10 +272,13 @@ export class GrassLodController {
     patch.lod = this.resolveLevel(patch.distance, patch.lod, false);
     patch.nearCoverage = this.resolveNearCoverage(patch.distance);
     patch.midDistanceFade = this.resolveLegacyMidDistanceFade(patch.distance);
-    nearMesh.visible =
-      patch.inFrustum && patch.nearCoverage > VISIBILITY_EPSILON;
+    if (!patch.inFrustum) {
+      nearMesh.visible = false;
+      patch.midMesh.visible = false;
+      return;
+    }
+    nearMesh.visible = patch.nearCoverage > VISIBILITY_EPSILON;
     patch.midMesh.visible =
-      patch.inFrustum &&
       patch.nearCoverage < 1 - VISIBILITY_EPSILON &&
       patch.midDistanceFade > VISIBILITY_EPSILON;
   }
