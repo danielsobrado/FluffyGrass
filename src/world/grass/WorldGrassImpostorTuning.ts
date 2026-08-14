@@ -4,10 +4,18 @@ import {
 } from "../../grass/GrassImpostorLimits";
 
 export const IMPOSTOR_ALPHA_CUTOFF = 0.16;
-// Distant mip levels average blade tips into low-alpha islands. Raising the
-// cutoff to 0.5 at the far limit removes those sub-pixel fragments while the
-// near side of the impostor band keeps the detailed 0.16 threshold.
-export const IMPOSTOR_FAR_ALPHA_CUTOFF_SCALE = 3.125;
+/**
+ * Tiny cards need a conventional hard alpha test instead of stochastic edge
+ * coverage. A 0.5 cut rejects mip-averaged blade fragments before they turn
+ * into isolated pixels against the sky.
+ */
+export const IMPOSTOR_MINIFIED_ALPHA_CUTOFF = 0.5;
+/** Atlas texels covered by one screen pixel when alpha hardening begins. */
+export const IMPOSTOR_MINIFICATION_START_TEXELS_PER_PIXEL = 1.5;
+/** Atlas texels covered by one screen pixel when stochastic pixel cuts stop. */
+export const IMPOSTOR_MINIFICATION_FULL_TEXELS_PER_PIXEL = 4;
+/** View-selection dither resolution relative to the configured atlas frame. */
+export const IMPOSTOR_VIEW_DITHER_GRID_SCALE = 0.75;
 export const IMPOSTOR_ALPHA_MIN_WIDTH = 1 / 255;
 export const IMPOSTOR_ALPHA_DITHER_SEED = 0.61;
 export const IMPOSTOR_SUBPATCHES_PER_AXIS = GRASS_IMPOSTOR_SUBPATCHES_PER_AXIS;
