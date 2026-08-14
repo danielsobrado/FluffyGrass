@@ -65,8 +65,8 @@ export class ActorContactIk implements ActorPoseStage {
   private readonly parentRotation = new THREE.Quaternion();
   private readonly localRotation = new THREE.Quaternion();
   private readonly currentLocal = new THREE.Quaternion();
-  /** Per-effector vertical correction the ground asks for, in model units. */
-  private readonly contactLift: Float32Array;
+  /** Per-effector contact height in actor model space. */
+  private readonly contactTargetY: Float32Array;
   /** Per-effector ground normal, 3 elements each, sampled in the same pass. */
   private readonly contactNormals: Float32Array;
   private supportOffset = 0;
@@ -74,7 +74,7 @@ export class ActorContactIk implements ActorPoseStage {
   constructor(private readonly options: ActorContactIkOptions) {
     this.space = new ActorPoseSpace(options.definition);
     this.solver = new TwoBoneIk(options.definition);
-    this.contactLift = new Float32Array(options.effectors.length);
+    this.contactTargetY = new Float32Array(options.effectors.length);
     this.contactNormals = new Float32Array(options.effectors.length * 3);
   }
 
@@ -115,7 +115,7 @@ export class ActorContactIk implements ActorPoseStage {
       const desiredY = this.modelPoint.y + effector.soleOffset;
       const animatedY = this.space.positions[endBone * 3 + 1];
       const lift = desiredY - animatedY;
-      this.contactLift[index] = lift;
+      this.contactTargetY[index] = desiredY;
       this.contactNormals[index * 3] = this.sample.normalX;
       this.contactNormals[index * 3 + 1] = this.sample.normalY;
       this.contactNormals[index * 3 + 2] = this.sample.normalZ;
@@ -145,9 +145,11 @@ export class ActorContactIk implements ActorPoseStage {
       }
       const endBone = effector.chain.end;
       this.modelPoint.fromArray(this.space.positions, endBone * 3);
-      this.modelPoint.y += this.contactLift[index] * plant;
+      this.modelPoint.y +=
+        (this.contactTargetY[index] - this.modelPoint.y) * plant;
       this.solver.solve(effector.chain, this.modelPoint, this.space, pose);
       if (effector.alignBone >= 0) {
+        this.space.update(pose);
         this.alignToGround(effector, index, plant, pose);
       }
     }
@@ -155,7 +157,7 @@ export class ActorContactIk implements ActorPoseStage {
 
   reset(): void {
     this.supportOffset = 0;
-    this.contactLift.fill(0);
+    this.contactTargetY.fill(0);
   }
 
   /**

@@ -84,7 +84,6 @@ export class TwoBoneIk {
         chain.minBendRadians,
         chain.maxBendRadians,
       );
-      // Re-derive the root angle for the distance the clamped bend implies.
       const clampedDistance = Math.sqrt(
         Math.max(
           upper * upper +
@@ -93,10 +92,13 @@ export class TwoBoneIk {
           1e-8,
         ),
       );
+      this.toTarget.multiplyScalar(clampedDistance / distance);
+      distance = clampedDistance;
+      this.targetPosition.copy(this.rootPosition).add(this.toTarget);
       rootAngle = Math.acos(
         clampUnit(
-          (upper * upper + clampedDistance * clampedDistance - lower * lower) /
-            (2 * upper * clampedDistance),
+          (upper * upper + distance * distance - lower * lower) /
+            (2 * upper * distance),
         ),
       );
     }
