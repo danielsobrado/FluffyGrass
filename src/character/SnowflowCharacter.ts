@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CapeMotion } from "./CapeMotion";
+import { CapeMotion, type CapeMotionInput } from "./CapeMotion";
 import { CharacterSpring } from "./CharacterSpring";
 import { addDrowCharacterFeatures } from "./DrowCharacterFeatures";
 import {
@@ -64,6 +64,14 @@ export class SnowflowCharacter {
   private readonly hairRightX = new CharacterSpring();
   private readonly hairLeftZ = new CharacterSpring();
   private readonly hairRightZ = new CharacterSpring();
+  private readonly capeInput: CapeMotionInput = {
+    forwardVelocity: 0,
+    sideVelocity: 0,
+    verticalVelocity: 0,
+    runSpeed: 1,
+    landed: false,
+    landingImpact: 0,
+  };
   private state: CharacterMotionState = "idle";
   private stateTime = 0;
   private animationTime = 0;
@@ -328,14 +336,13 @@ export class SnowflowCharacter {
     const sideVelocity = pose.velocity.x * cosine - pose.velocity.z * sine;
     const vertical01 = THREE.MathUtils.clamp(pose.verticalVelocity / 9, -1, 1);
 
-    const capePose = this.capeMotion.update(deltaSeconds, {
-      forwardVelocity,
-      sideVelocity,
-      verticalVelocity: pose.verticalVelocity,
-      runSpeed: pose.runSpeed,
-      landed: pose.landed,
-      landingImpact: pose.landingImpact,
-    });
+    this.capeInput.forwardVelocity = forwardVelocity;
+    this.capeInput.sideVelocity = sideVelocity;
+    this.capeInput.verticalVelocity = pose.verticalVelocity;
+    this.capeInput.runSpeed = pose.runSpeed;
+    this.capeInput.landed = pose.landed;
+    this.capeInput.landingImpact = pose.landingImpact;
+    const capePose = this.capeMotion.update(deltaSeconds, this.capeInput);
 
     if (pose.landed) {
       const impulse = pose.landingImpact * 1.8;
