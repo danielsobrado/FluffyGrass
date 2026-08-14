@@ -1,5 +1,8 @@
 import * as THREE from "three";
-import { SnowflowCharacter } from "../character/SnowflowCharacter";
+import {
+  SnowflowCharacter,
+  type SnowflowCharacterPose,
+} from "../character/SnowflowCharacter";
 import {
   grassInteractionField,
   type GrassInteractionPose,
@@ -41,6 +44,21 @@ export class ThirdPersonController implements WorldController {
     facing: 0,
     distanceTravelled: 0,
     grounded: true,
+  };
+  private readonly characterPose: SnowflowCharacterPose = {
+    position: this.position,
+    velocity: this.animationVelocity,
+    groundNormal: this.groundNormal,
+    facing: 0,
+    speed: 0,
+    runSpeed: 1,
+    acceleration: 0,
+    distanceTravelled: 0,
+    grounded: true,
+    verticalVelocity: 0,
+    jumpStarted: false,
+    landed: false,
+    landingImpact: 0,
   };
   private facing = 0;
   private spawnFacing = 0;
@@ -133,21 +151,7 @@ export class ThirdPersonController implements WorldController {
       this.verticalVelocity,
       this.velocity.z,
     );
-    this.character.update(delta, {
-      position: this.position,
-      velocity: this.animationVelocity,
-      groundNormal: this.groundNormal,
-      facing: this.facing,
-      speed: this.speed,
-      runSpeed: this.config.characterRunSpeed,
-      acceleration: this.acceleration,
-      distanceTravelled: this.distanceTravelled,
-      grounded: this.grounded,
-      verticalVelocity: this.verticalVelocity,
-      jumpStarted: this.jumpStarted,
-      landed: this.landed,
-      landingImpact: this.landingImpact,
-    });
+    this.character.update(delta, this.syncCharacterPose());
   }
 
   dispose(): void {
@@ -232,21 +236,21 @@ export class ThirdPersonController implements WorldController {
     );
     grassInteractionField.reset(this.position);
     this.updateCamera(1, true);
-    this.character.reset({
-      position: this.position,
-      velocity: this.animationVelocity,
-      groundNormal: this.groundNormal,
-      facing: this.facing,
-      speed: 0,
-      runSpeed: this.config.characterRunSpeed,
-      acceleration: 0,
-      distanceTravelled: 0,
-      grounded: true,
-      verticalVelocity: 0,
-      jumpStarted: false,
-      landed: false,
-      landingImpact: 0,
-    });
+    this.character.reset(this.syncCharacterPose());
+  }
+
+  private syncCharacterPose(): SnowflowCharacterPose {
+    this.characterPose.facing = this.facing;
+    this.characterPose.speed = this.speed;
+    this.characterPose.runSpeed = this.config.characterRunSpeed;
+    this.characterPose.acceleration = this.acceleration;
+    this.characterPose.distanceTravelled = this.distanceTravelled;
+    this.characterPose.grounded = this.grounded;
+    this.characterPose.verticalVelocity = this.verticalVelocity;
+    this.characterPose.jumpStarted = this.jumpStarted;
+    this.characterPose.landed = this.landed;
+    this.characterPose.landingImpact = this.landingImpact;
+    return this.characterPose;
   }
 
   private updateCameraInput(): void {
