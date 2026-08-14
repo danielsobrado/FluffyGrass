@@ -274,7 +274,7 @@ export class WorldApp {
         const atlas = this.grass.getDetailFoliageAtlas();
         if (atlas) {
           const { appendDetailFoliageAtlasDebugCanvas } = await import(
-            "../world/grass/WorldDetailFoliageAtlasFactory"
+            "../world/grass/WorldDetailFoliageAtlasDebug"
           );
           if (!this.disposed) {
             appendDetailFoliageAtlasDebugCanvas(atlas);

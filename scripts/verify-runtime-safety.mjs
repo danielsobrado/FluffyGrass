@@ -69,7 +69,7 @@ assert(
   world.includes("private disposed = false") &&
     world.includes("Number.isFinite(rawDeltaSeconds)") &&
     world.includes("Optional stats panel unavailable") &&
-    /await import\(\s*"\.\.\/world\/grass\/WorldDetailFoliageAtlasFactory"\s*\)/.test(world) &&
+    /await import\(\s*"\.\.\/world\/grass\/WorldDetailFoliageAtlasDebug"\s*\)/.test(world) &&
     !world.includes('import { appendDetailFoliageAtlasDebugCanvas }'),
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
 );

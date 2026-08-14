@@ -676,23 +676,3 @@ export class WorldDetailFoliageAtlasFactory {
     }
   }
 }
-
-/**
- * `?accentAtlas=1` debug route: bakes the atlas and pins the canvas to the page
- * so all sixteen cells can be eyeballed, mirroring `?grassImpostorBake=1`. The
- * checkerboard behind it is what makes premultiplied alpha edges visible.
- */
-export function appendDetailFoliageAtlasDebugCanvas(
-  atlas: WorldDetailFoliageAtlas,
-): void {
-  const canvas = atlas.canvas;
-  canvas.style.position = "fixed";
-  canvas.style.left = "8px";
-  canvas.style.top = "8px";
-  canvas.style.zIndex = "20";
-  canvas.style.width = `${Math.min(atlas.width, 1024)}px`;
-  canvas.style.imageRendering = "pixelated";
-  canvas.style.background =
-    "repeating-conic-gradient(#444 0% 25%, #666 0% 50%) 50% / 16px 16px";
-  document.body.appendChild(canvas);
-}
