@@ -160,7 +160,7 @@ assert(
     material.includes("if (atlasColor.a <= cutoff)") &&
     material.includes("float alphaThreshold = mix(alphaDither, 0.5, minification)") &&
     material.includes("if (alphaThreshold >= alphaCoverage)") &&
-    !material.includes("fwidth(atlasColor.a)") &&
+    !material.includes("float alphaWidth =") &&
     !material.includes("if (alphaDither > alphaCoverage)"),
   "Atlas alpha must be remapped directly as coverage instead of differentiating stochastic view samples.",
 );
