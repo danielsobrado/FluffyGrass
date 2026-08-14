@@ -109,10 +109,18 @@ export class TwoBoneIk {
       );
     }
 
-    // Bend plane: the pole, made perpendicular to the root-to-target line.
+    // The pole is authored in the chain root's parent space. Rotate it into the
+    // same model space as the target before deriving the bend plane.
+    const rootParent = this.definition.parents[chain.root];
+    if (rootParent < 0) {
+      this.parentRotation.identity();
+    } else {
+      this.parentRotation.fromArray(space.rotations, rootParent * 4);
+    }
     this.toTarget.normalize();
     this.pole
       .set(chain.poleX, chain.poleY, chain.poleZ)
+      .applyQuaternion(this.parentRotation)
       .normalize();
     this.bendAxis.crossVectors(this.toTarget, this.pole);
     if (this.bendAxis.lengthSq() < 1e-8) {
