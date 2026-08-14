@@ -53,6 +53,7 @@ export class ActorAnimationRuntime {
       ? deltaSeconds
       : 0;
     this.stateTime += delta;
+    this.profile.locomotion.advanceTime(delta);
 
     // 1-3. Locomotion state selection, base pose, and transition blending.
     const nextState = this.profile.locomotion.selectState(
