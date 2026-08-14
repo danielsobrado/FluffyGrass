@@ -37,6 +37,7 @@ const character = read("src/character/SnowflowCharacter.ts");
 const cloth = read("src/character/secondary/SnowflowClothMotion.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
+const mobileJoystick = read("src/controls/MobileJoystick.ts");
 const spring = read("src/character/CharacterSpring.ts");
 
 const minimumBend = readConstant(tuning, "CAPE_MIN_FORWARD_BEND");
@@ -120,14 +121,18 @@ assert(
   "The reused animation pose must have its one-frame jump and landing impulses cleared before it is handed to a character reset.",
 );
 assert(
-  input.includes('direction: "north-west"') &&
-    input.includes('direction: "north-east"') &&
-    input.includes('direction: "south-west"') &&
-    input.includes('direction: "south-east"') &&
-    input.includes("this.mobileButtonMovement.normalize()") &&
-    input.includes("button.setPointerCapture(event.pointerId)") &&
-    input.includes('"lostpointercapture"'),
-  "Mobile movement must expose all diagonal directions, normalize them, and capture the active pointer until release.",
+  input.includes('from "./MobileJoystick"') &&
+    input.includes("new MobileJoystick") &&
+    input.includes("this.profile.compact") &&
+    !input.includes("MOBILE_DIRECTIONS") &&
+    mobileJoystick.includes("JOYSTICK_DEAD_ZONE") &&
+    mobileJoystick.includes("Math.hypot(deltaX, deltaY)") &&
+    mobileJoystick.includes("setPointerCapture(event.pointerId)") &&
+    mobileJoystick.includes('"lostpointercapture"') &&
+    mobileJoystick.includes(
+      "this.movement.set(directionX * magnitude, -directionY * magnitude)",
+    ),
+  "Compact movement must use one captured radial analogue joystick with a dead zone rather than discrete direction buttons.",
 );
 assert(
   input.includes("const deltaPixels = normalizeWheelDeltaPixels(event)") &&
@@ -140,7 +145,7 @@ verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSi
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Spring recovery, explicit character reset, mobile input safety, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Spring recovery, explicit character reset, analogue mobile input, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
 );
 
 function verifyBounds(
