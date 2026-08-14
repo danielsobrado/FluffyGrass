@@ -75,7 +75,8 @@ export interface ActorJointLimitRequest {
   readonly maxZ?: number;
 }
 
-const UNLIMITED = Math.PI * 2;
+const UNLIMITED_JOINT_ROTATION = Math.PI * 2;
+const MAX_CHAIN_BEND = Math.PI;
 
 /**
  * Authoring surface for immutable rig definitions.
@@ -163,7 +164,7 @@ export class ActorRigBuilder {
       poleY: request.poleY ?? 0,
       poleZ: request.poleZ ?? 1,
       minBendRadians: request.minBendRadians ?? 0,
-      maxBendRadians: request.maxBendRadians ?? UNLIMITED,
+      maxBendRadians: request.maxBendRadians ?? MAX_CHAIN_BEND,
     });
   }
 
@@ -205,12 +206,12 @@ export class ActorRigBuilder {
   addJointLimit(request: ActorJointLimitRequest): void {
     this.jointLimits.push({
       bone: request.bone,
-      minX: request.minX ?? -UNLIMITED,
-      maxX: request.maxX ?? UNLIMITED,
-      minY: request.minY ?? -UNLIMITED,
-      maxY: request.maxY ?? UNLIMITED,
-      minZ: request.minZ ?? -UNLIMITED,
-      maxZ: request.maxZ ?? UNLIMITED,
+      minX: request.minX ?? -UNLIMITED_JOINT_ROTATION,
+      maxX: request.maxX ?? UNLIMITED_JOINT_ROTATION,
+      minY: request.minY ?? -UNLIMITED_JOINT_ROTATION,
+      maxY: request.maxY ?? UNLIMITED_JOINT_ROTATION,
+      minZ: request.minZ ?? -UNLIMITED_JOINT_ROTATION,
+      maxZ: request.maxZ ?? UNLIMITED_JOINT_ROTATION,
     });
   }
 
