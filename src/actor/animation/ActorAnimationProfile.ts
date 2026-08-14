@@ -16,6 +16,8 @@ import type { ActorPose } from "./ActorPose";
 export interface ActorLocomotionLayer {
   /** Number of locomotion states this layer can be in. */
   readonly stateCount: number;
+  /** Advances retained locomotion clocks once for this runtime frame. */
+  advanceTime(deltaSeconds: number): void;
   /** Chooses the state for this frame, given the state it is currently in. */
   selectState(
     input: ActorAnimationInput,
