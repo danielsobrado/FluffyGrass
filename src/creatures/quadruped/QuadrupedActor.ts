@@ -147,7 +147,6 @@ export class QuadrupedActor {
     this.input.distanceTravelled = this.distanceTravelled;
 
     this.root.updateMatrixWorld(true);
-    this.locomotion.advanceTime(delta);
     this.runtime.update(delta, this.input);
   }
 
