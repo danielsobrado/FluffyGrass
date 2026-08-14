@@ -123,7 +123,6 @@ export class ScriptedHumanoidActor {
     this.previousSpeed = speed;
 
     this.root.updateMatrixWorld(true);
-    this.profile.locomotion.advanceTime(delta);
     this.runtime.update(delta, this.input);
   }
 
