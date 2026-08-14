@@ -109,10 +109,11 @@ assert(
 );
 
 assert(
-  material.includes("uFrameResolution * max(") &&
-    material.includes("fwidth(vUv.x)") &&
-    material.includes("fwidth(vUv.y)"),
-  "Impostor alpha hardening must be driven by projected atlas minification, not world distance.",
+  material.includes("vec2 frameUvDx = dFdx(vUv)") &&
+    material.includes("vec2 frameUvDy = dFdy(vUv)") &&
+    material.includes("vec2 frameUvWidth = abs(frameUvDx) + abs(frameUvDy)") &&
+    material.includes("uFrameResolution * max(frameUvWidth.x, frameUvWidth.y)"),
+  "Impostor minification must be driven by projected atlas derivatives captured before any discard.",
 );
 assert(
   material.includes("floor(vUv * uFrameResolution)") &&
@@ -121,12 +122,14 @@ assert(
 );
 assert(
   material.includes("return textureGrad(") &&
-    material.includes("dFdx(localUv) * atlasGradientScale") &&
-    material.includes("dFdy(localUv) * atlasGradientScale") &&
+    material.includes("localUvDx * atlasGradientScale") &&
+    material.includes("localUvDy * atlasGradientScale") &&
+    material.includes("sampleFrame(nearestFrame, vUv, frameUvDx, frameUvDy)") &&
+    material.includes("sampleFrame(selectedFrame, vUv, frameUvDx, frameUvDy)") &&
     material.includes("if (uBlendViews < 0.5)") &&
     material.includes("if (!fullyMinified)") &&
     !material.includes("return texture2D(uAtlas"),
-  "Stochastic frame selection must use explicit local-frame gradients so atlas-cell jumps cannot force coarse cross-frame mips.",
+  "Stochastic frame selection must use explicit pre-discard local-frame gradients so atlas-cell jumps cannot force coarse cross-frame mips.",
 );
 assert(
   material.includes("float terrainCoverage = 1.0 - smoothstep(") &&
@@ -151,14 +154,30 @@ assert(
     !material.includes("if (alphaDither > alphaCoverage)"),
   "Alpha coverage must use the equivalent cheap hard cut when fully minified and a strict zero-safe stochastic threshold before it.",
 );
-const alphaDerivativeIndex = material.indexOf("float alphaWidth = max(");
-const hardAlphaBranchIndex = material.indexOf(
-  "if (fullyMinified) {",
-  alphaDerivativeIndex,
+const fragmentStartIndex = material.indexOf("const FRAGMENT_SHADER = `");
+const frameDerivativeIndex = material.indexOf(
+  "vec2 frameUvDx = dFdx(vUv)",
+  fragmentStartIndex,
+);
+const alphaDerivativeIndex = material.indexOf(
+  "float alphaWidth = max(",
+  fragmentStartIndex,
+);
+const firstFragmentDiscardIndex = material.indexOf(
+  "discard;",
+  fragmentStartIndex,
+);
+const coverageDitherIndex = material.indexOf(
+  "float dither = fullyMinified",
+  fragmentStartIndex,
 );
 assert(
-  alphaDerivativeIndex >= 0 && hardAlphaBranchIndex > alphaDerivativeIndex,
-  "Alpha derivatives must execute before the screen-space minification branch so derivative flow stays defined.",
+  fragmentStartIndex >= 0 &&
+    frameDerivativeIndex > fragmentStartIndex &&
+    alphaDerivativeIndex > frameDerivativeIndex &&
+    firstFragmentDiscardIndex > alphaDerivativeIndex &&
+    coverageDitherIndex > firstFragmentDiscardIndex,
+  "All impostor derivatives must run in converged fragment flow before stochastic alpha or coverage discards.",
 );
 for (const varying of [
   "flat varying vec3 vLocalViewDirection;",
