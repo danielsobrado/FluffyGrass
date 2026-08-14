@@ -76,16 +76,16 @@ uniform float uNormalUp;
 uniform float uArtDensityScale;
 uniform float uCardsPerPatch;
 varying vec2 vUv;
-varying vec3 vLocalViewDirection;
-varying float vGustNoise;
+flat varying vec3 vLocalViewDirection;
+flat varying float vGustNoise;
 flat varying float vBiome;
 flat varying float vSubpatchIndex;
-varying float vInstanceSeed;
-varying float vDryness;
-varying float vRootAo;
-varying float vFarEntry;
-varying float vFieldCoverage;
-varying vec3 vGrassIrradiance;
+flat varying float vInstanceSeed;
+flat varying float vDryness;
+flat varying float vRootAo;
+flat varying float vFarEntry;
+flat varying float vFieldCoverage;
+flat varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
 #include <fog_pars_vertex>
 
@@ -302,16 +302,16 @@ uniform float uGustTipBoost;
 uniform float uAmbientBoost;
 uniform float uBacklightStrength;
 varying vec2 vUv;
-varying vec3 vLocalViewDirection;
-varying float vGustNoise;
+flat varying vec3 vLocalViewDirection;
+flat varying float vGustNoise;
 flat varying float vBiome;
 flat varying float vSubpatchIndex;
-varying float vInstanceSeed;
-varying float vDryness;
-varying float vRootAo;
-varying float vFarEntry;
-varying float vFieldCoverage;
-varying vec3 vGrassIrradiance;
+flat varying float vInstanceSeed;
+flat varying float vDryness;
+flat varying float vRootAo;
+flat varying float vFarEntry;
+flat varying float vFieldCoverage;
+flat varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
 #include <common>
 #include <fog_pars_fragment>
@@ -456,28 +456,37 @@ void main() {
     ${IMPOSTOR_MINIFIED_ALPHA_CUTOFF.toFixed(2)},
     minification
   );
-  float alphaWidth = max(
-    fwidth(atlasColor.a),
-    ${IMPOSTOR_ALPHA_MIN_WIDTH}
-  );
-  float alphaCoverage = smoothstep(
-    cutoff - alphaWidth,
-    cutoff + alphaWidth,
-    atlasColor.a
-  );
-  float alphaDither = coverageNoise(
-    floor(vUv * uFrameResolution),
-    vInstanceSeed * 211.0 +
-      vSubpatchIndex * 0.173 +
-      ${IMPOSTOR_ALPHA_DITHER_SEED.toFixed(2)}
-  );
-  // A strict >= is required: with >, a hash value of exactly zero survives an
-  // alphaCoverage of zero and paints an opaque palette pixel in transparent
-  // atlas space. Harden the stochastic threshold to a conventional 0.5 alpha
-  // test as minification rises so mip-averaged blade tips cannot become dust.
-  float alphaThreshold = mix(alphaDither, 0.5, minification);
-  if (alphaThreshold >= alphaCoverage) {
-    discard;
+  if (fullyMinified) {
+    // At minification == 1 the previous smoothstep + 0.5 threshold is exactly
+    // equivalent to this hard cut. Skip derivative and hash work in the band
+    // where those terms can no longer change the result.
+    if (atlasColor.a <= cutoff) {
+      discard;
+    }
+  } else {
+    float alphaWidth = max(
+      fwidth(atlasColor.a),
+      ${IMPOSTOR_ALPHA_MIN_WIDTH}
+    );
+    float alphaCoverage = smoothstep(
+      cutoff - alphaWidth,
+      cutoff + alphaWidth,
+      atlasColor.a
+    );
+    float alphaDither = coverageNoise(
+      floor(vUv * uFrameResolution),
+      vInstanceSeed * 211.0 +
+        vSubpatchIndex * 0.173 +
+        ${IMPOSTOR_ALPHA_DITHER_SEED.toFixed(2)}
+    );
+    // A strict >= is required: with >, a hash value of exactly zero survives an
+    // alphaCoverage of zero and paints an opaque palette pixel in transparent
+    // atlas space. Bias the stochastic threshold toward 0.5 as minification
+    // rises; the fully-minified branch above takes over at the exact hard cut.
+    float alphaThreshold = mix(alphaDither, 0.5, minification);
+    if (alphaThreshold >= alphaCoverage) {
+      discard;
+    }
   }
 
   vec3 bladeData = clamp(
@@ -561,78 +570,88 @@ export class WorldGrassImpostorMaterial {
   ) {
     this.baseWindStrength = windConfig.strength;
     this.artRootDarkening = materialConfig.rootDarkening;
-    atlas.texture.anisotropy = 4;
-    atlas.texture.needsUpdate = true;
+    let createdMaterial: THREE.ShaderMaterial | undefined;
 
-    this.uniforms = {
-      ...(THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as ShaderUniforms),
-      ...(THREE.UniformsUtils.clone(THREE.UniformsLib.lights) as ShaderUniforms),
-      uAtlas: { value: atlas.texture },
-      uViewsPerAxis: { value: atlas.viewsPerAxis },
-      uSubpatchesPerAxis: { value: atlas.subpatchesPerAxis },
-      uFrameResolution: { value: atlas.frameResolution },
-      uPadding: { value: atlas.padding },
-      uAtlasSize: { value: atlas.atlasSize },
-      uCenterHeight: { value: atlas.centerHeight },
-      uAlphaCutoff: { value: IMPOSTOR_ALPHA_CUTOFF },
-      uBlendViews: { value: blendViews ? 1 : 0 },
-      uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
-      uColorScale: { value: IMPOSTOR_COLOR_SCALE },
-      uArtDensityScale: { value: 1 },
-      uCardsPerPatch: { value: cardsPerPatch },
-      // Material-level: three cannot upload a per-mesh value for meshes that
-      // share a material, so a per-chunk seed was never reaching the GPU.
-      uDitherSeed: { value: IMPOSTOR_DITHER_SEED },
-      uNearDistance: { value: lodConfig.nearMaxDistance },
-      uMidDistance: { value: lodConfig.midMaxDistance },
-      uFarDistance: { value: lodConfig.farMaxDistance },
-      uTransitionDistance: { value: lodConfig.transitionDistance },
-      uMidImpostorUnderfill: { value: GRASS_MID_IMPOSTOR_UNDERFILL },
-      uTime: { value: 0 },
-      uWindDirection: {
-        value: new THREE.Vector2(
-          windConfig.directionX,
-          windConfig.directionZ,
-        ).normalize(),
-      },
-      uWindStrength: { value: windConfig.strength },
-      uWindNoise: { value: null as THREE.Texture | null },
-      uWindNoiseScale: { value: GRASS_WIND_NOISE_SCALE },
-      uWindNoiseSpeed: { value: GRASS_WIND_NOISE_SPEED },
-      uCardRadius: { value: atlas.cardRadius },
-      uGustTipBoost: { value: GRASS_GUST_TIP_BOOST },
-      uBiomeBase: { value: createBiomeColorRows(materialConfig.baseColor) },
-      uBiomeTip: { value: createBiomeColorRows(materialConfig.tipColor) },
-      uBiomeDry: { value: createBiomeColorRows(materialConfig.dryColor) },
-      uBiomeShade: {
-        value: createBiomeShadeRows(materialConfig.rootDarkening, 0.5),
-      },
-      uNormalUp: { value: materialConfig.normalUp },
-      uAmbientBoost: { value: materialConfig.ambientBoost },
-      uBacklightStrength: { value: materialConfig.backlightStrength },
-    };
-    this.setPaletteColors(
-      materialConfig.baseColor,
-      materialConfig.tipColor,
-      materialConfig.dryColor,
-    );
-    this.material = new THREE.ShaderMaterial({
-      uniforms: this.uniforms,
-      vertexShader: VERTEX_SHADER,
-      fragmentShader: FRAGMENT_SHADER,
-      side: THREE.DoubleSide,
-      transparent: false,
-      depthWrite: true,
-      depthTest: true,
-      fog: true,
-      lights: true,
-      toneMapped: true,
-      // The gust model is compiled in, so it is its own decision rather than a
-      // side effect of the view-blend setting: the governor turns blendViews
-      // off at the lowest tier and must not silently swap the wind with it.
-      defines: noiseWind ? { GRASS_NOISE_WIND: 1 } : {},
-    });
-    this.material.name = "world-grass-subpatch-hemi-octahedral-impostor";
+    try {
+      atlas.texture.anisotropy = 4;
+      atlas.texture.needsUpdate = true;
+
+      this.uniforms = {
+        ...(THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as ShaderUniforms),
+        ...(THREE.UniformsUtils.clone(THREE.UniformsLib.lights) as ShaderUniforms),
+        uAtlas: { value: atlas.texture },
+        uViewsPerAxis: { value: atlas.viewsPerAxis },
+        uSubpatchesPerAxis: { value: atlas.subpatchesPerAxis },
+        uFrameResolution: { value: atlas.frameResolution },
+        uPadding: { value: atlas.padding },
+        uAtlasSize: { value: atlas.atlasSize },
+        uCenterHeight: { value: atlas.centerHeight },
+        uAlphaCutoff: { value: IMPOSTOR_ALPHA_CUTOFF },
+        uBlendViews: { value: blendViews ? 1 : 0 },
+        uBaseColorBlend: { value: IMPOSTOR_BASE_COLOR_BLEND },
+        uColorScale: { value: IMPOSTOR_COLOR_SCALE },
+        uArtDensityScale: { value: 1 },
+        uCardsPerPatch: { value: cardsPerPatch },
+        // Material-level: three cannot upload a per-mesh value for meshes that
+        // share a material, so a per-chunk seed was never reaching the GPU.
+        uDitherSeed: { value: IMPOSTOR_DITHER_SEED },
+        uNearDistance: { value: lodConfig.nearMaxDistance },
+        uMidDistance: { value: lodConfig.midMaxDistance },
+        uFarDistance: { value: lodConfig.farMaxDistance },
+        uTransitionDistance: { value: lodConfig.transitionDistance },
+        uMidImpostorUnderfill: { value: GRASS_MID_IMPOSTOR_UNDERFILL },
+        uTime: { value: 0 },
+        uWindDirection: {
+          value: new THREE.Vector2(
+            windConfig.directionX,
+            windConfig.directionZ,
+          ).normalize(),
+        },
+        uWindStrength: { value: windConfig.strength },
+        uWindNoise: { value: null as THREE.Texture | null },
+        uWindNoiseScale: { value: GRASS_WIND_NOISE_SCALE },
+        uWindNoiseSpeed: { value: GRASS_WIND_NOISE_SPEED },
+        uCardRadius: { value: atlas.cardRadius },
+        uGustTipBoost: { value: GRASS_GUST_TIP_BOOST },
+        uBiomeBase: { value: createBiomeColorRows(materialConfig.baseColor) },
+        uBiomeTip: { value: createBiomeColorRows(materialConfig.tipColor) },
+        uBiomeDry: { value: createBiomeColorRows(materialConfig.dryColor) },
+        uBiomeShade: {
+          value: createBiomeShadeRows(materialConfig.rootDarkening, 0.5),
+        },
+        uNormalUp: { value: materialConfig.normalUp },
+        uAmbientBoost: { value: materialConfig.ambientBoost },
+        uBacklightStrength: { value: materialConfig.backlightStrength },
+      };
+      this.setPaletteColors(
+        materialConfig.baseColor,
+        materialConfig.tipColor,
+        materialConfig.dryColor,
+      );
+      createdMaterial = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader: VERTEX_SHADER,
+        fragmentShader: FRAGMENT_SHADER,
+        side: THREE.DoubleSide,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true,
+        fog: true,
+        lights: true,
+        toneMapped: true,
+        // The gust model is compiled in, so it is its own decision rather than a
+        // side effect of the view-blend setting: the governor turns blendViews
+        // off at the lowest tier and must not silently swap the wind with it.
+        defines: noiseWind ? { GRASS_NOISE_WIND: 1 } : {},
+      });
+      createdMaterial.name = "world-grass-subpatch-hemi-octahedral-impostor";
+      this.material = createdMaterial;
+    } catch (error) {
+      createdMaterial?.dispose();
+      atlas.texture.dispose();
+      atlas.geometry.dispose();
+      throw error;
+    }
   }
 
   applyArtDirection(direction: GrassArtDirection): void {
