@@ -32,11 +32,11 @@ import {
  *
  * A biome has to be something you travel through, not something you walk
  * across: at 90 m the field changed species every ten metres or so, which reads
- * as patchy discolouration rather than as regions. At 420 m a biome spans a few
- * hundred metres, so the whole visible field out to the 280 m grass horizon is
- * usually one species with an occasional border crossing it.
+ * as patchy discolouration rather than as regions. 180 m keeps a biome large
+ * enough to walk through while still letting an elevated 50–120 m view catch a
+ * meadow/steppe or alpine edge inside the 280 m grass horizon.
  */
-const BIOME_PERIOD = 420;
+const BIOME_PERIOD = 180;
 /**
  * Weight of the second octave. It ragged-edges the borders; too much of it and
  * the region boundaries dissolve back into per-metre churn.
@@ -48,11 +48,10 @@ const BIOME_SEED = 0x3b_9a_ca_07;
  * field is uniform after the transform below, so this is directly the share of
  * the world spent inside border bands; the bands' width on the ground follows
  * the field's local gradient and therefore scales with `BIOME_PERIOD`.
- * Measured along transects at the 420 m period: ~26 m median, ~44 m mean —
- * wide enough that the per-blade species interleave reads as a mixed fringe
- * rather than a drawn line.
+ * At 180 m, 0.05 keeps a mixed fringe of roughly 15–25 m rather than a drawn
+ * species line.
  */
-const BIOME_BORDER_WIDTH = 0.03;
+const BIOME_BORDER_WIDTH = 0.05;
 const BIOME_PICK_SEED = 0x85_eb_ca_6b;
 /** Samples used to build the rank transform. One-time, at module load. */
 const RANK_SAMPLES = 2048;

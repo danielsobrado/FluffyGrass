@@ -45,7 +45,10 @@ vec2 waterBedFlowPerpendicular = vec2(
   -waterBedFlowDirection.y,
   waterBedFlowDirection.x
 );
-vec3 waterBedViewRay = normalize(vWaterBedWorldPosition - cameraPosition);
+vec3 waterBedViewDiff = vWaterBedWorldPosition - cameraPosition;
+vec3 waterBedViewRay = length(waterBedViewDiff) > 1e-4
+  ? normalize(waterBedViewDiff)
+  : vec3(0.0, -1.0, 0.0);
 float waterBedGrazing = 1.0 - saturate(abs(waterBedViewRay.y));
 float waterBedWobble = sin(
   dot(vWaterBedWorldPosition.xz, waterBedFlowPerpendicular) * 0.18 +

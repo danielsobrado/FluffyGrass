@@ -4,8 +4,9 @@ Status: implementation plan — implemented pending visual sign-off
 Baseline date: 2026-08-14  
 Target: FluffyGrass world renderer on desktop and compact/mobile profiles
 
-> **Implementation status as of 2026-08-15.** Baseline systems remain; the delta
-> work in this plan is in code. Phases marked ⚠️ remain manual screenshot work.
+> **Implementation status as of 2026-08-15.** Habitat contrast, biome palettes,
+> and landmark captures now read as distinct areas. Remaining ⚠️ items are
+> compact-profile screenshots and a full walking LOD sign-off.
 
 ## Goal
 
@@ -79,11 +80,11 @@ Before changing rendering, capture a repeatable baseline.
 
 ## TODO
 
-- [ ] Capture desktop screenshots at approximately 2 m, 8 m, 20 m, 50 m, 120 m, and near the far grass handoff.
+- [x] Capture desktop screenshots at approximately 2 m, 8 m, and 20 m (50 m / 120 m / far still outstanding).
 - [ ] Capture the same views in the compact/mobile profile.
-- [ ] Include at least one view each of: normal meadow, water edge, path edge, rocky ground, slope, dry/exposed patch, and a character moving through grass.
-- [ ] Record frame time/FPS, active grass geometry counts, draw calls, and existing grass diagnostics for the same views.
-- [ ] Keep the screenshots under a stable local QA naming convention so before/after comparisons are possible.
+- [x] Include habitat views of meadow, water edge, path edge, rocky ground, and dry/exposed ground (plus steppe and alpine). Slope and character-walk still outstanding.
+- [x] Record frame time/FPS, active grass geometry counts, draw calls, and existing grass diagnostics for the same views.
+- [x] Keep the screenshots under a stable local QA naming convention so before/after comparisons are possible.
 
 ## Acceptance
 
@@ -646,14 +647,14 @@ Useful new assertions include:
 
 For desktop and compact/mobile, inspect:
 
-- [ ] camera 1–3 m above dense grass;
-- [ ] normal third-person camera;
+- [x] camera 1–3 m above dense grass;
+- [x] normal third-person camera;
 - [ ] low grazing angle against the horizon;
-- [ ] elevated view that exposes macro patch structure;
-- [ ] wet river/lake edge;
-- [ ] dry exposed slope;
-- [ ] rocky patch;
-- [ ] worn path edge;
+- [x] elevated view that exposes macro patch structure;
+- [x] wet river/lake edge;
+- [x] dry exposed slope;
+- [x] rocky patch;
+- [x] worn path edge;
 - [ ] direct sun/front light;
 - [ ] strong backlight;
 - [ ] character walking/running through tall grass;
@@ -685,18 +686,18 @@ Do not bundle unrelated water or character-renderer rewrites into these commits.
 
 The grass work is complete when all of the following are true:
 
-- [ ] Large areas show coherent lush/sparse/dry/wet/disturbed patterns rather than uniform density.
-- [ ] Those patterns come from the existing ecology/biome state and remain deterministic.
-- [ ] Nearby grass reads as clumps with correlated blade shape and color.
-- [ ] The ground underneath explains the same ecological state.
-- [ ] Grass near water becomes appropriately lush/short/wet-edge dependent without forming an artificial uniform border.
-- [ ] Dry, disturbed, and rocky regions expose plausible soil rather than green terrain.
+- [x] Large areas show coherent lush/sparse/dry/wet/disturbed patterns rather than uniform density.
+- [x] Those patterns come from the existing ecology/biome state and remain deterministic.
+- [x] Nearby grass reads as clumps with correlated blade shape and color.
+- [x] The ground underneath explains the same ecological state.
+- [x] Grass near water becomes appropriately lush/short/wet-edge dependent without forming an artificial uniform border.
+- [x] Dry, disturbed, and rocky regions expose plausible soil rather than green terrain.
 - [ ] Backlit tips brighten naturally without emission-like glow.
 - [ ] The distant horizon has no detached one-pixel grass spikes or excessive shimmer.
 - [ ] Every LOD preserves broad density, color, and wind identity without visible rings.
 - [ ] Character interaction remains local, stable, and inexpensive.
 - [ ] Desktop and compact/mobile remain inside the measured performance envelope.
-- [ ] `npm run build` passes from a clean working tree.
+- [x] `npm run build` passes from a clean working tree.
 - [ ] Final visual sign-off is performed from the full screenshot matrix.
 
 ## Explicit non-goals

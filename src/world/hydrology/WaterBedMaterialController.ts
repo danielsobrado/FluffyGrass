@@ -30,6 +30,7 @@ export class WaterBedMaterialController {
       color: 0xffffff,
       transparent: false,
       opacity: 1,
+      alphaTest: 0.01,
       depthTest: true,
       depthWrite: true,
       side: THREE.FrontSide,

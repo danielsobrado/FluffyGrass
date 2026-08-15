@@ -182,13 +182,19 @@ if (waterRiverAmount > 0.02) {
   waterSurfaceColor *= 0.975 + waterFlowSheen * 0.035 * waterRiverAmount;
 }
 
-vec3 waterViewDirection = normalize(cameraPosition - vWaterWorldPosition);
+vec3 waterViewDiff = cameraPosition - vWaterWorldPosition;
+vec3 waterViewDirection = length(waterViewDiff) > 1e-4
+  ? normalize(waterViewDiff)
+  : vec3(0.0, 1.0, 0.0);
 float waterFacing = saturate(dot(waterLightingNormal, waterViewDirection));
 float waterFresnel = uWaterFresnelF0 +
   (1.0 - uWaterFresnelF0) * pow(1.0 - waterFacing, 5.0);
 float waterFresnelVisual = saturate(waterFresnel * uWaterFresnelStrength);
 waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterFresnelVisual * 0.42);
-vec3 waterHalfVector = normalize(uWaterSunDirection + waterViewDirection);
+vec3 waterSunPlusView = uWaterSunDirection + waterViewDirection;
+vec3 waterHalfVector = length(waterSunPlusView) > 1e-4
+  ? normalize(waterSunPlusView)
+  : waterLightingNormal;
 float waterSunSpecular = pow(
   saturate(dot(waterLightingNormal, waterHalfVector)),
   96.0

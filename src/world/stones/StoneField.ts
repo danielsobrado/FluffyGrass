@@ -102,7 +102,7 @@ const BIOME_PALETTE: readonly StonePaletteKey[] = [
 ];
 
 const SCALE_BANDS: Record<StoneArchetypeId, readonly [number, number]> = {
-  pebble: [0.22, 0.55],
+  pebble: [0.4, 0.85],
   boulder: [0.8, 2.2],
   slab: [1.1, 2.6],
   block: [0.85, 2],
@@ -140,6 +140,8 @@ const VERGE_MAX_PER_CELL = 7;
 /** Below this scale a stone nestles into grass instead of clearing it. */
 const CLEAR_SCALE_CUTOFF = 0.5;
 const MAX_STONES_PER_CELL = 3;
+/** Quiet turf still gets one readable rock so meadows are not bare of stone. */
+const FIELD_STONE_CHANCE = 0.52;
 const CELL_CACHE_LIMIT = 640;
 const CELL_CACHE_TRIM = 384;
 /** Generated split, satellite, and verge stones may cross one source-cell edge. */
@@ -483,6 +485,14 @@ export class StoneField {
       }
       this.placeCandidate(x, z, candidate, rockiness, instances, false);
     }
+    if (count === 0 && random.chance(FIELD_STONE_CHANCE)) {
+      const pebble = random.fork("field-stone");
+      const x = originX + pebble.range(0.2, 0.8) * this.cellSize;
+      const z = originZ + pebble.range(0.2, 0.8) * this.cellSize;
+      if (Math.abs(x) <= halfWorld - 2 && Math.abs(z) <= halfWorld - 2) {
+        this.placeCandidate(x, z, pebble, rockiness, instances, false, "pebble");
+      }
+    }
 
     this.addVergeStones(
       random.fork("verge"),
@@ -724,6 +734,7 @@ export class StoneField {
     rockiness: number,
     instances: StoneInstance[],
     isSatellite: boolean,
+    forcedArchetype?: StoneArchetypeId,
   ): void {
     const height = this.field.sampleHeight(x, z);
     const normal = this.field.sampleNormal(x, z, this.normalScratch);
@@ -738,7 +749,9 @@ export class StoneField {
     );
 
     let archetype: StoneArchetypeId;
-    if (isSatellite) {
+    if (forcedArchetype) {
+      archetype = forcedArchetype;
+    } else if (isSatellite) {
       archetype = random.chance(0.7) ? "pebble" : "boulder";
     } else {
       const weights =
@@ -780,6 +793,12 @@ export class StoneField {
     const visibility = this.field.samplePathVisibility(height);
     if (visibility > 0.05) {
       const distances = this.field.samplePathDistances(x, z, this.pathScratch);
+      if (
+        scale >= CLEAR_SCALE_CUTOFF &&
+        this.field.resolvePathGrassMask(distances, height, 0) <= 0.35
+      ) {
+        return;
+      }
       const mainClear =
         this.config.pathWidth * 0.5 +
         this.config.pathEdgeRoughness +
@@ -916,7 +935,11 @@ export class StoneField {
           halfZ,
           this.normalScratch,
         );
-        if (halfNormal.y >= SLOPE_REJECT_NY) {
+        if (
+          halfNormal.y >= SLOPE_REJECT_NY &&
+          (scale * 0.92 < CLEAR_SCALE_CUTOFF ||
+            this.field.samplePathGrassMask(halfX, halfZ, halfHeight, 0) > 0.35)
+        ) {
           const halfScale = scale * split.range(0.62, 0.92);
           const halfVariant = this.getVariant(archetype, variantIndex);
           instances.push({

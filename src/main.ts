@@ -24,15 +24,23 @@ async function bootstrap(): Promise<void> {
     throw new Error("Canvas element #canvas was not found.");
   }
 
+  const params = new URLSearchParams(window.location.search);
   const runtimeConfig = await new RuntimeConfigLoader().load(
     `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
   );
-  const profile = resolveRuntimeProfile(runtimeConfig);
+  const profileParam = params.get("profile");
+  const profile = resolveRuntimeProfile(runtimeConfig, {
+    compact:
+      profileParam === "compact"
+        ? true
+        : profileParam === "desktop"
+          ? false
+          : undefined,
+  });
   document.documentElement.dataset.viewport = profile.compact
     ? "compact"
     : "desktop";
 
-  const params = new URLSearchParams(window.location.search);
   const sceneMode = params.get("scene") === "island" ? "island" : "world";
   const flyMode =
     sceneMode === "world" &&
@@ -106,6 +114,12 @@ async function bootstrap(): Promise<void> {
           gpuTiming: params.get("gpuTiming") === "1",
           statsPanelEnabled: params.get("stats") === "1",
         });
+      }
+      if (params.get("qa") === "visual-matrix") {
+        const { WorldVisualMatrixRunner } = await import(
+          "./qa/WorldVisualMatrixRunner"
+        );
+        void new WorldVisualMatrixRunner(world.attachVisualMatrix()).start();
       }
       if (params.get("actorProof") === "1") {
         const { ActorExtensibilityProof } = await import(

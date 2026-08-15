@@ -16,6 +16,8 @@ const VISIBILITY_EPSILON = 0.001;
  */
 const DITHER_SAFETY_MARGIN = 1 / 1024;
 const INDICES_PER_BLADE = 3;
+/** Fallback when the world has not supplied a patch half-diagonal. */
+const DEFAULT_MID_INSTANCE_RADIUS = 4;
 
 /** How the mid material thins blades with distance; see PERF-2. */
 export interface GrassMidDensityFalloff {
@@ -63,6 +65,9 @@ export class GrassLodController {
    */
   private submittedMidVertices = 0;
   private submittedFarInstances = 0;
+  private midInstanceRadius = DEFAULT_MID_INSTANCE_RADIUS;
+  private readonly matrixSwap = new Float32Array(16);
+  private readonly variationSwap = new Float32Array(4);
 
   constructor(private readonly config: GrassLodConfig) {}
 
@@ -73,6 +78,18 @@ export class GrassLodController {
    */
   setMidDensityFalloff(falloff: GrassMidDensityFalloff): void {
     this.midFalloff = falloff;
+  }
+
+  /**
+   * Half-extent of one mid instance, including placement jitter. Instances
+   * whose whole bound sits inside the near fade are dropped from the batch
+   * before the blade `drawRange` trim, so a 32 m camera batch does not submit
+   * the near-side patches that single-blade tiles already cover.
+   */
+  setMidInstanceRadius(radius: number): void {
+    if (Number.isFinite(radius) && radius > 0) {
+      this.midInstanceRadius = radius;
+    }
   }
 
   update(camera: THREE.Camera, patches: Iterable<GrassPatch>): void {
@@ -207,7 +224,12 @@ export class GrassLodController {
     patch.midMesh.visible =
       farthestDistance > nearFadeStart && patch.distance < farEntryEnd;
     if (patch.midMesh.visible) {
-      this.trimMidDraw(patch, farthestDistance);
+      const keepCount = this.compactMidInstances(patch, nearFadeStart);
+      if (keepCount === 0) {
+        patch.midMesh.visible = false;
+      } else {
+        this.trimMidDraw(patch, farthestDistance);
+      }
     }
     if (patch.farMesh) {
       patch.farMesh.visible =
@@ -232,7 +254,9 @@ export class GrassLodController {
    *
    * Without this the batch under the camera submitted all 64 instances x 1152
    * blades regardless of how many collapse, which was the single largest vertex
-   * cost in the scene.
+   * cost in the scene. The trim only stays cheap if the near fade still covers
+   * that 32 m batch: if `near + transition` is shorter than the batch, the
+   * farthest corner reports zero near coverage and this keeps every blade.
    */
   private trimMidDraw(patch: GrassPatch, farthestDistance: number): void {
     const dithers = patch.midSortedDithers;
@@ -261,6 +285,77 @@ export class GrassLodController {
     patch.midMesh.geometry.setDrawRange(0, keptBlades * INDICES_PER_BLADE);
     this.submittedMidVertices +=
       keptBlades * INDICES_PER_BLADE * patch.midMesh.count;
+  }
+
+  /**
+   * Packs mid instances that can survive the near fade to the front of the
+   * batch and cuts `mesh.count`. The dropped slots stay in the backing arrays
+   * so the next frame can restore them without a source copy.
+   */
+  private compactMidInstances(
+    patch: GrassPatch,
+    nearFadeStart: number,
+  ): number {
+    const mesh = patch.midMesh;
+    const total = patch.instanceCount;
+    if (total <= 0) {
+      mesh.count = 0;
+      return 0;
+    }
+    const matrix = mesh.instanceMatrix.array as Float32Array;
+    const variation = mesh.geometry.getAttribute("instanceVariation");
+    const coverage = mesh.geometry.getAttribute("instanceCoverage");
+    const biome = mesh.geometry.getAttribute("instanceBiome");
+    if (!variation || !coverage || !biome) {
+      mesh.count = total;
+      return total;
+    }
+    const variationValues = variation.array as Float32Array;
+    const coverageValues = coverage.array as Float32Array;
+    const biomeValues = biome.array as Float32Array;
+    const baseCoverage = patch.baseMidCoverage;
+    const origin = mesh.position;
+    const camera = this.cameraPosition;
+    const radius = this.midInstanceRadius;
+    let keepCount = 0;
+    for (let index = 0; index < total; index += 1) {
+      const offset = index * 16;
+      const deltaX = origin.x + matrix[offset + 12] - camera.x;
+      const deltaY = origin.y + matrix[offset + 13] - camera.y;
+      const deltaZ = origin.z + matrix[offset + 14] - camera.z;
+      if (
+        Math.hypot(deltaX, deltaY, deltaZ) + radius <=
+        nearFadeStart
+      ) {
+        continue;
+      }
+      if (keepCount !== index) {
+        swapFloatBlock(matrix, keepCount * 16, offset, 16, this.matrixSwap);
+        swapFloatBlock(
+          variationValues,
+          keepCount * 4,
+          index * 4,
+          4,
+          this.variationSwap,
+        );
+        swapFloat(coverageValues, keepCount, index);
+        swapFloat(biomeValues, keepCount, index);
+        if (baseCoverage) {
+          swapFloat(baseCoverage, keepCount, index);
+        }
+      }
+      keepCount += 1;
+    }
+    if (keepCount !== mesh.count) {
+      mesh.count = keepCount;
+    }
+    if (keepCount > 0 && keepCount < total) {
+      mesh.instanceMatrix.needsUpdate = true;
+      variation.needsUpdate = true;
+      coverage.needsUpdate = true;
+      biome.needsUpdate = true;
+    }
+    return keepCount;
   }
 
   private updateLegacyPatch(patch: GrassPatch): void {
@@ -364,4 +459,22 @@ export class GrassLodController {
     const end = this.config.farMaxDistance + this.config.transitionDistance;
     return 1 - THREE.MathUtils.smoothstep(distance, start, end);
   }
+}
+
+function swapFloat(values: Float32Array, left: number, right: number): void {
+  const stored = values[left];
+  values[left] = values[right];
+  values[right] = stored;
+}
+
+function swapFloatBlock(
+  values: Float32Array,
+  left: number,
+  right: number,
+  width: number,
+  scratch: Float32Array,
+): void {
+  scratch.set(values.subarray(left, left + width));
+  values.copyWithin(left, right, right + width);
+  values.set(scratch.subarray(0, width), right);
 }

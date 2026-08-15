@@ -500,8 +500,10 @@ assert(
 );
 assert(
   patchGeometryFactory.includes("midSortedDithers") &&
-    lodController.includes("setDrawRange(0, keptBlades * INDICES_PER_BLADE)"),
-  "Mid geometry must stay descending-dither sorted and prefix-trimmed with drawRange.",
+    lodController.includes("setDrawRange(0, keptBlades * INDICES_PER_BLADE)") &&
+    lodController.includes("compactMidInstances") &&
+    lodController.includes("mesh.count = keepCount"),
+  "Mid geometry must stay descending-dither sorted, instance-culled inside the near band, and prefix-trimmed with drawRange.",
 );
 
 const bladeWidthMin = readYamlNumber(grassConfig, "bladeWidthMin");

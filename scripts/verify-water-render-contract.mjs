@@ -63,6 +63,7 @@ assert(
   bedMaterial.includes("transparent: false") &&
     bedMaterial.includes("depthWrite: true") &&
     bedMaterial.includes("depthTest: true") &&
+    bedMaterial.includes("alphaTest: 0.01") &&
     bedShader.includes("diffuseColor.a = 1.0") &&
     bedShader.includes("discard"),
   "The bed must depth-test and depth-write as opaque masked geometry.",
@@ -76,6 +77,12 @@ assert(
   chunkGeometry.includes("box.min.y -= maxDepth") &&
     chunkGeometry.includes("box.getBoundingSphere(sphere)"),
   "Shared water geometry bounds must cover the vertex-displaced bed.",
+);
+assert(
+  waterShader.includes("waterSunPlusView") &&
+    waterShader.includes("waterViewDiff") &&
+    bedShader.includes("waterBedViewDiff"),
+  "Water and bed shaders must guard against zero-length vector normalizations.",
 );
 assert(
   tuning.includes("WATER_MATERIAL_CACHE_KEY") &&

@@ -248,9 +248,9 @@ try {
     habitat,
   );
   assert(
-    habitat.density <= healthyDensity + 1e-9 &&
+    habitat.density <= healthyDensity * 0.85 &&
       habitat.height <= healthyHeight + 1e-9 &&
-      habitat.dryness > 0.2,
+      habitat.dryness > 0.35,
     "Dry ground must not grow denser or taller than the equivalent healthy sample.",
   );
   sampleGrassHabitat(
@@ -266,7 +266,7 @@ try {
     habitat,
   );
   assert(
-    habitat.density <= healthyDensity + 1e-9,
+    habitat.density <= healthyDensity * 0.55,
     "Rocky ground must not grow denser than the equivalent healthy sample.",
   );
   sampleGrassHabitat(

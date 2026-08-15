@@ -46,6 +46,13 @@ assert(
   "Deep world diagnostics must remain opt-in and outside the default bundle path.",
 );
 assert(
+  main.includes('params.get("qa") === "visual-matrix"') &&
+    /await import\(\s*"\.\/qa\/WorldVisualMatrixRunner"\s*\)/.test(main) &&
+    !main.includes('import { WorldVisualMatrixRunner }') &&
+    world.includes("attachVisualMatrix()"),
+  "World visual-matrix QA must remain opt-in and outside the default bundle path.",
+);
+assert(
   main.includes('statsPanelEnabled: params.get("stats") === "1"') &&
     world.includes("attachWorldStatsPanel") &&
     world.includes("this.stats?.update()") &&

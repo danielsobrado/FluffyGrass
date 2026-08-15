@@ -66,6 +66,9 @@ export class ThirdPersonController implements WorldController {
   private cameraYaw = 0;
   private cameraElevation: number;
   private cameraDistance: number;
+  private captureLocked = false;
+  private readonly captureCamera = new THREE.Vector3();
+  private readonly captureTarget = new THREE.Vector3();
   private speed = 0;
   private previousSpeed = 0;
   private acceleration = 0;
@@ -130,7 +133,29 @@ export class ThirdPersonController implements WorldController {
       MAX_FRAME_DELTA_SECONDS,
     );
     if (this.input.consumeReset()) {
+      this.captureLocked = false;
       this.reset();
+      return;
+    }
+
+    if (this.captureLocked) {
+      this.jumpStarted = false;
+      this.landed = false;
+      this.landingImpact = 0;
+      this.grassPose.facing = this.facing;
+      this.grassPose.distanceTravelled = this.distanceTravelled;
+      this.grassPose.grounded = this.grounded;
+      grassInteractionField.update(delta, this.grassPose);
+      this.camera.position.copy(this.captureCamera);
+      this.camera.lookAt(this.captureTarget);
+      this.cameraForward.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+      this.character.setLookDirection(
+        this.cameraForward.x,
+        this.cameraForward.y,
+        this.cameraForward.z,
+      );
+      this.animationVelocity.set(0, this.verticalVelocity, 0);
+      this.character.update(delta, this.syncCharacterPose());
       return;
     }
 
@@ -195,6 +220,7 @@ export class ThirdPersonController implements WorldController {
     if (this.disposed) {
       return;
     }
+    this.captureLocked = false;
     // Keep the player's current framing: a teleport is a move, not a restart,
     // and snapping their zoom back to the default would undo deliberate setup.
     const halfWorld = this.config.worldSize * 0.5 - 2;
@@ -205,10 +231,32 @@ export class ThirdPersonController implements WorldController {
     );
   }
 
+  captureLookAt(camera: THREE.Vector3, target: THREE.Vector3): void {
+    if (this.disposed) {
+      return;
+    }
+    const halfWorld = this.config.worldSize * 0.5 - 2;
+    const focusX = THREE.MathUtils.clamp(target.x, -halfWorld, halfWorld);
+    const focusZ = THREE.MathUtils.clamp(target.z, -halfWorld, halfWorld);
+    const lookX = focusX - camera.x;
+    const lookZ = focusZ - camera.z;
+    const facing =
+      Math.hypot(lookX, lookZ) > 1e-4
+        ? Math.atan2(lookX, lookZ)
+        : this.facing;
+    this.captureLocked = true;
+    this.captureCamera.copy(camera);
+    this.captureTarget.set(focusX, target.y, focusZ);
+    this.placeAt(focusX, focusZ, facing);
+    this.camera.position.copy(this.captureCamera);
+    this.camera.lookAt(this.captureTarget);
+  }
+
   private reset(): void {
     if (this.disposed) {
       return;
     }
+    this.captureLocked = false;
     this.cameraElevation = THREE.MathUtils.degToRad(
       this.config.characterCameraElevationDegrees,
     );

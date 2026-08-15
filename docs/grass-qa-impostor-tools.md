@@ -18,6 +18,22 @@ Optional parameters:
 
 When `download=1`, the browser attempts to download the screenshots and JSON report. Download links remain visible if automatic downloads are blocked. The report is also exposed as `window.__FLUFFY_GRASS_QA__`.
 
+## World visual matrix (AAA water + grass)
+
+Open the world scene with:
+
+```text
+?qa=visual-matrix&profile=desktop&diagnostics=1&gpuTiming=1
+```
+
+Use `profile=compact` for the mobile quality path. The runner waits until near grass is streamed, finds deterministic landmarks around spawn, and exposes `window.__FLUFFY_WORLD_VISUAL_QA__`.
+
+```js
+await window.__FLUFFY_WORLD_VISUAL_QA__.apply(0)
+```
+
+Each `apply(index)` teleports the capture camera, warms streaming, and records HUD / frame / draw stats. Screenshot files belong under `qa/aaa-look/` using `{profile}-{pose}.png`.
+
 ## Hemi-octahedral impostor bake
 
 Open the application with:

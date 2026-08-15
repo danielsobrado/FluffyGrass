@@ -88,7 +88,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     chipCount: [0, 2],
     chipDepth: { min: 0.012, max: 0.035 },
     edgeWear: 0.32,
-    embed: { min: 0.2, max: 0.34 },
+    embed: { min: 0.08, max: 0.16 },
   },
   boulder: {
     id: "boulder",

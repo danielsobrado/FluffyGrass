@@ -10,12 +10,7 @@ import {
   GRASS_BIOME_PROFILES,
   type GrassBiomeProfile,
 } from "../../grass/biome/GrassBiomeProfile";
-import {
-  GRASS_MACRO_DRYNESS_STRENGTH,
-  resolveGrassCanopyAo,
-  sampleGrassMacroDryness,
-  sampleGrassMacroVigor,
-} from "../../grass/GrassFieldVariation";
+import { resolveGrassCanopyAo, sampleGrassMacroVigor } from "../../grass/GrassFieldVariation";
 import type { GrassConfig } from "../../grass/GrassConfig";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
@@ -27,6 +22,11 @@ import {
   resolveGrassBiomeDensity,
   sampleGrassBiome,
 } from "./WorldBiomeField";
+import {
+  createGrassHabitatSample,
+  sampleGrassHabitat,
+  type GrassHabitatSample,
+} from "./GrassHabitatField";
 import { DETAIL_FOLIAGE_WIND_SHEAR_FACTOR } from "./WorldDetailFoliageMaterial";
 import type { WorldDetailFoliageMaterial } from "./WorldDetailFoliageMaterial";
 import { DETAIL_FOLIAGE_VARIANT_ROWS } from "./WorldDetailFoliageAtlasFactory";
@@ -223,6 +223,7 @@ export class WorldDetailFoliageFactory {
   private readonly boundsPadding: number;
   /** What a species' `canopyHeightBand` of 1.0 resolves to, in metres. */
   private readonly canopyHeight: number;
+  private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
 
   constructor(
     private readonly field: TerrainField,
@@ -318,6 +319,22 @@ export class WorldDetailFoliageFactory {
       const biomeSample = sampleGrassBiome(x, z);
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const profile = GRASS_BIOME_PROFILES[biomeIndex];
+      const ecology = this.field.sampleEcologyAt(x, z, height);
+      sampleGrassHabitat(
+        x,
+        z,
+        ecology,
+        resolveGrassBiomeDensity(biomeSample),
+        profile.heightBand[0],
+        profile.heightBand[1],
+        profile.drynessBias,
+        profile.accentDensity,
+        this.worldConfig,
+        this.habitatSample,
+      );
+      if (this.habitatSample.accentChance < 0.06) {
+        continue;
+      }
       // A biome spends less than the budgeted density by dropping candidates,
       // decided from the world position so the thinning is stable under
       // rebuilds rather than a function of enumeration order.
@@ -330,13 +347,12 @@ export class WorldDetailFoliageFactory {
       }
 
       const vigor = sampleGrassMacroVigor(x, z);
-      const dryness = sampleGrassMacroDryness(x, z);
       const pick = this.pickSpecies(
         profile,
         x,
         z,
         vigor,
-        dryness,
+        this.habitatSample.dryness,
         suitability,
       );
       if (!pick) {
@@ -377,17 +393,11 @@ export class WorldDetailFoliageFactory {
         windScale: random.range(0.84, 1.16) * profile.windDamping,
         rootAo:
           resolveGrassCanopyAo(vigor, suitability) * random.range(0.99, 1.01),
-        dryness: THREE.MathUtils.clamp(
-          (1 - suitability) * 0.25 +
-            dryness * GRASS_MACRO_DRYNESS_STRENGTH +
-            profile.drynessBias,
-          0,
-          1,
-        ),
+        dryness: this.habitatSample.dryness,
         // Accents share the blade layer's verge feather so flowers cannot pop
         // into a full-density strip beside the path as their tiles approach.
         coverage:
-          resolveGrassBiomeDensity(biomeSample) * pathMask * stoneMask,
+          this.habitatSample.density * pathMask * stoneMask,
         biome: biomeIndex,
         accent: packGrassAccent(
           pick.speciesIndex,

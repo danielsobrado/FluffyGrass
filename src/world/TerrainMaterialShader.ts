@@ -215,7 +215,7 @@ terrainSoil *= 1.0 + terrainMacroVariation * 0.45 + terrainMesoVariation;
 vec3 terrainUnderlayer = mix(
   vTerrainBiomeBase.rgb,
   vTerrainBiomeDry,
-  terrainDryness * 0.72
+  terrainDryness * 0.9
 );
 terrainUnderlayer = mix(
   terrainUnderlayer,
@@ -234,7 +234,7 @@ vec3 terrainSurfaceColor = mix(
 );
 
 vec3 terrainCanopy = vTerrainBiomeCanopy;
-terrainCanopy = mix(terrainCanopy, vTerrainBiomeDry, terrainDryness * 0.5);
+terrainCanopy = mix(terrainCanopy, vTerrainBiomeDry, terrainDryness * 0.68);
 terrainCanopy *= 0.78 + terrainMacroVariation;
 terrainSurfaceColor = mix(
   terrainSurfaceColor,

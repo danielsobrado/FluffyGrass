@@ -110,7 +110,11 @@ export function sampleGrassHabitat(
 
   let density = biomeDensity;
   density *= 1 + moisture * fertility * config.grassWetDensityBoost;
-  density *= 1 - (1 - moisture) * exposure * config.grassDryDensityReduction;
+  density *=
+    1 -
+    (1 - moisture) *
+      config.grassDryDensityReduction *
+      (0.62 + 0.38 * exposure);
   density *= 1 - rockiness * config.grassRockDensityReduction;
   density *= 1 - disturbance * config.grassDisturbanceDensityReduction;
   density *= patchMul;
@@ -118,29 +122,36 @@ export function sampleGrassHabitat(
 
   const biomeHeight = lerp(heightBandMin, heightBandMax, vigor * 0.55 + 0.45 * patch);
   target.height = Math.max(
-    0.7,
+    0.58,
     Math.min(
       1.22,
       biomeHeight *
         (1 + moisture * fertility * config.grassWetHeightBoost) *
         (1 - (1 - moisture) * config.grassDryHeightReduction) *
-        (1 - disturbance * 0.18),
+        (1 - disturbance * 0.28) *
+        (1 - rockiness * 0.16),
     ),
   );
 
   target.dryness = clamp01(
-    (1 - moisture) * 0.52 +
-      exposure * 0.1 +
-      rockiness * 0.16 +
-      disturbance * 0.12 +
+    (1 - moisture) * 0.58 +
+      exposure * 0.14 +
+      rockiness * 0.2 +
+      disturbance * 0.16 +
       drynessBias +
       sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
-      (1 - moisture) * config.grassDryColorStrength * 0.28,
+      (1 - moisture) * config.grassDryColorStrength * 0.72,
   );
-  target.clumpScale = lerp(0.84, 1.14, target.density);
+  target.clumpScale = lerp(0.72, 1.22, target.density);
   target.underlayer = clamp01(lerp(0.18, 0.52, 1.08 - target.height) * (1 - disturbance));
   target.directionalLean = clamp01(disturbance * 0.72 + exposure * 0.18);
-  target.accentChance = clamp01(accentDensity * fertility * (1 - disturbance) * moisture);
+  target.accentChance = clamp01(
+    accentDensity *
+      fertility *
+      (1 - disturbance) *
+      (0.35 + moisture * 0.65) *
+      (0.4 + target.density * 0.6),
+  );
   return target;
 }
 
@@ -154,10 +165,10 @@ export function resolveGrassClusterArchetype(
   seed: number,
 ): number {
   const roll = hashLattice(clumpColumn, clumpRow, (seed ^ ARCHETYPE_SALT) >>> 0);
-  if (habitat.directionalLean > 0.55) return GRASS_CLUSTER_FLATTENED;
-  if (habitat.dryness > 0.52 && habitat.height < 0.92) return GRASS_CLUSTER_SHORT_DRY;
-  if (habitat.density < 0.42) return GRASS_CLUSTER_SPARSE_OPEN;
-  if (habitat.height > 1.04 && habitat.dryness < 0.3) return GRASS_CLUSTER_TALL_WET;
-  if (habitat.accentChance > 0.28 && roll > 0.72) return GRASS_CLUSTER_ACCENT;
+  if (habitat.directionalLean > 0.48) return GRASS_CLUSTER_FLATTENED;
+  if (habitat.dryness > 0.42 && habitat.height < 0.98) return GRASS_CLUSTER_SHORT_DRY;
+  if (habitat.density < 0.52) return GRASS_CLUSTER_SPARSE_OPEN;
+  if (habitat.height > 1.02 && habitat.dryness < 0.34) return GRASS_CLUSTER_TALL_WET;
+  if (habitat.accentChance > 0.22 && roll > 0.68) return GRASS_CLUSTER_ACCENT;
   return GRASS_CLUSTER_DENSE_NORMAL;
 }

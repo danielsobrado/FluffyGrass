@@ -41,7 +41,6 @@ import {
 } from "./grass/GrassHabitatField";
 import {
   GRASS_BIOME_PROFILES,
-  resolveGrassBiomeHeightRatio,
   resolveGrassBiomeWidthRatio,
 } from "../grass/biome/GrassBiomeProfile";
 import { GrassQualityGovernor } from "../runtime/GrassQualityGovernor";
@@ -615,6 +614,12 @@ export class WorldGrassSystem {
     }
 
     this.lodController = new GrassLodController(lodConfig);
+    this.lodController.setMidInstanceRadius(
+      this.worldConfig.grassPatchSize * Math.SQRT2 * 0.5 +
+        this.worldConfig.grassPatchSize *
+          this.worldConfig.grassPatchJitter *
+          0.5,
+    );
     this.applyQualitySettings();
     this.status = "Grass ready";
     this.initialized = true;
@@ -1103,27 +1108,18 @@ export class WorldGrassSystem {
       job.align.setFromUnitVectors(job.up, job.normal);
       job.yaw.setFromAxisAngle(job.up, job.random.range(0, TWO_PI));
       job.align.multiply(job.yaw);
-      // Biome height and width bands are folded into the patch's own scale
-      // rather than multiplied on top of it, so the product stays inside the
-      // ceilings the reserved culling bounds are computed from. The band
-      // limits are enforced by the profile loader.
-      const biomeHeight = resolveGrassBiomeHeightRatio(biomeProfile);
+      // Habitat already includes the biome height band. Fold that scale into
+      // the instance, then keep only a small per-blade jitter so random height
+      // cannot drown wet/dry/rocky identity the way a ±12% bias did.
       const biomeWidth = resolveGrassBiomeWidthRatio(biomeProfile);
       const heightVariation = job.grassConfig.distribution.heightVariation;
-      const habitatBias = THREE.MathUtils.clamp(
-        (this.habitatSample.height - 1) * 0.12,
-        -heightVariation,
-        heightVariation,
-      );
       const horizontalScale = job.random.range(0.96, 1.04) * biomeWidth;
-      const heightScale =
-        (1 +
-          THREE.MathUtils.clamp(
-            job.random.range(-heightVariation, heightVariation) + habitatBias,
-            -heightVariation,
-            heightVariation,
-          )) *
-        biomeHeight;
+      const heightScale = THREE.MathUtils.clamp(
+        this.habitatSample.height *
+          (1 + job.random.range(-heightVariation, heightVariation) * 0.4),
+        0.55,
+        1.2,
+      );
       job.scale.set(horizontalScale, heightScale, horizontalScale);
       const batchesPerAxis = this.worldConfig.grassRenderBatchesPerAxis;
       const batchX = Math.min(
@@ -1200,8 +1196,7 @@ export class WorldGrassSystem {
       const impostorRadius =
         this.impostorMaterials[job.variantIndex].atlas.radius;
       const bladeExtent =
-        grassConfig.geometry.bladeHeightMax *
-          (1 + grassConfig.distribution.heightVariation) +
+        grassConfig.geometry.bladeHeightMax * 1.2 +
         grassConfig.geometry.bladeLeanMax +
         grassConfig.wind.strength +
         grassConfig.wind.flutterStrength;
@@ -1379,6 +1374,7 @@ export class WorldGrassSystem {
       biomeValues,
       origin,
       localBounds,
+      true,
     );
     midMesh.visible = false;
 
@@ -1543,6 +1539,7 @@ export class WorldGrassSystem {
     biomeValues: Float32Array,
     origin: THREE.Vector3,
     localBounds: THREE.Box3,
+    dynamicInstances = false,
   ): THREE.InstancedMesh {
     const geometry = this.geometryFactory.createInstancedGeometry(
       sourceGeometry,
@@ -1564,7 +1561,21 @@ export class WorldGrassSystem {
       matrixValues.subarray(0, instanceCount * 16),
       16,
     );
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.instanceMatrix.setUsage(
+      dynamicInstances ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage,
+    );
+    if (dynamicInstances) {
+      for (const name of [
+        "instanceVariation",
+        "instanceCoverage",
+        "instanceBiome",
+      ] as const) {
+        const attribute = mesh.geometry.getAttribute(name);
+        if (attribute instanceof THREE.BufferAttribute) {
+          attribute.setUsage(THREE.DynamicDrawUsage);
+        }
+      }
+    }
     mesh.count = instanceCount;
     mesh.position.copy(origin);
     // Grass meshes never move, so skip the per-frame compose that

@@ -145,6 +145,24 @@ export class FlyController {
     this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
   }
 
+  lookAtWorld(position: THREE.Vector3, target: THREE.Vector3): void {
+    if (this.disposed) {
+      return;
+    }
+    this.camera.position.copy(position);
+    const dx = target.x - position.x;
+    const dy = target.y - position.y;
+    const dz = target.z - position.z;
+    this.yaw = Math.atan2(dx, dz);
+    this.pitch = THREE.MathUtils.clamp(
+      Math.atan2(dy, Math.hypot(dx, dz)),
+      -Math.PI * 0.48,
+      Math.PI * 0.48,
+    );
+    this.clearTransientInput();
+    this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
+  }
+
   getSpeed(): number {
     return this.speed;
   }

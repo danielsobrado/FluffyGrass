@@ -79,7 +79,7 @@ const DEFAULT_DENSITY_FALLOFF_END = 64;
  * which is what `verify-lod-color-parity` bounds — does not move.
  */
 export const GRASS_MID_DENSITY_FALLOFF = Object.freeze({
-  start: DEFAULT_DENSITY_FALLOFF_START,
+  start: 24,
   end: DEFAULT_DENSITY_FALLOFF_END,
   floor: 0.35,
 });
@@ -670,12 +670,14 @@ grassPaletteColor = mix(
   grassGustNoise * uGrassGustTipBoost * grassProgress
 );
 vGrassColor = mix(grassPaletteColor, uGrassCanopyColor, 1.0 - grassCoverage);
+vGrassProgress = grassProgress;
 `;
 
 const VERTEX_PALETTE_DECLARATIONS = `
 ${BIOME_PALETTE_DECLARATIONS}
 uniform vec3 uGrassCanopyColor;
 varying vec3 vGrassColor;
+varying float vGrassProgress;
 ${GRASS_PALETTE_GLSL}
 `;
 
@@ -714,6 +716,7 @@ uniform float uGrassSheenStrength;
 uniform float uGrassSheenPower;
 varying vec3 vGrassColor;
 varying vec2 vGrassSheen;
+varying float vGrassProgress;
 `;
 
 const VERTEX_PALETTE_FRAGMENT_COLOR = `
@@ -789,7 +792,10 @@ const FRAGMENT_SHEEN_OUTPUT = `
   // Skip both the half-vector normalization and the high-power lobe once the
   // contribution has faded. This branch is coherent across distant quads.
   if (vGrassSheen.x > 0.001) {
-    vec3 grassHalfVector = normalize(grassSunDirection + grassViewDirection);
+    vec3 grassSunPlusView = grassSunDirection + grassViewDirection;
+    vec3 grassHalfVector = length(grassSunPlusView) > 1e-4
+      ? normalize(grassSunPlusView)
+      : normal;
     grassSheen = directionalLights[0].color * (
       pow(saturate(dot(normal, grassHalfVector)), uGrassSheenPower) *
       uGrassSheenStrength * vGrassSheen.x

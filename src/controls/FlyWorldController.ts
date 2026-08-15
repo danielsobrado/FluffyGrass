@@ -46,6 +46,10 @@ export class FlyWorldController
     );
   }
 
+  captureLookAt(camera: THREE.Vector3, target: THREE.Vector3): void {
+    this.lookAtWorld(camera, target);
+  }
+
   teleport(x: number, z: number): void {
     const halfWorld = this.worldConfig.worldSize * 0.5 - 2;
     const clampedX = THREE.MathUtils.clamp(x, -halfWorld, halfWorld);

@@ -29,6 +29,7 @@ import { WorldRuntimeGuard } from "./WorldRuntimeGuard";
 import { WorldStatusHud } from "./WorldStatusHud";
 import { attachWorldStatsPanel } from "./WorldStatsPanel";
 import type { WorldActorProofContext } from "./WorldActorProofContext";
+import type { WorldVisualMatrixContext } from "./WorldVisualMatrixContext";
 import { WorldRevealController } from "../runtime/WorldRevealController";
 import { WorldScenicLayer } from "../world/scenic/WorldScenicLayer";
 import {
@@ -106,7 +107,7 @@ export class WorldApp {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = profile.shadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.applyRendererSize();
 
     this.field = new TerrainField(config);
@@ -246,6 +247,21 @@ export class WorldApp {
       detach: (): void => {
         this.frameObservers.delete(observer);
       },
+    };
+  }
+
+  /**
+   * Development-only hook for the AAA visual-matrix runner (`?qa=visual-matrix`).
+   */
+  attachVisualMatrix(): WorldVisualMatrixContext {
+    this.grass.setQualityTierOverride(1);
+    return {
+      camera: this.camera,
+      renderer: this.renderer,
+      field: this.field,
+      profile: this.profile,
+      controls: this.controls,
+      isReady: () => !this.grassInitializing && this.grassEnabled,
     };
   }
 

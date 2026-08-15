@@ -251,7 +251,7 @@ const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
  * against the previous rule would otherwise survive in the LRU and draw beside
  * freshly built neighbours.
  */
-const GRASS_PLACEMENT_VERSION = 4;
+const GRASS_PLACEMENT_VERSION = 5;
 /** Bound negative-placement memory while retaining far more than one view. */
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
@@ -800,7 +800,7 @@ export class WorldSingleBladeTileFactory {
       // becomes fully dense when the near LOD arrives and the path edge grows
       // visibly around the moving camera.
       const sparseCoverage =
-        archetype === GRASS_CLUSTER_SPARSE_OPEN ? 0.72 : 1;
+        archetype === GRASS_CLUSTER_SPARSE_OPEN ? 0.52 : 1;
       job.coverages[job.bladeCount] =
         this.habitatSample.density * pathMask * stoneMask * sparseCoverage;
       job.biomes[job.bladeCount] = biomeIndex;

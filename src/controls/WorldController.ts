@@ -16,4 +16,9 @@ export interface WorldController {
    * streaming focus across the whole map and queue every chunk between.
    */
   teleport(x: number, z: number): void;
+  /**
+   * Snap the camera to a capture pose. Streaming focus stays on the look-at
+   * ground point so LOD and water around the subject finish building.
+   */
+  captureLookAt(camera: THREE.Vector3, target: THREE.Vector3): void;
 }

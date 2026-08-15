@@ -4,7 +4,9 @@ compactMaxWidth: 820
 desktopCameraFov: 60
 desktopCameraMargin: 1.18
 desktopCameraElevation: 0.72
-desktopMaxPixelRatio: 2
+# 2x shading on a grass-heavy frame is mostly extra fill. 1.5 keeps retina
+# sharpness without paying a full 4K pass.
+desktopMaxPixelRatio: 1.5
 desktopAutoRotate: true
 desktopShadows: true
 # The sun's shadow frustum follows the character in a ~14 m box rather than

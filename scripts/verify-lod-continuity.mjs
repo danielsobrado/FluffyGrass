@@ -556,6 +556,9 @@ const expectedMidDistances = {
   "zelda-field": 56,
   windswept: 52,
 };
+const midBatchSize =
+  readYamlNumber(worldConfig, "chunkSize") /
+  readYamlNumber(worldConfig, "grassRenderBatchesPerAxis");
 function smoothstep(value, start, end) {
   const amount = Math.max(0, Math.min(1, (value - start) / (end - start)));
   return amount * amount * (3 - 2 * amount);
@@ -570,6 +573,10 @@ for (const [key, direction] of Object.entries(artDirections)) {
   assert(
     farEntryStart >= nearFadeEnd && farEntryStart - nearFadeEnd <= 16,
     `${direction.label} must avoid both a triple-LOD overlap and a long mid-only band.`,
+  );
+  assert(
+    direction.nearDistance + direction.transitionDistance > midBatchSize,
+    `${direction.label} near fade must extend past a ${midBatchSize} m mid batch so the camera batch cannot submit every mid blade.`,
   );
   for (let sample = 0; sample <= 1000; sample += 1) {
     const distance =
