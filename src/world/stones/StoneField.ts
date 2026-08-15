@@ -994,8 +994,10 @@ export class StoneField {
       if (!this.samplePathTangent(sampleX, sampleZ)) {
         continue;
       }
-      const acrossX = this.tangentScratch.z;
-      const acrossZ = -this.tangentScratch.x;
+      const alongTangentX = this.tangentScratch.x;
+      const alongTangentZ = this.tangentScratch.z;
+      const acrossX = alongTangentZ;
+      const acrossZ = -alongTangentX;
       const side = distance >= 0 ? 1 : -1;
       const archetype: StoneArchetypeId = attempt.chance(0.55)
         ? "pebble"
@@ -1066,7 +1068,7 @@ export class StoneField {
         pickGrassBiomeIndex(x, z, biomeSample),
         BIOME_PALETTE.length - 1,
       );
-      const alongAngle = Math.atan2(tangent.z, tangent.x);
+      const alongAngle = Math.atan2(alongTangentZ, alongTangentX);
       const moss = clamp01(
         stoneMossBase(
           stoneHeight,
