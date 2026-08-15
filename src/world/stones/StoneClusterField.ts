@@ -28,7 +28,6 @@ import {
   CLUSTER_PRIORITY_RANDOM_SHARE,
   clusterCacheKeepCount,
   clusterEnvironmentMossBase,
-  clusterGridKey,
   clusterMinimumSeparation,
   clusterWinsConflict,
   COMPACT_ASPECT_BLEND,
@@ -38,6 +37,7 @@ import {
   FAN_ASPECT_BLEND,
   fillClusterConflictNeighbors,
   lerp,
+  packLatticeKey,
   RAW_CANDIDATE_CACHE_LIMIT,
   SCREE_ASPECT_BLEND,
   smoothstep,
@@ -97,8 +97,8 @@ export interface StoneClusterDescriptor extends StoneClusterCandidate {
  * per uncached raw candidate at the jittered center.
  */
 export class StoneClusterField {
-  private readonly rawCandidates = new Map<string, StoneClusterCandidate>();
-  private readonly descriptors = new Map<string, StoneClusterDescriptor>();
+  private readonly rawCandidates = new Map<number, StoneClusterCandidate>();
+  private readonly descriptors = new Map<number, StoneClusterDescriptor>();
   private readonly rockSeed: number;
   private readonly landformScratch: TerrainLandform = createTerrainLandform();
   private readonly hydrologyScratch: HydrologySample = createHydrologySample();
@@ -106,8 +106,7 @@ export class StoneClusterField {
   private readonly ecologyScratch: WorldEcologySample = createEcologySample();
   private readonly biomeScratch = createGrassBiomeSample();
   private readonly conflictScratch: StoneMacroCoord[] = [];
-  private readonly conflictNeighborX = new Int32Array(8);
-  private readonly conflictNeighborZ = new Int32Array(8);
+  private fullTerrainSamples = 0;
 
   constructor(
     private readonly field: TerrainField,
@@ -117,7 +116,7 @@ export class StoneClusterField {
   }
 
   getRawCandidate(gridX: number, gridZ: number): StoneClusterCandidate {
-    const key = clusterGridKey(gridX, gridZ);
+    const key = packLatticeKey(gridX, gridZ);
     const cached = this.rawCandidates.get(key);
     if (cached) {
       return cached;
@@ -134,7 +133,7 @@ export class StoneClusterField {
   }
 
   getDescriptor(gridX: number, gridZ: number): StoneClusterDescriptor {
-    const key = clusterGridKey(gridX, gridZ);
+    const key = packLatticeKey(gridX, gridZ);
     const cached = this.descriptors.get(key);
     if (cached) {
       return cached;
@@ -152,6 +151,10 @@ export class StoneClusterField {
     }
     this.descriptors.set(key, descriptor);
     return descriptor;
+  }
+
+  getFullTerrainSampleCount(): number {
+    return this.fullTerrainSamples;
   }
 
   sampleGeologyPotential(x: number, z: number): number {
@@ -181,17 +184,10 @@ export class StoneClusterField {
       raw.gridZ,
       this.conflictScratch,
     );
-    for (let index = 0; index < count; index += 1) {
-      const slot = this.conflictScratch[index];
-      this.conflictNeighborX[index] = slot.gridX;
-      this.conflictNeighborZ[index] = slot.gridZ;
-    }
     const spacing = this.config.stoneClusterSpacing;
     for (let index = 0; index < count; index += 1) {
-      const neighbor = this.getRawCandidate(
-        this.conflictNeighborX[index],
-        this.conflictNeighborZ[index],
-      );
+      const slot = this.conflictScratch[index];
+      const neighbor = this.getRawCandidate(slot.gridX, slot.gridZ);
       if (!neighbor.rawActive) {
         continue;
       }
@@ -239,8 +235,12 @@ export class StoneClusterField {
       (gridX + 0.5 + rng.fork("center-x").signed(jitter)) * spacing;
     const centerZ =
       (gridZ + 0.5 + rng.fork("center-z").signed(jitter)) * spacing;
-
     const geologyPotential = this.sampleGeologyPotential(centerX, centerZ);
+    if (!(geologyPotential > 0)) {
+      return quietCandidate(gridX, gridZ, seed, centerX, centerZ, 0);
+    }
+
+    this.fullTerrainSamples += 1;
     const height = this.field.sampleHeight(centerX, centerZ);
     // Hydrology must run before landform. `sampleHeight` leaves a same-point
     // carve cache that `sampleHydrology` consumes; landform lattice misses
@@ -287,7 +287,6 @@ export class StoneClusterField {
         (0.18 + 0.82 * surfaceRockiness) *
         (1 - 0.9 * disturbance),
     );
-
     const densityResponse =
       1 -
       Math.exp(
@@ -301,14 +300,48 @@ export class StoneClusterField {
           this.config.stoneClusterChance * densityResponse * suitabilityResponse,
         ),
       );
-    const priority =
-      suitability * (1 - CLUSTER_PRIORITY_RANDOM_SHARE) +
-      rng.fork("priority").next() * CLUSTER_PRIORITY_RANDOM_SHARE;
-
     const process = classifyStoneClusterProcess(
       landformSnapshot.slope,
       landformSnapshot.convexity,
     );
+    if (!rawActive) {
+      return {
+        ...quietCandidate(
+          gridX,
+          gridZ,
+          seed,
+          centerX,
+          centerZ,
+          geologyPotential,
+        ),
+        height,
+        moisture,
+        fertility,
+        exposure,
+        disturbance,
+        surfaceRockiness,
+        landformSlope: landformSnapshot.slope,
+        landformConvexity: landformSnapshot.convexity,
+        landformGradientX: landformSnapshot.gradientX,
+        landformGradientZ: landformSnapshot.gradientZ,
+        suitability,
+        process,
+        biomeIndex,
+        paletteKey: BIOME_PALETTE[biomeIndex] ?? BIOME_PALETTE[0],
+        mossBase: clusterEnvironmentMossBase(
+          height,
+          moisture,
+          exposure,
+          surfaceRockiness,
+          this.config.grassMinAltitude,
+          this.config.grassMaxAltitude,
+        ),
+      };
+    }
+
+    const priority =
+      suitability * (1 - CLUSTER_PRIORITY_RANDOM_SHARE) +
+      rng.fork("priority").next() * CLUSTER_PRIORITY_RANDOM_SHARE;
     const strike = this.sampleStrike(centerX, centerZ);
     const gradientLength = Math.hypot(
       landformSnapshot.gradientX,
@@ -351,7 +384,6 @@ export class StoneClusterField {
     }
     const minorRadius = majorRadius * aspect;
     const influenceRadius = majorRadius * this.config.stoneClusterHaloRatio;
-
     const budgetT = smoothstep(suitability, 0.25, 0.8);
     const budget = clamp(
       Math.round(
@@ -364,7 +396,6 @@ export class StoneClusterField {
       this.config.stoneClusterBudgetMin,
       this.config.stoneClusterBudgetMax,
     );
-
     const valueBase = rng.fork("value-base").range(0.97, 1.03);
     const mossBias = rng.fork("moss-bias").range(0.9, 1.1);
     const mossyHit = rng

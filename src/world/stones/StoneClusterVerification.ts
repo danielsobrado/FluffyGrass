@@ -141,11 +141,12 @@ function graph(config: WorldConfig): {
   stones: StoneField;
 } {
   const terrain = new TerrainField(config);
+  const stones = new StoneField(terrain, config);
   return {
     terrain,
-    clusters: new StoneClusterField(terrain, config),
+    clusters: stones.getClusterField(),
     composition: new StoneClusterComposition(config),
-    stones: new StoneField(terrain, config),
+    stones,
   };
 }
 
@@ -240,13 +241,21 @@ export function verifyStoneClusters(configSource: string): string {
       canonicalDescriptor(first.clusters.getDescriptor(gridX, gridZ)),
     );
   });
-  visitDomain(13, 16, (gridX, gridZ) => {
-    first.clusters.getDescriptor(gridX, gridZ);
-  });
+  visitDomain(
+    80,
+    80 + Math.ceil(Math.sqrt(DESCRIPTOR_CACHE_LIMIT)) + 4,
+    (gridX, gridZ) => {
+      first.clusters.getRawCandidate(gridX, gridZ);
+      first.clusters.getDescriptor(gridX, gridZ);
+    },
+  );
   visitDomain(PRIMARY_MIN, PRIMARY_MIN + 7, (gridX, gridZ) => {
     const key = `${gridX}:${gridZ}`;
     const now = canonicalDescriptor(first.clusters.getDescriptor(gridX, gridZ));
-    assert(replay.get(key) === now, `D. Descriptor cache eviction rewrote ${key}.`);
+    assert(
+      replay.get(key) === now,
+      `D. Descriptor cache eviction rewrote ${key}.\nwas ${replay.get(key)}\nnow ${now}`,
+    );
   });
 
   let isolationChecked = false;
