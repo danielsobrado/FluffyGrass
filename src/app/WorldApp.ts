@@ -9,11 +9,9 @@ import { grassTrailField } from "../grass/interaction/GrassTrailField";
 import { FlyWorldController } from "../controls/FlyWorldController";
 import { ThirdPersonController } from "../controls/ThirdPersonController";
 import type { WorldController } from "../controls/WorldController";
+import type { SnowflowCharacter } from "../character/SnowflowCharacter";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
-import {
-  resolvePixelRatio,
-  resolveViewportSize,
-} from "../runtime/ViewportSizing";
+import { resolvePixelRatio, resolveViewportSize } from "../runtime/ViewportSizing";
 import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
 import { StoneField } from "../world/stones/StoneField";
@@ -123,31 +121,15 @@ export class WorldApp {
       spawn.pitch = THREE.MathUtils.degToRad(-34);
     }
     this.environment = new WorldEnvironmentController(
-      this.scene,
-      this.renderer,
-      profile,
-      profile.shadows && !useFlyControls,
+      this.scene, this.renderer, profile, profile.shadows && !useFlyControls,
     );
     this.terrain = new TerrainStreamer(
-      this.scene,
-      this.field,
-      config,
-      profile.compact,
-      profile.shadows && !useFlyControls,
+      this.scene, this.field, config, profile.compact, profile.shadows && !useFlyControls,
     );
     this.stones = new WorldStoneSystem(
-      this.scene,
-      stoneField,
-      config,
-      profile.compact,
-      profile.shadows && !useFlyControls,
+      this.scene, stoneField, config, profile.compact, profile.shadows && !useFlyControls,
     );
-    this.grass = new WorldGrassSystem(
-      this.scene,
-      this.field,
-      config,
-      profile,
-    );
+    this.grass = new WorldGrassSystem(this.scene, this.field, config, profile);
     const tierOverride = params.get("tier");
     if (tierOverride !== null && /^\d+$/.test(tierOverride)) {
       this.grass.setQualityTierOverride(Number(tierOverride));
@@ -169,21 +151,10 @@ export class WorldApp {
     }
     this.controls = useFlyControls
       ? new FlyWorldController(
-          this.camera,
-          canvas,
-          config,
-          profile,
-          spawn,
-          this.field,
+          this.camera, canvas, config, profile, spawn, this.field,
         )
       : new ThirdPersonController(
-          this.scene,
-          this.camera,
-          canvas,
-          this.field,
-          config,
-          profile,
-          spawn,
+          this.scene, this.camera, canvas, this.field, config, profile, spawn,
         );
     this.minimap = new WorldMinimap(this.field, config, this.controls);
     this.scenic = new WorldScenicLayer(
@@ -243,6 +214,19 @@ export class WorldApp {
       this.checkFrameHeartbeat,
       WORLD_FRAME_WATCHDOG_INTERVAL_MS,
     );
+  }
+
+  getThirdPersonCharacter(): SnowflowCharacter | undefined {
+    return this.controls instanceof ThirdPersonController
+      ? this.controls.getCharacter()
+      : undefined;
+  }
+
+  addFrameObserver(observer: (deltaSeconds: number) => void): () => void {
+    this.frameObservers.add(observer);
+    return () => {
+      this.frameObservers.delete(observer);
+    };
   }
 
   /**

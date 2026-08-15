@@ -33,6 +33,8 @@ export class ThirdPersonInput {
   private mobileJumpHeld = false;
   private jumpRequested = false;
   private resetRequested = false;
+  private crouchToggled = false;
+  private rollRequested = false;
   private zoomDelta = 0;
   private inputEventCount = 0;
   private lastInputType = "idle";
@@ -87,6 +89,20 @@ export class ThirdPersonInput {
     const requested = this.jumpRequested;
     this.jumpRequested = false;
     return requested;
+  }
+
+  consumeRoll(): boolean {
+    const requested = this.rollRequested;
+    this.rollRequested = false;
+    return requested;
+  }
+
+  isCrouched(): boolean {
+    return this.crouchToggled;
+  }
+
+  setCrouched(crouched: boolean): void {
+    this.crouchToggled = crouched;
   }
 
   consumeReset(): boolean {
@@ -385,6 +401,12 @@ export class ThirdPersonInput {
     this.inputEventCount += 1;
     if (event.code === "KeyF" && !event.repeat) {
       this.resetRequested = true;
+    }
+    if (event.code === "KeyC" && !event.repeat) {
+      this.crouchToggled = !this.crouchToggled;
+    }
+    if (event.code === "KeyR" && !event.repeat) {
+      this.rollRequested = true;
     }
   };
 

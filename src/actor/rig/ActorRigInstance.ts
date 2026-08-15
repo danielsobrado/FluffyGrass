@@ -12,6 +12,20 @@ import type { ActorRigDefinition } from "./ActorRigDefinition";
  *
  * It reads no input, samples no terrain, and decides no locomotion.
  */
+export interface ActorRigInstanceOptions {
+  /**
+   * Bones to adopt instead of creating fresh ones, aligned with the
+   * definition's indexes.
+   *
+   * Imported characters arrive with their skinned meshes already bound to a
+   * skeleton. Rebuilding a parallel hierarchy would leave the skinning behind,
+   * so the instance drives the imported bones directly and leaves ownership of
+   * them — and of the loaded scene they hang in — with the importer.
+   */
+  readonly adoptBones?: readonly THREE.Bone[];
+  readonly adoptSkeleton?: THREE.Skeleton;
+}
+
 export class ActorRigInstance {
   readonly definition: ActorRigDefinition;
   /** Bone objects indexed exactly as the definition indexes them. */
@@ -20,34 +34,53 @@ export class ActorRigInstance {
   readonly rootBone: THREE.Bone;
   readonly skeleton: THREE.Skeleton;
   private readonly sockets = new Map<string, THREE.Object3D>();
+  private readonly ownsBones: boolean;
   private disposed = false;
 
-  constructor(definition: ActorRigDefinition, parent: THREE.Object3D) {
+  constructor(
+    definition: ActorRigDefinition,
+    parent: THREE.Object3D,
+    options: ActorRigInstanceOptions = {},
+  ) {
     this.definition = definition;
-    const bones: THREE.Bone[] = [];
-    for (let index = 0; index < definition.boneCount; index += 1) {
-      const bone = new THREE.Bone();
-      bone.name = definition.bones[index].name;
-      bone.position.set(
-        definition.bindPositions[index * 3],
-        definition.bindPositions[index * 3 + 1],
-        definition.bindPositions[index * 3 + 2],
-      );
-      bone.quaternion.set(
-        definition.bindRotations[index * 4],
-        definition.bindRotations[index * 4 + 1],
-        definition.bindRotations[index * 4 + 2],
-        definition.bindRotations[index * 4 + 3],
-      );
-      const parentIndex = definition.parents[index];
-      if (parentIndex >= 0) {
-        bones[parentIndex].add(bone);
+    const adopted = options.adoptBones;
+    this.ownsBones = adopted === undefined;
+    let bones: THREE.Bone[];
+    if (adopted !== undefined) {
+      if (adopted.length !== definition.boneCount) {
+        throw new Error(
+          `Actor rig "${definition.name}" expects ${definition.boneCount} bones but was given ${adopted.length} to adopt.`,
+        );
       }
-      bones.push(bone);
+      bones = adopted.slice();
+    } else {
+      bones = [];
+      for (let index = 0; index < definition.boneCount; index += 1) {
+        const bone = new THREE.Bone();
+        bone.name = definition.bones[index].name;
+        bone.position.set(
+          definition.bindPositions[index * 3],
+          definition.bindPositions[index * 3 + 1],
+          definition.bindPositions[index * 3 + 2],
+        );
+        bone.quaternion.set(
+          definition.bindRotations[index * 4],
+          definition.bindRotations[index * 4 + 1],
+          definition.bindRotations[index * 4 + 2],
+          definition.bindRotations[index * 4 + 3],
+        );
+        const parentIndex = definition.parents[index];
+        if (parentIndex >= 0) {
+          bones[parentIndex].add(bone);
+        }
+        bones.push(bone);
+      }
     }
     this.bones = bones;
     this.rootBone = bones[0];
-    parent.add(this.rootBone);
+    if (this.ownsBones) {
+      parent.add(this.rootBone);
+    }
 
     for (const [key, socket] of definition.sockets) {
       const object = new THREE.Object3D();
@@ -67,7 +100,10 @@ export class ActorRigInstance {
     }
 
     this.rootBone.updateMatrixWorld(true);
-    this.skeleton = new THREE.Skeleton(bones);
+    // An adopted skeleton already holds the inverse bind matrices the imported
+    // meshes were skinned against; recomputing them from the current pose would
+    // bake that pose into the bind.
+    this.skeleton = options.adoptSkeleton ?? new THREE.Skeleton(bones);
   }
 
   getBone(index: number): THREE.Bone {
@@ -149,8 +185,18 @@ export class ActorRigInstance {
       return;
     }
     this.disposed = true;
-    this.rootBone.removeFromParent();
+    // Sockets are this instance's own objects whichever way the bones arrived.
+    for (const socket of this.sockets.values()) {
+      socket.removeFromParent();
+    }
     this.sockets.clear();
+    if (!this.ownsBones) {
+      // Adopted bones and their skeleton belong to the imported scene. Freeing
+      // them here would tear down geometry the importer is still responsible
+      // for, and could strand another instance sharing the same load.
+      return;
+    }
+    this.rootBone.removeFromParent();
     this.skeleton.dispose();
   }
 }

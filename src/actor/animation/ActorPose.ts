@@ -156,4 +156,47 @@ export class ActorPose {
       }
     }
   }
+
+  /**
+   * Applies an additive delta pose through a per-bone weight mask.
+   */
+  addAdditiveMasked(
+    delta: ActorPose,
+    mask: Float32Array,
+    weight: number,
+  ): void {
+    if (weight <= 0) {
+      return;
+    }
+    for (let bone = 0; bone < this.boneCount; bone += 1) {
+      const maskedWeight = mask[bone] * weight;
+      if (!(maskedWeight > 0)) {
+        continue;
+      }
+      const scaled = maskedWeight >= 1 ? 1 : maskedWeight;
+      multiplyConjugateQuaternion(
+        scratchDelta,
+        0,
+        this.definition.bindRotations,
+        bone,
+        delta.rotations,
+        bone,
+      );
+      slerpQuaternion(scratchDelta, 0, IDENTITY, 0, scratchDelta, 0, scaled);
+      multiplyQuaternions(
+        this.rotations,
+        bone,
+        this.rotations,
+        bone,
+        scratchDelta,
+        0,
+      );
+      const base = bone * 3;
+      for (let axis = 0; axis < 3; axis += 1) {
+        this.translations[base + axis] +=
+          delta.translations[base + axis] * scaled;
+      }
+    }
+  }
 }
+

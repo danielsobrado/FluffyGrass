@@ -29,6 +29,14 @@ export interface ActorBoneRequest {
   readonly rotationX?: number;
   readonly rotationY?: number;
   readonly rotationZ?: number;
+  /**
+   * Bind rotation as a quaternion, which wins over the Euler fields.
+   *
+   * Imported skeletons carry quaternions already; routing them through Euler
+   * angles would lose precision and could pick a different branch near gimbal
+   * lock.
+   */
+  readonly quaternion?: readonly [number, number, number, number];
   readonly role?: string;
   readonly allowTranslation?: boolean;
   readonly secondary?: boolean;
@@ -121,13 +129,17 @@ export class ActorRigBuilder {
     });
     this.positions.push(request.x ?? 0, request.y ?? 0, request.z ?? 0);
     const rotation = new Float32Array(4);
-    setQuaternionFromEulerXyz(
-      rotation,
-      0,
-      request.rotationX ?? 0,
-      request.rotationY ?? 0,
-      request.rotationZ ?? 0,
-    );
+    if (request.quaternion !== undefined) {
+      rotation.set(request.quaternion);
+    } else {
+      setQuaternionFromEulerXyz(
+        rotation,
+        0,
+        request.rotationX ?? 0,
+        request.rotationY ?? 0,
+        request.rotationZ ?? 0,
+      );
+    }
     this.rotations.push(rotation[0], rotation[1], rotation[2], rotation[3]);
     if (request.role !== undefined) {
       if (this.roles.has(request.role)) {

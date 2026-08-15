@@ -7,41 +7,68 @@ import type { ActorBoneIndex } from "../../actor/rig/ActorBoneIndex";
  * rig definition, so these indexes are resolved once when the definition is
  * built and then stored directly. No animation frame looks a bone up by name.
  */
-export interface HumanoidRigBones {
+/**
+ * Bones every humanoid rig must provide.
+ *
+ * These are the joints the locomotion layer cannot express a walk without. A
+ * rig that cannot fill one of them is not a humanoid as far as this profile is
+ * concerned, and fails at initialization rather than animating a missing joint.
+ */
+export interface HumanoidRequiredBones {
   readonly actorRoot: ActorBoneIndex;
   readonly pelvis: ActorBoneIndex;
-  readonly spineLower: ActorBoneIndex;
-  readonly spineUpper: ActorBoneIndex;
   readonly chest: ActorBoneIndex;
-  readonly neck: ActorBoneIndex;
   readonly head: ActorBoneIndex;
-  readonly hairLeft: ActorBoneIndex;
-  readonly hairRight: ActorBoneIndex;
-  readonly hood: ActorBoneIndex;
-  readonly cloakBack: ActorBoneIndex;
-  readonly cloakLeft: ActorBoneIndex;
-  readonly cloakRight: ActorBoneIndex;
-  readonly clavicleLeft: ActorBoneIndex;
   readonly upperArmLeft: ActorBoneIndex;
   readonly forearmLeft: ActorBoneIndex;
   readonly handLeft: ActorBoneIndex;
-  readonly clavicleRight: ActorBoneIndex;
   readonly upperArmRight: ActorBoneIndex;
   readonly forearmRight: ActorBoneIndex;
   readonly handRight: ActorBoneIndex;
-  readonly skirt: ActorBoneIndex;
-  readonly skirtFront: ActorBoneIndex;
-  readonly skirtLeft: ActorBoneIndex;
-  readonly skirtRight: ActorBoneIndex;
   readonly thighLeft: ActorBoneIndex;
   readonly shinLeft: ActorBoneIndex;
   readonly footLeft: ActorBoneIndex;
-  readonly toeLeft: ActorBoneIndex;
   readonly thighRight: ActorBoneIndex;
   readonly shinRight: ActorBoneIndex;
   readonly footRight: ActorBoneIndex;
-  readonly toeRight: ActorBoneIndex;
 }
+
+/**
+ * Joints a humanoid rig may or may not have.
+ *
+ * The Snowflow rig is authored with all of them; an imported pack rig commonly
+ * has no clavicles, no subdivided spine, no neck, and no cloth bones at all.
+ * Absence is valid and must stay valid — the alternative is inventing fake
+ * bones so a pose can address them, which the architecture rules out.
+ */
+export interface HumanoidOptionalBones {
+  readonly spineLower?: ActorBoneIndex;
+  readonly spineUpper?: ActorBoneIndex;
+  readonly neck?: ActorBoneIndex;
+  readonly clavicleLeft?: ActorBoneIndex;
+  readonly clavicleRight?: ActorBoneIndex;
+  readonly toeLeft?: ActorBoneIndex;
+  readonly toeRight?: ActorBoneIndex;
+  readonly hairLeft?: ActorBoneIndex;
+  readonly hairRight?: ActorBoneIndex;
+  readonly hood?: ActorBoneIndex;
+  readonly cloakBack?: ActorBoneIndex;
+  readonly cloakLeft?: ActorBoneIndex;
+  readonly cloakRight?: ActorBoneIndex;
+  readonly skirt?: ActorBoneIndex;
+  readonly skirtFront?: ActorBoneIndex;
+  readonly skirtLeft?: ActorBoneIndex;
+  readonly skirtRight?: ActorBoneIndex;
+}
+
+export type HumanoidRigBones = HumanoidRequiredBones & HumanoidOptionalBones;
+
+/**
+ * The Snowflow rig fills every optional joint, so player code that legitimately
+ * depends on cloth and spine bones can keep reading them without guards.
+ */
+export type SnowflowRigBones = HumanoidRequiredBones &
+  Required<HumanoidOptionalBones>;
 
 /** Chain names the humanoid profile solves. */
 export const HUMANOID_CHAIN_LEG_LEFT = "leg.L";

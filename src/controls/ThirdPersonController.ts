@@ -148,6 +148,11 @@ export class ThirdPersonController implements WorldController {
     this.grassPose.grounded = this.grounded;
     grassInteractionField.update(delta, this.grassPose);
     this.updateCamera(delta, false);
+    this.character.setLookDirection(
+      this.cameraForward.x,
+      this.cameraForward.y,
+      this.cameraForward.z,
+    );
     this.animationVelocity.set(
       this.velocity.x,
       this.verticalVelocity,
@@ -172,6 +177,10 @@ export class ThirdPersonController implements WorldController {
 
   getInputDiagnostics(): string {
     return `${this.character.getState()} · ${this.input.getDiagnostics()}`;
+  }
+
+  getCharacter(): SnowflowCharacter {
+    return this.character;
   }
 
   getStreamingPosition(): THREE.Vector3 {
@@ -252,6 +261,8 @@ export class ThirdPersonController implements WorldController {
     this.characterPose.jumpStarted = this.jumpStarted;
     this.characterPose.landed = this.landed;
     this.characterPose.landingImpact = this.landingImpact;
+    this.characterPose.crouched = this.input.isCrouched();
+    this.characterPose.rollStarted = this.character.isRolling();
     return this.characterPose;
   }
 
@@ -291,11 +302,28 @@ export class ThirdPersonController implements WorldController {
     if (hasMovement) {
       this.movement.normalize();
     }
-    const targetSpeed = hasMovement
-      ? this.input.isSprinting()
-        ? this.config.characterRunSpeed
-        : this.config.characterWalkSpeed
-      : 0;
+
+    if (this.input.consumeRoll() && this.grounded && !this.character.isRolling()) {
+      this.character.triggerRoll();
+      const rollDirX = hasMovement ? this.movement.x : Math.sin(this.facing);
+      const rollDirZ = hasMovement ? this.movement.z : Math.cos(this.facing);
+      this.velocity.set(
+        rollDirX * this.config.characterRunSpeed * 1.25,
+        0,
+        rollDirZ * this.config.characterRunSpeed * 1.25,
+      );
+    }
+
+    const isCrouched = this.input.isCrouched();
+    const targetSpeed = this.character.isRolling()
+      ? this.config.characterRunSpeed * 1.15
+      : hasMovement
+        ? isCrouched
+          ? this.config.characterWalkSpeed * 0.6
+          : this.input.isSprinting()
+            ? this.config.characterRunSpeed
+            : this.config.characterWalkSpeed
+        : 0;
     this.desiredVelocity.copy(this.movement).multiplyScalar(targetSpeed);
     this.velocityDelta.subVectors(this.desiredVelocity, this.velocity);
     this.velocityDelta.y = 0;
@@ -445,9 +473,10 @@ export class ThirdPersonController implements WorldController {
   }
 
   private updateCamera(deltaSeconds: number, immediate: boolean): void {
+    const crouchOffset = this.input.isCrouched() ? -0.32 : 0;
     this.cameraTarget.set(
       this.position.x,
-      this.position.y + this.config.characterCameraLookHeight,
+      this.position.y + this.config.characterCameraLookHeight + crouchOffset,
       this.position.z,
     );
     const horizontalDistance =

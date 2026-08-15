@@ -281,13 +281,51 @@ for (const line of stripComments(pose).split("\n")) {
     `ActorPose interpolates Euler angles at "${line.trim()}"; blending must stay on quaternions.`,
   );
 }
-for (const method of ["blendToward", "blendMasked", "addAdditive"]) {
+for (const method of ["blendToward", "blendMasked", "addAdditive", "addAdditiveMasked"]) {
   const body = pose.slice(pose.indexOf(`${method}(`));
   assert(
     body.slice(0, body.indexOf("\n  }")).includes("slerpQuaternion"),
     `ActorPose.${method} must interpolate rotations with the shared quaternion slerp.`,
   );
 }
+
+const additiveLayer = read("src/actor/animation/ActorAdditiveLayer.ts");
+const humanoidAdditive = read(
+  "src/character/animation/HumanoidAdditiveLayer.ts",
+);
+assert(
+  additiveLayer.includes("class ActorAdditiveLayer implements ActorPoseStage") &&
+    additiveLayer.includes("addTrack(") &&
+    additiveLayer.includes("setWeight(") &&
+    additiveLayer.includes("fadeTo(") &&
+    !/apply\([^)]*\)[^}]*new Float32Array/s.test(additiveLayer),
+  "ActorAdditiveLayer must be an allocation-free ActorPoseStage managing additive tracks.",
+);
+
+for (const action of ["sneak_pose", "sad_pose", "agree", "headShake"]) {
+  assert(
+    humanoidAdditive.includes(`"${action}"`),
+    `HumanoidAdditiveLayer must declare the Three.js reference action "${action}".`,
+  );
+}
+
+assert(
+  locomotionLayer.includes("getBlendWeights()") &&
+    locomotionLayer.includes("setExplicitWeights(") &&
+    locomotionLayer.includes('"crouch_idle"') &&
+    locomotionLayer.includes('"crouch_walk"') &&
+    locomotionLayer.includes('"roll"'),
+  "HumanoidLocomotionLayer must expose continuous blend weights, crouch, and roll locomotion states.",
+);
+
+const lookIk = read("src/actor/ik/ActorLookIk.ts");
+assert(
+  lookIk.includes("class ActorLookIk implements ActorPoseStage") &&
+    lookIk.includes("setLookDirection(") &&
+    lookIk.includes("setLookTarget(") &&
+    !/apply\([^)]*\)[^}]*new Float32Array/s.test(lookIk),
+  "ActorLookIk must be an allocation-free ActorPoseStage managing look target distribution.",
+);
 // Read the order inside update() alone, so an import at the top of the file
 // cannot be mistaken for a pipeline stage.
 const runtimeUpdate = runtime.slice(

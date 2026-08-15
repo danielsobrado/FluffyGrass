@@ -176,6 +176,18 @@ function buildTorso(
   );
   chest.scale.set(0.96, 1, 0.72);
 
+  // Midriff waist transition
+  const waist = addMesh(
+    pelvis,
+    geometries,
+    new THREE.CylinderGeometry(0.142, 0.155, 0.11, 12, 1),
+    materials.tunic,
+    0,
+    0.11,
+    0,
+  );
+  waist.scale.set(0.98, 1, 0.78);
+
   const hips = addMesh(
     pelvis,
     geometries,
@@ -250,6 +262,17 @@ function buildArm(
   materials: SnowflowCharacterMaterialSet,
   side: -1 | 1,
 ): void {
+  // Shoulder joint cap
+  addMesh(
+    upperArm,
+    geometries,
+    new THREE.SphereGeometry(0.058, 8, 8),
+    materials.tunic,
+    side * 0.012,
+    -0.02,
+    0,
+  );
+
   const upperMesh = addMesh(
     upperArm,
     geometries,
@@ -260,6 +283,17 @@ function buildArm(
     0,
   );
   upperMesh.rotation.z = side * -0.12;
+
+  // Elbow joint cap
+  addMesh(
+    forearm,
+    geometries,
+    new THREE.SphereGeometry(0.048, 8, 8),
+    materials.tunic,
+    0,
+    -0.01,
+    0.005,
+  );
 
   addMesh(
     forearm,
@@ -311,6 +345,17 @@ function buildLeg(
   geometries: THREE.BufferGeometry[],
   materials: SnowflowCharacterMaterialSet,
 ): void {
+  // Hip joint cap
+  addMesh(
+    thigh,
+    geometries,
+    new THREE.SphereGeometry(0.085, 8, 8),
+    materials.robe,
+    0,
+    -0.03,
+    0,
+  );
+
   addMesh(
     thigh,
     geometries,
@@ -320,6 +365,18 @@ function buildLeg(
     -0.22,
     0,
   );
+
+  // Knee joint cap
+  addMesh(
+    shin,
+    geometries,
+    new THREE.SphereGeometry(0.072, 8, 8),
+    materials.robe,
+    0,
+    -0.01,
+    0.01,
+  );
+
   addMesh(
     shin,
     geometries,

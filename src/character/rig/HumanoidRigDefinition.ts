@@ -14,7 +14,7 @@ import {
   HUMANOID_MASK_LOWER_BODY,
   HUMANOID_MASK_RIGHT_ARM,
   HUMANOID_MASK_UPPER_BODY,
-  type HumanoidRigBones,
+  type SnowflowRigBones,
 } from "./HumanoidRigBones";
 import {
   HUMANOID_ANKLE_OFFSET_Y,
@@ -45,7 +45,7 @@ const ELBOW_MAX_BEND = Math.PI * 0.83;
 
 export interface HumanoidRig {
   readonly definition: ActorRigDefinition;
-  readonly bones: HumanoidRigBones;
+  readonly bones: SnowflowRigBones;
 }
 
 /**
@@ -211,7 +211,7 @@ function buildHumanoidRig(): HumanoidRig {
     return { thigh, shin, foot, toe };
   });
 
-  const bones: HumanoidRigBones = {
+  const bones: SnowflowRigBones = {
     actorRoot,
     pelvis,
     spineLower,

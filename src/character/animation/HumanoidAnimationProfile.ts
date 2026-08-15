@@ -15,6 +15,8 @@ import {
   HUMANOID_STANCE_DUTY_FACTOR,
   HUMANOID_STRIDE_LENGTH_METERS,
 } from "./HumanoidLocomotionTuning";
+import { ActorLookIk } from "../../actor/ik/ActorLookIk";
+import { HumanoidAdditiveLayer } from "./HumanoidAdditiveLayer";
 
 export interface HumanoidAnimationProfileOptions {
   readonly definition: ActorRigDefinition;
@@ -27,6 +29,9 @@ export interface HumanoidAnimationProfileOptions {
   readonly facts?: HumanoidLocomotionFacts;
   readonly secondaryMotion?: readonly ActorSecondaryMotion[];
   readonly ikStages?: readonly ActorPoseStage[];
+  readonly preIkStages?: readonly ActorPoseStage[];
+  readonly additive?: HumanoidAdditiveLayer;
+  readonly lookIk?: ActorLookIk;
 }
 
 /**
@@ -39,6 +44,8 @@ export interface HumanoidAnimationProfileOptions {
 export interface HumanoidAnimationProfile extends ActorAnimationProfile {
   readonly locomotion: HumanoidLocomotionLayer;
   readonly facts: HumanoidLocomotionFacts;
+  readonly additive: HumanoidAdditiveLayer;
+  readonly lookIk: ActorLookIk;
 }
 
 export function createHumanoidAnimationProfile(
@@ -50,6 +57,38 @@ export function createHumanoidAnimationProfile(
     facts,
     options.landingRecoverySeconds,
   );
+  const additive =
+    options.additive ??
+    new HumanoidAdditiveLayer(options.definition, options.bones);
+  const preIkStages = [
+    additive.stage,
+    ...(options.preIkStages ?? []),
+  ];
+
+  const lookSegments = [
+    ...(options.bones.spineUpper !== undefined
+      ? [{ bone: options.bones.spineUpper, weight: 0.12 }]
+      : []),
+    ...(options.bones.neck !== undefined
+      ? [{ bone: options.bones.neck, weight: 0.38 }]
+      : []),
+    {
+      bone: options.bones.head,
+      weight: options.bones.neck !== undefined ? 0.5 : 0.88,
+    },
+  ];
+  const lookIk =
+    options.lookIk ??
+    new ActorLookIk({
+      definition: options.definition,
+      segments: lookSegments,
+      maxYawRadians: Math.PI * 0.42,
+      maxPitchRadians: Math.PI * 0.25,
+      smoothingRate: 12,
+    });
+
+  const ikStages = [...(options.ikStages ?? []), lookIk];
+
   // Two feet, phase-opposed. The same gait object with a four-entry table is
   // what a quadruped walks on.
   const gait = new ActorGait({
@@ -64,8 +103,12 @@ export function createHumanoidAnimationProfile(
     locomotion,
     gait,
     facts,
-    ikStages: options.ikStages,
+    additive,
+    lookIk,
+    preIkStages,
+    ikStages,
     secondaryMotion: options.secondaryMotion,
     enforceJointLimits: true,
   };
 }
+

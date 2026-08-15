@@ -66,6 +66,7 @@ async function bootstrap(): Promise<void> {
   let app: RunnableApp | undefined;
   let diagnostics: Disposable | undefined;
   let actorProof: Disposable | undefined;
+  let animationHud: Disposable | undefined;
   try {
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
@@ -76,6 +77,23 @@ async function bootstrap(): Promise<void> {
       const { WorldApp } = await import("./app/WorldApp");
       const world = await WorldApp.create(canvas, profile);
       app = world;
+      const character = world.getThirdPersonCharacter();
+      if (character) {
+        const { AnimationBlendingHud } = await import(
+          "./runtime/AnimationBlendingHud"
+        );
+        const hud = new AnimationBlendingHud();
+        hud.attachCharacter(character);
+        const detachObserver = world.addFrameObserver((delta) => {
+          hud.update(delta);
+        });
+        animationHud = {
+          dispose: () => {
+            detachObserver();
+            hud.dispose();
+          },
+        };
+      }
       const diagnosticsEnabled =
         params.get("diagnostics") === "1" ||
         params.get("gpuTiming") === "1" ||
@@ -104,12 +122,14 @@ async function bootstrap(): Promise<void> {
         return;
       }
       disposed = true;
+      animationHud?.dispose();
       actorProof?.dispose();
       diagnostics?.dispose();
       uiController.dispose();
       app?.dispose();
     });
   } catch (error) {
+    animationHud?.dispose();
     actorProof?.dispose();
     diagnostics?.dispose();
     app?.dispose();

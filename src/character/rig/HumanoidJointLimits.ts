@@ -61,15 +61,19 @@ export function addHumanoidJointLimits(
       maxZ: 25 * DEGREES,
     });
   }
-  builder.addJointLimit({
-    bone: bones.neck,
-    minX: -40 * DEGREES,
-    maxX: 40 * DEGREES,
-    minY: -55 * DEGREES,
-    maxY: 55 * DEGREES,
-    minZ: -30 * DEGREES,
-    maxZ: 30 * DEGREES,
-  });
+  // Neck and the subdivided spine are optional joints; a rig without them is a
+  // valid humanoid and simply has fewer limits to enforce.
+  if (bones.neck !== undefined) {
+    builder.addJointLimit({
+      bone: bones.neck,
+      minX: -40 * DEGREES,
+      maxX: 40 * DEGREES,
+      minY: -55 * DEGREES,
+      maxY: 55 * DEGREES,
+      minZ: -30 * DEGREES,
+      maxZ: 30 * DEGREES,
+    });
+  }
   builder.addJointLimit({
     bone: bones.head,
     minX: -35 * DEGREES,
@@ -79,7 +83,10 @@ export function addHumanoidJointLimits(
     minZ: -25 * DEGREES,
     maxZ: 25 * DEGREES,
   });
-  for (const spine of [bones.spineLower, bones.spineUpper, bones.chest]) {
+  const spineJoints = [bones.spineLower, bones.spineUpper, bones.chest].filter(
+    (bone): bone is NonNullable<typeof bone> => bone !== undefined,
+  );
+  for (const spine of spineJoints) {
     builder.addJointLimit({
       bone: spine,
       minX: -35 * DEGREES,

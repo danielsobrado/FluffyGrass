@@ -35,6 +35,8 @@ export interface SnowflowCharacterPose {
   jumpStarted: boolean;
   landed: boolean;
   landingImpact: number;
+  crouched?: boolean;
+  rollStarted?: boolean;
 }
 
 /**
@@ -123,6 +125,8 @@ export class SnowflowCharacter {
     this.profile.facts.jumpStarted = false;
     this.profile.facts.landed = false;
     this.profile.facts.landingImpact = 0;
+    this.profile.facts.crouched = false;
+    this.profile.facts.rollStarted = false;
     this.animationInput.teleported = true;
     this.runtime.reset(this.animationInput);
     this.animationInput.teleported = false;
@@ -144,6 +148,71 @@ export class SnowflowCharacter {
     return this.runtime.getStateName();
   }
 
+  setCrouch(crouched: boolean): void {
+    this.profile.facts.crouched = crouched;
+  }
+
+  isCrouched(): boolean {
+    return this.profile.locomotion.isCrouched();
+  }
+
+  triggerRoll(): void {
+    this.profile.facts.rollStarted = true;
+  }
+
+  isRolling(): boolean {
+    return this.profile.locomotion.isRolling();
+  }
+
+  setLookTarget(target: THREE.Vector3 | null): void {
+    if (target === null) {
+      this.profile.lookIk.clear();
+    } else {
+      this.profile.lookIk.setLookTarget(
+        this.worldPosition.x,
+        this.worldPosition.y + 1.2,
+        this.worldPosition.z,
+        target.x,
+        target.y,
+        target.z,
+      );
+    }
+  }
+
+  setLookDirection(dirX: number, dirY: number, dirZ: number): void {
+    this.profile.lookIk.setLookDirection(dirX, dirY, dirZ);
+  }
+
+  clearLookTarget(): void {
+    this.profile.lookIk.clear();
+  }
+
+  setAdditiveWeight(name: string, weight: number): void {
+    this.profile.additive.setWeight(name, weight);
+  }
+
+  getAdditiveWeight(name: string): number {
+    return this.profile.additive.getWeight(name);
+  }
+
+  fadeAdditiveWeight(
+    name: string,
+    targetWeight: number,
+    durationSeconds: number,
+  ): void {
+    this.profile.additive.fadeTo(name, targetWeight, durationSeconds);
+  }
+
+  getLocomotionBlendWeights() {
+    return this.profile.locomotion.getBlendWeights();
+  }
+
+  setExplicitLocomotionWeights(
+    weights: { idle?: number; walk?: number; run?: number } | null,
+  ): void {
+    this.profile.locomotion.setExplicitWeights(weights);
+  }
+
   private syncAnimationInput(pose: SnowflowCharacterPose): void {
     const input = this.animationInput;
     this.worldPosition.copy(pose.position);
@@ -161,6 +230,10 @@ export class SnowflowCharacter {
     this.profile.facts.jumpStarted = pose.jumpStarted;
     this.profile.facts.landed = pose.landed;
     this.profile.facts.landingImpact = pose.landingImpact;
+    this.profile.facts.crouched = pose.crouched === true;
+    if (pose.rollStarted) {
+      this.profile.facts.rollStarted = true;
+    }
   }
 
   private updateSlope(
