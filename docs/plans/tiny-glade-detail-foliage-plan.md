@@ -227,15 +227,15 @@ Use these initial definitions for the two replacements:
 ```text
 low-shrub
     category               shrub
-    aspect                 1.20
+    aspect                 1.10
     windWeight             0.35
-    canopyHeightBand       [0.62, 0.98]
+    canopyHeightBand       [0.76, 1.18]
 
 broadleaf-rosette
     category               broadleaf
-    aspect                 1.10
+    aspect                 1.15
     windWeight             0.42
-    canopyHeightBand       [0.52, 0.78]
+    canopyHeightBand       [0.66, 0.92]
 ```
 
 These are initial art values. The menu does not tune species geometry; change them only after atlas/world visual QA.
@@ -252,8 +252,8 @@ maximum canopy-width multiplier     1.314
 The replacements above remain below both:
 
 ```text
-low-shrub width ceiling             0.98 * 1.20 = 1.176
-broadleaf width ceiling             0.78 * 1.10 = 0.858
+low-shrub width ceiling             1.18 * 1.10 = 1.298
+broadleaf width ceiling             0.92 * 1.15 = 1.058
 ```
 
 Therefore the new species must not increase `WorldDetailFoliageFactory` analytical bounds.
@@ -379,6 +379,19 @@ function detailFoliageHashInt2(
   return (value ^ (value >>> 16)) >>> 0;
 }
 
+function detailFoliagePositionHash(
+  x: number,
+  z: number,
+  seed: number,
+  salt: number,
+): number {
+  return detailFoliageHashInt2(
+    Math.round(x * 100),
+    Math.round(z * 100),
+    (seed ^ salt) >>> 0,
+  );
+}
+
 function detailFoliageChannel01(hash: number, salt: number): number {
   let value = hash ^ salt;
   value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
@@ -390,7 +403,28 @@ function detailFoliageChannel01(hash: number, salt: number): number {
 
 Source salts are identity constants, not YAML art controls.
 
-Once shipped, changing them intentionally changes world identity and must update the golden deterministic digest.
+Use these candidate domains so implementation does not invent them ad hoc:
+
+```ts
+const CANDIDATE_SALT = 0x517cc1b7;
+const BIOME_DENSITY_CHANNEL_SALT = 0xa24baed5;
+const DISTRIBUTION_KEEP_CHANNEL_SALT = 0x9fb21c65;
+const DOMINANT_DECISION_SALT = 0x68e31da4;
+const COMPANION_PICK_SALT = 0xb5297a4d;
+const TINT_COHERENCE_SALT = 0x1b56c4e9;
+const TINT_PICK_SALT = 0xd3a2646c;
+const HEIGHT_SALT = 0xfd7046c5;
+const INDIVIDUAL_MATURITY_SALT = 0xb55a4f09;
+const PHENOTYPE_SALT = 0x7f4a7c15;
+const YAW_SALT = 0x94d049bb;
+const DITHER_SALT = 0x369dea0f;
+const WIND_SALT = 0xdb4f0b91;
+const AO_SALT = 0xbb67ae85;
+```
+
+Keep the current tile-position seed domain for `positionRandom`; only its *usage* changes. This minimizes unrelated world-layout change while removing acceptance-dependent PRNG consumption.
+
+Once shipped, changing these salts intentionally changes world identity and must update the golden deterministic digest.
 
 ---
 
@@ -716,6 +750,14 @@ DEFAULT_ACCENT_SPECIES_SOURCE
 
 Route both JSON entries and fallback entries through the same resolution function.
 
+Add a deterministic build-cost ceiling:
+
+```ts
+export const GRASS_MAX_ACCENT_PROFILE_ENTRIES = 16;
+```
+
+Reject any biome `accentSpecies` array longer than 16. The proposed meadow list has 13 entries, so this leaves art headroom while bounding the repeated weighted scans.
+
 For each source entry:
 
 1. validate species string;
@@ -1021,11 +1063,13 @@ Do not hardcode white/lavender/pink families in TypeScript.
 For the selected flowering species:
 
 1. scan profile entries with `entry.speciesIndex === selectedSpeciesIndex`;
-2. sum their positive ecology/edge-adjusted weights;
+2. sum their positive **raw profile `entry.weight`** values;
 3. weighted-pick a tint using `distribution.tintRoll`;
 4. result is `colonyTintRow`.
 
 Do not allocate a filtered list.
+
+Use raw tint weights intentionally: once the species is already selected, habitat and edge multipliers are identical for every tint entry of that species and therefore cancel from the tint ratio. Recomputing them would add work without changing the result.
 
 ## Per-flower tint
 
@@ -1983,18 +2027,19 @@ maturityRoll
 require:
 
 ```text
-abs(left - right) <= 0.01
+abs(left - right) <= 0.011
 ```
 
-Why 0.01 is valid:
+Why 0.011 is the contract:
 
 - cubic interpolation derivative is at most 1.5 per normalized cell;
 - minimum clump scale is 1 m;
-- the 0.002 m cross-boundary span changes raw clump noise by at most about 0.003;
-- the clump smoothstep can amplify that to about 0.0103 in the absolute worst local slope;
-- macro and final keep/core terms are lower-frequency and bounded mixtures.
+- the 0.002 m cross-boundary span changes raw clump noise by at most 0.003;
+- `smoothstep(0.28, 0.72, C)` has maximum derivative `1.5 / 0.44`;
+- therefore the worst clump-band change is about `0.01023`;
+- macro channels are lower frequency and the final core/keep equations are bounded mixtures.
 
-Use `0.011` if the exact implemented finite-difference bound proves the 0.01 check marginal. Document the calculation in the verifier; do not pick a screenshot tolerance.
+The verifier should retain this derivation next to the assertion. Do not replace it with a screenshot tolerance.
 
 Also statically assert the distribution API contains no tile coordinate input.
 
@@ -2136,6 +2181,8 @@ tall-tuft absent
 sprig absent
 species count exactly 8
 category union includes shrub/broadleaf
+GRASS_MAX_ACCENT_PROFILE_ENTRIES === 16
+every profile accentSpecies.length <= 16
 
 maximum canopy height <= 1.72
 maximum canopy width  <= 1.314
@@ -2209,7 +2256,10 @@ Lookup contract:
 candidate loop contains no GRASS_ACCENT_SPECIES.find
 candidate loop contains no resolveGrassAccentTintRow
 resolved profile entry contains speciesIndex + tintRow
+every biome accentSpecies length <= 16
 ```
+
+With the 16-entry ceiling, keep selection to a small bounded number of linear scans. Do not sort or allocate temporary weight arrays in the candidate loop.
 
 Do not loosen the existing card/draw/vertex envelope.
 
