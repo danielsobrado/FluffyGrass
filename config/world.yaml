@@ -64,15 +64,17 @@ grassClumpDominantDirectionWeight: 0.55
 grassClumpRadialDirectionWeight: 0.2
 
 # Macro grass habitat. These modulate ecology rather than inventing a second field.
-grassMacroPatchWorldSize: 42
-grassMacroPatchStrength: 0.28
-grassWetDensityBoost: 0.18
-grassDryDensityReduction: 0.32
-grassRockDensityReduction: 0.58
-grassDisturbanceDensityReduction: 0.72
-grassWetHeightBoost: 0.12
-grassDryHeightReduction: 0.22
-grassDryColorStrength: 0.34
+# Strength is the look: wet banks, dry crowns, rock, and paths must read from
+# a standing camera, not only from a habitat debug overlay.
+grassMacroPatchWorldSize: 36
+grassMacroPatchStrength: 0.48
+grassWetDensityBoost: 0.45
+grassDryDensityReduction: 0.68
+grassRockDensityReduction: 0.82
+grassDisturbanceDensityReduction: 0.88
+grassWetHeightBoost: 0.32
+grassDryHeightReduction: 0.42
+grassDryColorStrength: 0.64
 
 # Mid blades use cheaper single triangles but retain every source blade.
 grassMidBladeFraction: 1
