@@ -52,6 +52,24 @@ export const GRASS_GUST_CROSS_PHASE = 1.7;
 export const GRASS_GUST_PRIMARY_WEIGHT = 0.72;
 export const GRASS_GUST_CROSS_WEIGHT = 0.28;
 
+/**
+ * Slow weather pulse shared by every grass layer. Calm stretches make travelling
+ * gust fronts readable; a field that always moves at full amplitude never does.
+ */
+export const GRASS_WEATHER_CALM_FLOOR = 0.34;
+export const GRASS_WEATHER_PULSE_SPEED = 0.073;
+/** World cells per metre for tuft-scale wind phase. ~0.7 m so a 0.35 m clump
+ * usually shares a cell instead of splitting across a lattice edge. */
+export const GRASS_TUFT_WIND_CELL_SCALE = 1.45;
+
+export function grassWeatherEnvelopeGlsl(time: string): string {
+  return `mix(${GRASS_WEATHER_CALM_FLOOR.toFixed(2)}, 1.0, 0.5 + 0.5 * sin(${time} * ${GRASS_WEATHER_PULSE_SPEED.toFixed(3)}))`;
+}
+
+export function grassTuftWindPhaseGlsl(position: string): string {
+  return `fract(dot(floor(${position} * ${GRASS_TUFT_WIND_CELL_SCALE.toFixed(2)}), vec2(0.1731, 0.4197)))`;
+}
+
 export interface GrassCompactGustGlslOptions {
   /** Name of the float the expression declares. */
   target: string;

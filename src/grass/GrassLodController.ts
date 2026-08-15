@@ -66,6 +66,7 @@ export class GrassLodController {
   private submittedMidVertices = 0;
   private submittedFarInstances = 0;
   private midInstanceRadius = DEFAULT_MID_INSTANCE_RADIUS;
+  private compactFarthest = 0;
   private readonly matrixSwap = new Float32Array(16);
   private readonly variationSwap = new Float32Array(4);
 
@@ -224,11 +225,18 @@ export class GrassLodController {
     patch.midMesh.visible =
       farthestDistance > nearFadeStart && patch.distance < farEntryEnd;
     if (patch.midMesh.visible) {
-      const keepCount = this.compactMidInstances(patch, nearFadeStart);
+      const keepCount = this.compactMidInstances(
+        patch,
+        nearFadeStart,
+        farthestDistance,
+      );
       if (keepCount === 0) {
         patch.midMesh.visible = false;
       } else {
-        this.trimMidDraw(patch, farthestDistance);
+        this.trimMidDraw(
+          patch,
+          Math.min(farthestDistance, this.compactFarthest),
+        );
       }
     }
     if (patch.farMesh) {
@@ -295,12 +303,22 @@ export class GrassLodController {
   private compactMidInstances(
     patch: GrassPatch,
     nearFadeStart: number,
+    farthestDistance: number,
   ): number {
     const mesh = patch.midMesh;
     const total = patch.instanceCount;
     if (total <= 0) {
       mesh.count = 0;
+      this.compactFarthest = 0;
       return 0;
+    }
+    // Every instance sits inside the batch bounds, so a batch whose closest
+    // point is already past the near interior cannot hide anything. Skipping
+    // it avoids a hypot and a buffer upload on the 40–80 m rings.
+    if (patch.distance > nearFadeStart) {
+      mesh.count = total;
+      this.compactFarthest = farthestDistance;
+      return total;
     }
     const matrix = mesh.instanceMatrix.array as Float32Array;
     const variation = mesh.geometry.getAttribute("instanceVariation");
@@ -308,6 +326,7 @@ export class GrassLodController {
     const biome = mesh.geometry.getAttribute("instanceBiome");
     if (!variation || !coverage || !biome) {
       mesh.count = total;
+      this.compactFarthest = farthestDistance;
       return total;
     }
     const variationValues = variation.array as Float32Array;
@@ -318,18 +337,21 @@ export class GrassLodController {
     const camera = this.cameraPosition;
     const radius = this.midInstanceRadius;
     let keepCount = 0;
+    let farthestRemaining = 0;
+    let swapped = false;
     for (let index = 0; index < total; index += 1) {
       const offset = index * 16;
-      const deltaX = origin.x + matrix[offset + 12] - camera.x;
-      const deltaY = origin.y + matrix[offset + 13] - camera.y;
-      const deltaZ = origin.z + matrix[offset + 14] - camera.z;
-      if (
-        Math.hypot(deltaX, deltaY, deltaZ) + radius <=
-        nearFadeStart
-      ) {
+      const distance = Math.hypot(
+        origin.x + matrix[offset + 12] - camera.x,
+        origin.y + matrix[offset + 13] - camera.y,
+        origin.z + matrix[offset + 14] - camera.z,
+      );
+      if (distance + radius <= nearFadeStart) {
         continue;
       }
+      farthestRemaining = Math.max(farthestRemaining, distance);
       if (keepCount !== index) {
+        swapped = true;
         swapFloatBlock(matrix, keepCount * 16, offset, 16, this.matrixSwap);
         swapFloatBlock(
           variationValues,
@@ -349,12 +371,13 @@ export class GrassLodController {
     if (keepCount !== mesh.count) {
       mesh.count = keepCount;
     }
-    if (keepCount > 0 && keepCount < total) {
+    if (swapped) {
       mesh.instanceMatrix.needsUpdate = true;
       variation.needsUpdate = true;
       coverage.needsUpdate = true;
       biome.needsUpdate = true;
     }
+    this.compactFarthest = keepCount === 0 ? 0 : farthestRemaining;
     return keepCount;
   }
 

@@ -500,9 +500,29 @@ export class TerrainField {
     pathDistances: THREE.Vector2,
     target: WorldEcologySample,
   ): WorldEcologySample {
-    return this.ecology.sample(
+    return this.resolveEcologyFromLandform(
       height,
       this.sampleLandform(x, z, this.landformScratch),
+      hydrology,
+      pathDistances,
+      target,
+    );
+  }
+
+  /**
+   * Ecology from a landform sample the caller already holds. Stone clustering
+   * reuses its macro landform read rather than sampling the lattice twice.
+   */
+  resolveEcologyFromLandform(
+    height: number,
+    landform: TerrainLandform,
+    hydrology: HydrologySample,
+    pathDistances: THREE.Vector2,
+    target: WorldEcologySample,
+  ): WorldEcologySample {
+    return this.ecology.sample(
+      height,
+      landform,
       hydrology,
       this.resolvePathGrassMask(pathDistances, height),
       target,

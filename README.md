@@ -47,7 +47,7 @@ The default transition distances come from the `lush-hero` art preset. The ultra
 The table shows the default `lush-hero` preset. Runtime preset values in `src/grass/GrassArtPresets.json` select the active near, mid, far, and transition distances. The values in `public/config/world.yaml` provide validated world and streaming limits:
 
 ```yaml
-grassNearDistance: 26
+grassNearDistance: 28
 grassMidDistance: 80
 grassFarDistance: 280
 grassTransitionDistance: 8

@@ -64,6 +64,14 @@ export function validateWorldConfig(config: WorldConfig): void {
         "of a blade's heading to independent randomness.",
     );
   }
+  if (
+    config.detailFoliageClumpWorldSize >
+    config.detailFoliageColonyWorldSize * 0.5
+  ) {
+    throw new Error(
+      "detailFoliageClumpWorldSize must be at most half of detailFoliageColonyWorldSize.",
+    );
+  }
   if (config.grassRenderBatchesPerAxis > patchesPerChunk) {
     throw new Error(
       "grassRenderBatchesPerAxis must not exceed the patches per chunk axis.",
@@ -118,6 +126,7 @@ export function validateWorldConfig(config: WorldConfig): void {
       "stoneDetailRadiusCompact must fit inside compact and desktop stone detail radii.",
     );
   }
+  validateStoneClusters(config);
   if (config.pathWidth >= config.pathSpacing * 0.05) {
     throw new Error("pathWidth must stay far below pathSpacing.");
   }
@@ -295,6 +304,84 @@ export function validateWorldConfig(config: WorldConfig): void {
   ) {
     throw new Error(
       "Character camera elevation must be between its minimum and maximum.",
+    );
+  }
+  validateFauna(config);
+}
+
+/**
+ * Formation lookup is a fixed 3x3 of macro cells. These inequalities are the
+ * geometric proof that a formation two indices away cannot reach a stone cell
+ * even after maximum center jitter, so production never needs a wider search.
+ */
+function validateStoneClusters(config: WorldConfig): void {
+  const queryEpsilon = 1e-6;
+  if (config.stoneClusterRadiusMin >= config.stoneClusterRadiusMax) {
+    throw new Error("stoneClusterRadiusMin must be lower than stoneClusterRadiusMax.");
+  }
+  if (config.stoneClusterAspectMin > config.stoneClusterAspectMax) {
+    throw new Error("stoneClusterAspect range is reversed.");
+  }
+  if (config.stoneClusterBudgetMin > config.stoneClusterBudgetMax) {
+    throw new Error("stoneClusterBudget range is reversed.");
+  }
+  if (config.stoneClusterCoreRatio >= config.stoneClusterShoulderRatio) {
+    throw new Error(
+      "stoneClusterCoreRatio must be lower than stoneClusterShoulderRatio.",
+    );
+  }
+  if (config.stoneClusterShoulderRatio >= config.stoneClusterHaloRatio) {
+    throw new Error(
+      "stoneClusterShoulderRatio must be lower than stoneClusterHaloRatio.",
+    );
+  }
+
+  const spacing = config.stoneClusterSpacing;
+  const influenceRadius =
+    config.stoneClusterRadiusMax * config.stoneClusterHaloRatio;
+  if (influenceRadius > spacing * 0.5 + queryEpsilon) {
+    throw new Error(
+      "stoneClusterRadiusMax * stoneClusterHaloRatio must not exceed half of stoneClusterSpacing.",
+    );
+  }
+
+  const queryReach =
+    config.stoneCellSize * 0.5 +
+    influenceRadius +
+    config.stoneClusterCenterJitter * spacing;
+  if (queryReach >= spacing * 1.5 - queryEpsilon) {
+    throw new Error(
+      "Stone cluster footprint, jitter, and cell size must stay inside the fixed 3x3 macro query.",
+    );
+  }
+}
+
+/**
+ * The quality bands have to be a ladder, or an actor can never resolve a level.
+ *
+ * Culling also has to happen inside the radius herds are collected over —
+ * otherwise animals are streamed in already too far away to animate, and the
+ * population silently costs more than it shows.
+ */
+function validateFauna(config: WorldConfig): void {
+  if (config.faunaEnabled < 1) {
+    return;
+  }
+  if (
+    !(config.faunaFullDistance < config.faunaReducedDistance) ||
+    !(config.faunaReducedDistance < config.faunaMinimalDistance) ||
+    !(config.faunaMinimalDistance < config.faunaCullDistance)
+  ) {
+    throw new Error(
+      "fauna animation LOD distances must increase from full to culled.",
+    );
+  }
+  if (config.faunaCullDistance > config.faunaStreamRadius) {
+    throw new Error("faunaCullDistance must not exceed faunaStreamRadius.");
+  }
+  if (config.faunaMinimalUpdateHz > config.faunaReducedUpdateHz) {
+    throw new Error(
+      "faunaMinimalUpdateHz must not exceed faunaReducedUpdateHz.",
     );
   }
 }

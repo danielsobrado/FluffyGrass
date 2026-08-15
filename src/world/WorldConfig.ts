@@ -52,6 +52,20 @@ export interface WorldConfig {
   grassWetHeightBoost: number;
   grassDryHeightReduction: number;
   grassDryColorStrength: number;
+  detailFoliageDensity: number;
+  detailFoliageColonyWorldSize: number;
+  detailFoliageClumpWorldSize: number;
+  detailFoliageColonyStrength: number;
+  detailFoliageDominantFamilyShare: number;
+  detailFoliageTintCoherence: number;
+  detailFoliageQuietZoneThreshold: number;
+  detailFoliageBackgroundSuppression: number;
+  detailFoliageCoreHeightBias: number;
+  detailFoliageMaturePhenotypeBias: number;
+  detailFoliageEcologyStrength: number;
+  detailFoliageEdgeCompanionStrength: number;
+  detailFoliageStoneFringeStrength: number;
+  detailFoliagePathFringeStrength: number;
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
   grassPatchJitter: number;
@@ -137,9 +151,24 @@ export interface WorldConfig {
   /** 0 is the rollback flag for every stone system. */
   stonesEnabled: number;
   stoneCellSize: number;
+  /** Global macro-formation frequency; lowering it removes whole formations. */
   stoneDensity: number;
   stoneVariantsPerArchetype: number;
+  /** Final macro-cluster activation multiplier. */
   stoneClusterChance: number;
+  stoneClusterSpacing: number;
+  stoneClusterCenterJitter: number;
+  stoneClusterRadiusMin: number;
+  stoneClusterRadiusMax: number;
+  stoneClusterAspectMin: number;
+  stoneClusterAspectMax: number;
+  stoneClusterBudgetMin: number;
+  stoneClusterBudgetMax: number;
+  stoneClusterCoreRatio: number;
+  stoneClusterShoulderRatio: number;
+  stoneClusterHaloRatio: number;
+  stoneClusterDensityResponse: number;
+  stoneSingletonChance: number;
   stoneGrassClearanceFeather: number;
   stoneRadiusDesktop: number;
   stoneRadiusCompact: number;
@@ -199,4 +228,24 @@ export interface WorldConfig {
   characterMouseLookSensitivity: number;
   characterTouchLookSensitivity: number;
   characterZoomSensitivity: number;
+  /** 0 is the rollback flag for streamed fauna. */
+  faunaEnabled: number;
+  faunaDeerDesktopCount: number;
+  faunaDeerCompactCount: number;
+  faunaVillagerDesktopCount: number;
+  faunaVillagerCompactCount: number;
+  faunaVillagerWalkSpeed: number;
+  /** How far from the player herds are collected, in metres. */
+  faunaStreamRadius: number;
+  faunaDeerWalkSpeed: number;
+  /** Animation quality thresholds, in metres, increasing. */
+  faunaFullDistance: number;
+  faunaReducedDistance: number;
+  faunaMinimalDistance: number;
+  faunaCullDistance: number;
+  /** Pose update rates at the reduced and minimal levels. */
+  faunaReducedUpdateHz: number;
+  faunaMinimalUpdateHz: number;
+  /** How often an animal decides what to do next. */
+  faunaBehaviorHz: number;
 }

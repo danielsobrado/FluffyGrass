@@ -4,9 +4,9 @@ compactMaxWidth: 820
 desktopCameraFov: 60
 desktopCameraMargin: 1.18
 desktopCameraElevation: 0.72
-# 2x shading on a grass-heavy frame is mostly extra fill. 1.5 keeps retina
-# sharpness without paying a full 4K pass.
-desktopMaxPixelRatio: 1.5
+# Grass overdraw is fill-bound. 1.25 keeps a retina edge without a 2.25× pixel
+# tax on every blade.
+desktopMaxPixelRatio: 1.25
 desktopAutoRotate: true
 desktopShadows: true
 # The sun's shadow frustum follows the character in a ~14 m box rather than

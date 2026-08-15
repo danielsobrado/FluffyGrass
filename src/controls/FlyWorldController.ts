@@ -34,6 +34,9 @@ export class FlyWorldController
    */
   update(deltaSeconds: number): void {
     super.update(deltaSeconds);
+    if (this.isCaptureLocked()) {
+      return;
+    }
     const halfWorld = this.worldConfig.worldSize * 0.5 - 2;
     const position = this.worldCamera.position;
     position.x = THREE.MathUtils.clamp(position.x, -halfWorld, halfWorld);

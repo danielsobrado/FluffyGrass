@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
-import { WorldMeadowLife } from "./WorldMeadowLife";
+import { WorldFaunaSystem } from "./WorldFaunaSystem";
 import { WorldTreeSystem } from "./WorldTreeSystem";
 
 /**
@@ -11,7 +11,8 @@ import { WorldTreeSystem } from "./WorldTreeSystem";
  */
 export class WorldScenicLayer {
   private readonly trees: WorldTreeSystem;
-  private readonly life: WorldMeadowLife;
+  private readonly life: WorldFaunaSystem;
+  private faunaEnabled = true;
   private disposed = false;
 
   constructor(
@@ -23,7 +24,7 @@ export class WorldScenicLayer {
     shadows: boolean,
   ) {
     this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
-    this.life = new WorldMeadowLife(scene, field, spawn, profile);
+    this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
   }
 
   update(deltaSeconds: number, focus: THREE.Vector3): void {
@@ -31,7 +32,19 @@ export class WorldScenicLayer {
       return;
     }
     this.trees.update(focus);
-    this.life.update(deltaSeconds);
+    if (!this.faunaEnabled) {
+      return;
+    }
+    // Fauna is ticked inside the controls subsystem, so a fault here would
+    // otherwise take the player's own movement down with it. It gets the same
+    // treatment stones get one level up: fail once, release, keep rendering.
+    try {
+      this.life.update(deltaSeconds, focus);
+    } catch (error) {
+      console.warn("[Drusniel World] Fauna disabled after a fault.", error);
+      this.faunaEnabled = false;
+      this.life.dispose();
+    }
   }
 
   dispose(): void {

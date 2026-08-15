@@ -15,7 +15,7 @@
 - Target branch: `main`
 - Phase: 10 — QA, regression protection, rollout, and production hardening
 - Document authority: final implementation and release contract
-- Current state: not started
+- Current state: completed
 - Scope owner: deterministic snapshots, visual regression, fuzzing, streaming/origin stress, performance envelopes, configuration compatibility, rollout controls, rollback, CI automation, and release evidence
 
 This document removes implementation choices from the final production-hardening phase. The implementer must follow the file layout, configuration values, regression cases, snapshot schemas, browser capture settings, pixel-comparison rules, fuzz ranges, streaming routes, performance gates, rollout stages, rollback behavior, CI jobs, baseline-update rules, release-report schema, and completion criteria below. Any different rollout policy, baseline set, fuzz population, visual threshold, performance threshold, migration policy, or release gate requires this document to be changed first.

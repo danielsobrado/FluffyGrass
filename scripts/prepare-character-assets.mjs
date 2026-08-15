@@ -73,16 +73,39 @@ function collectLiveViews(json) {
   for (const skin of json.skins ?? []) {
     noteAccessor(skin.inverseBindMatrices);
   }
-  for (const image of json.images ?? []) {
-    if (image.bufferView !== undefined) {
-      live.add(image.bufferView);
+  // Images are deliberately not walked. Every character in a pack shares one
+  // gradient atlas, so embedding a copy per file wastes both download and a GPU
+  // texture, and the runtime would have to fetch each copy back out through a
+  // blob: URL that the site's connect-src policy rightly refuses. The atlas
+  // ships once alongside the models instead.
+  return { live, keepAccessor };
+}
+
+/**
+ * Drops embedded imagery, leaving materials for the runtime to texture.
+ *
+ * The shared atlas is applied when the character loads, so the material's
+ * colour and alpha settings survive while its texture reference does not.
+ */
+function stripEmbeddedImages(json) {
+  for (const material of json.materials ?? []) {
+    delete material.normalTexture;
+    delete material.occlusionTexture;
+    delete material.emissiveTexture;
+    const metallicRoughness = material.pbrMetallicRoughness;
+    if (metallicRoughness !== undefined) {
+      delete metallicRoughness.baseColorTexture;
+      delete metallicRoughness.metallicRoughnessTexture;
     }
   }
-  return { live, keepAccessor };
+  delete json.images;
+  delete json.textures;
+  delete json.samplers;
 }
 
 function repack(json, bin) {
   delete json.animations;
+  stripEmbeddedImages(json);
   const { live, keepAccessor } = collectLiveViews(json);
 
   const viewRemap = new Map();
@@ -143,12 +166,6 @@ function repack(json, bin) {
   for (const skin of json.skins ?? []) {
     skin.inverseBindMatrices = remapAccessor(skin.inverseBindMatrices);
   }
-  for (const image of json.images ?? []) {
-    if (image.bufferView !== undefined) {
-      image.bufferView = viewRemap.get(image.bufferView);
-    }
-  }
-
   json.accessors = nextAccessors;
   json.bufferViews = nextViews;
   json.buffers = [{ byteLength: packedLength }];

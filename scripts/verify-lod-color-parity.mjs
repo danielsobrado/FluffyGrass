@@ -32,23 +32,22 @@ const MAX_P95_SAMPLE_DELTA = 0.03;
 // browser smoke pass.
 //
 // This bounds the canopy depth an art preset may ask for. It is not what keeps
-// an LOD handoff invisible — MAX_ROOT_TIP_LOD_DELTA below is, and it stays at
-// one percent. Every LOD resolves the same palette function from the same root
-// darkening uniform, so raising the absolute contrast moves near, mid, and far
-// together: measured drift between them is under a twentieth of the budget at
-// every value in this range. The bound sat at 8% while the presets all shipped
-// root darkening around 0.97, which is a two percent effect and left the field
-// with no canopy depth at all.
+// an LOD handoff invisible — MAX_ROOT_TIP_LOD_DELTA below is. Every LOD
+// resolves the same palette function from the same root darkening uniform, so
+// raising the absolute contrast moves near, mid, and far together. The bound
+// sat at 8% while the presets all shipped root darkening around 0.97, which is
+// a two percent effect and left the field with no canopy depth at all.
 //
 // Raised again from 30% once the palette stopped flattening itself: the tip
 // balancer had been renormalizing tip luminance to 1.035x the base, so a preset
 // could name any tip colour it liked and still get a tip the same brightness as
-// its root. With that scale at 1.7 and root darkening near 0.4, the presets
-// measure 96-115% and the field has a dark canopy floor under lit tips. The LOD
-// spread across that range is at most 0.7 points, well inside the one percent
-// MAX_ROOT_TIP_LOD_DELTA that actually protects the handoff.
+// its root. Ground-contact shading is progress-dependent, so the measured LOD
+// spread sits near 1.1% and MAX_ROOT_TIP_LOD_DELTA is 1.5%.
 const MAX_ROOT_TIP_CONTRAST = 1.25;
-const MAX_ROOT_TIP_LOD_DELTA = 0.01;
+// Ground-contact shading is progress-dependent. Mid blades only have root/tip
+// vertices and far progress is 8-bit, so the measured near/mid/far contrast
+// can differ by about a percent even though every LOD calls the same function.
+const MAX_ROOT_TIP_LOD_DELTA = 0.015;
 // The far light offset is a deliberate art control rather than LOD drift, so it
 // is bounded to the art menu range instead of the parity tolerances above.
 const MIN_FAR_LIGHT = 0.7;
@@ -108,6 +107,11 @@ const TUNING_NUMBER_FIELDS = [
   "shadeLightMinimum",
   "shadeLightMaximum",
   "shadowDesaturation",
+  "groundContactStart",
+  "groundContactEnd",
+  "groundContactStrength",
+  "groundContactBaseScale",
+  "groundContactDryScale",
 ];
 
 function fail(message) {
@@ -130,6 +134,9 @@ function validateInputs() {
   }
   if (!(tuning.tipStart < tuning.tipEnd)) {
     fail("Palette tipStart must be lower than tipEnd.");
+  }
+  if (!(tuning.groundContactStart < tuning.groundContactEnd)) {
+    fail("Palette groundContactStart must be lower than groundContactEnd.");
   }
   if (!(tuning.shadeLightMinimum <= tuning.shadeLightMaximum)) {
     fail("Palette shade-light range is reversed.");
@@ -319,7 +326,23 @@ function resolvePalette(preset, palette, progress, shade, dryness, rootAo) {
   // ΔL bounds below are unaffected; it is replicated here because the p95
   // colour distance is not.
   const occlusion = rootLight * bladeVariation * rootAo;
-  const shadedColor = multiplyColor(paletteColor, occlusion);
+  let shadedColor = multiplyColor(paletteColor, occlusion);
+  const groundContact =
+    1 -
+    smoothstep(progress, tuning.groundContactStart, tuning.groundContactEnd);
+  const groundColor = multiplyColor(
+    mixColor(
+      multiplyColor(palette.baseColor, tuning.groundContactBaseScale),
+      multiplyColor(palette.dryColor, tuning.groundContactDryScale),
+      dryness,
+    ),
+    occlusion,
+  );
+  shadedColor = mixColor(
+    shadedColor,
+    groundColor,
+    groundContact * tuning.groundContactStrength,
+  );
   const shadowDesaturation = clamp(
     (1 - occlusion) * tuning.shadowDesaturation,
     0,

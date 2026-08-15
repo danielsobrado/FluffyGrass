@@ -33,6 +33,23 @@ function readConstant(source, name) {
   return value;
 }
 
+function readNumberArray(source, name) {
+  const expression = source.match(
+    new RegExp(`export const ${name}\\s*=\\s*\\[([^\\]]+)\\]`),
+  )?.[1];
+  if (expression === undefined) {
+    fail(`Unable to read numeric array ${name}.`);
+  }
+  const values = expression
+    .split(",")
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isFinite(entry));
+  if (values.length === 0) {
+    fail(`Numeric array ${name} is empty.`);
+  }
+  return values;
+}
+
 /**
  * Strips comments so boundary checks read code, not prose.
  *
@@ -71,6 +88,7 @@ const humanoidDefinition = read("src/character/rig/HumanoidRigDefinition.ts");
 const quadrupedDefinition = read(
   "src/creatures/quadruped/QuadrupedRigDefinition.ts",
 );
+const quadrupedGait = read("src/creatures/quadruped/QuadrupedGaitProfile.ts");
 const validation = read("src/actor/rig/ActorRigValidation.ts");
 const pose = read("src/actor/animation/ActorPose.ts");
 const runtime = read("src/actor/animation/ActorAnimationRuntime.ts");
@@ -394,11 +412,18 @@ assert(
     (quadrupedDefinition.match(/QUADRUPED_CHAIN_[A-Z_]+ = "/g) ?? []).length === 4,
   "The quadruped rig must declare four contact limb chains.",
 );
-for (const file of sourceFiles("src/creatures")) {
-  assert(
-    !stripComments(read(file)).includes("/character/"),
-    `${file} imports player code; the quadruped must reach the screen through the shared actor layer alone.`,
-  );
+// A species may know about the shared actor layer and about rendering helpers,
+// and nothing else. Importing the world directly would drag hydrology, ecology
+// and landform into the creature module the moment one animal wanted to know
+// whether the ground ahead was worth eating; that question crosses an injected
+// sampler instead, the same way foot contact does.
+for (const forbidden of ["/character/", "/world/", "/app/", "/controls/", "/grass/"]) {
+  for (const file of sourceFiles("src/creatures")) {
+    assert(
+      !stripComments(read(file)).includes(forbidden),
+      `${file} imports ${forbidden}; a species must reach the screen through the shared actor layer alone.`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -411,7 +436,16 @@ verifyGaitSupport(
   readConstant(locomotionTuning, "HUMANOID_STANCE_DUTY_FACTOR"),
   1,
 );
-verifyGaitSupport("quadruped", [0.25, 0.75, 0, 0.5], 0.68, 2);
+// Read from source rather than restated here. The quadruped's duty factor and
+// phase table used to be literals in this file while the real ones lived as
+// private constants in the actor, so this check could pass while proving
+// nothing about the gait anybody was actually walking.
+verifyGaitSupport(
+  "quadruped",
+  readNumberArray(quadrupedGait, "QUADRUPED_PHASE_OFFSETS"),
+  readConstant(quadrupedGait, "QUADRUPED_STANCE_DUTY_FACTOR"),
+  2,
+);
 
 // ---------------------------------------------------------------------------
 // Two-bone IK: mirrored law-of-cosines, checked over the whole reachable range.
@@ -454,13 +488,18 @@ function verifyTwoBoneReach() {
     "The two-bone solver must keep a positive reach margin short of full extension.",
   );
   const chains = [
-    // Humanoid leg, humanoid arm, quadruped limb.
+    // Humanoid leg, humanoid arm, quadruped limb. The quadruped's segment
+    // lengths come from its rig rather than from copies kept here, so changing
+    // the animal's proportions re-runs this against the proportions it has.
     [0.44, 0.37],
     [
       Math.hypot(0.038, 0.29),
       Math.hypot(0.275, 0.012),
     ],
-    [0.28, 0.26],
+    [
+      readConstant(quadrupedDefinition, "QUADRUPED_UPPER_LIMB"),
+      readConstant(quadrupedDefinition, "QUADRUPED_LOWER_LIMB"),
+    ],
   ];
   const random = createRandom(0x9e3779b9);
   for (const [upper, lower] of chains) {

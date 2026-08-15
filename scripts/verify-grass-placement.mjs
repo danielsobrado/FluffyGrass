@@ -438,7 +438,10 @@ assert(
     factorySource.includes("resolveGrassClusterArchetype") &&
     factorySource.includes("CLUMP_LEAN_SALT") &&
     factorySource.includes("habitatSample.dryness") &&
-    factorySource.includes("GRASS_CLUSTER_TALL_WET"),
+    factorySource.includes("GRASS_CLUSTER_TALL_WET") &&
+    factorySource.includes("CLUMP_TALL_GROUP_SALT") &&
+    factorySource.includes("CLUMP_ASYMMETRY_SALT") &&
+    factorySource.includes("CLUMP_HOLE_SALT"),
   "Near blades must derive habitat, cluster archetypes, and correlated lean from shared clump identity.",
 );
 

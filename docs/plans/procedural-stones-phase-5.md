@@ -10,7 +10,7 @@
 - Target branch: `main`
 - Phase: 5 — production quality control, rejection, deterministic fallback, and audit
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: end-to-end production acceptance, advanced geometric quality metrics, material readability checks, deterministic fallback selection, structured diagnostics, and batch audit reporting
 
 This document removes implementation choices from Phase 5. The implementer must follow the file layout, APIs, thresholds, candidate sequence, metric definitions, rejection rules, fallback catalogue, diagnostics schema, audit format, verification matrix, lifecycle rules, and completion criteria below. A different fallback policy, quality metric, threshold model, report schema, or candidate order requires this document to be changed first.

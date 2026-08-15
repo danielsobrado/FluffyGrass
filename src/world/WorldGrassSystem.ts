@@ -53,6 +53,7 @@ import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasF
 import { WorldGrassImpostorMaterial } from "./grass/WorldGrassImpostorMaterial";
 import { WorldGrassPatchGeometryFactory } from "./grass/WorldGrassPatchGeometryFactory";
 import type { WorldDetailFoliageAtlas } from "./grass/WorldDetailFoliageAtlasFactory";
+import type { DetailFoliageTuning } from "./grass/DetailFoliageTuning";
 import { WorldNearGrassField } from "./grass/WorldNearGrassField";
 
 interface WorldGrassPatch extends GrassPatch {
@@ -287,7 +288,7 @@ export class WorldGrassSystem {
   ) {
     this.material = new GrassNearMaterial({
       name: "world-grass-mid-material",
-      cacheKey: `grass-near-material-v23-mid-vertex-palette-no-sheen-${
+      cacheKey: `grass-near-material-v25-mid-vertex-palette-no-sheen-${
         profile.compact ? "sine" : "noise"
       }`,
       // The mid layer draws exactly the blades the near layer drops.
@@ -304,6 +305,7 @@ export class WorldGrassSystem {
       // pays back the coverage the distance density falloff gives up.
       subPixelWidth: true,
       noiseWind: !profile.compact,
+      microWind: false,
     });
     this.governor = new GrassQualityGovernor(
       profile.compact ? COMPACT_TARGET_FPS : DESKTOP_TARGET_FPS,
@@ -426,6 +428,14 @@ export class WorldGrassSystem {
   /** The baked accent atlas, for the `?accentAtlas=1` inspection route. */
   getDetailFoliageAtlas(): WorldDetailFoliageAtlas | undefined {
     return this.nearField.getDetailFoliageAtlas();
+  }
+
+  getDetailFoliageTuning(): DetailFoliageTuning {
+    return this.nearField.getDetailFoliageTuning();
+  }
+
+  setDetailFoliageTuning(tuning: DetailFoliageTuning): void {
+    this.nearField.setDetailFoliageTuning(tuning);
   }
 
   isHeroRingReady(): boolean {
@@ -1111,6 +1121,9 @@ export class WorldGrassSystem {
       // Habitat already includes the biome height band. Fold that scale into
       // the instance, then keep only a small per-blade jitter so random height
       // cannot drown wet/dry/rocky identity the way a ±12% bias did.
+      // Discrete clump archetypes stay on the near tiles: a 4 m mid patch has
+      // one instance scale, and a 0.36 m cell of its centre would lottery a
+      // 12% height/dryness jump that the near field does not share.
       const biomeWidth = resolveGrassBiomeWidthRatio(biomeProfile);
       const heightVariation = job.grassConfig.distribution.heightVariation;
       const horizontalScale = job.random.range(0.96, 1.04) * biomeWidth;

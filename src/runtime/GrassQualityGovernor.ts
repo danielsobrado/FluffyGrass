@@ -51,36 +51,36 @@ export const GRASS_QUALITY_TIERS: readonly GrassQualityTier[] = Object.freeze([
     accentDensityScale: 1,
   },
   {
-    densityScale: 0.85,
-    midFloorScale: 0.8,
-    ultraDensityScale: 1,
+    densityScale: 0.8,
+    midFloorScale: 0.72,
+    ultraDensityScale: 0.9,
     sheen: true,
     blendViews: true,
     nearDistanceScale: 1,
-    accentDensityScale: 1,
+    accentDensityScale: 0.85,
   },
   {
-    densityScale: 0.72,
-    midFloorScale: 0.7,
-    ultraDensityScale: 0.75,
+    densityScale: 0.66,
+    midFloorScale: 0.58,
+    ultraDensityScale: 0.7,
     sheen: false,
     blendViews: true,
     nearDistanceScale: 1,
-    accentDensityScale: 0.5,
+    accentDensityScale: 0.4,
   },
   {
-    densityScale: 0.6,
-    midFloorScale: 0.6,
-    ultraDensityScale: 0.6,
+    densityScale: 0.5,
+    midFloorScale: 0.42,
+    ultraDensityScale: 0.5,
     sheen: false,
     blendViews: false,
-    nearDistanceScale: 0.8,
+    nearDistanceScale: 1,
     accentDensityScale: 0,
   },
 ]);
 
-const EVALUATION_WINDOW_SECONDS = 2;
-const DROP_AFTER_SECONDS = 2;
+const EVALUATION_WINDOW_SECONDS = 1.5;
+const DROP_AFTER_SECONDS = 1;
 const RAISE_AFTER_SECONDS = 6;
 const DROP_FRACTION = 0.9;
 const RAISE_FRACTION = 1.05;
@@ -96,7 +96,7 @@ const RAMP_SECONDS = 0.75;
  * reacting to it started every session with a quality dip that then took the
  * full raise hysteresis — six seconds per tier — to climb back out of.
  */
-const STARTUP_GRACE_SECONDS = 4;
+const STARTUP_GRACE_SECONDS = 2.5;
 
 export class GrassQualityGovernor {
   private tier = 0;

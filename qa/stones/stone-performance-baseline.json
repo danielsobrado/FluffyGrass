@@ -1,0 +1,10 @@
+{
+  "seed": 42017,
+  "chunkMin": -6,
+  "chunkMax": 6,
+  "includeSmallRoots": 3221,
+  "farRoots": 1852,
+  "maxRootsInChunk": 49,
+  "detailedTrianglePotential": 585772,
+  "coarseTrianglePotential": 331804
+}

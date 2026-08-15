@@ -6,7 +6,7 @@
 - Target branch: `main`
 - Phase: 1 — deterministic core geometry
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: procedural stone core only
 
 This document removes implementation choices from Phase 1. The implementer should follow the file layout, APIs, algorithms, configuration values, validation rules, test matrix, and completion criteria below. Do not substitute a different geometry strategy unless this document is changed first.

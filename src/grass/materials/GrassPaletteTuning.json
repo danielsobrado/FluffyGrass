@@ -1,16 +1,21 @@
 {
-  "tipStart": 0.28,
+  "tipStart": 0.38,
   "tipEnd": 1,
-  "tipLuminanceScale": 1.7,
+  "tipLuminanceScale": 1.48,
   "dryLuminanceScale": 1.02,
   "shadeDrynessPivot": 0.18,
   "shadeDrynessScale": 0.2,
   "shadeDrynessMaximum": 0.035,
   "instanceDrynessBase": 0.48,
-  "instanceDrynessTip": 0.18,
+  "instanceDrynessTip": 0.28,
   "drynessMaximum": 0.58,
-  "rootFadeEnd": 0.55,
-  "shadeLightMinimum": 0.9,
-  "shadeLightMaximum": 1.08,
-  "shadowDesaturation": 0.55
+  "rootFadeEnd": 0.48,
+  "shadeLightMinimum": 0.92,
+  "shadeLightMaximum": 1.04,
+  "shadowDesaturation": 0.55,
+  "groundContactStart": 0,
+  "groundContactEnd": 0.24,
+  "groundContactStrength": 0.52,
+  "groundContactBaseScale": 0.42,
+  "groundContactDryScale": 0.58
 }

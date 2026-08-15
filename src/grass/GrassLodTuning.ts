@@ -24,6 +24,6 @@ export const GRASS_IMPOSTOR_WIND_SHEAR_FACTOR = 0.35;
  * a crest brightens one representation and not the other and the 44-64 m
  * crossfade pulses against itself. Shared here so neither can drift.
  */
-export const GRASS_GUST_TIP_BOOST = 0.12;
+export const GRASS_GUST_TIP_BOOST = 0.07;
 export const GRASS_IMPOSTOR_MAX_WIND_DISPLACEMENT = 0.08;
 export const GRASS_IMPOSTOR_BOUNDS_SAFETY_MARGIN = 0.15;

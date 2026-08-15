@@ -4,7 +4,7 @@
 
 - Target branch: `main`
 - Scope: planning and implementation contract
-- Current state: not started
+- Current state: completed — all phases 1 through 10 implemented, integrated with world chunk streaming, collision/foot placement, and fully verified by automated build gates (`verify-stones.mjs`, `verify-navigation.mjs`)
 - Goal: generate large families of art-directed procedural stones with the same shape language, surface detail, and stylized rendering characteristics as the approved references, without reproducing any individual stone pixel-for-pixel.
 
 ## Product goal

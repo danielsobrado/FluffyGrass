@@ -502,7 +502,10 @@ assert(
   patchGeometryFactory.includes("midSortedDithers") &&
     lodController.includes("setDrawRange(0, keptBlades * INDICES_PER_BLADE)") &&
     lodController.includes("compactMidInstances") &&
-    lodController.includes("mesh.count = keepCount"),
+    lodController.includes("mesh.count = keepCount") &&
+    lodController.includes("if (patch.distance > nearFadeStart)") &&
+    lodController.includes("if (swapped)") &&
+    lodController.includes("Math.min(farthestDistance, this.compactFarthest)"),
   "Mid geometry must stay descending-dither sorted, instance-culled inside the near band, and prefix-trimmed with drawRange.",
 );
 
@@ -789,6 +792,66 @@ assert(
   "Accent tiers must only lower coverage, end at zero, and ramp like every other tier scalar.",
 );
 
+const yamlAccentDensity = Number(
+  worldConfig.match(/^detailFoliageDensity:\s*([0-9.]+)$/m)?.[1],
+);
+assert(
+  yamlAccentDensity <= 0.35 &&
+    Math.round(16 * 16 * yamlAccentDensity) <= 90 &&
+    accentTileSize === 16 &&
+    Number(
+      detailFoliageAtlasFactory.match(
+        /DETAIL_FOLIAGE_VARIANT_ROWS = (\d+)/,
+      )?.[1],
+    ) === 2 &&
+    maxAccentSpecies === 8 &&
+    nearField.includes("DETAIL_FOLIAGE_TILES_PER_FRAME = 1"),
+  "Detail foliage must keep 16 m tiles, 8 species, 2 phenotype rows, one tile/frame, and ≤ 90 candidates.",
+);
+assert(
+  detailFoliageField.includes("castShadow = false") &&
+    detailFoliageField.includes("receiveShadow = false") &&
+    detailFoliageField.includes("setIndex([0, 1, 3, 0, 3, 2, 2, 3, 5, 2, 5, 4])") &&
+    detailFoliageField.includes('setAttribute(\n      "instanceVariation"') &&
+    detailFoliageField.includes('setAttribute(\n      "instanceCoverage"') &&
+    detailFoliageField.includes('setAttribute(\n      "instanceBiome"') &&
+    detailFoliageField.includes('setAttribute(\n      "instanceAccent"') &&
+    !detailFoliageField.includes("instanceColony") &&
+    !detailFoliageField.includes("instanceClump") &&
+    !detailFoliageField.includes("instanceAge") &&
+    !detailFoliageField.includes("instanceFamily"),
+  "Detail foliage must keep the current card, shadows-off, and four instance attributes.",
+);
+assert(
+  detailFoliageField.includes("this.distribution.sample(") &&
+    !worldGrassSystem.includes("distribution.sample") &&
+    !detailFoliageMaterial.includes("distribution.sample") &&
+    !worldApp.includes("distribution.sample"),
+  "Colony distribution must run only during detail-tile construction.",
+);
+const factorySource = detailFoliageField.slice(
+  detailFoliageField.indexOf("export class WorldDetailFoliageFactory"),
+  detailFoliageField.indexOf("export interface WorldDetailFoliageFieldOptions"),
+);
+const positionDraws = factorySource.match(/positionRandom\.next\(\)/g) ?? [];
+assert(
+  positionDraws.length === 2 &&
+    !factorySource.includes("positionRandom.range") &&
+    factorySource.includes("detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_YAW_SALT)") &&
+    factorySource.includes("detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_DITHER_SALT)") &&
+    !factorySource.includes("GRASS_ACCENT_SPECIES.find") &&
+    !factorySource.includes("resolveGrassAccentTintRow") &&
+    biomeProfileSource.includes("speciesIndex:") &&
+    biomeProfileSource.includes("tintRow:"),
+  "Candidate positions must consume exactly two positionRandom draws; appearance and species come from candidate channels and pre-resolved profile rows.",
+);
+assert(
+  nearField.includes("detailFoliageTuningEquals(this.detailFoliageTuning, normalized)") &&
+    nearField.includes("this.detailFoliageField?.invalidate()") &&
+    detailFoliageField.includes("invalidate(): void"),
+  "Equal normalized tuning must not rebuild; changed tuning invalidates detail tiles only.",
+);
+
 assert(
   compactUltraMultiplier <= ultraMultiplier &&
     nearField.includes("grassUltraNearDensityMultiplierCompact"),
@@ -836,12 +899,13 @@ assert(
     "float grassMotionPhase = fract(grassPhase + instanceVariation.x);",
   ) &&
     nearMaterial.includes("grassMotionPhase * 6.28318530718") &&
-    nearMaterial.includes("fract(grassMotionPhase * 1.61803398875)") &&
+    nearMaterial.includes("grassTuftPhase") &&
+    nearMaterial.includes("grassWeather") &&
     nearMaterial.includes("grassPhase * 0.569840296") &&
     nearMaterial.includes("grassPhase * 0.819173") &&
     !nearMaterial.includes("grassMotionPhase * 0.569840296") &&
     !nearMaterial.includes("grassMotionPhase * 0.819173"),
-  "Motion phase must drive flutter and stiffness only; both dithers must keep the source phase.",
+  "Motion phase must drive flutter only; tuft phase and weather must drive coherent gusts; both dithers must keep the source phase.",
 );
 assert(
   !tileFactory.includes("const centerZ = lean * curve") &&
@@ -966,6 +1030,10 @@ assert(
   "Grass meshes must carry a real world position so opaque depth sorting works.",
 );
 assert(worldGrassSystem.includes("mesh.receiveShadow = false"), "Mid/far grass must not perform per-blade shadow reads.");
+assert(
+  !nearField.includes("receiveShadows: true"),
+  "Near grass must not perform per-blade shadow reads.",
+);
 const underfill = Number(lodTuning.match(/GRASS_MID_IMPOSTOR_UNDERFILL\s*=\s*([0-9.]+)/)?.[1]);
 assert(underfill === 0, "Far-card underfill must remain disabled in the full mid band.");
 // The fetch may carry explicit gradients; what matters is that there is one of

@@ -26,6 +26,7 @@ import {
   GRASS_WIND_NOISE_SCALE,
   GRASS_WIND_NOISE_SPEED,
   grassCompactGustGlsl,
+  grassWeatherEnvelopeGlsl,
 } from "../../grass/wind/WindNoiseTexture";
 import type { WorldGrassImpostorAtlas } from "./WorldGrassImpostorAtlasFactory";
 import {
@@ -218,8 +219,10 @@ void main() {
   // quad's own half-extent, not the (much larger) culling bound radius, so
   // position.y spans the full [0, 1] of the shear ramp.
   float shearProgress = saturate(position.y / max(uCardRadius, 0.0001) * 0.5 + 0.5);
+  float weather = ${grassWeatherEnvelopeGlsl("uTime")};
   float sway = (gustNoise * 2.0 - 1.0) * uWindStrength *
-    ${GRASS_IMPOSTOR_WIND_SHEAR_FACTOR.toFixed(2)};
+    ${GRASS_IMPOSTOR_WIND_SHEAR_FACTOR.toFixed(2)} * weather *
+    mix(1.0, 0.72, instanceVariation.w);
   worldPosition += vec3(windDirection.x, 0.0, windDirection.y) *
     sway * shearProgress * scaleY;
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
@@ -231,7 +234,7 @@ void main() {
   vec3 grassWorldNormal = normalize(mix(
     basisZ,
     basisY,
-    mix(uNormalUp, 1.0, saturate((cameraDistance - 80.0) / 140.0))
+    mix(uNormalUp, 1.0, saturate((cameraDistance - 48.0) / 90.0))
   ));
   vec3 grassViewNormal = normalize(mat3(viewMatrix) * grassWorldNormal);
   vec3 grassIrradiance = ambientLightColor;
@@ -256,7 +259,9 @@ void main() {
     vGrassBackLight = pow(
       saturate(dot(normalize(mvPosition.xyz), directionalLights[0].direction)),
       2.0
-    ) * mix(0.22, 1.0, shearProgress);
+    ) * mix(0.22, 1.0, shearProgress) *
+      (0.42 + 0.58 * (1.0 - abs(dot(grassWorldNormal, directionalLights[0].direction)))) *
+      mix(0.78, 1.14, 1.0 - instanceVariation.w);
   #else
     vGrassBackLight = 0.0;
   #endif

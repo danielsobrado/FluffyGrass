@@ -25,6 +25,7 @@ import {
   GRASS_WIND_NOISE_SCALE,
   GRASS_WIND_NOISE_SPEED,
   grassCompactGustGlsl,
+  grassWeatherEnvelopeGlsl,
 } from "../../grass/wind/WindNoiseTexture";
 import type { WorldDetailFoliageAtlas } from "./WorldDetailFoliageAtlasFactory";
 
@@ -163,9 +164,10 @@ void main() {
     float(${GRASS_MAX_ACCENT_SPECIES} - 1)
   ) + 0.5);
   float windRamp = pow(uv.y, ${DETAIL_FOLIAGE_WIND_RAMP_POWER.toFixed(2)});
+  float weather = ${grassWeatherEnvelopeGlsl("uTime")};
   float sway = (gustNoise * 2.0 - 1.0) * uWindStrength *
     ${DETAIL_FOLIAGE_WIND_SHEAR_FACTOR.toFixed(2)} *
-    uSpeciesWind[speciesRow] * instanceVariation.y;
+    uSpeciesWind[speciesRow] * instanceVariation.y * weather;
   worldPosition += vec3(windDirection.x, 0.0, windDirection.y) *
     sway * windRamp * scaleY;
 

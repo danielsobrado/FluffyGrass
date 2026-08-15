@@ -146,6 +146,9 @@ const CLUMP_ASPECT_SALT = 0x6d;
 const CLUMP_ELLIPSE_ANGLE_SALT = 0x7f;
 const CLUMP_DIRECTION_SALT = 0x91;
 const CLUMP_LEAN_SALT = 0xa5;
+const CLUMP_TALL_GROUP_SALT = 0xb7;
+const CLUMP_ASYMMETRY_SALT = 0xc9;
+const CLUMP_HOLE_SALT = 0xdb;
 /**
  * Per-blade height jitter within a tuft. Composed with the tuft's own scale
  * above, the product stays inside {@link INSTANCE_VERTICAL_SCALE_MAX}, which
@@ -170,11 +173,11 @@ const BLADE_HEIGHT_JITTER_MAX = 1.06;
  * charge, so the tallest tufts saturate against it rather than growing out of
  * the box that culls them.
  */
-const BLADE_TIER_UNDERSTORY_SHARE = 0.3;
-const BLADE_TIER_ACCENT_SHARE = 0.1;
-const BLADE_TIER_UNDERSTORY_SCALE = 0.46;
-const BLADE_TIER_MAIN_SCALE = 0.92;
-const BLADE_TIER_ACCENT_SCALE = 1.18;
+const BLADE_TIER_UNDERSTORY_SHARE = 0.42;
+const BLADE_TIER_ACCENT_SHARE = 0.07;
+const BLADE_TIER_UNDERSTORY_SCALE = 0.48;
+const BLADE_TIER_MAIN_SCALE = 0.84;
+const BLADE_TIER_ACCENT_SCALE = 1.2;
 /**
  * Low enough to let the understory tier through. Only maxima feed the reserved
  * bounds, so lowering the floor cannot invalidate them; the sub-pixel width
@@ -251,7 +254,7 @@ const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
  * against the previous rule would otherwise survive in the LRU and draw beside
  * freshly built neighbours.
  */
-const GRASS_PLACEMENT_VERSION = 5;
+const GRASS_PLACEMENT_VERSION = 7;
 /** Bound negative-placement memory while retaining far more than one view. */
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
@@ -573,6 +576,21 @@ export class WorldSingleBladeTileFactory {
       const ellipseSin = Math.sin(ellipseAngle);
       const offsetX = ellipseX * ellipseCos - ellipseZ * ellipseSin;
       const offsetZ = ellipseX * ellipseSin + ellipseZ * ellipseCos;
+      // A few tufts keep a small internal hole so darker ground/thatch can be
+      // seen through the canopy. The hole is a stable angular sector of the
+      // clump, not a random missing blade. Keep it rare and small: mid patches
+      // have no holes, so a common near-field gap fills at the LOD handoff.
+      const holeIdentity = this.clumpValue(clumpColumn, clumpRow, CLUMP_HOLE_SALT);
+      if (
+        holeIdentity > 0.78 &&
+        sampleRadius > 0.22 &&
+        sampleRadius < 0.48 &&
+        Math.abs(
+          Math.sin(sampleAngle * 1.5 + holeIdentity * TWO_PI),
+        ) < 0.12
+      ) {
+        continue;
+      }
       const x = clumpCenterX + offsetX;
       const z = clumpCenterZ + offsetZ;
       const height = this.field.sampleHeight(x, z);
@@ -717,39 +735,52 @@ export class WorldSingleBladeTileFactory {
       let clumpHeightScale =
         this.habitatSample.height *
         (0.94 + this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.12);
-      if (archetype === GRASS_CLUSTER_TALL_WET) clumpHeightScale *= 1.05;
-      if (archetype === GRASS_CLUSTER_SHORT_DRY) clumpHeightScale *= 0.88;
-      if (archetype === GRASS_CLUSTER_FLATTENED) clumpHeightScale *= 0.84;
-      if (archetype === GRASS_CLUSTER_ACCENT) clumpHeightScale *= 1.08;
+      if (archetype === GRASS_CLUSTER_TALL_WET) clumpHeightScale *= 1.14;
+      if (archetype === GRASS_CLUSTER_SHORT_DRY) clumpHeightScale *= 0.78;
+      if (archetype === GRASS_CLUSTER_FLATTENED) clumpHeightScale *= 0.8;
+      if (archetype === GRASS_CLUSTER_ACCENT) clumpHeightScale *= 1.1;
       let understoryShare = BLADE_TIER_UNDERSTORY_SHARE;
-      let accentShare = BLADE_TIER_ACCENT_SHARE;
+      let accentShare = 0;
+      const tallGroup =
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_TALL_GROUP_SALT);
       if (archetype === GRASS_CLUSTER_SHORT_DRY || archetype === GRASS_CLUSTER_FLATTENED) {
-        understoryShare = 0.46;
-        accentShare = 0.03;
+        understoryShare = 0.56;
       } else if (archetype === GRASS_CLUSTER_TALL_WET) {
-        understoryShare = 0.18;
-        accentShare = 0.16;
+        understoryShare = 0.28;
+        accentShare = 0.18;
       } else if (archetype === GRASS_CLUSTER_ACCENT) {
-        accentShare = 0.22;
+        accentShare = 0.2;
       } else if (archetype === GRASS_CLUSTER_SPARSE_OPEN) {
-        understoryShare = 0.22;
-        accentShare = 0.04;
+        understoryShare = 0.3;
+        if (tallGroup > 0.84) accentShare = 0.08;
+      } else if (tallGroup > 0.62) {
+        accentShare = BLADE_TIER_ACCENT_SHARE + 0.05;
       }
       understoryShare = THREE.MathUtils.lerp(
         understoryShare,
         this.habitatSample.underlayer,
-        0.4,
+        0.55,
       );
+      understoryShare = Math.min(understoryShare, 1 - accentShare - 0.22);
       const bladeTier = job.random.next();
-      const tierScale =
-        bladeTier < understoryShare
+      const isAccentBlade = accentShare > 0 && bladeTier >= 1 - accentShare;
+      const tierScale = isAccentBlade
+        ? BLADE_TIER_ACCENT_SCALE
+        : bladeTier < understoryShare
           ? BLADE_TIER_UNDERSTORY_SCALE
-          : bladeTier < 1 - accentShare
-            ? BLADE_TIER_MAIN_SCALE
-            : BLADE_TIER_ACCENT_SCALE;
+          : BLADE_TIER_MAIN_SCALE;
+      const asymmetry =
+        0.05 +
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_ASYMMETRY_SALT) * 0.2;
+      const side =
+        radialLength > 1e-4
+          ? (offsetX * dominantZ - offsetZ * dominantX) / radialLength
+          : 0;
+      const sideHeight = 1 - asymmetry * Math.max(0, side);
       const verticalScale = THREE.MathUtils.clamp(
         clumpHeightScale *
           tierScale *
+          sideHeight *
           job.random.range(BLADE_HEIGHT_JITTER_MIN, BLADE_HEIGHT_JITTER_MAX),
         INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
@@ -790,8 +821,16 @@ export class WorldSingleBladeTileFactory {
       job.variations[variationOffset + 2] =
         resolveGrassCanopyAo(vigor, suitability) *
         job.random.range(0.985, 1.015);
+      let dryness = this.habitatSample.dryness;
+      if (archetype === GRASS_CLUSTER_TALL_WET) dryness *= 0.52;
+      if (archetype === GRASS_CLUSTER_SHORT_DRY) {
+        dryness = Math.min(1, dryness + 0.1);
+      }
+      if (isAccentBlade && tallGroup > 0.7 && dryness > 0.12) {
+        dryness = Math.min(1, dryness + 0.16);
+      }
       job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        this.habitatSample.dryness + job.random.range(-0.015, 0.015),
+        dryness + job.random.range(-0.012, 0.012),
         0,
         1,
       );

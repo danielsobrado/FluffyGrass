@@ -13,7 +13,7 @@
 - Target branch: `main`
 - Phase: 8 — runtime performance, asset caching, worker generation, instancing, and dense-field proxies
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: canonical runtime asset identity, pre-baked libraries, worker protocol, asynchronous generation, shared GPU resources, instanced LOD rendering, cache eviction, visibility, cluster proxies, streaming integration, performance metrics, and benchmark QA
 
 This document removes implementation choices from Phase 8. The implementer must follow the file layout, configuration values, cache-key formats, asset-library format, worker messages, queue priorities, cache ownership, instancing data layout, shader patches, culling equations, proxy rules, world integration, metrics, verification matrix, and completion criteria below. A different cache identity, runtime seed policy, worker architecture, batch model, proxy strategy, memory policy, or benchmark requires this document to be changed first.

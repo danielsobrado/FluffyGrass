@@ -37,7 +37,7 @@ export function createGrassHabitatSample(): GrassHabitatSample {
     height: 1,
     dryness: 0,
     clumpScale: 1,
-    underlayer: 0.35,
+    underlayer: 0.34,
     directionalLean: 0,
     accentChance: 0,
   };
@@ -143,7 +143,9 @@ export function sampleGrassHabitat(
       (1 - moisture) * config.grassDryColorStrength * 0.72,
   );
   target.clumpScale = lerp(0.72, 1.22, target.density);
-  target.underlayer = clamp01(lerp(0.18, 0.52, 1.08 - target.height) * (1 - disturbance));
+  target.underlayer = clamp01(
+    lerp(0.32, 0.56, 1.08 - target.height) * (1 - disturbance * 0.72),
+  );
   target.directionalLean = clamp01(disturbance * 0.72 + exposure * 0.18);
   target.accentChance = clamp01(
     accentDensity *

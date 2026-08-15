@@ -31,10 +31,6 @@ export interface GrassPatch {
    * Mid blade dithers, descending, matching the mid geometry's triangle order.
    * Present only on patches whose mid draw can be prefix-trimmed.
    */
-  /**
-   * Mid blade dithers, descending, matching the mid geometry's triangle order.
-   * Present only on patches whose mid draw can be prefix-trimmed.
-   */
   midSortedDithers?: Float32Array;
   /**
    * Unfaded per-instance coverage, indexed with the live instance buffers.

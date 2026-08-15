@@ -8,7 +8,7 @@
 - Target branch: `main`
 - Phase: 3 — semantic regions and sparse geometric detail
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: stone semantics, region coordinates, sparse surface-detail recipes, and bounded silhouette chips
 
 This document removes implementation choices from Phase 3. The implementer must follow the file layout, public APIs, semantic taxonomy, configuration values, deterministic algorithms, geometry-delta rules, attribute schema, verification matrix, and completion criteria below. A different semantic model, detail representation, geometry strategy, configuration format, or retry strategy requires this document to be changed first.

@@ -51,8 +51,13 @@ export function resolveMidBladeDither(
 const TWO_PI = Math.PI * 2;
 const VARIANT_SEED_STEP = 0x9e3779b9;
 const POSITION_JITTER = 0.44;
-const UNDERLAYER_HEIGHT_MIN = 0.38;
-const UNDERLAYER_HEIGHT_MAX = 0.66;
+const UNDERLAYER_HEIGHT_MIN = 0.36;
+const UNDERLAYER_HEIGHT_MAX = 0.58;
+const MAIN_HEIGHT_MIN = 0.82;
+const MAIN_HEIGHT_MAX = 0.96;
+const ACCENT_HEIGHT_MIN = 1.12;
+const ACCENT_HEIGHT_MAX = 1.22;
+const ACCENT_FRACTION_SCALE = 0.22;
 
 export class WorldGrassPatchGeometryFactory {
   createLodVariants(
@@ -148,9 +153,13 @@ export class WorldGrassPatchGeometryFactory {
       const column = index % columns;
       const row = Math.floor(index / columns);
       const underlayer = random.next() < underlayerFraction;
+      const accent =
+        !underlayer && random.next() < underlayerFraction * ACCENT_FRACTION_SCALE;
       const layerHeight = underlayer
         ? random.range(UNDERLAYER_HEIGHT_MIN, UNDERLAYER_HEIGHT_MAX)
-        : random.range(0.88, 1.12);
+        : accent
+          ? random.range(ACCENT_HEIGHT_MIN, ACCENT_HEIGHT_MAX)
+          : random.range(MAIN_HEIGHT_MIN, MAIN_HEIGHT_MAX);
       const rootX =
         -halfPatch +
         (column + 0.5) * cellWidth +
@@ -169,14 +178,18 @@ export class WorldGrassPatchGeometryFactory {
         leanAngle,
         lean:
           random.range(grass.bladeLeanMin, grass.bladeLeanMax) *
-          (underlayer ? 0.62 : 1),
+          (underlayer ? 0.62 : accent ? 1.08 : 1),
         height:
           random.range(grass.bladeHeightMin, grass.bladeHeightMax) * layerHeight,
         width:
           random.range(grass.bladeWidthMin, grass.bladeWidthMax) *
-          (underlayer ? 0.78 : 1),
+          (underlayer ? 0.78 : accent ? 0.86 : 1),
         phase: random.next(),
-        shade: underlayer ? random.range(0, 0.2) : random.range(0.24, 1),
+        shade: underlayer
+          ? random.range(0, 0.2)
+          : accent
+            ? random.range(0.18, 0.55)
+            : random.range(0.28, 0.82),
         lodRank: random.next(),
       });
     }

@@ -29,7 +29,7 @@ const MAX_DELTA_SECONDS = 0.1;
 const MIN_DIRECTION_SPEED = 0.05;
 const MIN_PULSE_STRENGTH = 0.02;
 const IDLE_FOOT_RATIO = 0.45;
-const FOOT_DIRECTIONAL_BLEND = 0.45;
+const FOOT_DIRECTIONAL_BLEND = 0.72;
 const PULSE_START_RADIUS_FRACTION = 0.25;
 
 /**
@@ -216,10 +216,22 @@ class GrassInteractionField {
     if (plant <= 0) {
       return;
     }
+    const irregular =
+      0.82 +
+      0.18 *
+        (0.5 +
+          0.5 *
+            Math.sin(
+              pose.distanceTravelled * 7.1 + lateralOffset * 19.3,
+            ));
     grassTrailField.submitContact(
-      pose.position.x + forwardX * forwardOffset + rightX * lateralOffset,
-      pose.position.z + forwardZ * forwardOffset + rightZ * lateralOffset,
-      config.footContactRadius,
+      pose.position.x +
+        forwardX * forwardOffset +
+        rightX * lateralOffset * irregular,
+      pose.position.z +
+        forwardZ * forwardOffset +
+        rightZ * lateralOffset * irregular,
+      config.footContactRadius * irregular,
       config.footContactStrength * config.strength * plant * speedScale,
       this.direction.x,
       this.direction.y,
@@ -232,15 +244,21 @@ class GrassInteractionField {
     config: Readonly<GrassInteractionConfig>,
     pose: GrassInteractionPose,
   ): void {
+    const speed = Math.hypot(pose.velocity.x, pose.velocity.z);
+    const wake = THREE.MathUtils.smoothstep(
+      speed,
+      MIN_DIRECTION_SPEED,
+      config.speedForFullEffect,
+    );
     grassTrailField.submitContact(
-      pose.position.x,
-      pose.position.z,
-      config.bodyContactRadius,
-      config.bodyContactStrength * config.strength,
+      pose.position.x - this.direction.x * wake * 0.42,
+      pose.position.z - this.direction.y * wake * 0.42,
+      config.bodyContactRadius * THREE.MathUtils.lerp(1, 1.4, wake),
+      config.bodyContactStrength * config.strength * THREE.MathUtils.lerp(1, 0.72, wake),
       this.direction.x,
       this.direction.y,
       0,
-      0.25,
+      THREE.MathUtils.lerp(0.28, 0.78, wake),
     );
   }
 

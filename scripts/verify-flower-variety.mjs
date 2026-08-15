@@ -25,6 +25,78 @@ assert(
   "Flower families must retain visibly different, broad height bands.",
 );
 assert(
+  species.includes('key: "low-shrub"') &&
+    species.includes("index") &&
+    /key: "low-shrub"[\s\S]*?category: "shrub"/.test(species) &&
+    /key: "broadleaf-rosette"[\s\S]*?category: "broadleaf"/.test(species) &&
+    !species.includes('key: "tall-tuft"') &&
+    !species.includes('key: "sprig"'),
+  "Species slots 1 and 7 must be low-shrub and broadleaf-rosette.",
+);
+assert(
+  species.includes("GRASS_MAX_ACCENT_SPECIES = 8") &&
+    [...species.matchAll(/key: "([a-z-]+)",\s+category:/g)].length === 8 &&
+    species.includes('| "shrub"') &&
+    species.includes('| "broadleaf"'),
+  "The accent catalogue must stay at eight species and include shrub and broadleaf.",
+);
+const heightBands = [
+  ...species.matchAll(/canopyHeightBand: \[([0-9.]+), ([0-9.]+)\]/g),
+];
+const aspects = [...species.matchAll(/aspect: ([0-9.]+)/g)].map((match) =>
+  Number(match[1]),
+);
+let maxHeight = 0;
+let maxWidth = 0;
+heightBands.forEach((match, index) => {
+  const high = Number(match[2]);
+  maxHeight = Math.max(maxHeight, high);
+  maxWidth = Math.max(maxWidth, high * aspects[index]);
+});
+assert(
+  maxHeight <= 1.72 && maxWidth <= 1.314,
+  `Accent canopy bounds exceeded: height ${maxHeight}, width ${maxWidth}.`,
+);
+const shrubAspect = Number(
+  species.match(/key: "low-shrub"[\s\S]*?aspect: ([0-9.]+)/)?.[1],
+);
+const seedAspect = Number(
+  species.match(/key: "seed-head"[\s\S]*?aspect: ([0-9.]+)/)?.[1],
+);
+const broadleafMax = Number(
+  species.match(
+    /key: "broadleaf-rosette"[\s\S]*?canopyHeightBand: \[[0-9.]+, ([0-9.]+)\]/,
+  )?.[1],
+);
+const daisyMax = Number(
+  species.match(
+    /key: "daisy"[\s\S]*?canopyHeightBand: \[[0-9.]+, ([0-9.]+)\]/,
+  )?.[1],
+);
+const seedMax = Number(
+  species.match(
+    /key: "seed-head"[\s\S]*?canopyHeightBand: \[[0-9.]+, ([0-9.]+)\]/,
+  )?.[1],
+);
+assert(
+  shrubAspect > seedAspect &&
+    broadleafMax < daisyMax &&
+    broadleafMax < seedMax,
+  "Replacement plants must keep a lower, wider silhouette than seed heads and daisies.",
+);
+assert(
+  atlas.includes("private drawLowShrub(") &&
+    atlas.includes("private drawBroadleafRosette(") &&
+    /drawLowShrub\([\s\S]*variant % 2 === 1/.test(atlas) &&
+    /drawBroadleafRosette\([\s\S]*variant % 2 === 1/.test(atlas) &&
+    atlas.includes("DETAIL_FOLIAGE_CELL_RESOLUTION = 112") &&
+    atlas.includes("DETAIL_FOLIAGE_VARIANT_ROWS = 2") &&
+    atlas.includes("columns * cellSize") &&
+    !atlas.includes("drawSprig") &&
+    !atlas.includes('case "tall-tuft"'),
+  "Atlas must draw shrub and rosette phenotypes on the existing 8x2 1024x256 layout.",
+);
+assert(
   species.includes('key: "daisy"') &&
     species.includes("aspect: 0.72") &&
     species.includes('key: "round-bloom"') &&

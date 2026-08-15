@@ -155,8 +155,8 @@ export class WorldDetailFoliageAtlasFactory {
       case "grass-tuft":
         this.drawTuft(context, random, 11, 0.78, 0.62);
         break;
-      case "tall-tuft":
-        this.drawTuft(context, random, 9, 0.95, 0.34);
+      case "low-shrub":
+        this.drawLowShrub(context, random, row);
         break;
       case "fern":
         this.drawFrond(context, random, 1, 0, 0.98);
@@ -174,8 +174,8 @@ export class WorldDetailFoliageAtlasFactory {
       case "seed-head":
         this.drawSeedHead(context, random);
         break;
-      case "sprig":
-        this.drawSprig(context, random);
+      case "broadleaf-rosette":
+        this.drawBroadleafRosette(context, random, row);
         break;
       default:
         throw new Error(
@@ -618,6 +618,205 @@ export class WorldDetailFoliageAtlasFactory {
     context.fill();
   }
 
+  private drawLowShrub(
+    context: CanvasRenderingContext2D,
+    random: SeededRandom,
+    variant: number,
+  ): void {
+    const mature = variant % 2 === 1;
+    const branchCount = mature
+      ? Math.round(random.range(6, 8))
+      : 5;
+    const leafCount = Math.round(
+      mature ? random.range(12, 19) : random.range(14, 21),
+    );
+    const holeCount = mature ? 2 : 1;
+    const holeAngles: number[] = [];
+    for (let hole = 0; hole < holeCount; hole += 1) {
+      holeAngles.push(random.range(-Math.PI * 0.45, Math.PI * 0.45));
+    }
+    const centerShade = random.range(0.22, 0.34);
+    context.fillStyle = encode(0.18, centerShade, 0);
+    context.beginPath();
+    context.ellipse(
+      random.range(-0.04, 0.05),
+      0.16,
+      mature ? 0.16 : 0.2,
+      mature ? 0.12 : 0.16,
+      random.range(-0.2, 0.2),
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+
+    const aspect = 1.2;
+    const span = mature ? 0.45 : 0.32;
+    for (let index = 0; index < branchCount; index += 1) {
+      const along = index / Math.max(1, branchCount - 1);
+      const centerX =
+        (along * 2 - 1) * span * aspect + random.range(-0.05, 0.05);
+      const top = mature
+        ? random.range(0.48, 0.92)
+        : random.range(0.55, 0.86);
+      const lean = centerX * random.range(0.15, 0.42);
+      const shade = random.range(0.28, 0.42);
+      context.fillStyle = encode(0.22, shade, 0);
+      context.beginPath();
+      context.moveTo(centerX * 0.12 - 0.018, 0);
+      context.quadraticCurveTo(
+        centerX * 0.55,
+        top * 0.48,
+        centerX + lean * 0.2,
+        top,
+      );
+      context.lineTo(centerX + lean * 0.2 + 0.012, top);
+      context.quadraticCurveTo(
+        centerX * 0.55 + 0.01,
+        top * 0.48,
+        centerX * 0.12 + 0.018,
+        0,
+      );
+      context.closePath();
+      context.fill();
+    }
+
+    for (let index = 0; index < leafCount; index += 1) {
+      const along = mature
+        ? random.range(0.22, 0.94)
+        : random.next() ** 1.35 * 0.85 + 0.12;
+      const side = random.range(-span, span) * aspect;
+      const angle = Math.atan2(along - 0.18, side);
+      let blocked = false;
+      for (const hole of holeAngles) {
+        if (Math.abs(angle - hole) < 0.38) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) {
+        continue;
+      }
+      const length = mature
+        ? random.range(0.1, 0.18)
+        : random.range(0.08, 0.16);
+      const width = length * random.range(0.38, mature ? 0.6 : 0.58);
+      const leafX = side * (0.35 + along * 0.7) + random.range(-0.03, 0.03);
+      const leafY = along;
+      context.save();
+      context.translate(leafX, leafY);
+      context.rotate(angle + random.range(-0.35, 0.35));
+      this.fillTaperedLeaf(
+        context,
+        length,
+        width,
+        0.35 + along * 0.6,
+        random.range(0.34, 0.58) * (along > 0.7 ? 1.08 : 0.92),
+      );
+      context.restore();
+    }
+
+    if (mature) {
+      const breakers = Math.round(random.range(1, 3));
+      for (let index = 0; index < breakers; index += 1) {
+        const side = index % 2 === 0 ? -1 : 1;
+        context.save();
+        context.translate(
+          side * random.range(0.38, 0.52) * aspect,
+          random.range(0.42, 0.7),
+        );
+        context.rotate(side * random.range(0.7, 1.2));
+        this.fillTaperedLeaf(
+          context,
+          random.range(0.12, 0.18),
+          random.range(0.05, 0.08),
+          random.range(0.7, 0.9),
+          random.range(0.42, 0.62),
+        );
+        context.restore();
+      }
+    }
+  }
+
+  private drawBroadleafRosette(
+    context: CanvasRenderingContext2D,
+    random: SeededRandom,
+    variant: number,
+  ): void {
+    const mature = variant % 2 === 1;
+    const leafCount = mature ? Math.round(random.range(6, 10)) : 7;
+    const spacing = (Math.PI * 2) / leafCount;
+    const jitter = mature ? 0.28 : 0.18;
+    const oneSide = mature ? random.range(0.78, 0.92) : 1;
+    const otherSide = mature ? random.range(1, 1.1) : 1;
+    const rootX = random.range(-0.04, 0.04);
+    const rootY = random.range(0.08, 0.16);
+    context.fillStyle = encode(0.12, mature ? 0.28 : 0.22, 0);
+    context.beginPath();
+    context.ellipse(
+      rootX,
+      rootY,
+      mature ? 0.07 : 0.09,
+      mature ? 0.05 : 0.07,
+      random.range(-0.2, 0.2),
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+
+    for (let index = 0; index < leafCount; index += 1) {
+      const angle =
+        -Math.PI * 0.5 + index * spacing + random.range(-jitter, jitter);
+      const sideScale = Math.cos(angle) >= 0 ? otherSide : oneSide;
+      const length =
+        (mature ? random.range(0.28, 0.52) : random.range(0.3, 0.46)) *
+        sideScale;
+      const width =
+        length *
+        (mature ? random.range(0.22, 0.36) : random.range(0.22, 0.34));
+      const offset = random.range(0, 0.04);
+      context.save();
+      context.translate(
+        rootX + Math.cos(angle) * offset,
+        rootY + Math.sin(angle) * offset * 0.4,
+      );
+      context.rotate(angle + random.range(-0.12, 0.12));
+      this.fillTaperedLeaf(
+        context,
+        length,
+        width,
+        0.28 + (index / leafCount) * 0.55,
+        random.range(0.32, 0.55) * (0.92 + (index % 3) * 0.05),
+      );
+      context.restore();
+    }
+  }
+
+  private fillTaperedLeaf(
+    context: CanvasRenderingContext2D,
+    length: number,
+    width: number,
+    progress: number,
+    shade: number,
+  ): void {
+    const half = width * 0.5;
+    const gradient = context.createLinearGradient(0, 0, length, 0);
+    gradient.addColorStop(0, encode(progress * 0.35, shade * 0.78, 0));
+    gradient.addColorStop(0.45, encode(progress * 0.72, shade, 0));
+    gradient.addColorStop(
+      1,
+      encode(Math.min(1, progress + 0.18), Math.min(1, shade * 1.12), 0),
+    );
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.quadraticCurveTo(length * 0.22, half * 0.55, length * 0.58, half);
+    context.quadraticCurveTo(length * 0.86, half * 0.42, length, 0);
+    context.quadraticCurveTo(length * 0.86, -half * 0.42, length * 0.58, -half);
+    context.quadraticCurveTo(length * 0.22, -half * 0.55, 0, 0);
+    context.closePath();
+    context.fill();
+  }
+
   private drawSeedHead(
     context: CanvasRenderingContext2D,
     random: SeededRandom,
@@ -650,29 +849,6 @@ export class WorldDetailFoliageAtlasFactory {
       context.ellipse(0, 0, 0.038, 0.016, 0, 0, Math.PI * 2);
       context.fill();
       context.restore();
-    }
-  }
-
-  private drawSprig(
-    context: CanvasRenderingContext2D,
-    random: SeededRandom,
-  ): void {
-    for (let stem = 0; stem < 3; stem += 1) {
-      const lean = (stem - 1) * random.range(0.1, 0.18);
-      const height = random.range(0.55, 0.85);
-      const shade = random.range(0.38, 0.6);
-      this.drawStem(context, random, height, lean, shade);
-      for (let leaf = 0; leaf < 2; leaf += 1) {
-        const along = 0.55 + leaf * 0.22;
-        context.save();
-        context.translate(lean * along * along, height * along);
-        context.rotate((leaf % 2 === 0 ? 1 : -1) * random.range(0.5, 1));
-        context.fillStyle = encode(0.6, shade, 0);
-        context.beginPath();
-        context.ellipse(0.05, 0, 0.06, 0.02, 0, 0, Math.PI * 2);
-        context.fill();
-        context.restore();
-      }
     }
   }
 }

@@ -1,15 +1,23 @@
 import { ActorRigBuilder } from "../../actor/rig/ActorRigBuilder";
 import type { ActorBoneIndex } from "../../actor/rig/ActorBoneIndex";
 import type { ActorRigDefinition } from "../../actor/rig/ActorRigDefinition";
+import { QUADRUPED_PHASE_OFFSETS } from "./QuadrupedGaitProfile";
 
 const DEGREES = Math.PI / 180;
 
-/** Body proportions of the validation quadruped, in actor units. */
-export const QUADRUPED_BODY_HEIGHT = 0.62;
-export const QUADRUPED_BODY_HALF_LENGTH = 0.34;
-export const QUADRUPED_LIMB_HALF_WIDTH = 0.13;
-export const QUADRUPED_UPPER_LIMB = 0.28;
-export const QUADRUPED_LOWER_LIMB = 0.26;
+/**
+ * Body proportions, in actor units.
+ *
+ * These are deer proportions rather than the original dog-like block: taller at
+ * the shoulder, narrower across the chest, and longer in the limb. A deer is
+ * mostly leg, and that ratio is most of what makes the silhouette readable at
+ * the distance these animals are usually seen from.
+ */
+export const QUADRUPED_BODY_HEIGHT = 0.7;
+export const QUADRUPED_BODY_HALF_LENGTH = 0.36;
+export const QUADRUPED_LIMB_HALF_WIDTH = 0.11;
+export const QUADRUPED_UPPER_LIMB = 0.32;
+export const QUADRUPED_LOWER_LIMB = 0.3;
 export const QUADRUPED_PAW_DROP = 0.05;
 
 export const QUADRUPED_CHAIN_FRONT_LEFT = "front.L";
@@ -33,6 +41,8 @@ export interface QuadrupedRigBones {
   readonly chest: ActorBoneIndex;
   readonly neck: ActorBoneIndex;
   readonly head: ActorBoneIndex;
+  /** Left then right, in that order. */
+  readonly ears: readonly ActorBoneIndex[];
   readonly tail: readonly ActorBoneIndex[];
   readonly frontUpper: readonly ActorBoneIndex[];
   readonly frontLower: readonly ActorBoneIndex[];
@@ -98,19 +108,40 @@ function buildQuadrupedRig(): QuadrupedRig {
   const head = builder.addBone({
     name: "head",
     parent: neck,
-    y: 0.14,
-    z: 0.14,
+    y: 0.115,
+    z: 0.115,
     role: "head",
   });
 
+  // Ears and tail are secondary: the pose pipeline leaves them alone and a
+  // secondary-motion module owns them outright. That is what lets an ear flick
+  // while the head is being aimed by an IK stage without the two fighting.
+  const ears: ActorBoneIndex[] = [];
+  for (const side of [-1, 1] as const) {
+    ears.push(
+      builder.addBone({
+        name: `ear.${side < 0 ? "L" : "R"}`,
+        parent: head,
+        x: side * 0.055,
+        y: 0.06,
+        z: -0.02,
+        secondary: true,
+      }),
+    );
+  }
+
+  // A short tail that hangs rather than a rod pointing straight back. The bind
+  // droop matters: these bones are secondary, so the pose pipeline never touches
+  // them and whatever the bind says is what a resting animal shows.
   const tail: ActorBoneIndex[] = [];
   let tailParent = pelvis;
   for (let segment = 0; segment < 3; segment += 1) {
     tailParent = builder.addBone({
       name: `tail.0${segment + 1}`,
       parent: tailParent,
-      y: segment === 0 ? 0.06 : 0,
-      z: -0.12,
+      y: segment === 0 ? 0.07 : 0,
+      z: segment === 0 ? -0.05 : -0.085,
+      rotationX: segment === 0 ? -0.95 : -0.3,
       secondary: true,
     });
     tail.push(tailParent);
@@ -180,6 +211,7 @@ function buildQuadrupedRig(): QuadrupedRig {
     chest,
     neck,
     head,
+    ears,
     tail,
     frontUpper,
     frontLower,
@@ -210,23 +242,22 @@ function buildQuadrupedRig(): QuadrupedRig {
     });
   }
 
-  // A four-beat walk: each limb plants a quarter cycle after the last, in the
-  // lateral sequence hind-left, front-left, hind-right, front-right.
-  const phaseOffsets = [0.25, 0.75, 0, 0.5];
   QUADRUPED_CONTACT_CHAINS.forEach((chain, index) => {
     builder.addEffector({
       name: chain,
       kind: "groundContact",
       chain,
-      phaseOffset: phaseOffsets[index],
+      phaseOffset: QUADRUPED_PHASE_OFFSETS[index],
     });
   });
 
+  // Only masks something actually blends through. The earlier limb and tail
+  // masks had no consumer, and the tail one could never have worked: its bones
+  // are secondary, so the pose pipeline skips them and a blend weight over them
+  // decides nothing. `headAim` is narrow on purpose — it starts below the spine
+  // so aiming the head never fights the locomotion layer's spine sway.
   builder.addMask("fullBody", { roots: [actorRoot] });
-  builder.addMask("spineHead", { roots: [spine] , exclude: [...frontUpper] });
-  builder.addMask("frontLimbs", { roots: [...frontUpper] });
-  builder.addMask("hindLimbs", { roots: [...hindUpper] });
-  builder.addMask("tail", { roots: tail.length > 0 ? [tail[0]] : [] });
+  builder.addMask("headAim", { roots: [neck] });
 
   builder.addSocket({ key: "head", parent: head, y: 0.06 });
   builder.addSocket({ key: "mouth", parent: head, y: -0.04, z: 0.12 });
@@ -249,7 +280,7 @@ function buildQuadrupedRig(): QuadrupedRig {
       maxZ: 12 * DEGREES,
     });
   }
-  for (const joint of [spine, chest, neck, head]) {
+  for (const joint of [spine, chest]) {
     builder.addJointLimit({
       bone: joint,
       minX: -40 * DEGREES,
@@ -260,6 +291,28 @@ function buildQuadrupedRig(): QuadrupedRig {
       maxZ: 25 * DEGREES,
     });
   }
+  // The neck and head need far more forward travel than the trunk does, because
+  // feeding is the one thing this animal does that puts its mouth on the floor.
+  // Held to the trunk's 40° the graze pose was silently clamped and the muzzle
+  // stopped at chest height, which reads as a stiff neck rather than as eating.
+  builder.addJointLimit({
+    bone: neck,
+    minX: -55 * DEGREES,
+    maxX: 100 * DEGREES,
+    minY: -45 * DEGREES,
+    maxY: 45 * DEGREES,
+    minZ: -25 * DEGREES,
+    maxZ: 25 * DEGREES,
+  });
+  builder.addJointLimit({
+    bone: head,
+    minX: -50 * DEGREES,
+    maxX: 65 * DEGREES,
+    minY: -45 * DEGREES,
+    maxY: 45 * DEGREES,
+    minZ: -25 * DEGREES,
+    maxZ: 25 * DEGREES,
+  });
 
   return { definition: builder.build(), bones };
 }

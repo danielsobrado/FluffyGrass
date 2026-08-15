@@ -12,7 +12,7 @@
 - Target branch: `main`
 - Phase: 7 — world placement, terrain integration, geology, and biome presets
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: deterministic world-space placement, environmental classification, geology correlation, terrain fitting, streamed chunk ownership, exclusion rules, collision descriptors, and world-renderer integration
 
 This document removes implementation choices from Phase 7. The implementer must follow the file layout, public APIs, environment fields, biome catalogue, exact weights, placement-cell algorithm, cluster grammars, terrain-fitting rules, chunk ownership, exclusion contract, metadata, verification matrix, lifecycle rules, and completion criteria below. A different biome set, distribution model, ownership rule, terrain-fitting strategy, or world integration requires this document to be changed first.

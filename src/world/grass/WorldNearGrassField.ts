@@ -24,6 +24,12 @@ import {
 } from "./WorldDetailFoliageAtlasFactory";
 import { WorldDetailFoliageMaterial } from "./WorldDetailFoliageMaterial";
 import {
+  createDetailFoliageTuning,
+  detailFoliageTuningEquals,
+  normalizeDetailFoliageTuning,
+  type DetailFoliageTuning,
+} from "./DetailFoliageTuning";
+import {
   DETAIL_FOLIAGE_FADE_DISTANCE,
   DETAIL_FOLIAGE_FADE_TRANSITION,
   WorldDetailFoliageFactory,
@@ -46,7 +52,7 @@ const COMPACT_NEAR_BUILD_BUDGET_MS = 1.5;
  */
 const DETAIL_FOLIAGE_TILES_PER_FRAME = 1;
 /** Compact devices carry the layer at a lower share of the same budget. */
-const COMPACT_DETAIL_FOLIAGE_SCALE = 0.6;
+const COMPACT_DETAIL_FOLIAGE_SCALE = 0.35;
 
 interface NearFieldBuilder {
   update(focus: THREE.Vector3, buildDeadline?: number): void;
@@ -76,6 +82,7 @@ export class WorldNearGrassField {
   private detailFoliageFactory?: WorldDetailFoliageFactory;
   private detailFoliageField?: WorldDetailFoliageField;
   private detailFoliageEnabled = true;
+  private detailFoliageTuning: DetailFoliageTuning;
   private initialization?: Promise<void>;
   private artDirection: GrassArtDirection =
     GRASS_ART_DIRECTIONS[DEFAULT_GRASS_ART_DIRECTION_KEY];
@@ -93,17 +100,18 @@ export class WorldNearGrassField {
     const windMode = profile.compact ? "sine" : "noise";
     this.baseMaterial = new GrassNearMaterial({
       name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v23-base-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v25-base-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
       interactive: true,
       subPixelWidth: true,
       noiseWind: !profile.compact,
+      microWind: !profile.compact,
     });
     this.bridgeMaterial = new GrassNearMaterial({
       name: "world-grass-near-bridge-material",
-      cacheKey: `grass-near-material-v23-bridge-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v25-bridge-vertex-palette-${windMode}`,
       // Outside the bridge-entry radius, using the same dither as LOD0. This
       // makes LOD0 -> bridge a strict partition of one placement set.
       detailMode: 1,
@@ -115,23 +123,27 @@ export class WorldNearGrassField {
       // being handed off and the patch LOD it feeds does not carry it either.
       sheen: false,
       noiseWind: !profile.compact,
+      microWind: false,
     });
     this.baseDetailMaterial = new GrassNearMaterial({
       name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v23-detail-${windMode}`,
+      cacheKey: `grass-near-material-v25-detail-${windMode}`,
       detailMode: 2,
       ditherSeed: BASE_SEED_SALT,
       interactive: true,
       noiseWind: !profile.compact,
+      microWind: !profile.compact,
     });
     this.ultraNearMaterial = new GrassNearMaterial({
       name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v23-ultra-${windMode}`,
+      cacheKey: `grass-near-material-v25-ultra-${windMode}`,
       detailMode: 0,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       interactive: true,
       noiseWind: !profile.compact,
+      microWind: !profile.compact,
     });
+    this.detailFoliageTuning = createDetailFoliageTuning(worldConfig);
   }
 
   initialize(grassConfig?: GrassConfig): Promise<void> {
@@ -229,6 +241,20 @@ export class WorldNearGrassField {
       accentCards: this.detailFoliageField?.getDrawnInstanceCount() ?? 0,
       accentTiles: this.detailFoliageField?.getTileCount() ?? 0,
     };
+  }
+
+  getDetailFoliageTuning(): DetailFoliageTuning {
+    return { ...this.detailFoliageTuning };
+  }
+
+  setDetailFoliageTuning(tuning: DetailFoliageTuning): void {
+    const normalized = normalizeDetailFoliageTuning(tuning);
+    if (detailFoliageTuningEquals(this.detailFoliageTuning, normalized)) {
+      return;
+    }
+    this.detailFoliageTuning = { ...normalized };
+    this.detailFoliageFactory?.setTuning(this.detailFoliageTuning);
+    this.detailFoliageField?.invalidate();
   }
 
   getBladeCount(): number {
@@ -401,6 +427,7 @@ export class WorldNearGrassField {
       this.worldConfig,
       grassConfig,
       material,
+      this.detailFoliageTuning,
     );
     this.detailFoliageAtlas = atlas;
     this.detailFoliageMaterial = material;
@@ -678,7 +705,7 @@ export class WorldNearGrassField {
         worldHalfExtent,
         densityMultiplier: 1,
         bladeSegments: grassConfig.geometry.bladeSegments,
-        receiveShadows: true,
+        receiveShadows: false,
         seedSalt: BASE_SEED_SALT,
         material: this.baseDetailMaterial,
         tilesPerFrame: this.profile.compact
@@ -710,7 +737,7 @@ export class WorldNearGrassField {
           worldHalfExtent,
           densityMultiplier: ultraAdditionalDensity,
           bladeSegments: grassConfig.geometry.bladeSegments,
-          receiveShadows: true,
+          receiveShadows: false,
           seedSalt: ULTRA_NEAR_SEED_SALT,
           material: this.ultraNearMaterial,
           tilesPerFrame: this.profile.compact

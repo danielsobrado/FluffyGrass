@@ -185,6 +185,56 @@ canvas {
   background: rgb(83 126 63 / 82%);
 }
 
+.detail-foliage-menu {
+  position: fixed;
+  top: calc(max(14px, env(safe-area-inset-top)) + 160px);
+  left: max(14px, env(safe-area-inset-left));
+  z-index: 130;
+  width: 268px;
+  max-height: calc(100dvh - 188px);
+  overflow: auto;
+  padding: 9px 10px 10px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  background: rgb(18 24 22 / 82%);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+  color: #edf5e9;
+  font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  backdrop-filter: blur(10px);
+}
+
+.detail-foliage-menu summary {
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.detail-foliage-menu label {
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.detail-foliage-menu input,
+.detail-foliage-menu button {
+  min-width: 0;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 5px;
+  background: rgb(9 14 12 / 76%);
+  color: inherit;
+  font: inherit;
+}
+
+.detail-foliage-menu button {
+  width: 100%;
+  margin-top: 9px;
+  padding: 6px 8px;
+  cursor: pointer;
+  background: rgb(83 126 63 / 82%);
+}
+
 .flight-help {
   position: fixed;
   left: 50%;
@@ -253,12 +303,14 @@ nav img {
 html[data-ui-minimized="true"] .app-title,
 html[data-ui-minimized="true"] #world-stats,
 html[data-ui-minimized="true"] .flight-help,
-html[data-ui-minimized="true"] .grass-art-menu {
+html[data-ui-minimized="true"] .grass-art-menu,
+html[data-ui-minimized="true"] .detail-foliage-menu {
   display: none !important;
 }
 
 html:not([data-diagnostics="true"]) #world-stats,
-html:not([data-diagnostics="true"]) .grass-art-menu {
+html:not([data-diagnostics="true"]) .grass-art-menu,
+html:not([data-diagnostics="true"]) .detail-foliage-menu {
   display: none !important;
 }
 
@@ -329,7 +381,8 @@ html[data-viewport="compact"] nav {
   display: none;
 }
 
-html[data-viewport="compact"] .grass-art-menu {
+html[data-viewport="compact"] .grass-art-menu,
+html[data-viewport="compact"] .detail-foliage-menu {
   display: none;
 }
 

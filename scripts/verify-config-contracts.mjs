@@ -72,6 +72,24 @@ try {
     const runtime = await load(runtimeLoader, runtimeSource);
 
     assert(
+      world.detailFoliageDensity === 0.35 &&
+        world.detailFoliageColonyWorldSize === 11 &&
+        world.detailFoliageClumpWorldSize === 2.25 &&
+        world.detailFoliageColonyStrength === 0.94 &&
+        world.detailFoliageDominantFamilyShare === 0.9 &&
+        world.detailFoliageTintCoherence === 1 &&
+        world.detailFoliageQuietZoneThreshold === 0.34 &&
+        world.detailFoliageBackgroundSuppression === 0.58 &&
+        world.detailFoliageCoreHeightBias === 0.12 &&
+        world.detailFoliageMaturePhenotypeBias === 0.62 &&
+        world.detailFoliageEcologyStrength === 0.72 &&
+        world.detailFoliageEdgeCompanionStrength === 0.3 &&
+        world.detailFoliageStoneFringeStrength === 0.38 &&
+        world.detailFoliagePathFringeStrength === 0.18,
+      "Shipped detail-foliage production values must parse exactly.",
+    );
+
+    assert(
       world.grassFarImpostorsPerPatch === 1,
       "World config must retain the one-instance/four-card far-impostor contract.",
     );
@@ -85,6 +103,89 @@ try {
       () => load(worldLoader, `${worldSource}\nunknownProductionSetting: 1\n`),
       /Unknown world config value: unknownProductionSetting/,
       "Unknown world keys must fail closed.",
+    );
+    await expectReject(
+      () =>
+        load(worldLoader, `${worldSource}\ndetailFoliageSomethingElse: 1\n`),
+      /Unknown world config value: detailFoliageSomethingElse/,
+      "Unknown detail-foliage keys must fail closed.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "detailFoliageDensity: 0.35",
+            "detailFoliageDensity: 0.36",
+          ),
+        ),
+      /detailFoliageDensity must be at most 0.35/,
+      "Detail foliage density must stay at or below 0.35 cards/m².",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "detailFoliageColonyWorldSize: 11",
+            "detailFoliageColonyWorldSize: 5",
+          ),
+        ),
+      /detailFoliageColonyWorldSize must be at least 6/,
+      "Detail foliage colony size must stay inside the shared limits.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "detailFoliageClumpWorldSize: 2.25",
+            "detailFoliageClumpWorldSize: 5",
+          ),
+        ),
+      /detailFoliageClumpWorldSize must be at most 4/,
+      "Detail foliage clump size must stay inside the shared limits.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource
+            .replace(
+              "detailFoliageColonyWorldSize: 11",
+              "detailFoliageColonyWorldSize: 6",
+            )
+            .replace(
+              "detailFoliageClumpWorldSize: 2.25",
+              "detailFoliageClumpWorldSize: 4",
+            ),
+        ),
+      /detailFoliageClumpWorldSize must be at most half of detailFoliageColonyWorldSize/,
+      "Clump size must not exceed half the colony size in production config.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "detailFoliageDominantFamilyShare: 0.90",
+            "detailFoliageDominantFamilyShare: 0.95",
+          ),
+        ),
+      /detailFoliageDominantFamilyShare must be at most 0.9/,
+      "Dominant-family share must stay inside the shared limits.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "detailFoliageCoreHeightBias: 0.12",
+            "detailFoliageCoreHeightBias: 0.30",
+          ),
+        ),
+      /detailFoliageCoreHeightBias must be at most 0.25/,
+      "Core height bias must stay inside the shared limits.",
     );
     await expectReject(
       () =>
@@ -142,6 +243,15 @@ try {
         ),
       /seed must be at most 4294967295/,
       "World procedural seeds must stay inside the uint32 generator domain.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("faunaMinimalDistance: 90", "faunaMinimalDistance: 20"),
+        ),
+      /fauna animation LOD distances must increase/i,
+      "Fauna animation quality bands must be a ladder an actor can resolve.",
     );
     await expectReject(
       () =>

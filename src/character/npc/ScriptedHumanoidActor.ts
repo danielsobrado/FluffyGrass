@@ -9,29 +9,24 @@ import {
 } from "../animation/HumanoidAnimationProfile";
 import { createHumanoidContactIk } from "../animation/HumanoidContactIk";
 import { humanoidRig } from "../rig/HumanoidRigDefinition";
-import { buildProxyHumanoidBody } from "./ProxyHumanoidBody";
+import type { VillagerAssets } from "./VillagerAssets";
+import { buildVillagerBody, type VillagerBody } from "./VillagerBody";
+import type { VillagerSteering } from "./VillagerRoute";
 
-export interface ScriptedHumanoidPath {
-  readonly centerX: number;
-  readonly centerZ: number;
-  readonly radius: number;
-  /** Metres per second along the path. */
-  readonly speed: number;
-  /** Seconds paused at each stop, to prove start and stop transitions. */
-  readonly pauseSeconds: number;
-  /** Seconds of walking between pauses. */
-  readonly walkSeconds: number;
-}
+/** How quickly a person turns and changes pace, in radians and m/s². */
+const TURN_RATE = 3.4;
+const ACCELERATION = 4.5;
+const ARRIVE_RADIUS = 0.4;
+const SLOWING_RADIUS = 1.4;
 
 /**
  * A non-player humanoid, built on exactly the same rig and profile as the
  * player.
  *
- * This exists to prove the shared actor layer is actually shared. It walks a
- * deterministic circle, stops, starts, and turns, driven entirely by scripted
- * movement facts. It has no reference to `ThirdPersonController`, reads no
- * input, and shares the immutable humanoid rig definition with the player while
- * owning its own rig instance, pose buffers, and runtime state.
+ * It shares the immutable humanoid rig definition with the player while owning
+ * its own rig instance, pose buffers and runtime state, has no reference to
+ * `ThirdPersonController`, and reads no input. Where it goes arrives as a target
+ * and a speed; turning, accelerating and stopping are its own.
  */
 export class ScriptedHumanoidActor {
   private readonly root = new THREE.Group();
@@ -39,8 +34,7 @@ export class ScriptedHumanoidActor {
   private readonly rigInstance: ActorRigInstance;
   private readonly profile: HumanoidAnimationProfile;
   private readonly runtime: ActorAnimationRuntime;
-  private readonly geometries: THREE.BufferGeometry[];
-  private readonly materials: THREE.Material[];
+  private readonly body: VillagerBody;
   private readonly worldPosition = new THREE.Vector3();
   private readonly worldVelocity = new THREE.Vector3();
   private readonly groundNormal = new THREE.Vector3(0, 1, 0);
@@ -50,26 +44,35 @@ export class ScriptedHumanoidActor {
     this.groundNormal,
   );
   private readonly previousPosition = new THREE.Vector3();
-  private pathTime = 0;
   private distanceTravelled = 0;
   private previousSpeed = 0;
+  private facing = 0;
+  private speed = 0;
 
   constructor(
     scene: THREE.Scene,
     scale: number,
-    private readonly path: ScriptedHumanoidPath,
+    spawnX: number,
+    spawnZ: number,
+    assets: VillagerAssets,
+    variant: number,
+    shadows: boolean,
     private readonly sampleHeight: (x: number, z: number) => number,
     terrainContact?: ActorTerrainContactSampler,
   ) {
     const humanoid = humanoidRig();
-    this.root.name = "scripted-humanoid";
+    this.root.name = "villager";
     this.root.scale.setScalar(scale);
     this.root.add(this.heading);
     scene.add(this.root);
     this.rigInstance = new ActorRigInstance(humanoid.definition, this.heading);
-    const body = buildProxyHumanoidBody(this.rigInstance, humanoid.bones);
-    this.geometries = body.geometries;
-    this.materials = body.materials;
+    this.body = buildVillagerBody(
+      this.rigInstance,
+      humanoid.bones,
+      assets,
+      variant,
+      shadows,
+    );
     this.profile = createHumanoidAnimationProfile({
       definition: humanoid.definition,
       bones: humanoid.bones,
@@ -87,21 +90,41 @@ export class ScriptedHumanoidActor {
             ],
     });
     this.runtime = new ActorAnimationRuntime(this.profile, this.rigInstance);
-    this.input.referenceSpeed = Math.max(path.speed, 0.001);
-    this.placeOnPath(0);
+    this.input.referenceSpeed = 1;
+    this.placeAt(spawnX, spawnZ);
     this.previousPosition.copy(this.worldPosition);
     this.runtime.reset(this.input);
   }
 
-  update(deltaSeconds: number): void {
+  get position(): THREE.Vector3 {
+    return this.worldPosition;
+  }
+
+  get object(): THREE.Object3D {
+    return this.root;
+  }
+
+  get meshes(): readonly THREE.Mesh[] {
+    return this.body.meshes;
+  }
+
+  /** Sets the reference speed the locomotion layer normalizes against. */
+  setReferenceSpeed(speed: number): void {
+    this.input.referenceSpeed = Math.max(speed, 0.001);
+  }
+
+  setQuality(runIk: boolean, runSecondaryMotion: boolean): void {
+    this.runtime.setQuality(runIk, runSecondaryMotion);
+  }
+
+  update(deltaSeconds: number, steering: VillagerSteering): void {
     const delta = THREE.MathUtils.clamp(
       Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
       0,
       0.1,
     );
-    this.pathTime += delta;
     this.previousPosition.copy(this.worldPosition);
-    this.placeOnPath(this.pathTime);
+    this.steer(delta, steering);
 
     const deltaX = this.worldPosition.x - this.previousPosition.x;
     const deltaZ = this.worldPosition.z - this.previousPosition.z;
@@ -130,38 +153,62 @@ export class ScriptedHumanoidActor {
     this.runtime.dispose();
     this.rigInstance.dispose();
     this.root.removeFromParent();
-    // Only this actor's own geometry and materials. The rig definition it
-    // shares with the player is immutable and owned by nobody.
-    for (const geometry of this.geometries) {
-      geometry.dispose();
-    }
-    for (const material of this.materials) {
-      material.dispose();
-    }
+    // Only what this villager owns. The rig definition it shares with the
+    // player is immutable and owned by nobody, and its geometry belongs to the
+    // shared library.
+    this.body.dispose();
   }
 
   /**
-   * Walks the circle, pausing on a fixed cycle.
+   * Turns toward the target and walks, bounded by how fast a person can.
    *
-   * Deterministic on purpose: the same elapsed time always produces the same
-   * pose, which is what makes this usable as a regression subject.
+   * Sharper than the deer on both counts: people pivot on the spot and set off
+   * briskly, where an animal leans into an arc. Keeping the two different is
+   * most of what stops the villagers reading as deer that stood up.
    */
-  private placeOnPath(time: number): void {
-    const cycle = this.path.walkSeconds + this.path.pauseSeconds;
-    const cycles = Math.floor(time / cycle);
-    const withinCycle = time - cycles * cycle;
-    const walked =
-      cycles * this.path.walkSeconds +
-      Math.min(withinCycle, this.path.walkSeconds);
-    const angle = this.path.radius > 0 ? (walked * this.path.speed) / this.path.radius : 0;
-    const x = this.path.centerX + Math.cos(angle) * this.path.radius;
-    const z = this.path.centerZ + Math.sin(angle) * this.path.radius;
+  private steer(delta: number, steering: VillagerSteering): void {
+    const toX = steering.targetX - this.worldPosition.x;
+    const toZ = steering.targetZ - this.worldPosition.z;
+    const distance = Math.hypot(toX, toZ);
+
+    let wanted = Math.max(steering.desiredSpeed, 0);
+    if (distance <= ARRIVE_RADIUS) {
+      wanted = 0;
+    } else if (distance < SLOWING_RADIUS) {
+      wanted *= distance / SLOWING_RADIUS;
+    }
+
+    if (distance > ARRIVE_RADIUS && wanted > 0) {
+      const desiredFacing = Math.atan2(toX, toZ);
+      let difference = desiredFacing - this.facing;
+      while (difference > Math.PI) {
+        difference -= Math.PI * 2;
+      }
+      while (difference < -Math.PI) {
+        difference += Math.PI * 2;
+      }
+      const step = TURN_RATE * delta;
+      this.facing += THREE.MathUtils.clamp(difference, -step, step);
+    }
+
+    const speedStep = ACCELERATION * delta;
+    this.speed += THREE.MathUtils.clamp(wanted - this.speed, -speedStep, speedStep);
+    if (this.speed < 0.001) {
+      this.speed = 0;
+    }
+
+    const advance = this.speed * delta;
+    this.placeAt(
+      this.worldPosition.x + Math.sin(this.facing) * advance,
+      this.worldPosition.z + Math.cos(this.facing) * advance,
+    );
+  }
+
+  private placeAt(x: number, z: number): void {
     this.worldPosition.set(x, this.sampleHeight(x, z), z);
-    // Face along the circle's tangent. Actor forward is +Z, so a world heading
-    // of (sin f, cos f) matches the tangent (-sin a, cos a) when f is -a.
-    const facing = -angle;
-    this.input.facing = facing;
+    // Actor forward is +Z, so a world heading of f points along (sin f, cos f).
+    this.input.facing = this.facing;
     this.root.position.copy(this.worldPosition);
-    this.heading.rotation.y = facing;
+    this.heading.rotation.y = this.facing;
   }
 }

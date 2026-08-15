@@ -4,11 +4,11 @@
     "label": "Meadow",
     "paletteSource": "art",
     "worldShare": 0.62,
-    "baseColor": "#3f8330",
-    "tipColor": "#a9db57",
+    "baseColor": "#3a7a32",
+    "tipColor": "#9ed45a",
     "dryColor": "#b3ac5e",
-    "rootDarkening": 0.36,
-    "tipColorStrength": 0.46,
+    "rootDarkening": 0.42,
+    "tipColorStrength": 0.3,
     "density": 1,
     "heightBand": [0.86, 1.14],
     "widthBand": [0.86, 1.1],
@@ -17,17 +17,19 @@
     "shapeFamily": "blade",
     "accentDensity": 1,
     "accentSpecies": [
-      { "species": "daisy", "tint": "white", "weight": 1.2 },
-      { "species": "daisy", "tint": "cream", "weight": 0.7 },
+      { "species": "daisy", "tint": "white", "weight": 1.20 },
+      { "species": "daisy", "tint": "cream", "weight": 0.70 },
       { "species": "daisy", "tint": "sky-blue", "weight": 0.25 },
       { "species": "round-bloom", "tint": "pink", "weight": 0.35 },
       { "species": "round-bloom", "tint": "lavender", "weight": 0.25 },
       { "species": "round-bloom", "tint": "buttercup", "weight": 0.15 },
-      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.1 },
-      { "species": "fern", "tint": "none", "weight": 2 },
-      { "species": "small-fern", "tint": "none", "weight": 1 },
-      { "species": "grass-tuft", "tint": "none", "weight": 4 },
-      { "species": "sprig", "tint": "none", "weight": 2 }
+      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.10 },
+      { "species": "fern", "tint": "none", "weight": 1.70 },
+      { "species": "small-fern", "tint": "none", "weight": 1.00 },
+      { "species": "grass-tuft", "tint": "none", "weight": 3.60 },
+      { "species": "broadleaf-rosette", "tint": "none", "weight": 1.70 },
+      { "species": "low-shrub", "tint": "none", "weight": 0.55 },
+      { "species": "seed-head", "tint": "straw", "weight": 0.25 }
     ]
   },
   "dry-steppe": {
@@ -48,12 +50,13 @@
     "shapeFamily": "blade",
     "accentDensity": 0.6,
     "accentSpecies": [
-      { "species": "seed-head", "tint": "straw", "weight": 4 },
-      { "species": "tall-tuft", "tint": "none", "weight": 3 },
-      { "species": "grass-tuft", "tint": "none", "weight": 2 },
-      { "species": "round-bloom", "tint": "buttercup", "weight": 0.55 },
-      { "species": "round-bloom", "tint": "cream", "weight": 0.25 },
-      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.1 }
+      { "species": "seed-head", "tint": "straw", "weight": 4.00 },
+      { "species": "grass-tuft", "tint": "none", "weight": 2.50 },
+      { "species": "low-shrub", "tint": "none", "weight": 0.65 },
+      { "species": "broadleaf-rosette", "tint": "none", "weight": 0.25 },
+      { "species": "round-bloom", "tint": "buttercup", "weight": 0.50 },
+      { "species": "round-bloom", "tint": "cream", "weight": 0.20 },
+      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.08 }
     ]
   },
   "alpine": {
@@ -74,13 +77,15 @@
     "shapeFamily": "blade",
     "accentDensity": 0.5,
     "accentSpecies": [
-      { "species": "grass-tuft", "tint": "none", "weight": 4 },
-      { "species": "daisy", "tint": "white", "weight": 0.75 },
-      { "species": "daisy", "tint": "cream", "weight": 0.35 },
-      { "species": "daisy", "tint": "sky-blue", "weight": 0.35 },
-      { "species": "round-bloom", "tint": "lavender", "weight": 0.75 },
-      { "species": "round-bloom", "tint": "pink", "weight": 0.35 },
-      { "species": "small-fern", "tint": "none", "weight": 1 }
+      { "species": "grass-tuft", "tint": "none", "weight": 4.00 },
+      { "species": "small-fern", "tint": "none", "weight": 1.20 },
+      { "species": "broadleaf-rosette", "tint": "none", "weight": 0.70 },
+      { "species": "low-shrub", "tint": "none", "weight": 0.12 },
+      { "species": "daisy", "tint": "white", "weight": 0.65 },
+      { "species": "daisy", "tint": "cream", "weight": 0.30 },
+      { "species": "daisy", "tint": "sky-blue", "weight": 0.30 },
+      { "species": "round-bloom", "tint": "lavender", "weight": 0.55 },
+      { "species": "round-bloom", "tint": "pink", "weight": 0.20 }
     ]
   }
 }

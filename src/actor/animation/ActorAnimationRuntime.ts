@@ -41,6 +41,9 @@ export class ActorAnimationRuntime {
     this.blender = new ActorPoseBlender(profile.definition);
   }
 
+  private runIk = true;
+  private runSecondary = true;
+
   getState(): number {
     return this.state;
   }
@@ -107,10 +110,14 @@ export class ActorAnimationRuntime {
 
     // 4-6. Action layers and additives are profile stages; constraints that
     // must hold before IK reads the pose run here.
-    this.runStages(this.profile.preIkStages, input, delta);
+    if (this.runIk) {
+      this.runStages(this.profile.preIkStages, input, delta);
+    }
 
     // 7-9. Contact, reach, and look solving, in the family's declared order.
-    this.runStages(this.profile.ikStages, input, delta);
+    if (this.runIk) {
+      this.runStages(this.profile.ikStages, input, delta);
+    }
 
     // 10-11. Final limits, then the pose reaches the bones.
     if (this.profile.enforceJointLimits) {
@@ -124,11 +131,23 @@ export class ActorAnimationRuntime {
     // 12-13. One world-matrix boundary, then secondary motion on the final pose.
     this.rigInstance.updateWorldMatrices();
     const secondary = this.profile.secondaryMotion;
-    if (secondary !== undefined) {
+    if (this.runSecondary && secondary !== undefined) {
       for (let index = 0; index < secondary.length; index += 1) {
         secondary[index].update(delta, input, this.rigInstance);
       }
     }
+  }
+
+  /**
+   * Turns off work this actor is currently too far away to be worth.
+   *
+   * The runtime is told what to skip, never how far away anything is: distance
+   * policy belongs to whoever owns the population. Both flags default to on, so
+   * the player and any actor nobody has an opinion about keep full fidelity.
+   */
+  setQuality(runIk: boolean, runSecondaryMotion: boolean): void {
+    this.runIk = runIk;
+    this.runSecondary = runSecondaryMotion;
   }
 
   /**

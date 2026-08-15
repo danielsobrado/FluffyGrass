@@ -1,6 +1,6 @@
 /**
- * The detail-foliage species catalogue: ferns, flowers, seed heads, and the
- * sprigs between them.
+ * The detail-foliage species catalogue: ferns, flowers, seed heads, low shrubs,
+ * and broadleaf rosettes.
  *
  * This is pure data with no renderer dependency, because four layers need to
  * agree on it: the biome profiles name species and tints, the atlas factory
@@ -25,7 +25,13 @@ export const GRASS_MAX_ACCENT_TINTS = 8;
  * disagree with each other spatially, so their union is patchy at metre scale
  * without any extra noise of its own.
  */
-export type GrassAccentCategory = "tuft" | "fern" | "flower" | "seed";
+export type GrassAccentCategory =
+  | "tuft"
+  | "shrub"
+  | "fern"
+  | "broadleaf"
+  | "flower"
+  | "seed";
 
 export interface GrassAccentSpeciesDefinition {
   key: string;
@@ -80,11 +86,11 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
           canopyHeightBand: [0.7, 0.95],
         },
         {
-          key: "tall-tuft",
-          category: "tuft",
-          aspect: 0.6,
-          windWeight: 1,
-          canopyHeightBand: [1.0, 1.3],
+          key: "low-shrub",
+          category: "shrub",
+          aspect: 1.2,
+          windWeight: 0.35,
+          canopyHeightBand: [0.62, 0.98],
         },
         {
           key: "fern",
@@ -127,11 +133,11 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
           canopyHeightBand: [1.3, 1.72],
         },
         {
-          key: "sprig",
-          category: "tuft",
-          aspect: 0.7,
-          windWeight: 0.55,
-          canopyHeightBand: [0.7, 1.0],
+          key: "broadleaf-rosette",
+          category: "broadleaf",
+          aspect: 1.1,
+          windWeight: 0.42,
+          canopyHeightBand: [0.52, 0.78],
         },
       ] as const
     ).map((definition, index) =>

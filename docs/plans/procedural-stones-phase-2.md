@@ -7,7 +7,7 @@
 - Target branch: `main`
 - Phase: 2 — archetype shape grammar
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: art-directed single-body stone archetypes
 
 This document removes implementation choices from Phase 2. The implementer must follow the file layout, public APIs, archetype catalogue, configuration values, deterministic algorithms, evaluation rules, verification matrix, and completion criteria below. A different archetype set, recipe strategy, scoring system, or configuration format requires this document to be changed first.

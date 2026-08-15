@@ -1,5 +1,8 @@
 # Detail foliage plan — channel-packed accent atlas (ferns, flowers, seed heads)
 
+> Composition follow-up: plant communities, negative space, and the shrub/broadleaf
+> replacements are specified in [tiny-glade-detail-foliage-plan.md](plans/tiny-glade-detail-foliage-plan.md).
+
 Origin: the 80.lv stylized-cave article's foliage section packs several species into one
 texture's channels — R opacity cutout, G wind mask, B color-blend mask — and scatters cheap
 cards whose species "individually might not look very good [but] when mixed, the result looks

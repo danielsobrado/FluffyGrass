@@ -9,7 +9,7 @@
 - Target branch: `main`
 - Phase: 4 — stylized material and colour system
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: palette resolution, material recipes, Phase 3 detail-field shader parity, stylized lighting, fixed visual QA gallery, and material lifecycle
 
 This document removes implementation choices from Phase 4. The implementer must follow the file layout, public APIs, palette catalogue, configuration values, material recipe rules, geometry-attribute extension, uniform packing, shader equations, verification matrix, ownership rules, and completion criteria below. A different material base, palette set, shader data layout, detail evaluation strategy, configuration format, or QA scene requires this document to be changed first.

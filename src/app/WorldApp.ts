@@ -22,6 +22,7 @@ import type { WorldConfig } from "../world/WorldConfig";
 import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 import { GrassArtMenu } from "./GrassArtMenu";
+import { DetailFoliageTuningMenu } from "./DetailFoliageTuningMenu";
 import { WorldEnvironmentController } from "./WorldEnvironmentController";
 import { WorldMinimap } from "./WorldMinimap";
 import { WorldFrameMetrics, type WorldFrameSubsystem } from "./WorldFrameMetrics";
@@ -51,6 +52,7 @@ export class WorldApp {
   private readonly clock = new THREE.Clock();
   private stats?: Stats;
   private artMenu?: GrassArtMenu;
+  private detailFoliageMenu?: DetailFoliageTuningMenu;
   private readonly field: TerrainField;
   private readonly frameObservers = new Set<(deltaSeconds: number) => void>();
   private readonly terrain: TerrainStreamer;
@@ -99,7 +101,7 @@ export class WorldApp {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: !profile.compact,
+      antialias: false,
       alpha: false,
       precision: "highp",
       powerPreference: "high-performance",
@@ -149,6 +151,9 @@ export class WorldApp {
     this.applyGrassArtDirection(GRASS_ART_DIRECTIONS[artKey]);
     if (profile.showGui && params.get("diagnostics") === "1") {
       this.artMenu = new GrassArtMenu(artKey, this.applyGrassArtDirection);
+      this.detailFoliageMenu = new DetailFoliageTuningMenu(
+        this.grass.getDetailFoliageTuning(),
+        (tuning) => this.grass.setDetailFoliageTuning(tuning));
     }
     this.controls = useFlyControls
       ? new FlyWorldController(
@@ -250,9 +255,7 @@ export class WorldApp {
     };
   }
 
-  /**
-   * Development-only hook for the AAA visual-matrix runner (`?qa=visual-matrix`).
-   */
+  /** Development-only hook for `?qa=visual-matrix`. */
   attachVisualMatrix(): WorldVisualMatrixContext {
     this.grass.setQualityTierOverride(1);
     return {
@@ -287,7 +290,9 @@ export class WorldApp {
     this.stats?.dom.remove();
     this.stats = undefined;
     this.artMenu?.dispose();
+    this.detailFoliageMenu?.dispose();
     this.artMenu = undefined;
+    this.detailFoliageMenu = undefined;
     this.environment.dispose();
     this.renderer.dispose();
   }

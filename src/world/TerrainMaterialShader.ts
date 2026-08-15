@@ -209,7 +209,7 @@ float terrainMacroVariation = (terrainBaseNoise.r - 0.5) * 0.16;
 float terrainMesoVariation = (terrainMesoNoise.g - 0.5) *
   uTerrainMesoStrength * terrainMesoWeight;
 vec3 terrainSoil = mix(uTerrainSoilDry, uTerrainSoilRich, terrainHumidity);
-terrainSoil *= mix(1.0, 0.78, terrainWaterProximity * 0.7);
+terrainSoil *= mix(1.0, 0.62, terrainWaterProximity * 0.78);
 terrainSoil *= 1.0 + terrainMacroVariation * 0.45 + terrainMesoVariation;
 
 vec3 terrainUnderlayer = mix(
@@ -219,18 +219,26 @@ vec3 terrainUnderlayer = mix(
 );
 terrainUnderlayer = mix(
   terrainUnderlayer,
-  vTerrainBiomeBase.rgb * 0.82,
-  terrainWaterProximity * 0.26
+  vTerrainBiomeBase.rgb * 0.72,
+  terrainWaterProximity * 0.34
 );
 terrainUnderlayer *= terrainRootScale;
 terrainUnderlayer *= 1.0 + terrainMacroVariation + terrainMesoVariation;
 float terrainCoverage = smoothstep(0.08, 0.5, terrainSuitability) *
   terrainBiomeDensity * terrainPathGrassMask * terrainStoneClearance;
-float terrainUnderlayerAmount = terrainCoverage * mix(0.48, 0.78, terrainVigor);
+float terrainUnderlayerAmount = terrainCoverage *
+  mix(0.34, 0.78, terrainVigor) *
+  mix(1.0, 0.52, terrainDryness);
 vec3 terrainSurfaceColor = mix(
   terrainSoil,
   terrainUnderlayer,
   terrainUnderlayerAmount
+);
+vec3 terrainThatch = mix(uTerrainSoilDry, vTerrainBiomeDry, 0.48) * 0.7;
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  terrainThatch,
+  terrainCoverage * (1.0 - terrainDryness) * terrainVigor * 0.28
 );
 
 vec3 terrainCanopy = vTerrainBiomeCanopy;

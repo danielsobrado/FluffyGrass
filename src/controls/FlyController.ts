@@ -51,6 +51,7 @@ export class FlyController {
   private lastInputType = "idle";
   private previousTouchAction = "";
   private disposed = false;
+  private captureLocked = false;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -73,6 +74,10 @@ export class FlyController {
 
   update(deltaSeconds: number): void {
     if (this.disposed) {
+      return;
+    }
+    if (this.captureLocked) {
+      this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
       return;
     }
     const delta = THREE.MathUtils.clamp(
@@ -141,6 +146,7 @@ export class FlyController {
     this.camera.position.copy(this.spawnPosition);
     this.yaw = this.spawnYaw;
     this.pitch = this.spawnPitch;
+    this.captureLocked = false;
     this.clearTransientInput();
     this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
   }
@@ -159,8 +165,13 @@ export class FlyController {
       -Math.PI * 0.48,
       Math.PI * 0.48,
     );
+    this.captureLocked = true;
     this.clearTransientInput();
     this.camera.rotation.set(this.pitch, this.yaw, 0, "YXZ");
+  }
+
+  isCaptureLocked(): boolean {
+    return this.captureLocked;
   }
 
   getSpeed(): number {

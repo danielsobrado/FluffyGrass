@@ -38,7 +38,9 @@ const cloth = read("src/character/secondary/SnowflowClothMotion.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
 const mobileJoystick = read("src/controls/MobileJoystick.ts");
-const spring = read("src/character/CharacterSpring.ts");
+// The integrator moved to the shared actor layer; assert on the real
+// implementation rather than on the player-side alias.
+const spring = read("src/actor/math/ActorDampedSpring.ts");
 
 const minimumBend = readConstant(tuning, "CAPE_MIN_FORWARD_BEND");
 const maximumBend = readConstant(tuning, "CAPE_MAX_FORWARD_BEND");

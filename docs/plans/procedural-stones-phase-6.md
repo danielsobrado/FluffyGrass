@@ -11,7 +11,7 @@
 - Target branch: `main`
 - Phase: 6 — LOD generation and visual continuity
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: recipe-linked mesh LODs, semantic and material continuity, projected-size selection, dithered transitions, shadow policy, deterministic validation, and LOD gallery QA
 
 This document removes implementation choices from Phase 6. The implementer must follow the file layout, public APIs, source reconstruction rules, plane-reduction algorithm, semantic remapping, detail-reduction policy, material reuse policy, continuity thresholds, runtime selection equations, dither shader, shadow policy, verification matrix, lifecycle rules, and completion criteria below. A different simplifier, LOD count, transition strategy, threshold model, material policy, or QA scene requires this document to be changed first.

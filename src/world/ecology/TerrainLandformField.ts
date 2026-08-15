@@ -54,7 +54,10 @@ export interface TerrainLandform {
   convexity: number;
   /** Fall of the land as `1 - normal.y` would express it, at landform scale. */
   slope: number;
-  /** Downhill gradient, in metres of fall per metre travelled. */
+  /**
+   * Height gradient toward increasing elevation, in metres of rise per metre
+   * travelled. Downhill is the negated, normalized pair.
+   */
   gradientX: number;
   gradientZ: number;
 }

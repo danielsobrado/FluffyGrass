@@ -3,6 +3,7 @@ import {
   findGrassAccentSpecies,
   GRASS_ACCENT_TINTS,
   GRASS_ACCENT_TINT_NONE,
+  resolveGrassAccentTintRow,
 } from "./GrassAccentSpecies";
 
 export const GRASS_MAX_BIOMES = 8;
@@ -30,24 +31,42 @@ export interface GrassBiomeProfile {
   accentSpecies: readonly GrassBiomeAccentSpecies[];
 }
 
-export interface GrassBiomeAccentSpecies {
+interface GrassBiomeAccentSpeciesSource {
   species: string;
-  tint: string;
+  tint?: string;
   weight: number;
 }
 
-const DEFAULT_ACCENT_SPECIES: readonly GrassBiomeAccentSpecies[] = Object.freeze([
-  { species: "daisy", tint: "white", weight: 3 },
-  { species: "round-bloom", tint: "poppy-red", weight: 1 },
-  { species: "fern", tint: GRASS_ACCENT_TINT_NONE, weight: 2 },
-  { species: "grass-tuft", tint: GRASS_ACCENT_TINT_NONE, weight: 4 },
-]);
+export interface GrassBiomeAccentSpecies {
+  species: string;
+  speciesIndex: number;
+  tint: string;
+  tintRow: number;
+  weight: number;
+}
+
+const DEFAULT_ACCENT_SPECIES_SOURCE: readonly GrassBiomeAccentSpeciesSource[] =
+  Object.freeze([
+    { species: "daisy", tint: "white", weight: 1.2 },
+    { species: "daisy", tint: "cream", weight: 0.7 },
+    { species: "daisy", tint: "sky-blue", weight: 0.25 },
+    { species: "round-bloom", tint: "pink", weight: 0.35 },
+    { species: "round-bloom", tint: "lavender", weight: 0.25 },
+    { species: "round-bloom", tint: "buttercup", weight: 0.15 },
+    { species: "round-bloom", tint: "poppy-red", weight: 0.1 },
+    { species: "fern", tint: GRASS_ACCENT_TINT_NONE, weight: 1.7 },
+    { species: "small-fern", tint: GRASS_ACCENT_TINT_NONE, weight: 1 },
+    { species: "grass-tuft", tint: GRASS_ACCENT_TINT_NONE, weight: 3.6 },
+    { species: "broadleaf-rosette", tint: GRASS_ACCENT_TINT_NONE, weight: 1.7 },
+    { species: "low-shrub", tint: GRASS_ACCENT_TINT_NONE, weight: 0.55 },
+    { species: "seed-head", tint: "straw", weight: 0.25 },
+  ]);
 
 export const GRASS_BIOME_HEIGHT_BAND_LIMIT = Object.freeze([0.7, 1.14] as const);
 export const GRASS_BIOME_WIDTH_BAND_LIMIT = Object.freeze([0.76, 1.1] as const);
 export const GRASS_BIOME_WIND_DAMPING_LIMIT = Object.freeze([0.7, 1] as const);
 
-export const GRASS_BIOME_VERSION = 2;
+export const GRASS_BIOME_VERSION = 3;
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
@@ -93,39 +112,51 @@ function assertBand(
   return [minimum, maximum] as const;
 }
 
+function resolveAccentSpeciesEntry(
+  item: Record<string, unknown>,
+  where: string,
+): GrassBiomeAccentSpecies {
+  if (typeof item.species !== "string") {
+    fail(`${where} needs a species name.`);
+  }
+  const species = findGrassAccentSpecies(item.species);
+  if (!species) {
+    fail(`${where} names an unknown accent species.`);
+  }
+  const tint = item.tint ?? GRASS_ACCENT_TINT_NONE;
+  if (
+    typeof tint !== "string" ||
+    (tint !== GRASS_ACCENT_TINT_NONE &&
+      !GRASS_ACCENT_TINTS.some((entryTint) => entryTint.key === tint))
+  ) {
+    fail(`${where} names an unknown accent tint.`);
+  }
+  const weight = item.weight;
+  if (typeof weight !== "number" || !Number.isFinite(weight) || weight <= 0) {
+    fail(`${where} weight must be a positive finite number.`);
+  }
+  return Object.freeze({
+    species: item.species,
+    speciesIndex: species.index,
+    tint,
+    tintRow: resolveGrassAccentTintRow(tint),
+    weight,
+  });
+}
+
 function assertAccentSpecies(
   value: unknown,
   label: string,
 ): readonly GrassBiomeAccentSpecies[] {
-  if (value === undefined) {
-    return DEFAULT_ACCENT_SPECIES;
-  }
-  if (!Array.isArray(value) || value.length === 0) {
+  const source =
+    value === undefined ? DEFAULT_ACCENT_SPECIES_SOURCE : value;
+  if (!Array.isArray(source) || source.length === 0) {
     fail(`${label} must be a non-empty array when present.`);
   }
   return Object.freeze(
-    value.map((entry, position) => {
+    source.map((entry, position) => {
       const where = `${label}[${position}]`;
-      const item = assertRecord(entry, where);
-      if (
-        typeof item.species !== "string" ||
-        !findGrassAccentSpecies(item.species)
-      ) {
-        fail(`${where} names an unknown accent species.`);
-      }
-      const tint = item.tint ?? GRASS_ACCENT_TINT_NONE;
-      if (
-        typeof tint !== "string" ||
-        (tint !== GRASS_ACCENT_TINT_NONE &&
-          !GRASS_ACCENT_TINTS.some((entryTint) => entryTint.key === tint))
-      ) {
-        fail(`${where} names an unknown accent tint.`);
-      }
-      return Object.freeze({
-        species: item.species,
-        tint,
-        weight: assertFiniteInRange(item.weight, 0.01, 16, `${where} weight`),
-      });
+      return resolveAccentSpeciesEntry(assertRecord(entry, where), where);
     }),
   );
 }

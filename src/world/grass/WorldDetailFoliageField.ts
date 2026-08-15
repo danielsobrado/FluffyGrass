@@ -2,13 +2,10 @@ import * as THREE from "three";
 import {
   GRASS_ACCENT_SPECIES,
   packGrassAccent,
-  resolveGrassAccentTintRow,
   resolveGrassCanopyHeight,
-  type GrassAccentCategory,
 } from "../../grass/biome/GrassAccentSpecies";
 import {
   GRASS_BIOME_PROFILES,
-  type GrassBiomeProfile,
 } from "../../grass/biome/GrassBiomeProfile";
 import { resolveGrassCanopyAo, sampleGrassMacroVigor } from "../../grass/GrassFieldVariation";
 import type { GrassConfig } from "../../grass/GrassConfig";
@@ -16,6 +13,24 @@ import { SeededRandom } from "../../grass/internal/SeededRandom";
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
+import {
+  detailFoliageVariantRow,
+  detailFoliageHeightRoll,
+  resolveDetailFoliageSelection,
+  createDetailFoliageSelection,
+} from "./DetailFoliageAffinity";
+import {
+  DETAIL_FOLIAGE_AO_SALT,
+  DETAIL_FOLIAGE_BIOME_DENSITY_CHANNEL_SALT,
+  DETAIL_FOLIAGE_CANDIDATE_SALT,
+  DETAIL_FOLIAGE_DISTRIBUTION_KEEP_CHANNEL_SALT,
+  DETAIL_FOLIAGE_DITHER_SALT,
+  DETAIL_FOLIAGE_WIND_SALT,
+  DETAIL_FOLIAGE_YAW_SALT,
+  detailFoliageChannel01,
+  detailFoliagePositionHash,
+} from "./DetailFoliageRandom";
+import type { DetailFoliageTuning } from "./DetailFoliageTuning";
 import { calculateGrassSingleBladeRootBoundsRadius } from "./GrassRuntimeMath";
 import {
   pickGrassBiomeIndex,
@@ -27,21 +42,22 @@ import {
   sampleGrassHabitat,
   type GrassHabitatSample,
 } from "./GrassHabitatField";
+import {
+  createDetailFoliageDistributionSample,
+  WorldDetailFoliageDistribution,
+} from "./WorldDetailFoliageDistribution";
 import { DETAIL_FOLIAGE_WIND_SHEAR_FACTOR } from "./WorldDetailFoliageMaterial";
 import type { WorldDetailFoliageMaterial } from "./WorldDetailFoliageMaterial";
-import { DETAIL_FOLIAGE_VARIANT_ROWS } from "./WorldDetailFoliageAtlasFactory";
 
 /**
- * Placement for the accent layer: ferns, flowers, seed heads, and sprigs
- * scattered through the near band.
+ * Placement for the accent layer: ferns, flowers, seed heads, low shrubs, and
+ * broadleaf plants gathered into small plant communities.
  *
  * The layer is deliberately small — roughly one card per three square metres,
  * gone by 30 m — because that is what the reference look actually is: the
  * flowers in a hillside shot are a few pixels each, and it is the *mixture*
- * that reads, not any one plant. What produces that mixture here is the macro
- * fields disagreeing with each other: flowers follow vigour, seed heads follow
- * dryness, ferns follow the poorer ground, and tufts fill between them. No
- * extra noise field is introduced for the accents themselves.
+ * that reads, not any one plant. Composition comes from two continuous
+ * world-space fields plus ecology, not from extra noise or neighbour searches.
  *
  * The build is deliberately simpler than {@link WorldSingleBladeTileFactory}:
  * a tile is ~90 candidates rather than ~4 600 blades, so it finishes inside a
@@ -61,10 +77,10 @@ export const DETAIL_FOLIAGE_TILE_SIZE = 16;
 /** Cards per square metre before the biome's own `accentDensity`. */
 export const DETAIL_FOLIAGE_DENSITY = 0.35;
 /**
- * Ceiling the performance gate holds the density to. Above this the layer stops
- * being noise next to the mid band and starts competing with it for fill.
+ * Ceiling the performance gate holds the density to. Production tuning cannot
+ * exceed this; composition may only stay equal or decrease.
  */
-export const DETAIL_FOLIAGE_DENSITY_CEILING = 0.5;
+export const DETAIL_FOLIAGE_DENSITY_CEILING = 0.35;
 /** Midpoint and half-width of the dither fade that ends the layer. */
 export const DETAIL_FOLIAGE_FADE_DISTANCE = 27;
 export const DETAIL_FOLIAGE_FADE_TRANSITION = 3;
@@ -148,9 +164,8 @@ interface CandidateAccent {
 }
 
 /** Matches the GLSL `smoothstep(edge0, edge1, x)` the vertex shader uses. */
-function smoothstep(value: number, edge0: number, edge1: number): number {
-  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
 }
 
 function upperBound(values: Float32Array, value: number): number {
@@ -181,35 +196,6 @@ function hash(x: number, z: number, seed: number): number {
   return (value ^ (value >>> 16)) >>> 0;
 }
 
-/**
- * How strongly a category belongs at this position.
- *
- * These are weights rather than accept/reject tests on purpose: rejecting would
- * thin the layer wherever a gate closes, while reweighting keeps the card count
- * steady and changes only *what* grows there. That is the difference between a
- * field that looks patchy and one that looks mixed.
- */
-function resolveCategoryWeight(
-  category: GrassAccentCategory,
-  vigor: number,
-  dryness: number,
-  suitability: number,
-): number {
-  switch (category) {
-    case "flower":
-      return smoothstep(vigor, 0.45, 0.6);
-    case "seed":
-      return smoothstep(dryness, 0.4, 0.55);
-    case "fern":
-      // Ferns favour the poorer, steeper ground the blade layer is already
-      // thinning on, which is where a bare patch would otherwise show.
-      return 1 - smoothstep(suitability, 0.45, 0.85) * 0.85;
-    case "tuft":
-    default:
-      return 1;
-  }
-}
-
 export class WorldDetailFoliageFactory {
   private readonly geometry: THREE.BufferGeometry;
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -224,13 +210,23 @@ export class WorldDetailFoliageFactory {
   /** What a species' `canopyHeightBand` of 1.0 resolves to, in metres. */
   private readonly canopyHeight: number;
   private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
+  private readonly distribution: WorldDetailFoliageDistribution;
+  private readonly distributionSample = createDetailFoliageDistributionSample();
+  private readonly selection = createDetailFoliageSelection();
+  private tuning: DetailFoliageTuning;
 
   constructor(
     private readonly field: TerrainField,
     private readonly worldConfig: WorldConfig,
     private readonly grassConfig: GrassConfig,
     private readonly material: WorldDetailFoliageMaterial,
+    tuning: DetailFoliageTuning,
   ) {
+    this.tuning = { ...tuning };
+    this.distribution = new WorldDetailFoliageDistribution(
+      worldConfig.seed,
+      this.tuning,
+    );
     this.geometry = createDetailFoliageCardGeometry();
     this.canopyHeight = resolveGrassCanopyHeight(
       grassConfig.geometry.bladeHeightMin,
@@ -260,6 +256,11 @@ export class WorldDetailFoliageFactory {
     });
   }
 
+  setTuning(tuning: DetailFoliageTuning): void {
+    this.tuning = { ...tuning };
+    this.distribution.setTuning(this.tuning);
+  }
+
   build(
     key: number,
     tileX: number,
@@ -269,7 +270,7 @@ export class WorldDetailFoliageFactory {
     const tileSize = DETAIL_FOLIAGE_TILE_SIZE;
     const requested = Math.max(
       1,
-      Math.round(tileSize * tileSize * DETAIL_FOLIAGE_DENSITY),
+      Math.round(tileSize * tileSize * this.tuning.density),
     );
     const columns = Math.ceil(Math.sqrt(requested));
     const rows = Math.ceil(requested / columns);
@@ -279,7 +280,7 @@ export class WorldDetailFoliageFactory {
     const originZ = tileZ * tileSize;
     const centerX = originX + tileSize * 0.5;
     const centerZ = originZ + tileSize * 0.5;
-    const random = new SeededRandom(
+    const positionRandom = new SeededRandom(
       hash(tileX, tileZ, (this.worldConfig.seed ^ 0x2c_1b_3a_57) >>> 0),
     );
     const candidates: CandidateAccent[] = [];
@@ -288,8 +289,8 @@ export class WorldDetailFoliageFactory {
     for (let index = 0; index < requested; index += 1) {
       const column = index % columns;
       const row = Math.floor(index / columns);
-      const x = originX + (column + random.next()) * cellWidth;
-      const z = originZ + (row + random.next()) * cellDepth;
+      const x = originX + (column + positionRandom.next()) * cellWidth;
+      const z = originZ + (row + positionRandom.next()) * cellDepth;
       const height = this.field.sampleHeight(x, z);
       const suitabilityWithoutSlope =
         this.field.sampleGrassSuitabilityWithoutSlope(x, z, height);
@@ -335,37 +336,64 @@ export class WorldDetailFoliageFactory {
       if (this.habitatSample.accentChance < 0.06) {
         continue;
       }
-      // A biome spends less than the budgeted density by dropping candidates,
-      // decided from the world position so the thinning is stable under
-      // rebuilds rather than a function of enumeration order.
+
+      const candidateHash = detailFoliagePositionHash(
+        x,
+        z,
+        this.worldConfig.seed,
+        DETAIL_FOLIAGE_CANDIDATE_SALT,
+      );
       if (
-        hash(Math.round(x * 100), Math.round(z * 100), 0x51_7c_c1_b7) /
-          4294967296 >=
-        profile.accentDensity
+        detailFoliageChannel01(
+          candidateHash,
+          DETAIL_FOLIAGE_BIOME_DENSITY_CHANNEL_SALT,
+        ) >= profile.accentDensity
       ) {
         continue;
       }
 
-      const vigor = sampleGrassMacroVigor(x, z);
-      const pick = this.pickSpecies(
-        profile,
+      const distribution = this.distribution.sample(
         x,
         z,
-        vigor,
-        this.habitatSample.dryness,
-        suitability,
+        this.distributionSample,
       );
-      if (!pick) {
+      if (
+        detailFoliageChannel01(
+          candidateHash,
+          DETAIL_FOLIAGE_DISTRIBUTION_KEEP_CHANNEL_SALT,
+        ) >= distribution.keepMultiplier
+      ) {
         continue;
       }
 
-      const species = GRASS_ACCENT_SPECIES[pick.speciesIndex];
-      // Bands are multiples of the canopy, so a daisy's bloom lands on the
-      // blade tips around it whatever the configured blade height is.
+      if (
+        !resolveDetailFoliageSelection(
+          profile,
+          ecology,
+          this.habitatSample.dryness,
+          pathMask,
+          stoneMask,
+          distribution,
+          candidateHash,
+          this.tuning,
+          this.selection,
+        )
+      ) {
+        continue;
+      }
+
+      const species = GRASS_ACCENT_SPECIES[this.selection.speciesIndex];
+      const vigor = sampleGrassMacroVigor(x, z);
+      const heightRoll = detailFoliageHeightRoll(
+        distribution,
+        candidateHash,
+        this.tuning,
+      );
       const cardHeight =
-        random.range(
+        lerp(
           species.canopyHeightBand[0],
           species.canopyHeightBand[1],
+          heightRoll,
         ) * this.canopyHeight;
       const cardWidth = cardHeight * species.aspect;
       this.position.set(
@@ -375,7 +403,10 @@ export class WorldDetailFoliageFactory {
       );
       bounds.expandByPoint(this.position);
       this.align.setFromUnitVectors(this.up, this.normal);
-      this.yaw.setFromAxisAngle(this.up, random.range(0, TWO_PI));
+      this.yaw.setFromAxisAngle(
+        this.up,
+        detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_YAW_SALT) * TWO_PI,
+      );
       this.align.multiply(this.yaw);
       this.scale.set(cardWidth, cardHeight, cardWidth);
       this.localPosition.set(
@@ -388,22 +419,28 @@ export class WorldDetailFoliageFactory {
       this.matrix.toArray(matrix, 0);
 
       candidates.push({
-        dither: random.next(),
+        dither: detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_DITHER_SALT),
         matrix,
-        windScale: random.range(0.84, 1.16) * profile.windDamping,
+        windScale:
+          lerp(
+            0.84,
+            1.16,
+            detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_WIND_SALT),
+          ) * profile.windDamping,
         rootAo:
-          resolveGrassCanopyAo(vigor, suitability) * random.range(0.99, 1.01),
+          resolveGrassCanopyAo(vigor, suitability) *
+          lerp(
+            0.99,
+            1.01,
+            detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_AO_SALT),
+          ),
         dryness: this.habitatSample.dryness,
-        // Accents share the blade layer's verge feather so flowers cannot pop
-        // into a full-density strip beside the path as their tiles approach.
-        coverage:
-          this.habitatSample.density * pathMask * stoneMask,
+        coverage: this.habitatSample.density * pathMask * stoneMask,
         biome: biomeIndex,
         accent: packGrassAccent(
-          pick.speciesIndex,
-          hash(Math.round(x * 100), Math.round(z * 100), 0x27_22_0a_95) %
-            DETAIL_FOLIAGE_VARIANT_ROWS,
-          pick.tintRow,
+          this.selection.speciesIndex,
+          detailFoliageVariantRow(distribution, candidateHash, this.tuning),
+          this.selection.tintRow,
         ),
       });
     }
@@ -509,59 +546,6 @@ export class WorldDetailFoliageFactory {
 
   dispose(): void {
     this.geometry.dispose();
-  }
-
-  /**
-   * Weighted species pick, deterministic in world space so a rebuilt tile grows
-   * the same plants. The weights are the biome's own list scaled by how much
-   * each category belongs at this position.
-   */
-  private pickSpecies(
-    profile: GrassBiomeProfile,
-    x: number,
-    z: number,
-    vigor: number,
-    dryness: number,
-    suitability: number,
-  ): { speciesIndex: number; tintRow: number } | undefined {
-    let total = 0;
-    for (const entry of profile.accentSpecies) {
-      const species = GRASS_ACCENT_SPECIES.find(
-        (candidate) => candidate.key === entry.species,
-      );
-      if (!species) {
-        continue;
-      }
-      total +=
-        entry.weight *
-        resolveCategoryWeight(species.category, vigor, dryness, suitability);
-    }
-    if (total <= 0) {
-      return undefined;
-    }
-
-    let target =
-      (hash(Math.round(x * 100), Math.round(z * 100), 0x85_eb_ca_6b) /
-        4294967296) *
-      total;
-    for (const entry of profile.accentSpecies) {
-      const species = GRASS_ACCENT_SPECIES.find(
-        (candidate) => candidate.key === entry.species,
-      );
-      if (!species) {
-        continue;
-      }
-      target -=
-        entry.weight *
-        resolveCategoryWeight(species.category, vigor, dryness, suitability);
-      if (target <= 0) {
-        return {
-          speciesIndex: species.index,
-          tintRow: resolveGrassAccentTintRow(entry.tint),
-        };
-      }
-    }
-    return undefined;
   }
 }
 
@@ -707,6 +691,23 @@ export class WorldDetailFoliageField {
 
   getTileCount(): number {
     return this.tiles.size;
+  }
+
+  invalidate(): void {
+    this.evictTiles();
+    this.queue.length = 0;
+    this.desired.clear();
+    this.requests.length = 0;
+    this.reconciledFocus.set(
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+    );
+    this.countedFocus.set(
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+    );
   }
 
   dispose(): void {

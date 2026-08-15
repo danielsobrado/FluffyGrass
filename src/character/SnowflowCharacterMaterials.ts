@@ -1,62 +1,12 @@
 import * as THREE from "three";
-import {
-  WORLD_DEFAULT_HEMISPHERE_GROUND,
-  WORLD_SKY_ZENITH,
-} from "../app/WorldEnvironmentTuning";
+import { applyActorEnvironmentResponse } from "../render/ActorEnvironmentResponse";
 
 /**
- * Environment response, so the character stops reading as a cutout.
- *
  * The costume is deliberately near-black — a violet so dark it is almost
- * silhouette — and it sits in a bright yellow-green meadow. Sun and hemisphere
- * light alone leave it as a flat hole in the frame: correct in value, but with
- * no edge information, so the eye files it as pasted on rather than standing
- * there. The sky IBL fixes some of that on desktop and does not exist at all on
- * the compact profile, which is where the problem is worst.
- *
- * Two terms, both cheap enough for the compact profile. A skyward rim, which is
- * genuinely what a dark figure under an open sky looks like: the grazing angles
- * see the sky rather than the surface, and they see it strongest on the upper
- * surfaces. And a ground bounce from below, tinted the meadow's own green, which
- * ties the figure's underside to the ground it stands on.
- *
- * The bounce is modulated by the surface's own colour rather than added flat, so
- * it stays a material response — a wash added over everything equally would just
- * grey out the costume's blacks, which is the failure mode of doing this with
- * ambient.
+ * silhouette — and it sits in a bright yellow-green meadow, which is the case
+ * the shared actor environment response was written for. See
+ * {@link applyActorEnvironmentResponse} for why the rim and bounce terms exist.
  */
-const CHARACTER_MATERIAL_CACHE_KEY = "snowflow-character-environment-v1";
-const RIM_COLOR = new THREE.Color(WORLD_SKY_ZENITH);
-const RIM_STRENGTH = 0.5;
-const RIM_POWER = 3.2;
-const BOUNCE_COLOR = new THREE.Color(WORLD_DEFAULT_HEMISPHERE_GROUND);
-const BOUNCE_STRENGTH = 0.35;
-
-const ENVIRONMENT_DECLARATIONS = `
-uniform vec3 uCharacterRimColor;
-uniform float uCharacterRimStrength;
-uniform float uCharacterRimPower;
-uniform vec3 uCharacterBounceColor;
-uniform float uCharacterBounceStrength;
-`;
-
-const ENVIRONMENT_OUTPUT = `
-vec3 characterUpView = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
-vec3 characterViewDirection = normalize(vViewPosition);
-float characterRim = pow(
-  1.0 - saturate(dot(normal, characterViewDirection)),
-  uCharacterRimPower
-);
-// Upper surfaces see more sky than lower ones, so the rim is not a uniform
-// outline. Without this it reads as a drawn stroke rather than as light.
-float characterSkyward = saturate(dot(normal, characterUpView) * 0.5 + 0.5);
-outgoingLight += uCharacterRimColor *
-  (characterRim * characterSkyward * uCharacterRimStrength);
-float characterBounce = saturate(-dot(normal, characterUpView));
-outgoingLight += uCharacterBounceColor * diffuseColor.rgb *
-  (characterBounce * uCharacterBounceStrength);
-`;
-
 const PALETTE = Object.freeze({
   cloak: 0x50396f,
   robe: 0x2e2140,
@@ -133,30 +83,6 @@ function createMaterial(
     metalness,
     side,
   });
-  applyEnvironmentResponse(material);
+  applyActorEnvironmentResponse(material);
   return material;
-}
-
-/**
- * One cache key for every costume material: the injected code is identical and
- * the uniforms are shared constants, so they can all share a compiled program.
- */
-function applyEnvironmentResponse(material: THREE.MeshStandardMaterial): void {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uCharacterRimColor = { value: RIM_COLOR };
-    shader.uniforms.uCharacterRimStrength = { value: RIM_STRENGTH };
-    shader.uniforms.uCharacterRimPower = { value: RIM_POWER };
-    shader.uniforms.uCharacterBounceColor = { value: BOUNCE_COLOR };
-    shader.uniforms.uCharacterBounceStrength = { value: BOUNCE_STRENGTH };
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>${ENVIRONMENT_DECLARATIONS}`,
-      )
-      .replace(
-        "vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;",
-        `vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;${ENVIRONMENT_OUTPUT}`,
-      );
-  };
-  material.customProgramCacheKey = () => CHARACTER_MATERIAL_CACHE_KEY;
 }

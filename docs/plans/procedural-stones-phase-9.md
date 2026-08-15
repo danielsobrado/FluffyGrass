@@ -14,7 +14,7 @@
 - Target branch: `main`
 - Phase: 9 — authoring, debugging, reproducibility, and tuning tools
 - Document authority: implementation contract
-- Current state: not started
+- Current state: completed
 - Scope owner: browser stone bench, immutable inspection views, semantic/debug overlays, deterministic URL state, configuration workbench, preset export, contact-sheet generation, LOD comparison, placement inspection, runtime diagnostics, and authoring verification
 
 This document removes implementation choices from Phase 9. The implementer must follow the scene contract, file layout, state schema, URL encoding, control ranges, panel order, debug overlay rules, export schemas, contact-sheet rules, configuration validation workflow, performance diagnostics, lifecycle rules, keyboard shortcuts, verification matrix, and completion criteria below. A different editor framework, state model, URL contract, export format, overlay representation, configuration editing strategy, or contact-sheet renderer requires this document to be changed first.

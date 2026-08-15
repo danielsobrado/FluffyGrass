@@ -15,6 +15,8 @@ import {
   GRASS_WIND_NOISE_SCALE,
   GRASS_WIND_NOISE_SPEED,
   grassCompactGustGlsl,
+  grassTuftWindPhaseGlsl,
+  grassWeatherEnvelopeGlsl,
 } from "../wind/WindNoiseTexture";
 import {
   GRASS_LIGHT_MIX_GLSL,
@@ -79,9 +81,9 @@ const DEFAULT_DENSITY_FALLOFF_END = 64;
  * which is what `verify-lod-color-parity` bounds — does not move.
  */
 export const GRASS_MID_DENSITY_FALLOFF = Object.freeze({
-  start: 24,
-  end: DEFAULT_DENSITY_FALLOFF_END,
-  floor: 0.35,
+  start: 28,
+  end: 62,
+  floor: 0.18,
 });
 
 
@@ -296,8 +298,8 @@ float grassFieldDither = fract(
 float grassMotionPhase = fract(grassPhase + instanceVariation.x);
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
 float grassMicroFade = 1.0 - smoothstep(
-  uGrassNearDistance * 0.45,
-  uGrassMidDistance,
+  uGrassNearDistance * 0.16,
+  uGrassNearDistance * 0.52,
   grassCameraDistance
 );
 float grassNearCoverage = 1.0 - smoothstep(
@@ -355,31 +357,27 @@ if (grassKeepBlade && grassProgress > 0.001) {
   float grassHorizontalScale = max(length(grassInstanceBasis[0]), 0.0001);
   float grassVerticalScale = max(length(grassInstanceBasis[1]), 0.0001);
   float grassDepthScale = max(length(grassInstanceBasis[2]), 0.0001);
-  // A gust front travelling along the wind, tens of metres between crests. The
-  // local term below has a sub-metre wavelength and a per-instance phase, so on
-  // its own it can only ever produce uncorrelated chatter — no amount of tuning
-  // makes a wave out of it. The envelope only ever scales the bend down, which
-  // is what lets the reserved bounds and the configured wind strength keep
-  // their existing meaning: grassGustNoise is in [0, 1], so the envelope is in
-  // [1 - depth, 1] whichever gust source was compiled in.
+  // A gust front travelling along the wind, tens of metres between crests.
+  // Weather and tuft phase keep neighbouring blades in a clump moving together
+  // while neighbouring tufts and calm stretches still differ. The envelope only
+  // ever scales the bend down, which is what lets the reserved bounds and the
+  // configured wind strength keep their existing meaning.
+  float grassWeather = ${grassWeatherEnvelopeGlsl("uGrassTime")};
+  float grassTuftPhase = ${grassTuftWindPhaseGlsl("grassWorldRoot.xz")};
   float grassGustEnvelope =
-    mix(1.0 - uGrassGustFrontDepth, 1.0, grassGustNoise);
+    mix(1.0 - uGrassGustFrontDepth, 1.0, grassGustNoise) * grassWeather;
   float grassGust = sin(
     dot(grassWorldRoot.xz, grassWindDirection) / uGrassGustScale +
     uGrassTime * uGrassGustSpeed +
-    instanceVariation.x * 6.28318530718
+    grassTuftPhase * 1.15 +
+    instanceVariation.x * 0.42
   );
-  float grassFlutter = sin(
-    dot(grassWorldRoot.xz, vec2(-grassWindDirection.y, grassWindDirection.x)) /
-      (uGrassGustScale * 0.37) +
-    uGrassTime * uGrassFlutterSpeed +
-    grassMotionPhase * 6.28318530718
-  );
+  float grassFlutter = GRASS_FLUTTER_TERM;
   float grassStiffness = mix(
     0.76,
     1.12,
-    fract(grassMotionPhase * 1.61803398875)
-  );
+    fract(grassTuftPhase * 1.61803398875 + instanceVariation.x * 0.31)
+  ) * mix(1.0, 0.72, instanceVariation.w);
   float grassBend = (
     grassGust * uGrassWindStrength +
     grassFlutter * uGrassFlutterStrength * grassMicroFade
@@ -423,7 +421,7 @@ if (grassKeepBlade) {
 vNormal = normalize(mix(
   vNormal,
   normalize(mat3(modelViewMatrix) * vec3(0.0, 1.0, 0.0)),
-  (1.0 - grassMicroFade) * 0.58
+  (1.0 - grassMicroFade) * 0.78
 ));
 }
 
@@ -574,10 +572,10 @@ const VERTEX_TRAIL_BEND = `
         float grassTrailWobble = 1.0 + uGrassTrailWobbleAmplitude * grassTrailSample.a *
           sin(uGrassTime * uGrassTrailWobbleFrequency + grassTrailSeed * 6.28318530718);
         float grassHabitatBend = mix(
-          0.78,
-          1.16,
-          saturate((grassVerticalScale - 0.7) * 1.8)
-        ) * (1.0 - instanceVariation.w * 0.32);
+          0.7,
+          1.22,
+          saturate((grassVerticalScale - 0.68) * 1.9)
+        ) * (1.0 - instanceVariation.w * 0.48);
         float grassTrailAngle = clamp(
           uGrassTrailMaxAngle * uGrassTrailStrength * grassTrailResponse *
             grassTrailWobble * grassHabitatBend,
@@ -633,7 +631,7 @@ const VERTEX_TRAIL_BEND = `
 // burn interpolators the fragment shader no longer reads.
 const VERTEX_SHADING = `
 vGrassProgress = grassProgress;
-vGrassShade = mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.7);
+vGrassShade = mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.86);
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
 vGrassBiome = instanceBiome;
@@ -658,7 +656,7 @@ vec3 grassPaletteColor = grassResolvePalette(
   uGrassBiomeTip[grassBiomeRow],
   uGrassBiomeDry[grassBiomeRow],
   grassProgress,
-  mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.7),
+  mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.86),
   instanceVariation.w,
   instanceVariation.z,
   uGrassBiomeShade[grassBiomeRow].y,
@@ -671,6 +669,7 @@ grassPaletteColor = mix(
 );
 vGrassColor = mix(grassPaletteColor, uGrassCanopyColor, 1.0 - grassCoverage);
 vGrassProgress = grassProgress;
+vGrassDryness = instanceVariation.w;
 `;
 
 const VERTEX_PALETTE_DECLARATIONS = `
@@ -678,6 +677,7 @@ ${BIOME_PALETTE_DECLARATIONS}
 uniform vec3 uGrassCanopyColor;
 varying vec3 vGrassColor;
 varying float vGrassProgress;
+varying float vGrassDryness;
 ${GRASS_PALETTE_GLSL}
 `;
 
@@ -717,6 +717,7 @@ uniform float uGrassSheenPower;
 varying vec3 vGrassColor;
 varying vec2 vGrassSheen;
 varying float vGrassProgress;
+varying float vGrassDryness;
 `;
 
 const VERTEX_PALETTE_FRAGMENT_COLOR = `
@@ -770,9 +771,10 @@ vec3 grassSheen = vec3(0.0);
   float grassThinness = 1.0 - abs(dot(normal, grassSunDirection));
   float grassRootAttenuation = smoothstep(0.12, 0.72, vGrassProgress);
   float grassViewFacing = saturate(dot(normal, grassViewDirection));
+  float grassWetTransmission = mix(0.78, 1.14, 1.0 - vGrassDryness);
   grassBackLight = min(
     grassIntoSun * grassIntoSun * grassThinness * grassRootAttenuation *
-      (0.35 + 0.65 * grassViewFacing) * vGrassSheen.y,
+      (0.35 + 0.65 * grassViewFacing) * vGrassSheen.y * grassWetTransmission,
     0.82
   );
 GRASS_SHEEN_OUTPUT
@@ -867,7 +869,22 @@ export interface GrassNearMaterialOptions {
    * front. Costs one vertex texture fetch; compact profiles compile the sine.
    */
   noiseWind?: boolean;
+  /**
+   * Compile per-blade tip flutter. Mid and compact layers omit it: flutter is
+   * only readable inside a few metres, and compact pays the same meadow with
+   * less micro-motion rather than a different wind.
+   */
+  microWind?: boolean;
 }
+
+const VERTEX_FLUTTER = `
+    sin(
+      dot(grassWorldRoot.xz, vec2(-grassWindDirection.y, grassWindDirection.x)) /
+        (uGrassGustScale * 0.37) +
+      uGrassTime * uGrassFlutterSpeed +
+      grassMotionPhase * 6.28318530718
+    ) * mix(0.72, 1.18, instanceVariation.w)
+`;
 
 function createBiomeColorRows(color: THREE.ColorRepresentation): THREE.Color[] {
   return Array.from(
@@ -993,6 +1010,7 @@ export class GrassNearMaterial {
     const subPixelWidth = options.subPixelWidth === true;
     const sheen = options.sheen !== false;
     const noiseWind = options.noiseWind === true;
+    const microWind = options.microWind !== false;
     const instanceFreeDither = options.instanceFreeDither === true;
     // Selected at compile time rather than branched on a uniform: this is the
     // hottest code in the scene and the choice never varies for a material.
@@ -1035,6 +1053,10 @@ export class GrassNearMaterial {
             .replace(
               "GRASS_GUST_NOISE",
               noiseWind ? VERTEX_GUST_NOISE : VERTEX_GUST_SINE,
+            )
+            .replace(
+              "GRASS_FLUTTER_TERM",
+              microWind ? VERTEX_FLUTTER : "0.0",
             )
             .replace(
               "GRASS_SHEEN_VARYING",

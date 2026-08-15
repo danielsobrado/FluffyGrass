@@ -111,13 +111,30 @@ vec3 grassResolvePalette(
   );
   float occlusion = rootLight * bladeVariation * rootAo;
   vec3 shadedColor = paletteColor * occlusion;
-  // Every term above is a scalar, so a blade gets darker without its green ever
-  // getting less pure — and a dark, fully saturated green is not a colour ACES
-  // can carry. Its output matrix takes red negative and the clamp eats it: in a
-  // settled capture 7.5% of near-field vegetation pixels had red at exactly
-  // zero, against 0.0% in the far field. That clipping is most of what reads as
-  // a neon carpet rather than a meadow, and no amount of palette retuning fixes
-  // it while the darkening stays purely multiplicative.
+  float groundContact = 1.0 - smoothstep(
+    ${toGlslFloat(tuning.groundContactStart)},
+    ${toGlslFloat(tuning.groundContactEnd)},
+    progress
+  );
+  vec3 groundColor = mix(
+    baseColor * ${toGlslFloat(tuning.groundContactBaseScale)},
+    dryColor * ${toGlslFloat(tuning.groundContactDryScale)},
+    dryness
+  ) * occlusion;
+  shadedColor = mix(
+    shadedColor,
+    groundColor,
+    groundContact * ${toGlslFloat(tuning.groundContactStrength)}
+  );
+  // Root darkening and shade variation are scalars, so a blade can get darker
+  // without its green ever getting less pure — and a dark, fully saturated
+  // green is not a colour ACES can carry. Its output matrix takes red negative
+  // and the clamp eats it: in a settled capture 7.5% of near-field vegetation
+  // pixels had red at exactly zero, against 0.0% in the far field. That
+  // clipping is most of what reads as a neon carpet rather than a meadow, and
+  // no amount of palette retuning fixes it while the darkening stays purely
+  // multiplicative. Ground contact mixes toward a brown/olive, but that mix is
+  // still lit by the same occlusion so shadowed roots cannot lift.
   //
   // Shadowed vegetation is lit by the sky and by bounce off the ground, not by
   // nothing, so it loses saturation as it darkens. Letting it do that here puts

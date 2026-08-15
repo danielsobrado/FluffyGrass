@@ -5,6 +5,7 @@ import {
   UINT32_INTEGER_RULE,
   type ConfigNumberRule,
 } from "../config/FlatConfigValueReader";
+import { DETAIL_FOLIAGE_TUNING_LIMITS } from "./grass/DetailFoliageTuning";
 import type { WorldConfig } from "./WorldConfig";
 
 const MAX_TERRAIN_STREAM_RADIUS = 16;
@@ -92,6 +93,62 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassWetHeightBoost: { minimum: 0, maximum: 0.4 },
   grassDryHeightReduction: { minimum: 0, maximum: 0.5 },
   grassDryColorStrength: { minimum: 0, maximum: 0.7 },
+  detailFoliageDensity: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.density.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.density.max,
+  },
+  detailFoliageColonyWorldSize: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.colonyWorldSize.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.colonyWorldSize.max,
+  },
+  detailFoliageClumpWorldSize: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.clumpWorldSize.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.clumpWorldSize.max,
+  },
+  detailFoliageColonyStrength: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.colonyStrength.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.colonyStrength.max,
+  },
+  detailFoliageDominantFamilyShare: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.dominantFamilyShare.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.dominantFamilyShare.max,
+  },
+  detailFoliageTintCoherence: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.tintCoherence.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.tintCoherence.max,
+  },
+  detailFoliageQuietZoneThreshold: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.quietZoneThreshold.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.quietZoneThreshold.max,
+  },
+  detailFoliageBackgroundSuppression: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.backgroundSuppression.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.backgroundSuppression.max,
+  },
+  detailFoliageCoreHeightBias: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.coreHeightBias.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.coreHeightBias.max,
+  },
+  detailFoliageMaturePhenotypeBias: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.maturePhenotypeBias.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.maturePhenotypeBias.max,
+  },
+  detailFoliageEcologyStrength: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.ecologyStrength.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.ecologyStrength.max,
+  },
+  detailFoliageEdgeCompanionStrength: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.edgeCompanionStrength.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.edgeCompanionStrength.max,
+  },
+  detailFoliageStoneFringeStrength: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.stoneFringeStrength.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.stoneFringeStrength.max,
+  },
+  detailFoliagePathFringeStrength: {
+    minimum: DETAIL_FOLIAGE_TUNING_LIMITS.pathFringeStrength.min,
+    maximum: DETAIL_FOLIAGE_TUNING_LIMITS.pathFringeStrength.max,
+  },
   grassMidBladeFraction: { minimum: 0.05, maximum: 1 },
   grassUnderlayerFraction: { minimum: 0, maximum: 0.6 },
   grassPatchJitter: { minimum: 0, maximum: 0.9 },
@@ -176,6 +233,19 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   stoneDensity: { minimum: 0, maximum: 3 },
   stoneVariantsPerArchetype: { minimum: 2, maximum: 16, integer: true },
   stoneClusterChance: { minimum: 0, maximum: 1 },
+  stoneClusterSpacing: { minimum: 40, maximum: 96 },
+  stoneClusterCenterJitter: { minimum: 0, maximum: 0.35 },
+  stoneClusterRadiusMin: { minimum: 4, maximum: 30 },
+  stoneClusterRadiusMax: { minimum: 8, maximum: 40 },
+  stoneClusterAspectMin: { minimum: 0.45, maximum: 0.9 },
+  stoneClusterAspectMax: { minimum: 0.6, maximum: 1 },
+  stoneClusterBudgetMin: { minimum: 4, maximum: 8, integer: true },
+  stoneClusterBudgetMax: { minimum: 4, maximum: 12, integer: true },
+  stoneClusterCoreRatio: { minimum: 0.2, maximum: 0.6 },
+  stoneClusterShoulderRatio: { minimum: 0.5, maximum: 0.9 },
+  stoneClusterHaloRatio: { minimum: 0.9, maximum: 1.25 },
+  stoneClusterDensityResponse: { minimum: 1, maximum: 12 },
+  stoneSingletonChance: { minimum: 0, maximum: 0.25 },
   stoneGrassClearanceFeather: { minimum: 0.1, maximum: 2 },
   stoneRadiusDesktop: POSITIVE_INTEGER_RULE,
   stoneRadiusCompact: POSITIVE_INTEGER_RULE,
@@ -233,4 +303,19 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   characterMouseLookSensitivity: POSITIVE_NUMBER_RULE,
   characterTouchLookSensitivity: POSITIVE_NUMBER_RULE,
   characterZoomSensitivity: POSITIVE_NUMBER_RULE,
+  faunaEnabled: { minimum: 0, maximum: 1, integer: true },
+  faunaDeerDesktopCount: { minimum: 0, maximum: 64, integer: true },
+  faunaDeerCompactCount: { minimum: 0, maximum: 24, integer: true },
+  faunaVillagerDesktopCount: { minimum: 0, maximum: 16, integer: true },
+  faunaVillagerCompactCount: { minimum: 0, maximum: 8, integer: true },
+  faunaVillagerWalkSpeed: POSITIVE_NUMBER_RULE,
+  faunaStreamRadius: POSITIVE_NUMBER_RULE,
+  faunaDeerWalkSpeed: POSITIVE_NUMBER_RULE,
+  faunaFullDistance: POSITIVE_NUMBER_RULE,
+  faunaReducedDistance: POSITIVE_NUMBER_RULE,
+  faunaMinimalDistance: POSITIVE_NUMBER_RULE,
+  faunaCullDistance: POSITIVE_NUMBER_RULE,
+  faunaReducedUpdateHz: { minimum: 1, maximum: 120 },
+  faunaMinimalUpdateHz: { minimum: 1, maximum: 120 },
+  faunaBehaviorHz: { minimum: 1, maximum: 60 },
 };
