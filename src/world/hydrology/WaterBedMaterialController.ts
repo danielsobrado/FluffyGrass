@@ -91,5 +91,9 @@ export class WaterBedMaterialController {
     };
     this.material.customProgramCacheKey = () => WATER_BED_MATERIAL_CACHE_KEY;
     this.material.needsUpdate = true;
+    this.material.transparent = false;
+    this.material.depthWrite = true;
+    this.material.depthTest = true;
+    this.material.polygonOffset = true;
   }
 }

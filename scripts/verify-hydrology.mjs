@@ -534,7 +534,7 @@ try {
       waterBedController.material.depthWrite === true &&
       waterBedController.material.depthTest === true &&
       waterBedController.material.polygonOffset === true,
-    "Riverbed shading must depth-test and depth-write as opaque world geometry.",
+    `Riverbed shading must depth-test and depth-write as opaque world geometry. Received transparent=${waterBedController.material.transparent} depthWrite=${waterBedController.material.depthWrite} depthTest=${waterBedController.material.depthTest}.`,
   );
 
   waterBedController.dispose();
