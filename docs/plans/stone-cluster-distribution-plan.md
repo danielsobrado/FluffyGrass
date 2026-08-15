@@ -4,174 +4,186 @@
 
 - Target branch: `main`
 - Scope: stone distribution, geological coherence, cluster composition, grounding, and low-cost visual hierarchy
-- Renderer scope: unchanged
-- Runtime dependency scope: unchanged
-- Performance target: same or lower draw calls, same or lower representative triangle count, no new per-frame procedural work
-- Implementation style: deterministic, cached, bounded, KISS, no physics simulation, no iterative world searches
+- Renderer: unchanged
+- Runtime dependencies: unchanged
+- Deployment: manual GitHub Pages deployment; no GitHub Actions
+- Performance target: same or lower draw calls and representative triangle count; no new per-frame procedural work
 
 ## Objective
 
-Make the procedural stones read as consequences of terrain geology and erosion rather than as individually good-looking rocks scattered by cells.
+Make the stones read as consequences of terrain geology and erosion rather than as individually good-looking rocks scattered by 16 m cells.
 
-The current stone assets and renderer are already strong. The main problem is spatial hierarchy. The implementation should therefore redistribute the existing stone budget into coherent geological groups and larger genuinely empty areas rather than add geometry.
-
-The target visual hierarchy is:
+The desired hierarchy is:
 
 ```text
 geological region
-    -> geological cluster
-        -> anchor
+    -> cluster/process
+        -> anchor/source
         -> secondary stones
         -> debris
 ```
 
-not:
-
-```text
-16 m cell
-    -> unrelated random rocks
-```
-
-## Key decisions after re-evaluating the current code
-
-The earlier version of this plan was directionally correct but left too many implementation choices open. This revision makes the following decisions explicit.
-
-1. Keep `WorldStoneSystem`, `StoneRenderBatchBuilder`, render packing, materials, detail/coarse geometry, streaming radii, and deadline-sliced building unchanged.
-2. Do not add another stone LOD. The current detailed/coarse split and the existing small-stone cutoff are enough for this change.
-3. Do not add more stone mesh archetypes. The existing pebble, boulder, slab, block, shard, and outcrop families are sufficient.
-4. Do not add eight arbitrary art templates. Use four terrain-derived geological processes instead: `compact`, `ridge`, `scree`, and `fan`.
-5. Replace ordinary independent per-cell placement with deterministic macro-cluster ownership plus a low-rate singleton fallback.
-6. Keep path-verge stones as a separate human-disturbance process.
-7. Remove the second recursive verge-spawn path from ordinary stone placement. `addVergeStones` must be the only verge generator.
-8. Remove generic parent satellites after the macro-cluster generator is active. The macro cluster itself owns anchor, secondary, and debris relationships.
-9. Keep split masses, but make a split consume cluster budget rather than silently adding unlimited extra stones.
-10. Use `WorldEcologyField` as the authoritative surface-exposure signal. The current low-frequency stone noise remains useful, but only as geological potential.
-11. Do not introduce cluster-level grass decals or a second clearance system in this iteration. Concentrating the existing real stone clearances should create the grounding response naturally. Only add a broader cluster ground response later if visual QA proves it is still necessary.
-12. Preserve determinism across cell, chunk, load order, and cache eviction.
-
-## Why the current distribution still looks procedural
-
-`StoneField` currently has two competing ideas:
-
-- a good low-frequency rockiness field that gathers rocks into broad regions;
-- a high quiet-cell fallback, `FIELD_STONE_CHANCE = 0.52`, that repopulates many cells that the regional density left empty.
-
-That fallback weakens the large-scale contrast created by the first rule. A 16 m lattice where more than half of otherwise-empty cells can attempt a pebble produces a persistent background of disconnected rocks.
-
-The current system also has two separate path-edge mechanisms:
-
-- the dedicated `addVergeStones` pass;
-- a recursive extra satellite branch inside ordinary candidate placement when a stone is near a path.
-
-The dedicated pass is better because it explicitly aligns stones to the path and reasons about the tread footprint. Keep that one and remove the recursive duplicate.
-
-Finally, large stones currently create local satellites. That was useful before a true macro-cluster field existed, but keeping it after adding macro clusters would create clusters inside clusters and make the stone budget difficult to control.
-
-## Hard performance contract
-
-Implementation must satisfy all of these:
-
-- No new work in `WorldStoneSystem.update` except work already caused by chunk reconciliation/building.
-- No new draw calls.
-- No new textures.
-- No new material instances.
-- No physics or relaxation simulation.
-- No Poisson-disc generation.
-- No rejection loop with an unbounded attempt count.
-- No per-frame cluster sampling.
-- Cluster descriptors and members are deterministic and cacheable.
-- Representative visible stone count must not exceed the pre-change baseline.
-- Representative triangle count must not exceed the pre-change baseline.
-- Existing build-deadline slicing remains authoritative.
-
-The visual improvement must come from correlation and redistribution, not increased geometry.
+The improvement must come from distribution and correlation, not from more geometry.
 
 ---
 
-# Architecture
+# Decisions
 
-## New file: `src/world/stones/StoneClusterField.ts`
+1. Keep `WorldStoneSystem`, `StoneRenderBatchBuilder`, render packing, materials, detailed/coarse geometry, streaming radii, and deadline-sliced building unchanged.
+2. Do not add another stone LOD. The current detailed/coarse split and small-stone cutoff are enough.
+3. Do not add more mesh archetypes. Pebble, boulder, slab, block, shard, and outcrop are sufficient.
+4. Do not use a library of arbitrary hand-authored cluster templates. Use four terrain-derived processes: `compact`, `ridge`, `scree`, and `fan`.
+5. Replace ordinary independent per-cell placement with deterministic macro clusters plus a low-rate singleton fallback.
+6. Use `WorldEcologyField` as the authoritative surface-exposure model. Keep the current low-frequency stone noise only as geological potential.
+7. Keep `addVergeStones` as the only path-verge generator. Remove the second recursive near-path satellite path.
+8. Remove generic 2-4 parent satellites after macro clusters are active.
+9. Preserve split masses, but a split must consume one secondary slot from the cluster budget.
+10. Do not add a cluster-wide grass decal/clearance field in this iteration. Existing per-stone clearances should create the grounding response naturally.
+11. Preserve deterministic results across cache eviction, cell order, chunk order, and load/unload.
 
-Responsibility:
+---
 
-- own the 56 m macro-cluster lattice;
-- derive deterministic cluster centers;
-- sample geological potential and the shared terrain ecology at cluster centers;
-- decide whether a macro cluster exists;
-- classify its geological process;
-- derive cluster radius, aspect, direction, and shared DNA;
-- cache cluster descriptors with a bounded deterministic-transparent cache;
-- expose clusters near a 16 m stone cell.
+# Problems in the current placement
 
-This class is generation-time only. It is not a runtime render system.
+## Quiet-cell repopulation
 
-## New file: `src/world/stones/StoneClusterComposition.ts`
+The current:
 
-Responsibility:
+```text
+FIELD_STONE_CHANCE = 0.52
+```
 
-- convert one active cluster descriptor into a bounded list of member specifications;
-- assign `anchor`, `secondary`, and `debris` roles;
-- choose related archetypes;
-- generate local offsets from the geological process;
-- generate correlated scale, orientation, palette/value, and moss variation;
-- resolve split-anchor composition without exceeding the cluster budget.
+repopulates many cells that the macro rockiness field left empty. With 16 m cells this creates a persistent background of unrelated stones and weakens the contrast between clean meadow and rocky formation.
 
-It must not sample the renderer or scene.
+Replace it with the exact singleton algorithm in this document.
 
-## New file: `src/world/stones/StoneClusterTuning.ts`
+## Duplicate path-edge logic
 
-Keep only non-production mathematical constants and static relationship tables here:
+There are currently two ways to create extra path-edge stones:
 
-- hash domain values;
+- `addVergeStones`;
+- recursive `placeCandidate(... isSatellite = true)` near a path.
+
+Keep only `addVergeStones`. It already reasons about path distance, footprint, tangent, and alignment.
+
+## Local satellites become redundant
+
+The current large-parent satellite rule was useful before true macro clustering. Once macro clusters own anchor/secondary/debris relationships, keeping local satellites would create clusters inside clusters and make the budget unpredictable.
+
+Remove the generic satellite block after the new cluster verification passes.
+
+---
+
+# Hard performance contract
+
+The implementation must satisfy all of these:
+
+- no new work in `WorldStoneSystem.update` beyond existing reconciliation/build work;
+- no new draw calls;
+- no new textures;
+- no new material instances;
+- no physics;
+- no Poisson-disc generation;
+- no unbounded rejection/relaxation loop;
+- no per-frame cluster sampling;
+- fixed 3x3 macro-cell query per stone cell;
+- fixed maximum members per macro cluster;
+- maximum one overlap-correction move per member;
+- bounded descriptor/member caches;
+- representative visible roots <= pre-change baseline;
+- representative detailed/coarse triangles <= pre-change baseline.
+
+---
+
+# Files and responsibilities
+
+## New: `src/world/stones/StoneClusterField.ts`
+
+Pure deterministic macro geology.
+
+Responsibilities:
+
+- 56 m macro lattice;
+- jittered potential cluster centers;
+- low-frequency geological potential;
+- shared ecology/landform sampling at cluster center;
+- activation;
+- process classification;
+- strike/downhill direction;
+- radius/aspect;
+- shared cluster DNA;
+- bounded descriptor cache.
+
+Move the current `sampleRockiness`, `sampleStrike`, and the value-noise support they require out of `StoneField` into this class. Rename `sampleRockiness` to `sampleGeologyPotential` because ecology now owns surface exposure.
+
+## New: `src/world/stones/StoneClusterComposition.ts`
+
+Pure composition from a `StoneClusterDescriptor`.
+
+Responsibilities:
+
+- member budget;
+- anchor/secondary/debris roles;
+- process-specific local offsets;
+- family-aware archetype weights;
+- scale hierarchy;
+- orientation hierarchy;
+- correlated value/moss variation;
+- split-secondary specification with fallback-secondary data.
+
+It must not know about Three.js scene/render objects.
+
+## New: `src/world/stones/StoneClusterTuning.ts`
+
+Only non-production mathematical constants/tables:
+
+- cluster hash domain;
+- process enum/order;
 - role enum/order;
-- family-weight tables;
-- angular helper constants;
-- bounded cache sizes;
-- fixed process classification rules that deliberately reuse ecology thresholds.
+- family relationship tables;
+- process classification constants that deliberately reuse ecology semantics;
+- axis-angle math constants;
+- cache limits.
 
-Production visual knobs belong in YAML, not in this file.
+Production art controls belong in `world.yaml`.
 
 ## Modify: `src/world/stones/StoneField.ts`
 
-`StoneField` remains the orchestrator.
+Keep it as orchestration and final terrain validation.
 
-Change it to:
+Add:
 
-1. construct one `StoneClusterField`;
-2. ask it for macro clusters that can contribute roots to the requested 16 m cell;
-3. resolve cluster members through `StoneClusterComposition`;
-4. filter members by root-cell ownership;
-5. add the low-rate singleton fallback only when the cell is outside every cluster halo;
-6. run the dedicated path-verge pass;
-7. preserve world/path/slope/clearance validation;
-8. preserve the existing stone variant cache and geometry generation.
+- one `StoneClusterField`;
+- one `StoneClusterComposition`;
+- a bounded cache of fully resolved cluster `StoneInstance[]` keyed by macro cell;
+- `getResolvedCluster(gx, gz)`;
+- root-cell filtering in `generateCell`;
+- low-rate singleton generation.
 
-Do not add the new macro algorithms directly to the already-large `StoneField.ts`.
+`getResolvedCluster` resolves the entire cluster once, in member order, before any 16 m cell filters its roots. This is important: overlap correction and anchor validity must see the whole family, not only members that happen to fall in one stone cell.
 
-## Modify configuration files
+## Modify configuration
 
 - `public/config/world.yaml`
 - `src/world/WorldConfig.ts`
 - `src/world/WorldConfigSchema.ts`
 - `src/world/WorldConfigValidator.ts`
 
-## New verification file
+## New verification
 
 `src/world/stones/StoneClusterVerification.ts`
 
 Wire it into `scripts/verify-stones.mjs`.
 
-No GitHub Actions are required or desired. The repository continues to use local/manual verification and manual GitHub Pages deployment.
-
 ---
 
-# Exact configuration
+# Exact YAML configuration
 
-Add these production tuning values to `public/config/world.yaml`:
+Add:
 
 ```yaml
-# Macro geological stone clustering. The spacing intentionally does not divide
-# the 16 m stone cell or 64 m terrain chunk, which avoids visible lattice lock.
+# Macro stone geology. 56 m intentionally does not divide the 16 m stone cell
+# or 64 m terrain chunk, preventing visible lattice lock.
 stoneClusterSpacing: 56
 stoneClusterCenterJitter: 0.26
 stoneClusterRadiusMin: 10
@@ -187,43 +199,39 @@ stoneClusterDensityResponse: 6
 stoneSingletonChance: 0.10
 ```
 
-Keep the existing:
+Keep:
 
 ```yaml
 stoneDensity: 0.17
 stoneClusterChance: 0.82
 ```
 
-but change their exact meaning as follows:
+New semantics:
 
-- `stoneDensity` controls how frequently eligible macro-cluster cells activate. It no longer controls independent ordinary-rock count per 16 m cell.
-- `stoneClusterChance` remains a cluster probability multiplier. It no longer controls local satellite spawning around individual large stones.
-
-This produces a useful property: lowering density removes whole clusters instead of thinning every cluster into weak random scatter.
+- `stoneDensity`: controls how often eligible macro cells activate; reducing it removes whole clusters instead of thinning every cluster.
+- `stoneClusterChance`: activation multiplier for eligible macro clusters; no longer controls local satellites.
 
 ## Schema ranges
-
-Add exact schema constraints:
 
 ```text
 stoneClusterSpacing          40 .. 96
 stoneClusterCenterJitter     0 .. 0.35
 stoneClusterRadiusMin        4 .. 30
 stoneClusterRadiusMax        8 .. 40
-stoneClusterAspectMin        0.45 .. 0.9
-stoneClusterAspectMax        0.6 .. 1
-stoneClusterBudgetMin        integer 2 .. 8
-stoneClusterBudgetMax        integer 3 .. 12
-stoneClusterCoreRatio        0.2 .. 0.6
-stoneClusterShoulderRatio    0.5 .. 0.9
-stoneClusterHaloRatio        0.9 .. 1.25
+stoneClusterAspectMin        0.45 .. 0.90
+stoneClusterAspectMax        0.60 .. 1.00
+stoneClusterBudgetMin        integer 4 .. 8
+stoneClusterBudgetMax        integer 4 .. 12
+stoneClusterCoreRatio        0.20 .. 0.60
+stoneClusterShoulderRatio    0.50 .. 0.90
+stoneClusterHaloRatio        0.90 .. 1.25
 stoneClusterDensityResponse  1 .. 12
 stoneSingletonChance         0 .. 0.25
 ```
 
 ## Cross-field validation
 
-Add these checks to `validateWorldConfig`:
+Require:
 
 ```text
 stoneClusterRadiusMin < stoneClusterRadiusMax
@@ -232,37 +240,98 @@ stoneClusterBudgetMin <= stoneClusterBudgetMax
 stoneClusterCoreRatio < stoneClusterShoulderRatio
 stoneClusterShoulderRatio < stoneClusterHaloRatio
 stoneClusterRadiusMax * stoneClusterHaloRatio <= stoneClusterSpacing * 0.5
-stoneClusterCenterJitter <= 0.35
 ```
 
-The radius/halo/spacing constraint is important. It guarantees that a 3x3 macro-cell neighborhood is sufficient when a stone cell asks which clusters can influence it.
+The last rule guarantees a fixed 3x3 macro-cell neighborhood is sufficient.
 
 ---
 
-# Exact deterministic cluster algorithm
+# Data contracts
+
+## `StoneClusterProcess`
+
+```text
+compact | ridge | scree | fan
+```
+
+## `StoneClusterRole`
+
+```text
+anchor | secondary | debris
+```
+
+## `StoneClusterDescriptor`
+
+Conceptually:
+
+```text
+gridX
+gridZ
+seed
+centerX
+centerZ
+height
+geologyPotential
+surfaceRockiness
+suitability
+process
+strike
+direction
+majorRadius
+minorRadius
+biomeIndex
+paletteKey
+valueBase
+mossBias
+budget
+```
+
+## `StoneClusterMemberSpec`
+
+Conceptually:
+
+```text
+clusterSeed
+memberIndex
+role
+localU
+localV
+archetype
+relativeScale/or resolved scale intent
+rotation intent
+variant seed/index
+valueScale
+moss bias
+optional split metadata
+optional fallback-secondary metadata
+```
+
+Final terrain height, normal, sink, path validity, clear radius, and final `StoneInstance` remain `StoneField` responsibilities.
+
+---
+
+# Exact macro-cluster algorithm
 
 ## 1. Macro lattice
 
-Use a square macro lattice with spacing:
+Let:
 
 ```text
-S = config.stoneClusterSpacing = 56 m
+S = config.stoneClusterSpacing = 56
 ```
 
-For macro cell `(gx, gz)`, derive the root seed with the existing stone hash utilities:
+For macro cell `(gx, gz)`:
 
 ```text
 seed = hashStoneCell(gx, gz, config.seed XOR STONE_CLUSTER_DOMAIN)
 rng = StoneRandom.fromSeed(seed)
 ```
 
-Use a unique fixed `STONE_CLUSTER_DOMAIN` constant in `StoneClusterTuning.ts`.
+There is at most one potential cluster per macro cell.
 
-There is at most one potential macro cluster per 56 m macro cell.
+Use labeled forks for every independent domain so adding one random field cannot move existing clusters.
 
-## 2. Jittered center
-
-The virtual center is:
+## 2. Center jitter
 
 ```text
 j = config.stoneClusterCenterJitter
@@ -270,15 +339,11 @@ centerX = (gx + 0.5 + rng.fork("center-x").signed(j)) * S
 centerZ = (gz + 0.5 + rng.fork("center-z").signed(j)) * S
 ```
 
-With the shipped value `j = 0.26`, the maximum center displacement is 14.56 m per axis.
-
-Do not derive center jitter from random-consumption order. Use labeled forks so adding another DNA field later cannot move existing clusters.
+At `j = 0.26`, maximum axis displacement is `14.56 m`.
 
 ## 3. Geological potential
 
-Move the current two-octave low-frequency stone field out of `StoneField` into `StoneClusterField` and rename its meaning to `sampleGeologyPotential`.
-
-Keep the existing shape exactly for the first implementation:
+Keep the current two-octave shape exactly for the first implementation:
 
 ```text
 coarse = valueNoise(x / 240, z / 240, rockSeed)
@@ -287,92 +352,77 @@ field  = (coarse + 0.4 * fine) / 1.4
 geologyPotential = smoothstep(field, 0.52, 0.78)
 ```
 
-This field answers:
+Meaning:
 
 ```text
-is there likely to be rock in the underlying formation here?
+geologicalPotential = likely underlying rock formation
 ```
 
-It must not independently answer surface exposure anymore.
+It no longer decides visible surface rock by itself.
 
-## 4. Shared ecology at the cluster center
+## 4. Shared environment at the center
 
-At the cluster center sample once:
+Sample once:
 
 ```text
-height        = field.sampleHeight(centerX, centerZ)
-landform      = field.sampleLandform(centerX, centerZ, scratch)
-hydrology     = field.sampleHydrology(centerX, centerZ, height, scratch)
-pathDistances = field.samplePathDistances(centerX, centerZ, scratch)
-ecology       = field.resolveEcology(
+height        = terrain.sampleHeight(centerX, centerZ)
+landform      = terrain.sampleLandform(centerX, centerZ, landformScratch)
+hydrology     = terrain.sampleHydrology(centerX, centerZ, height, hydrologyScratch)
+pathDistances = terrain.samplePathDistances(centerX, centerZ, pathScratch)
+ecology       = terrain.resolveEcology(
                   centerX,
                   centerZ,
                   height,
                   hydrology,
                   pathDistances,
-                  scratch,
+                  ecologyScratch
                 )
 ```
 
-Do not build a second moisture/slope/rock model in the stone system.
+Do not recreate moisture, fertility, exposure, disturbance, or exposed-rock logic inside the stone system.
 
-`WorldEcologyField.rockiness` already combines landform slope, convexity, alpine exposure, moisture, and soil burial. Reuse it.
+## 5. Suitability
 
-## 5. Cluster suitability
-
-Use limiting factors rather than a weighted sum.
+Use limiting factors:
 
 ```text
 surfaceVisibility = 0.18 + 0.82 * ecology.rockiness
 pathSurvival      = 1 - 0.90 * ecology.disturbance
-suitability       = clamp01(
-                      geologyPotential
-                      * surfaceVisibility
-                      * pathSurvival
-                    )
+
+suitability = clamp01(
+  geologyPotential
+  * surfaceVisibility
+  * pathSurvival
+)
 ```
 
-Why retain the `0.18` floor on surface visibility:
+The `0.18` floor allows rare partly buried lowland geology while still making exposed ridges/slopes much more likely.
 
-- rock can remain partly buried in meadow soil;
-- meadow clusters should become rare, not impossible;
-- fully multiplying by `ecology.rockiness` would remove too much field stone from lowland areas.
-
-Path disturbance is strongly suppressive because the dedicated verge process owns path-edge stones.
-
-## 6. Activation probability
-
-Convert the existing `stoneDensity` to a bounded cluster-frequency response:
+## 6. Activation
 
 ```text
-densityResponse = 1 - exp(-config.stoneClusterDensityResponse * config.stoneDensity)
-```
+densityResponse =
+  1 - exp(-config.stoneClusterDensityResponse * config.stoneDensity)
 
-Then:
-
-```text
 suitabilityResponse = smoothstep(suitability, 0.14, 0.72)
+
 activationProbability =
-    config.stoneClusterChance
-    * densityResponse
-    * suitabilityResponse
+  config.stoneClusterChance
+  * densityResponse
+  * suitabilityResponse
 ```
 
-The macro cluster exists only when:
+Activate only when:
 
 ```text
 rng.fork("activation").chance(activationProbability)
 ```
 
-This is the only macro-cluster activation roll.
+No fallback center attempts.
 
-Do not perform fallback attempts in adjacent positions.
+## 7. Process classification
 
-## 7. Geological process classification
-
-Classify the active cluster from landform-scale values, not metre-scale surface noise.
-
-Use these rules in order:
+Use landform-scale values, in this order:
 
 ```text
 if landform.slope >= ECOLOGY_ROCK_SLOPE_START:
@@ -385,26 +435,32 @@ else:
     process = compact
 ```
 
-`ECOLOGY_ROCK_SLOPE_START` is already the shared ecological threshold where loose material begins to stop resting comfortably on the surface. Reuse it rather than inventing another slope threshold.
+Reuse `ECOLOGY_ROCK_SLOPE_START` from `WorldEcologyTuning`.
 
-The fixed `0.25` convexity and `0.08` fan minimum slope belong in `StoneClusterTuning.ts` as named algorithm constants because they define process classification rather than production density.
+Use named constants in `StoneClusterTuning.ts` for:
 
-## 8. Cluster direction
+```text
+STONE_CLUSTER_RIDGE_CONVEXITY = 0.25
+STONE_CLUSTER_FAN_CONCAVITY = -0.25
+STONE_CLUSTER_FAN_MIN_SLOPE = 0.08
+```
 
-Compute both directions once per cluster:
+## 8. Direction
+
+Move/reuse the existing regional strike sampling in `StoneClusterField`:
 
 ```text
 strike = sampleStrike(centerX, centerZ)
 ```
 
-For downhill direction, sample the existing terrain normal at the cluster center:
+Sample the current terrain normal once:
 
 ```text
-normal = field.sampleNormal(centerX, centerZ, scratch)
+normal = terrain.sampleNormal(centerX, centerZ, normalScratch)
 downhillAngle = atan2(normal.z, normal.x)
 ```
 
-Use:
+Process direction:
 
 ```text
 compact -> strike + rng.fork("direction").signed(0.35)
@@ -413,11 +469,7 @@ scree   -> downhillAngle
 fan     -> downhillAngle
 ```
 
-Do not calculate a second height-gradient field.
-
-## 9. Cluster radius
-
-Resolve a suitability-scaled radius:
+## 9. Radius
 
 ```text
 radiusT = smoothstep(suitability, 0.20, 0.85)
@@ -426,14 +478,14 @@ baseRadius = lerp(
   config.stoneClusterRadiusMax,
   radiusT
 )
-majorRadius = baseRadius * rng.fork("radius").range(0.90, 1.10)
+majorRadius = clamp(
+  baseRadius * rng.fork("radius").range(0.90, 1.10),
+  config.stoneClusterRadiusMin,
+  config.stoneClusterRadiusMax
+)
 ```
 
-Clamp the result to the configured min/max after variation.
-
-## 10. Cluster aspect
-
-Start with:
+## 10. Aspect
 
 ```text
 aspect = rng.fork("aspect").range(
@@ -442,7 +494,7 @@ aspect = rng.fork("aspect").range(
 )
 ```
 
-Bias by process:
+Process bias:
 
 ```text
 compact -> lerp(aspect, 0.95, 0.55)
@@ -457,9 +509,7 @@ Then:
 minorRadius = majorRadius * aspect
 ```
 
-## 11. Cluster stone budget
-
-The cluster budget depends on suitability, not on random repeated attempts:
+## 11. Budget
 
 ```text
 budgetT = smoothstep(suitability, 0.25, 0.80)
@@ -470,24 +520,18 @@ budget = round(lerp(
 ))
 ```
 
-Clamp to the configured integer range.
-
-`budget` is the maximum number of members the cluster composition creates before terrain/path rejection.
-
-There are no retries to refill rejected members.
-
-This keeps cost strictly bounded.
+No retries are allowed to refill terrain/path-rejected members.
 
 ---
 
-# Cluster member roles
+# Role allocation
 
-For `budget >= 4`:
+Because `stoneClusterBudgetMin >= 4`, always use:
 
 ```text
 anchorCount = 1
 secondaryCount = clamp(floor((budget - 1) * 0.35), 1, 2)
-debrisCount = budget - anchorCount - secondaryCount
+debrisCount = budget - 1 - secondaryCount
 ```
 
 Examples:
@@ -498,34 +542,25 @@ budget 6 -> 1 anchor, 1 secondary, 4 debris
 budget 8 -> 1 anchor, 2 secondary, 5 debris
 ```
 
-The anchor always has member index `0`.
-
-Role generation uses independent labeled random forks:
+Member random stream:
 
 ```text
-member:0
-member:1
-...
+rng.fork("member:<index>")
 ```
 
 ---
 
-# Exact local composition algorithms
+# Exact local composition
 
-Define:
+Let:
 
 ```text
-core     = config.stoneClusterCoreRatio      # 0.42
-shoulder = config.stoneClusterShoulderRatio  # 0.78
-halo     = config.stoneClusterHaloRatio      # 1.12
+core     = config.stoneClusterCoreRatio       # 0.42
+shoulder = config.stoneClusterShoulderRatio   # 0.78
+halo     = config.stoneClusterHaloRatio       # 1.12
 ```
 
-Local coordinates are `(u, v)` where:
-
-- `u` is normalized distance along the cluster direction;
-- `v` is normalized distance across it.
-
-World conversion is always:
+Local `(u, v)` converts to world coordinates as:
 
 ```text
 dirX = cos(direction)
@@ -533,48 +568,41 @@ dirZ = sin(direction)
 perpX = -dirZ
 perpZ = dirX
 
-worldX = centerX + dirX * (u * majorRadius) + perpX * (v * minorRadius)
-worldZ = centerZ + dirZ * (u * majorRadius) + perpZ * (v * minorRadius)
+x = centerX + dirX * (u * majorRadius) + perpX * (v * minorRadius)
+z = centerZ + dirZ * (u * majorRadius) + perpZ * (v * minorRadius)
 ```
 
 ## Anchor
 
-For `compact` and `ridge`:
+Compact/ridge:
 
 ```text
 u = signed(0.06)
 v = signed(0.06)
 ```
 
-For `scree` and `fan`, place the source slightly uphill of the visual mass:
+Scree/fan source sits slightly uphill:
 
 ```text
 u = -0.16 + signed(0.04)
 v = signed(0.05)
 ```
 
-## Secondary radial coordinate
-
-For each secondary:
+## Secondary radius
 
 ```text
 r = lerp(core * 0.55, shoulder * 0.92, random.next())
 ```
 
-## Debris radial coordinate
-
-For each debris member:
+## Debris radius
 
 ```text
-t = sqrt(random.next())
-r = lerp(core, halo, t)
+r = lerp(core, halo, sqrt(random.next()))
 ```
 
-`sqrt` intentionally gives the shoulder/halo more area without needing rejection sampling.
+This moves more debris area toward shoulder/halo without rejection sampling.
 
-## Compact process
-
-For secondary and debris:
+## Compact
 
 ```text
 angle = random.range(0, 2*pi)
@@ -582,11 +610,7 @@ u = cos(angle) * r
 v = sin(angle) * r
 ```
 
-This gives a broad irregular oval after the aspect transform.
-
-## Ridge process
-
-For each member:
+## Ridge
 
 ```text
 side = random.chance(0.5) ? -1 : 1
@@ -605,9 +629,7 @@ Debris:
 v = random.signed(0.34 * r)
 ```
 
-This keeps the main mass aligned to geological strike while allowing small fragments to spread away from it.
-
-## Scree process
+## Scree
 
 Downhill is positive `u`.
 
@@ -625,9 +647,7 @@ u = r
 v = random.signed(r * lerp(0.22, 0.48, r / halo))
 ```
 
-The cone widens downhill.
-
-## Fan process
+## Fan
 
 Downhill is positive `u`.
 
@@ -645,62 +665,49 @@ u = r
 v = random.signed(r * lerp(0.32, 0.68, r / halo))
 ```
 
-The fan is wider than scree because it represents material accumulating where the slope relaxes.
-
-## Small positional breakup
-
-After process coordinates are resolved, add one bounded local perturbation:
+## Final small breakup
 
 ```text
 u += random.fork("jitter-u").signed(0.035)
 v += random.fork("jitter-v").signed(0.035)
 ```
 
-Do not add another world-space noise lookup for individual members.
+No additional world-noise lookup per member.
 
 ---
 
-# Archetype relationships
+# Archetype family algorithm
 
-## Anchor selection
+## Anchor
 
-Reuse the existing biome/slope archetype tables as the starting point, but anchors may not be `pebble`.
+Start from the existing level-biome or slope weights, set `pebble = 0`, then renormalize.
 
-Set pebble weight to zero and renormalize.
-
-Then apply process modifiers before normalization:
+Process modifiers:
 
 ```text
 compact:
-  use level biome weights unchanged except pebble = 0
+  no additional modifier
 
 ridge:
   slab    *= 1.35
   outcrop *= 1.35
   boulder *= 0.70
-  pebble   = 0
 
 scree:
   use slope weights
   shard   *= 1.25
   outcrop *= 1.15
-  pebble   = 0
 
 fan:
   boulder *= 1.25
   slab    *= 1.10
   shard   *= 0.75
   outcrop *= 0.70
-  pebble   = 0
 ```
 
-No new archetype is required.
+## Secondary weights
 
-## Secondary family weights
-
-Use this exact relationship table:
-
-| Anchor | Secondary family weights |
+| Anchor | Secondary |
 |---|---|
 | boulder | boulder 0.55, slab 0.20, block 0.15, shard 0.10 |
 | slab | slab 0.50, block 0.20, boulder 0.20, shard 0.10 |
@@ -708,11 +715,9 @@ Use this exact relationship table:
 | outcrop | block 0.35, shard 0.30, slab 0.20, boulder 0.15 |
 | shard | shard 0.50, block 0.25, boulder 0.15, slab 0.10 |
 
-## Debris family weights
+## Debris weights
 
-Use this exact relationship table:
-
-| Anchor | Debris family weights |
+| Anchor | Debris |
 |---|---|
 | boulder | pebble 0.70, boulder 0.30 |
 | slab | pebble 0.55, slab 0.25, shard 0.20 |
@@ -720,7 +725,7 @@ Use this exact relationship table:
 | outcrop | pebble 0.35, shard 0.35, block 0.30 |
 | shard | pebble 0.45, shard 0.55 |
 
-Do not choose secondary/debris archetypes independently from the anchor.
+No member uses the old generic 70/30 satellite rule.
 
 ---
 
@@ -728,7 +733,7 @@ Do not choose secondary/debris archetypes independently from the anchor.
 
 ## Anchor
 
-Take the existing archetype scale band `[minScale, maxScale]` and sample only its upper useful range:
+For the existing archetype scale band `[minScale, maxScale]`:
 
 ```text
 anchorScale = lerp(
@@ -738,86 +743,44 @@ anchorScale = lerp(
 )
 ```
 
-Preserve the current rare landmark-boulder multiplier, but apply it only to:
-
-- an anchor boulder in a highly suitable cluster; or
-- a true singleton boulder.
-
-Do not apply it to secondaries or debris.
+Keep the rare landmark-boulder multiplier only for an anchor or true singleton, never a secondary/debris member.
 
 ## Secondary
-
-Let:
 
 ```text
 normalizedRadius = min(1, abs(r) / halo)
 radialScale = lerp(0.72, 0.48, normalizedRadius)
-secondaryScale = anchorScale * radialScale * random.range(0.90, 1.08)
+scale = anchorScale * radialScale * random.range(0.90, 1.08)
 ```
 
-Clamp to the selected secondary archetype's existing scale band.
+Clamp to the selected archetype's existing scale band.
 
 ## Debris
 
 ```text
 normalizedRadius = min(1, abs(r) / halo)
 radialScale = lerp(0.38, 0.18, normalizedRadius)
-debrisScale = anchorScale * radialScale * random.range(0.85, 1.15)
+scale = anchorScale * radialScale * random.range(0.85, 1.15)
 ```
 
-Clamp lower bound to `0.22` and upper bound to the selected archetype's existing maximum.
+Clamp to:
 
-This guarantees a visible statistical size gradient without sorting or iterative optimization.
+```text
+minimum = 0.22
+maximum = selected archetype existing maximum
+```
+
+This creates a statistical size falloff without sorting or iterative optimization.
 
 ---
 
-# Exact orientation model
+# Orientation algorithm
 
-Nearby bedrock should share geology; loose material should show erosion.
+Yaw is an axis with period `pi`.
 
-Define an axis-angle helper where yaw has period `pi`, not `2*pi`.
+Implement an `axisLerp` helper using shortest distance on that axis.
 
-For each member:
-
-## Outcrop
-
-```text
-yaw = strike + signed(0.18 + roleExtra)
-```
-
-## Slab
-
-```text
-yaw = strike + signed(0.22 + roleExtra)
-```
-
-## Block
-
-```text
-yaw = strike + signed(0.28 + roleExtra)
-```
-
-## Boulder
-
-Blend 35% from strike toward the cluster process direction using shortest axis-angle distance:
-
-```text
-yaw = axisLerp(strike, direction, 0.35) + signed(0.42 + roleExtra)
-```
-
-## Shard
-
-```text
-yaw = direction + signed(0.38 + roleExtra)
-```
-
-## Pebble
-
-```text
-yaw = random.range(0, pi)
-```
-
-Role extras:
+Role extra spread:
 
 ```text
 anchor    0.00
@@ -825,205 +788,205 @@ secondary 0.10
 debris    0.28
 ```
 
-This creates strong shared bedding in bedrock and visibly looser debris without any extra terrain queries.
+Then:
+
+```text
+outcrop: yaw = strike + signed(0.18 + roleExtra)
+slab:    yaw = strike + signed(0.22 + roleExtra)
+block:   yaw = strike + signed(0.28 + roleExtra)
+boulder: yaw = axisLerp(strike, direction, 0.35)
+                 + signed(0.42 + roleExtra)
+shard:   yaw = direction + signed(0.38 + roleExtra)
+pebble:  yaw = random.range(0, pi)
+```
+
+Bedrock stays correlated; loose debris becomes progressively freer.
 
 ---
 
-# Cluster DNA and material correlation
+# Cluster DNA
 
-The cluster owns correlated appearance values.
-
-Resolve once:
+Resolve once per cluster:
 
 ```text
-clusterValueBase = rng.fork("value").range(0.96, 1.03)
-clusterMossBias  = rng.fork("moss").range(0.88, 1.12)
+valueBase = rng.fork("value").range(0.96, 1.03)
+mossBias  = rng.fork("moss").range(0.88, 1.12)
 ```
 
-Use the biome at the anchor/cluster center to choose the cluster base palette.
+Use the biome at cluster center for the base palette. The existing meadow `mossy` palette roll becomes cluster-level, not per-stone.
 
-The existing meadow `mossy` palette chance becomes a cluster-level choice rather than a per-stone choice.
-
-For each member:
+Per member:
 
 ```text
 valueScale = clamp(
-  clusterValueBase + memberRandom.fork("value").signed(0.018),
+  valueBase + memberRandom.fork("value").signed(0.018),
   0.92,
   1.06
 )
 ```
 
-Refactor moss calculation so the large old independent per-stone random range is removed.
-
-Use:
+Refactor moss so the old broad independent per-stone random multiplier is removed:
 
 ```text
-mossBase = existing biome/altitude/exposure calculation without random factor
+mossBase = existing biome/altitude/environment calculation without random
 moss = clamp01(
   mossBase
-  * clusterMossBias
+  * cluster.mossBias
   * memberRandom.fork("moss").range(0.94, 1.06)
 )
 ```
 
-Keep `graniteBlend` per member because altitude can legitimately change across a large formation.
-
-This produces family resemblance without making stones identical.
+Keep `graniteBlend` per member because altitude legitimately varies across a formation.
 
 ---
 
-# Terrain/path validation and bounded overlap handling
+# Final cluster resolution in `StoneField`
 
-Cluster composition is generated sequentially in member-index order.
+Add:
 
-For every member:
+```text
+getResolvedCluster(gx, gz): readonly StoneInstance[]
+```
 
-1. Resolve archetype, scale, and variant.
-2. Convert local coordinates to world coordinates.
-3. Reject outside the world margin using the current rule.
-4. Sample actual terrain height and normal.
-5. Preserve current `SLOPE_REJECT_NY` rejection.
-6. Preserve current path tread/footprint rejection.
-7. Preserve current terrain sinking and tilt-strength rules.
-8. Check overlap against already accepted members of the same cluster.
+Algorithm:
+
+```text
+1. descriptor = clusterField.get(gx, gz)
+2. if inactive -> []
+3. specs = composition.create(descriptor)
+4. resolve anchor first
+5. if anchor is invalid -> [] for the entire cluster
+6. accepted = [anchor]
+7. resolve remaining specs in memberIndex order
+8. apply at most one overlap correction per member
+9. rejected member is dropped; do not retry/refill
+10. cache final accepted StoneInstance[] by macro-cell key
+```
+
+The anchor-invalid rule is mandatory. A cluster must never leave a trail of secondary/debris stones without its source.
+
+## Existing validity rules to preserve
+
+For each member:
+
+- world boundary margin;
+- actual terrain height;
+- actual terrain normal;
+- `SLOPE_REJECT_NY`;
+- path tread/footprint clearance;
+- terrain sink;
+- tilt strength;
+- `clearRadius` behavior;
+- biome palette/granite logic;
+- variant/geometry identity.
 
 ## Bounded overlap correction
 
-Do not use iterative relaxation.
-
-For a candidate and an accepted member:
+For candidate and each already accepted member:
 
 ```text
 minimumDistance = 0.78 * (candidateFootprint + existingFootprint) + 0.12
 ```
 
-If the candidate is closer:
+If too close:
 
-- move it once directly away from the existing member by the missing distance plus `0.05 m`;
-- resample height/normal/path validity once;
-- if it still overlaps any accepted member or becomes invalid, drop it.
+1. move the candidate once directly away from the closest conflicting member by `missingDistance + 0.05 m`;
+2. resample height, normal, and path validity once;
+3. recheck all accepted members once;
+4. if still invalid/overlapping, drop it.
 
-Maximum correction passes per member: **one**.
-
-There is no retry with another random position.
-
-The cluster therefore has strict bounded generation cost.
+No second correction pass.
 
 ---
 
-# Split masses
+# Split anchor handling
 
-Preserve split boulder/block compositions, but integrate them with cluster budget.
+For anchor `block` or `boulder` that meets the existing split criteria:
 
-For an anchor that meets the existing split rules:
+- keep the current `SPLIT_CHANCE`;
+- keep the same-variant relationship;
+- keep the cross-strike break direction and narrow gap;
+- represent the split half as the first secondary slot;
+- if the split half is invalid, use the precomputed normal secondary fallback for that slot;
+- never increase `budget` because of a split.
 
-- the split roll remains the existing `SPLIT_CHANCE`;
-- the split half uses the same variant and palette;
-- the split half replaces the first secondary member;
-- it does not increase `budget`;
-- keep the existing cross-strike break direction and narrow gap logic;
-- if the split half is invalid, generate the normal first secondary instead.
-
-A rare standalone singleton may keep the old split behavior because that behavior already exists in the performance baseline.
+A true singleton may keep existing split behavior because that cost already exists in the baseline.
 
 ---
 
-# Removing the old local-cluster behavior
+# Root-cell ownership
 
-After the macro cluster implementation is verified, delete the old generic satellite block from `StoneField.placeCandidate`:
-
-```text
-large parent
-    -> chance(stoneClusterChance)
-        -> 2..4 satellites
-```
-
-That behavior is replaced by the macro cluster's explicit secondary/debris budget.
-
-Also remove the recursive near-path satellite branch from ordinary candidate placement:
+A final resolved member belongs to:
 
 ```text
-margin < 3
-    -> placeCandidate(... isSatellite = true)
+ownerCellX = floor(instance.x / config.stoneCellSize)
+ownerCellZ = floor(instance.z / config.stoneCellSize)
 ```
 
-Keep only `addVergeStones` for path-edge composition.
+`StoneField.generateCell(cellX, cellZ)`:
 
-This prevents two independent systems from decorating the same verge.
+```text
+1. compute macro cell containing the 16 m cell center
+2. enumerate fixed 3x3 macro cells
+3. call getResolvedCluster for each
+4. append only instances whose owner cell == requested cell
+5. if no cluster member belongs to the cell, evaluate singleton eligibility
+6. run addVergeStones
+```
+
+Because the full cluster is resolved/cached before filtering, neighboring 16 m cells see the exact same family and overlap decisions.
+
+The current `CHUNK_SOURCE_CELL_MARGIN` may remain for split/verge behavior. Macro members themselves are owned by their final root cell.
 
 ---
 
-# Root-cell ownership and chunk-boundary continuity
+# Caches
 
-Cluster members are owned by their final root position, not by the macro cell that generated them.
+Use two transparent bounded caches:
 
-For each resolved member:
-
-```text
-ownerCellX = floor(member.x / config.stoneCellSize)
-ownerCellZ = floor(member.z / config.stoneCellSize)
-```
-
-`StoneField.generateCell(cellX, cellZ)` does this:
-
-```text
-1. Find the macro lattice coordinate containing the 16 m cell center.
-2. Enumerate the 3x3 macro cells around it.
-3. For each active cached cluster, iterate its bounded member list.
-4. Keep only members whose owner cell equals (cellX, cellZ).
-5. Add singleton fallback only if allowed.
-6. Add dedicated verge stones.
-```
-
-Because `stoneClusterRadiusMax * stoneClusterHaloRatio <= stoneClusterSpacing * 0.5`, a 3x3 macro neighborhood is sufficient.
-
-No global cluster registry is required.
-
-No cluster can disappear because a neighboring terrain chunk was loaded in a different order.
-
-The current one-cell `CHUNK_SOURCE_CELL_MARGIN` may remain because split/verge placements can still cross their source cell. Macro members themselves do not depend on that margin because they are filtered by final root-cell ownership.
-
----
-
-# Cluster cache
-
-`StoneClusterField` should cache descriptors and final member specifications by macro-cell key.
-
-Use numeric or compact string keys; either is acceptable because the cache is small and generation-only.
-
-Use bounded insertion-order eviction matching the existing deterministic-cache approach:
+## Descriptor cache in `StoneClusterField`
 
 ```text
 limit = 512
 trimTo = 320
 ```
 
-These are performance constants in `StoneClusterTuning.ts`, not YAML art controls.
+## Resolved-cluster cache in `StoneField`
 
-Cache eviction must never alter results. A regenerated macro cell must produce the exact same descriptor and member list.
+```text
+limit = 320
+trimTo = 192
+```
+
+These are performance constants in `StoneClusterTuning.ts`.
+
+Eviction must change only recomputation frequency, never output.
 
 ---
 
 # Exact singleton fallback
 
-Remove `FIELD_STONE_CHANCE = 0.52`.
+Delete:
 
-A 16 m stone cell may attempt one singleton only when:
+```text
+FIELD_STONE_CHANCE = 0.52
+```
 
-- no macro-cluster member root belongs to the cell;
-- the cell center lies outside every active cluster halo;
-- the dedicated verge pass is not being used as a substitute for this decision.
+A cell may attempt one singleton only when:
 
-Use the cell-center geological potential:
+- no resolved macro member root belongs to the cell;
+- the cell center lies outside every active cluster's `halo` ellipse;
+- the point is not being created through the dedicated verge process.
+
+Probability:
 
 ```text
 singletonProbability =
   config.stoneSingletonChance
-  * lerp(0.35, 1.0, geologyPotential)
+  * lerp(0.35, 1.0, geologyPotentialAtCellCenter)
 ```
 
-With the shipped `stoneSingletonChance = 0.10`, quiet terrain therefore gets at most a 3.5-10% singleton attempt rate rather than 52%.
+With `stoneSingletonChance = 0.10`, the attempt rate is only 3.5-10%.
 
 Archetype weights:
 
@@ -1033,327 +996,302 @@ boulder 0.20
 slab    0.05
 ```
 
-Normal path, slope, world-boundary, sinking, and clearance rules still apply.
+Then apply existing world, slope, path, sinking, tilt, palette, moss, and clearance rules.
 
-The existing rare landmark-boulder rule may apply to the 20% singleton boulder path.
-
-This preserves punctuation between clusters without recreating uniform scatter.
+The rare landmark-boulder rule may apply to the singleton boulder branch.
 
 ---
 
-# Path verge behavior
+# Path verge
 
-Keep `addVergeStones` conceptually unchanged because it already does the correct work:
+Keep `addVergeStones` as the only verge generator.
 
-- checks whether a way is nearby;
-- samples path distance;
-- derives the tangent;
-- walks candidates to the verge band;
-- aligns stones along the way;
-- rejects tread overlap;
-- weights frequency by geological context.
+Preserve its existing behavior:
 
-Only two changes are required:
+- path visibility check;
+- path-distance band;
+- tangent derivation;
+- movement to the verge;
+- footprint-aware tread clearance;
+- alignment along the way;
+- geological weighting;
+- local overlap rejection.
 
-1. use cluster/geological potential terminology consistently;
-2. remove the second recursive verge-spawn mechanism from ordinary placement.
+Remove the recursive near-path satellite branch from ordinary placement.
 
-Do not make macro clusters align to the path. Geological formations and moved verge stones represent different causes and should stay separate.
+Macro geology must not align to a path. Geological clusters and kicked-aside verge stones represent different causes.
 
 ---
 
-# Grass and ground response
+# Grass/ground response
 
-Do not add a new cluster-wide grass-clearance field in the first implementation.
+Do not add a cluster-wide clearance halo now.
 
 Reason:
 
-- the existing `StoneInstance.clearRadius` already clears grass around meaningful footprints;
-- concentrating real stones into clusters automatically creates connected local gaps;
-- tiny debris already has `clearRadius = 0` and should nestle in grass;
-- a synthetic cluster halo would risk clearing grass where no visible rock actually exists.
+- large existing stones already clear grass by footprint;
+- clustering those real clearances creates connected gaps naturally;
+- tiny debris correctly has `clearRadius = 0` and should nestle into grass;
+- a synthetic halo could clear visible grass where no visible stone exists.
 
-After implementation, inspect close-range cluster grounding. Only if clusters still appear pasted onto grass should a second phase add a weak union-of-footprints ground response. It is not part of the first implementation.
-
----
-
-# LOD behavior
-
-Do not add another stone LOD state.
-
-Keep the existing behavior:
-
-- detailed chunks use detailed geometry and include small stones;
-- non-detailed chunks use coarse geometry and drop members below the existing small-scale cutoff;
-- render batches remain merged exactly as today.
-
-The new scale hierarchy naturally makes debris disappear first because debris is the smallest role.
-
-That achieves the desired visual LOD without changing `WorldStoneSystem` or adding transition state.
+Only add a broader ground response in a later visual pass if close-up QA proves it is still needed.
 
 ---
 
-# Implementation sequence
+# LOD
 
-## Step 0 — Capture the current baseline before changing placement
+Do not modify the renderer or add a new stone LOD.
 
-Before modifying distribution, add a deterministic baseline capture to the existing stone verification tooling.
+Keep:
 
-Record for fixed representative windows:
+- detailed chunks: detailed geometry + small members;
+- non-detailed chunks: coarse geometry + existing small-scale cutoff;
+- current batch merging.
 
-- total roots;
-- roots by archetype;
-- roots by scale band;
-- total render triangles for detailed and coarse modes;
-- visible stone count at desktop radius;
-- draw calls;
-- maximum roots in one 16 m cell.
+Because debris is intentionally smallest, it disappears first automatically.
 
-Commit the baseline as:
+---
+
+# Implementation order
+
+## Step 0 — Capture baseline first
+
+Before changing placement, extend verification to record the current distribution in:
 
 ```text
 qa/baselines/stones/stone-distribution-v1.json
 ```
 
-Do this first so later performance claims compare against real existing output rather than memory.
+Record fixed representative windows with:
 
-## Step 1 — Configuration contract
+- root count;
+- roots by archetype;
+- roots by scale band;
+- maximum roots in one 16 m cell;
+- detailed triangles;
+- coarse triangles;
+- desktop visible roots;
+- draw calls.
 
-Modify:
+This file is the hard comparison target for the new distribution.
 
-- `public/config/world.yaml`
-- `WorldConfig.ts`
-- `WorldConfigSchema.ts`
-- `WorldConfigValidator.ts`
+## Step 1 — Configuration
 
-Run configuration verification before touching placement.
+Modify and validate:
 
-## Step 2 — Add `StoneClusterField`
+- `world.yaml`;
+- `WorldConfig.ts`;
+- `WorldConfigSchema.ts`;
+- `WorldConfigValidator.ts`.
 
-Implement:
+## Step 2 — `StoneClusterField`
 
-- macro lattice;
-- center jitter;
-- geology potential;
-- ecology sampling;
-- activation;
-- process classification;
-- dimensions;
-- DNA;
-- bounded cache.
+Implement descriptor generation and descriptor determinism tests before integrating placement.
 
-Add deterministic unit-style verification for descriptors before connecting them to `StoneField`.
+## Step 3 — `StoneClusterComposition`
 
-## Step 3 — Add `StoneClusterComposition`
+Implement member specs, family correlation, scale hierarchy, orientation, split/fallback, and pure composition verification.
 
-Implement:
+## Step 4 — Full-cluster resolver in `StoneField`
 
-- role budget;
-- exact local process formulas;
-- family-aware archetype selection;
-- scale hierarchy;
-- orientation hierarchy;
-- correlated value/moss;
-- split consuming secondary budget;
-- bounded single-pass overlap correction.
+Resolve/caches complete clusters, then filter final roots by 16 m cell ownership.
 
-Verify composition entirely without rendering.
+## Step 5 — Singleton replacement
 
-## Step 4 — Integrate into `StoneField`
+Remove `FIELD_STONE_CHANCE` and implement the exact 10% maximum singleton model.
 
-Replace independent ordinary count generation with root-cell filtering of nearby macro-cluster members.
+## Step 6 — Remove duplicate legacy clustering
 
-Keep existing geometry/variant lookup and terrain/path validation.
+Remove:
 
-## Step 5 — Replace the quiet singleton fallback
-
-Delete `FIELD_STONE_CHANCE` and implement `stoneSingletonChance` exactly as specified.
-
-## Step 6 — Remove duplicate local clustering
-
-Delete:
-
-- generic 2-4 satellite spawning around large ordinary stones;
-- recursive near-path satellite spawning.
+- generic parent satellite generation;
+- recursive near-path satellite generation.
 
 Keep:
 
-- split mass behavior through the composition layer;
+- split masses through cluster composition;
+- true singleton split if retained;
 - dedicated verge generation.
 
-## Step 7 — Add cluster verification and baseline comparison
+## Step 7 — Verification/baseline gate
 
-Wire `StoneClusterVerification.ts` into `scripts/verify-stones.mjs`.
+Wire `StoneClusterVerification.ts` into `scripts/verify-stones.mjs` and compare against the captured baseline.
 
-## Step 8 — Visual QA
+## Step 8 — Visual QA and YAML-only tuning
 
-Use the existing stone-world/gallery tools and world QA views. Tune only YAML values after the algorithmic checks pass.
+After algorithmic verification passes, tune only YAML visual values. Do not change formulas to chase one screenshot.
 
 ---
 
-# Exact verification requirements
+# Exact verification gates
 
 ## Determinism
 
 For at least 256 fixed macro cells:
 
-- descriptor fingerprint must be identical across repeated generation;
-- result must be identical after cache eviction/rebuild;
-- labeled random forks must keep center, activation, and DNA stable when unrelated composition fields are evaluated in a different order.
+- descriptor fingerprint identical on repeat;
+- final resolved-cluster fingerprint identical on repeat;
+- both identical after cache eviction/rebuild;
+- center/activation/DNA unchanged if unrelated fork evaluation order changes.
 
-## Chunk/cell continuity
+## Cell/chunk continuity
 
-For clusters crossing a 16 m cell boundary:
+For clusters crossing boundaries:
 
-- collecting either owner cell first must return the same roots;
-- collecting a terrain chunk before or after its neighbor must return the same roots;
-- no member may appear twice;
-- no member may disappear because the macro center belongs to another stone cell.
+- same roots regardless of which 16 m cell is generated first;
+- same roots regardless of terrain chunk load order;
+- no duplicate root;
+- no missing root because macro center is in another cell/chunk.
 
-## Quiet terrain
+## Anchor integrity
 
-Across at least 2,048 eligible non-verge cells outside active cluster halos:
+For every accepted cluster:
+
+- exactly one anchor;
+- if anchor resolution fails, final cluster count is zero;
+- no secondary/debris-only cluster is allowed.
+
+## Quiet cells
+
+Across at least 2,048 eligible non-verge cells outside active halos:
 
 ```text
-observed singleton attempt rate <= stoneSingletonChance + 0.025
+observed singleton attempt rate <= config.stoneSingletonChance + 0.025
 ```
 
-With the shipped configuration this means at most 12.5% in the statistical verification window.
+For shipped config:
 
-The majority of those cells should remain empty after validation.
+```text
+<= 12.5%
+```
 
-## Cluster hierarchy
+## Budget/hierarchy
 
-Across at least 128 accepted clusters:
+Across at least 128 active descriptors:
 
-- exactly one anchor specification before terrain rejection;
-- configured member specification count stays within `stoneClusterBudgetMin..Max`;
+- spec count is within configured 4-8 shipped range;
+- one anchor;
+- 1-2 secondaries;
 - median secondary scale < median anchor scale;
 - median debris scale < median secondary scale;
-- debris outer-half median scale < debris inner-half median scale.
+- outer-half debris median scale < inner-half debris median scale.
 
-## Geological direction
+## Direction
 
-For `ridge` clusters:
+Ridge:
 
-- mean absolute cross-strike normalized coordinate must be lower than mean along-strike coordinate.
+- mean absolute cross-strike coordinate < mean absolute along-strike coordinate.
 
-For `scree` clusters:
+Scree:
 
-- mean debris `u` must be positive;
-- debris mean downhill projection must exceed secondary mean downhill projection;
-- debris lateral spread must increase with downhill distance.
+- mean debris downhill `u > 0`;
+- debris mean downhill projection > secondary mean downhill projection;
+- debris lateral spread increases with downhill distance.
 
-For `fan` clusters:
+Fan:
 
-- outer-half debris lateral spread must exceed inner-half debris lateral spread.
+- outer-half debris lateral spread > inner-half debris lateral spread.
 
 ## Family correlation
 
-For every anchor archetype, verify that generated secondary/debris archetypes come only from its defined relationship table.
+Every secondary/debris archetype must come from its anchor's declared relationship table.
 
-No cluster member may independently use the old satellite 70/30 pebble/boulder rule.
+## Path
 
-## Path behavior
-
-Verify:
-
-- no normal cluster member violates the current path footprint clearance;
-- dedicated verge stones still appear;
-- no duplicate recursive verge satellite path remains.
+- no normal cluster member violates current footprint-aware path clearance;
+- verge generation remains present;
+- recursive ordinary-placement verge satellite path no longer exists.
 
 ## Performance
 
 Against `stone-distribution-v1.json`:
 
 ```text
-representative total stone roots <= baseline
+representative root count <= baseline
 representative detailed triangles <= baseline
 representative coarse triangles <= baseline
 active draw calls <= baseline
 ```
 
-The renderer should be unchanged, so any draw-call increase is a failure.
+Also verify structurally:
 
-Build-slice timing may vary by hardware, but the static verification must also prove:
-
-- macro-cluster member budget is bounded;
-- macro-cell neighborhood query count is fixed at 9;
-- overlap correction is at most one pass per member;
-- cluster cache is bounded;
-- no per-frame sampling path was added.
+```text
+macro neighbor queries per stone cell = 9
+max cluster members = configured maximum
+max overlap correction passes/member = 1
+descriptor cache bounded
+resolved cluster cache bounded
+no new per-frame cluster path
+```
 
 ---
 
 # Visual QA matrix
 
-Inspect at minimum:
+Check at minimum:
 
-1. clean meadow with no obvious stone every 16 m;
-2. meadow containing one compact family;
-3. transition from clean meadow into rocky ground;
-4. dry slope with scree clearly flowing downhill;
-5. convex ridge with slabs/outcrops sharing strike;
-6. concave lower slope with a widening accumulation fan;
+1. clean meadow without visible 16 m stone rhythm;
+2. compact meadow family;
+3. clean-to-rocky transition;
+4. dry slope scree flowing downhill;
+5. ridge slabs/outcrops sharing strike;
+6. widening lower-slope fan;
 7. alpine exposed rock;
-8. wet lowland where clusters are rarer and more moss-correlated;
-9. path verge with kicked-aside small stones but no decorative kerb line;
-10. close cluster grounding in grass;
-11. detailed-to-coarse stone handoff;
-12. small debris disappearance outside the detail radius;
-13. cluster spanning multiple 16 m stone cells;
-14. cluster spanning a 64 m terrain chunk edge.
+8. wet lowland with fewer/more correlated mossy stones;
+9. path verge without decorative kerb regularity;
+10. close grounding in grass;
+11. detailed/coarse handoff;
+12. small debris disappearing first;
+13. cluster crossing a stone-cell boundary;
+14. cluster crossing a terrain-chunk boundary.
 
-The desired visual rhythm is:
+Desired rhythm:
 
 ```text
 clean ground
-    -> isolated punctuation
+    -> occasional singleton
     -> coherent family
-    -> strong geological cluster
+    -> strong formation
     -> clean ground
 ```
-
-not constant background scatter.
 
 ---
 
 # Acceptance criteria
 
-The work is complete only when all are true:
+The work is complete only when:
 
-1. `FIELD_STONE_CHANCE = 0.52` no longer exists.
-2. Quiet cells outside cluster halos use the configured 10% maximum singleton path.
-3. Macro clusters come from a deterministic 56 m jittered lattice.
-4. Cluster activation uses both geological potential and `WorldEcologyField.rockiness`.
-5. Cluster process is terrain-derived: compact, ridge, scree, or fan.
-6. Every cluster has a bounded configured budget.
-7. Every normal cluster has one anchor plus related secondary/debris roles.
-8. Secondary/debris family choice depends on the anchor family.
-9. Stone scale decreases statistically away from the anchor/source.
-10. Ridge compositions follow geological strike.
-11. Scree and fan compositions flow downhill.
-12. Bedrock orientation is more coherent than loose debris orientation.
-13. Cluster value/moss variation is correlated rather than independently random over the full range.
-14. Generic local parent satellites are removed.
-15. The recursive near-path satellite branch is removed.
-16. `addVergeStones` remains the only path-verge generator.
-17. Existing split masses survive but consume cluster budget.
-18. Existing path, slope, world-boundary, sinking, tilt, grass-clearance, and geometry rules remain valid.
-19. No new stone renderer or stone LOD is introduced.
+1. `FIELD_STONE_CHANCE = 0.52` is gone.
+2. Quiet non-cluster cells use the configured 10% maximum singleton attempt model.
+3. Macro clusters use the deterministic 56 m jittered lattice.
+4. Activation uses both geological potential and shared ecology rockiness.
+5. Processes are terrain-derived: compact, ridge, scree, fan.
+6. Every cluster has a bounded 4-8 shipped budget.
+7. An invalid anchor invalidates the entire cluster.
+8. Secondary/debris families depend on the anchor.
+9. Scale statistically decreases away from the source.
+10. Ridge compositions follow strike.
+11. Scree/fan compositions flow downhill.
+12. Bedrock yaw is more coherent than debris yaw.
+13. Value/moss are cluster-correlated.
+14. Split masses consume cluster budget.
+15. Generic parent satellites are removed.
+16. Recursive near-path satellites are removed.
+17. `addVergeStones` is the only verge generator.
+18. Existing world/path/slope/sink/tilt/clearance/geometry rules remain valid.
+19. No renderer change or new LOD is introduced.
 20. No new draw calls are introduced.
 21. No new per-frame procedural work is introduced.
-22. Representative root count does not exceed the captured baseline.
-23. Representative detailed/coarse triangle counts do not exceed the captured baseline.
-24. Determinism survives cache eviction and load-order changes.
-25. `npm run` stone/config/build verification used by the repository passes locally before manual deployment.
+22. Representative roots and triangles do not exceed the captured baseline.
+23. Determinism survives cache eviction and load-order changes.
+24. Existing local config/stone/build verification passes before manual deployment.
 
 ## Final target
 
 The player should stop seeing:
 
 ```text
-nice procedural stones placed across grass
+nice procedural stones scattered across grass
 ```
 
 and start seeing:
@@ -1362,4 +1300,4 @@ and start seeing:
 bedrock exposure, fracture, scree, and accumulated debris that belong to the terrain
 ```
 
-The important result is not more stones. It is stronger causality with the same or lower rendering cost.
+The correct result uses the same or fewer stones, but makes their placement explain itself.
