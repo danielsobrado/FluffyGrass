@@ -53,6 +53,7 @@ export class WorldApp {
   private stats?: Stats;
   private artMenu?: GrassArtMenu;
   private detailFoliageMenu?: DetailFoliageTuningMenu;
+  private riverArtMenu?: { dispose(): void };
   private readonly field: TerrainField;
   private readonly frameObservers = new Set<(deltaSeconds: number) => void>();
   private readonly terrain: TerrainStreamer;
@@ -90,8 +91,9 @@ export class WorldApp {
   private constructor(
     canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
-    config: WorldConfig,
+    private readonly worldConfig: WorldConfig,
   ) {
+    const config = this.worldConfig;
     this.camera = new THREE.PerspectiveCamera(
       profile.cameraFov,
       resolveViewportSize().aspect,
@@ -189,13 +191,23 @@ export class WorldApp {
     canvas: HTMLCanvasElement,
     profile: RuntimeProfile,
   ): Promise<WorldApp> {
-    const config = await new WorldConfigLoader().load(
+    const params = new URLSearchParams(window.location.search);
+    const loaded = await new WorldConfigLoader().load(
       `./config/world.yaml?v=${encodeURIComponent(APP_VERSION)}`,
     );
+    const config =
+      params.get("riverTuning") === "1"
+        ? (await import("../dev/RiverDevelopmentConfig")).applyRiverDevelopmentConfig(
+            loaded,
+          )
+        : loaded;
     const app = new WorldApp(canvas, profile, config);
+    if (profile.showGui && params.get("riverTuning") === "1") {
+      await app.attachRiverArtMenu();
+    }
     if (
       !profile.compact &&
-      new URLSearchParams(window.location.search).get("stats") === "1"
+      params.get("stats") === "1"
     ) {
       const stats = await attachWorldStatsPanel(app.renderer);
       if (app.disposed) {
@@ -268,6 +280,25 @@ export class WorldApp {
     };
   }
 
+  /** Development-only hook for `?riverTuning=1`. */
+  async attachRiverArtMenu(): Promise<void> {
+    if (this.disposed || this.riverArtMenu || !this.profile.showGui) {
+      return;
+    }
+    const { RiverArtMenu } = await import("./RiverArtMenu");
+    if (this.disposed || this.riverArtMenu) {
+      return;
+    }
+    this.riverArtMenu = new RiverArtMenu({
+      worldConfig: this.worldConfig,
+      field: this.field,
+      controls: this.controls,
+      applyLiveWaterVisuals: (visuals) => {
+        this.terrain.setLiveWaterVisuals(visuals);
+      },
+    });
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -291,8 +322,10 @@ export class WorldApp {
     this.stats = undefined;
     this.artMenu?.dispose();
     this.detailFoliageMenu?.dispose();
+    this.riverArtMenu?.dispose();
     this.artMenu = undefined;
     this.detailFoliageMenu = undefined;
+    this.riverArtMenu = undefined;
     this.environment.dispose();
     this.renderer.dispose();
   }

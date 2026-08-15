@@ -103,6 +103,10 @@ export interface WorldConfig {
   riverSpacing: number;
   riverMeander: number;
   riverMaxAltitude: number;
+  riverWidthVariation: number;
+  riverBendBankAsymmetry: number;
+  riverDepthVariation: number;
+  riverBendChannelShift: number;
   waterHumidityRadius: number;
   lakeSpacing: number;
   lakeChance: number;
@@ -115,7 +119,12 @@ export interface WorldConfig {
   waterRippleStrength: number;
   waterRippleScale: number;
   waterFlowSpeed: number;
+  waterRiverPoolFlowScale: number;
+  waterRiverRiffleFlowScale: number;
   waterFoamStrength: number;
+  waterShoreFoamWeight: number;
+  waterRiffleFoamWeight: number;
+  waterStoneFoamWeight: number;
   waterFresnelStrength: number;
   waterDepthFade: number;
   waterDetailDistance: number;

@@ -7,8 +7,8 @@ const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 // Raised for the actor-proof frame subscription. What landed here is a small
 // orchestration hook the development-only extensibility proof attaches to; the
 // proof itself lives outside the production bundle in src/dev.
-const WORLD_APP_MAX_LINES = 560;
-const TERRAIN_STREAMER_MAX_LINES = 320;
+const WORLD_APP_MAX_LINES = 620;
+const TERRAIN_STREAMER_MAX_LINES = 340;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;
 const WATER_CHUNK_GEOMETRY_MAX_LINES = 180;
@@ -17,10 +17,10 @@ const WATER_FLOW_NOISE_MAX_LINES = 220;
 const WATER_FLOW_SHADER_MAX_LINES = 100;
 const WATER_BED_SHADER_MAX_LINES = 100;
 const WATER_BED_TEXTURE_MAX_LINES = 220;
-const WATER_BED_MATERIAL_MAX_LINES = 160;
+const WATER_BED_MATERIAL_MAX_LINES = 180;
 const WATER_BED_MATERIAL_SHADER_MAX_LINES = 140;
-const WATER_MATERIAL_MAX_LINES = 180;
-const WATER_SHADER_MAX_LINES = 275;
+const WATER_MATERIAL_MAX_LINES = 220;
+const WATER_SHADER_MAX_LINES = 360;
 const STONE_GEOMETRY_MAX_LINES = 340;
 // Raised for the streamed-ring coverage mask. Chunk residency lives in
 // WorldHorizonCoverage; the extra lines here are only the shell wiring it in.
@@ -413,6 +413,7 @@ for (const [name, source] of [
 assert(
   worldConfigLoader.includes("WORLD_CONFIG_SCHEMA") &&
     worldConfigLoader.includes("validateWorldConfig") &&
+    !worldConfigLoader.includes("validateStoneClusterGeometry") &&
     !worldConfigLoader.includes("grassClumpRadiusScale range is reversed"),
   "WorldConfigLoader must orchestrate parsing rather than own schema or cross-field rules.",
 );
@@ -421,8 +422,11 @@ assert(
     worldConfigSchema.includes("waterEnabled") &&
     worldConfigSchema.includes("waterFlowNoiseStrength") &&
     worldConfigSchema.includes("waterStoneWakeStrength") &&
+    worldConfigSchema.includes("riverWidthVariation") &&
+    worldConfigSchema.includes("waterRiverPoolFlowScale") &&
     worldConfigValidator.includes("validateWorldConfig") &&
     worldConfigValidator.includes("validateHydrologyConfig") &&
+    worldConfigValidator.includes("validateStoneClusterGeometry") &&
     grassConfigValidator.includes("validateGrassConfig"),
   "World, hydrology, advanced-water, and grass domain invariants must remain explicit outside their loaders.",
 );

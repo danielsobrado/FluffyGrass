@@ -22,10 +22,31 @@ import {
   WATER_VERTEX_POSITION,
 } from "./WaterShader";
 
+export type WaterSurfaceLiveVisuals = Pick<
+  WorldConfig,
+  | "waterOpacity"
+  | "waterRippleStrength"
+  | "waterRippleScale"
+  | "waterFlowSpeed"
+  | "waterRiverPoolFlowScale"
+  | "waterRiverRiffleFlowScale"
+  | "waterFoamStrength"
+  | "waterShoreFoamWeight"
+  | "waterRiffleFoamWeight"
+  | "waterStoneFoamWeight"
+  | "waterFresnelStrength"
+  | "waterDepthFade"
+  | "waterFlowNoiseStrength"
+  | "waterGlintStrength"
+  | "waterStoneWakeStrength"
+  | "waterRoughness"
+>;
+
 export class WaterMaterialController {
   readonly material: THREE.MeshPhysicalMaterial;
   private readonly flowNoiseTexture: THREE.DataTexture;
   private readonly uniforms: Record<string, THREE.IUniform>;
+  private readonly detailScale: number;
 
   constructor(config: WorldConfig, compact = false) {
     this.flowNoiseTexture = createWaterFlowNoiseTexture(
@@ -44,26 +65,38 @@ export class WaterMaterialController {
       side: THREE.DoubleSide,
     });
     this.material.forceSinglePass = true;
-    const detailScale = compact ? WATER_COMPACT_DETAIL_SCALE : 1;
+    this.detailScale = compact ? WATER_COMPACT_DETAIL_SCALE : 1;
     this.uniforms = {
       uWaterTime: { value: 0 },
       uWaterOpacity: { value: config.waterOpacity },
       uWaterRippleStrength: { value: config.waterRippleStrength },
       uWaterRippleScale: { value: config.waterRippleScale },
       uWaterFlowSpeed: { value: config.waterFlowSpeed },
+      uWaterRiverReferenceDepth: {
+        value: config.riverDepth + config.waterSurfaceOffset,
+      },
+      uWaterRiverPoolFlowScale: { value: config.waterRiverPoolFlowScale },
+      uWaterRiverRiffleFlowScale: { value: config.waterRiverRiffleFlowScale },
       uWaterFoamStrength: { value: config.waterFoamStrength },
+      uWaterShoreFoamWeight: { value: config.waterShoreFoamWeight },
+      uWaterRiffleFoamWeight: { value: config.waterRiffleFoamWeight },
+      uWaterStoneFoamWeight: { value: config.waterStoneFoamWeight },
       uWaterFresnelStrength: { value: config.waterFresnelStrength },
       uWaterDepthFade: { value: config.waterDepthFade },
-      uWaterDetailDistance: { value: config.waterDetailDistance * detailScale },
+      uWaterDetailDistance: {
+        value: config.waterDetailDistance * this.detailScale,
+      },
       uWaterLakeWaveStrength: { value: config.waterLakeWaveStrength },
       uWaterFlowNoise: { value: this.flowNoiseTexture },
       uWaterFlowNoiseScale: { value: config.waterFlowNoiseScale },
       uWaterFlowNoiseStrength: {
-        value: config.waterFlowNoiseStrength * detailScale,
+        value: config.waterFlowNoiseStrength * this.detailScale,
       },
-      uWaterGlintStrength: { value: config.waterGlintStrength * detailScale },
+      uWaterGlintStrength: {
+        value: config.waterGlintStrength * this.detailScale,
+      },
       uWaterStoneWakeStrength: {
-        value: config.waterStoneWakeStrength * detailScale,
+        value: config.waterStoneWakeStrength * this.detailScale,
       },
       uWaterShallow: { value: WATER_SHALLOW_COLOR },
       uWaterDeep: { value: WATER_DEEP_COLOR },
@@ -78,6 +111,30 @@ export class WaterMaterialController {
 
   update(elapsedSeconds: number): void {
     this.uniforms.uWaterTime.value = elapsedSeconds;
+  }
+
+  setLiveVisuals(visuals: WaterSurfaceLiveVisuals): void {
+    this.material.roughness = visuals.waterRoughness;
+    this.uniforms.uWaterOpacity.value = visuals.waterOpacity;
+    this.uniforms.uWaterRippleStrength.value = visuals.waterRippleStrength;
+    this.uniforms.uWaterRippleScale.value = visuals.waterRippleScale;
+    this.uniforms.uWaterFlowSpeed.value = visuals.waterFlowSpeed;
+    this.uniforms.uWaterRiverPoolFlowScale.value =
+      visuals.waterRiverPoolFlowScale;
+    this.uniforms.uWaterRiverRiffleFlowScale.value =
+      visuals.waterRiverRiffleFlowScale;
+    this.uniforms.uWaterFoamStrength.value = visuals.waterFoamStrength;
+    this.uniforms.uWaterShoreFoamWeight.value = visuals.waterShoreFoamWeight;
+    this.uniforms.uWaterRiffleFoamWeight.value = visuals.waterRiffleFoamWeight;
+    this.uniforms.uWaterStoneFoamWeight.value = visuals.waterStoneFoamWeight;
+    this.uniforms.uWaterFresnelStrength.value = visuals.waterFresnelStrength;
+    this.uniforms.uWaterDepthFade.value = visuals.waterDepthFade;
+    this.uniforms.uWaterFlowNoiseStrength.value =
+      visuals.waterFlowNoiseStrength * this.detailScale;
+    this.uniforms.uWaterGlintStrength.value =
+      visuals.waterGlintStrength * this.detailScale;
+    this.uniforms.uWaterStoneWakeStrength.value =
+      visuals.waterStoneWakeStrength * this.detailScale;
   }
 
   dispose(): void {

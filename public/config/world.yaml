@@ -141,6 +141,11 @@ riverDepth: 1.6
 riverSpacing: 520
 riverMeander: 105
 riverMaxAltitude: 72
+# Channel morphology — reload required while tuning.
+riverWidthVariation: 0.08
+riverBendBankAsymmetry: 0.04
+riverDepthVariation: 0.16
+riverBendChannelShift: 0.20
 waterHumidityRadius: 34
 lakeSpacing: 480
 lakeChance: 0.38
@@ -153,7 +158,14 @@ waterOpacity: 0.72
 waterRippleStrength: 0.14
 waterRippleScale: 0.085
 waterFlowSpeed: 0.85
+# River visual velocity — live uniform tuning.
+waterRiverPoolFlowScale: 0.80
+waterRiverRiffleFlowScale: 1.20
 waterFoamStrength: 0.9
+# Foam cause balance. Overall amount remains waterFoamStrength.
+waterShoreFoamWeight: 0.14
+waterRiffleFoamWeight: 0.40
+waterStoneFoamWeight: 0.56
 waterFresnelStrength: 1.65
 waterDepthFade: 1.35
 waterDetailDistance: 110

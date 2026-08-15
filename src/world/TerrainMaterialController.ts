@@ -13,7 +13,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v4-wet-sheen";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v5-shore";
 
 export class TerrainMaterialController {
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });

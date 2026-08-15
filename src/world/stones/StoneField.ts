@@ -22,12 +22,15 @@ import {
   clamp01,
   clusterCacheKeepCount,
   clusterGridKey,
+  clusterInfluenceIntersectsAabb,
   clusterLocalToWorld,
+  clusterPointInsideInfluence,
   clusterRadialWorld,
-  OVERLAP_COINCIDENT_EPSILON,
+  fillStoneCellMacroCoordinates,
+  lerp,
   OVERLAP_FOOTPRINT_FACTOR,
   OVERLAP_PADDING,
-  OVERLAP_PUSH_EXTRA,
+  resolveOverlapPush,
   singletonProbability,
   smoothstep,
   SPLIT_CORE_OFFSET_FACTOR,
@@ -35,8 +38,10 @@ import {
   SPLIT_GAP_MIN,
   STONE_CELL_DOMAIN,
   STONE_CLUSTER_RESOLVED_CACHE_LIMIT,
+  stoneClusterMemberLabel,
   trimOldestCacheEntries,
   type StoneClusterRole,
+  type StoneMacroCoord,
 } from "./StoneClusterTuning";
 import {
   BIOME_PALETTE,
@@ -157,6 +162,7 @@ export class StoneField {
   private readonly variants = new Map<string, StoneMeshData>();
   private readonly normalScratch = new THREE.Vector3();
   private readonly pathScratch = new THREE.Vector2();
+  private readonly macroScratch: StoneMacroCoord[] = [];
   private readonly clusterField: StoneClusterField;
   private readonly composition: StoneClusterComposition;
   private readonly enabled: boolean;
@@ -375,34 +381,36 @@ export class StoneField {
   }
 
   sourceCellHasClusterInfluence(cellX: number, cellZ: number): boolean {
-    const originX = cellX * this.cellSize;
-    const originZ = cellZ * this.cellSize;
-    const minX = originX;
-    const minZ = originZ;
-    const maxX = originX + this.cellSize;
-    const maxZ = originZ + this.cellSize;
-    const centerX = originX + this.cellSize * 0.5;
-    const centerZ = originZ + this.cellSize * 0.5;
-    const spacing = this.config.stoneClusterSpacing;
-    const baseGx = Math.floor(centerX / spacing);
-    const baseGz = Math.floor(centerZ / spacing);
-    for (let gridZ = baseGz - 1; gridZ <= baseGz + 1; gridZ += 1) {
-      for (let gridX = baseGx - 1; gridX <= baseGx + 1; gridX += 1) {
-        const descriptor = this.clusterField.getDescriptor(gridX, gridZ);
-        if (
-          descriptor.active &&
-          !this.circleMissesAabb(
-            descriptor.centerX,
-            descriptor.centerZ,
-            descriptor.influenceRadius,
-            minX,
-            maxX,
-            minZ,
-            maxZ,
-          )
-        ) {
-          return true;
-        }
+    const minX = cellX * this.cellSize;
+    const minZ = cellZ * this.cellSize;
+    const maxX = minX + this.cellSize;
+    const maxZ = minZ + this.cellSize;
+    const count = fillStoneCellMacroCoordinates(
+      cellX,
+      cellZ,
+      this.cellSize,
+      this.config.stoneClusterSpacing,
+      this.macroScratch,
+    );
+    for (let index = 0; index < count; index += 1) {
+      const coord = this.macroScratch[index];
+      const descriptor = this.clusterField.getDescriptor(
+        coord.gridX,
+        coord.gridZ,
+      );
+      if (
+        descriptor.active &&
+        clusterInfluenceIntersectsAabb(
+          descriptor.centerX,
+          descriptor.centerZ,
+          descriptor.influenceRadius,
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+        )
+      ) {
+        return true;
       }
     }
     return false;
@@ -454,39 +462,46 @@ export class StoneField {
     }
 
     const instances: StoneInstance[] = [];
-    const spacing = this.config.stoneClusterSpacing;
-    const baseGx = Math.floor(centerX / spacing);
-    const baseGz = Math.floor(centerZ / spacing);
+    const count = fillStoneCellMacroCoordinates(
+      cellX,
+      cellZ,
+      this.cellSize,
+      this.config.stoneClusterSpacing,
+      this.macroScratch,
+    );
     let influenceHits = false;
-    for (let gridZ = baseGz - 1; gridZ <= baseGz + 1; gridZ += 1) {
-      for (let gridX = baseGx - 1; gridX <= baseGx + 1; gridX += 1) {
-        const descriptor = this.clusterField.getDescriptor(gridX, gridZ);
-        if (!descriptor.active) {
-          continue;
-        }
+    for (let index = 0; index < count; index += 1) {
+      const coord = this.macroScratch[index];
+      const descriptor = this.clusterField.getDescriptor(
+        coord.gridX,
+        coord.gridZ,
+      );
+      if (!descriptor.active) {
+        continue;
+      }
+      if (
+        !clusterInfluenceIntersectsAabb(
+          descriptor.centerX,
+          descriptor.centerZ,
+          descriptor.influenceRadius,
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+        )
+      ) {
+        continue;
+      }
+      influenceHits = true;
+      for (const member of this.getResolvedCluster(coord.gridX, coord.gridZ)
+        .members) {
         if (
-          this.circleMissesAabb(
-            descriptor.centerX,
-            descriptor.centerZ,
-            descriptor.influenceRadius,
-            minX,
-            maxX,
-            minZ,
-            maxZ,
-          )
+          member.instance.x >= minX &&
+          member.instance.x < maxX &&
+          member.instance.z >= minZ &&
+          member.instance.z < maxZ
         ) {
-          continue;
-        }
-        influenceHits = true;
-        for (const member of this.getResolvedCluster(gridX, gridZ).members) {
-          if (
-            member.instance.x >= minX &&
-            member.instance.x < maxX &&
-            member.instance.z >= minZ &&
-            member.instance.z < maxZ
-          ) {
-            instances.push(member.instance);
-          }
+          instances.push(member.instance);
         }
       }
     }
@@ -563,15 +578,11 @@ export class StoneField {
     for (let index = 1; index < specs.length; index += 1) {
       const spec = specs[index];
       if (spec.splitEligible && spec.fallback) {
-        const splitRng = StoneRandom.fromSeed(descriptor.seed).fork(
-          "split-geometry",
-        );
         const splitAttempt = this.trySplitHalf(
           descriptor,
           spec,
           accepted[0],
           accepted.slice(1),
-          splitRng,
         );
         validationAttempts += 1;
         if (splitAttempt) {
@@ -621,10 +632,12 @@ export class StoneField {
     spec: StoneClusterMemberSpec,
     anchor: AcceptedMember,
     others: readonly AcceptedMember[],
-    random: StoneRandom,
   ): AcceptedMember | undefined {
+    const memberRng = StoneRandom.fromSeed(descriptor.seed).fork(
+      stoneClusterMemberLabel(spec.index),
+    );
     const desiredGap =
-      random.range(SPLIT_GAP_MIN, SPLIT_GAP_MAX) +
+      memberRng.fork("split-gap").range(SPLIT_GAP_MIN, SPLIT_GAP_MAX) +
       anchor.footprintRadius * 1.05;
     if (
       desiredGap >
@@ -634,11 +647,15 @@ export class StoneField {
     ) {
       return undefined;
     }
+    const splitAngle = memberRng.fork("split-angle");
     const breakAngle =
-      descriptor.strike + Math.PI * 0.5 + random.signed(0.35);
+      descriptor.strike + Math.PI * 0.5 + splitAngle.signed(0.35);
     const x = anchor.instance.x + Math.cos(breakAngle) * desiredGap;
     const z = anchor.instance.z + Math.sin(breakAngle) * desiredGap;
     if (!this.insideWorld(x, z)) {
+      return undefined;
+    }
+    if (!this.insideInfluence(descriptor, x, z)) {
       return undefined;
     }
     const height = this.field.sampleHeight(x, z);
@@ -652,15 +669,15 @@ export class StoneField {
     if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }
-    const scale = anchor.instance.scale * random.range(0.62, 0.92);
+    const scale =
+      anchor.instance.scale * memberRng.fork("scale-jitter").range(0.62, 0.92);
     const variant = this.getVariant(
       anchor.instance.archetype,
       anchor.instance.variantIndex,
     );
     const footprint = variant.metrics.footprintRadius * scale;
     if (
-      scale >= CLEAR_SCALE_CUTOFF &&
-      this.field.samplePathGrassMask(x, z, height, 0) <= 0.35
+      this.pathBlocks(x, z, height, scale, anchor.instance.archetype, footprint)
     ) {
       return undefined;
     }
@@ -675,11 +692,12 @@ export class StoneField {
       anchor.instance.archetype,
       anchor.instance.variantIndex,
       scale,
-      descriptor.strike + Math.PI + random.signed(0.4),
+      descriptor.strike + Math.PI + splitAngle.signed(0.4),
       descriptor.paletteKey,
       spec.valueScale,
-      this.memberMoss(descriptor, spec, height),
+      this.memberMoss(descriptor, spec),
       variant,
+      "secondary",
     );
     return {
       instance,
@@ -710,6 +728,9 @@ export class StoneField {
     let x = root.x;
     let z = root.z;
     if (!this.insideWorld(x, z)) {
+      return { corrected: false };
+    }
+    if (!this.insideInfluence(descriptor, x, z)) {
       return { corrected: false };
     }
     const sampled = this.samplePlacement(
@@ -750,6 +771,9 @@ export class StoneField {
       if (!this.insideWorld(x, z)) {
         return { corrected: true };
       }
+      if (!this.insideInfluence(descriptor, x, z)) {
+        return { corrected: true };
+      }
       const resampled = this.samplePlacement(
         x,
         z,
@@ -783,8 +807,9 @@ export class StoneField {
       spec.rotationY,
       descriptor.paletteKey,
       spec.valueScale,
-      this.memberMoss(descriptor, spec, height),
+      this.memberMoss(descriptor, spec),
       variant,
+      spec.role,
     );
     return {
       member: {
@@ -822,27 +847,27 @@ export class StoneField {
     if (!random.chance(probability)) {
       return false;
     }
-    const x = originX + random.next() * this.cellSize;
-    const z = originZ + random.next() * this.cellSize;
+    const x = originX + random.fork("x").range(0.2, 0.8) * this.cellSize;
+    const z = originZ + random.fork("z").range(0.2, 0.8) * this.cellSize;
     if (!this.insideWorld(x, z)) {
       return false;
     }
-    const familyRoll = random.next();
+    const familyRoll = random.fork("family").next();
     const archetype: StoneArchetypeId =
       familyRoll < 0.7 ? "pebble" : familyRoll < 0.92 ? "boulder" : "slab";
     const band = SCALE_BANDS[archetype];
-    let scale = random.range(band[0], band[1]);
+    let scale = lerp(band[0], band[1], random.fork("scale").range(0.35, 0.72));
+    const landmarkScale = random.fork("landmark-scale").range(1.7, 2.4);
     if (
       archetype === "boulder" &&
       geologyPotential > 0.45 &&
       random.fork("landmark").chance(0.06)
     ) {
-      scale *= random.fork("landmark-scale").range(1.7, 2.4);
+      scale *= landmarkScale;
     }
-    const variantIndex = random.integer(
-      0,
-      this.config.stoneVariantsPerArchetype - 1,
-    );
+    const variantIndex = random
+      .fork("variant")
+      .integer(0, this.config.stoneVariantsPerArchetype - 1);
     const sampled = this.samplePlacement(x, z, archetype, variantIndex, scale);
     if (!sampled) {
       return false;
@@ -922,12 +947,15 @@ export class StoneField {
       return;
     }
 
+    const ecology = this.field.sampleEcologyAt(centerX, centerZ, centerHeight);
+    const regionalStonePotential =
+      0.45 * geologyPotential + 0.55 * ecology.rockiness;
     const attempts = random.integer(1, VERGE_MAX_PER_CELL);
     for (let index = 0; index < attempts; index += 1) {
       const attempt = random.fork(`verge:${index}`);
       if (
         !attempt.chance(
-          this.config.stoneVergeChance * (0.35 + 0.65 * geologyPotential),
+          this.config.stoneVergeChance * (0.35 + 0.65 * regionalStonePotential),
         )
       ) {
         continue;
@@ -1028,7 +1056,7 @@ export class StoneField {
         stoneMossBase(
           stoneHeight,
           biomeIndex,
-          geologyPotential,
+          ecology.rockiness,
           this.config.grassMinAltitude,
           this.config.grassMaxAltitude,
         ) * attempt.fork("moss").range(0.94, 1.06),
@@ -1171,39 +1199,25 @@ export class StoneField {
     existing: AcceptedMember,
     footprint: number,
   ): { x: number; z: number } | undefined {
-    let pushX = x - existing.instance.x;
-    let pushZ = z - existing.instance.z;
-    let length = Math.hypot(pushX, pushZ);
-    if (length < OVERLAP_COINCIDENT_EPSILON) {
-      const radial = clusterRadialWorld(
-        descriptor.direction,
-        descriptor.majorRadius,
-        descriptor.minorRadius,
-        spec.localU,
-        spec.localV,
-      );
-      pushX = radial.x;
-      pushZ = radial.z;
-      length = Math.hypot(pushX, pushZ);
-      if (length < OVERLAP_COINCIDENT_EPSILON) {
-        pushX = Math.cos(descriptor.direction);
-        pushZ = Math.sin(descriptor.direction);
-        length = 1;
-      }
-    }
-    const minimum =
-      OVERLAP_FOOTPRINT_FACTOR * (footprint + existing.footprintRadius) +
-      OVERLAP_PADDING;
-    const current = Math.hypot(x - existing.instance.x, z - existing.instance.z);
-    const needed = minimum - current + OVERLAP_PUSH_EXTRA;
-    if (!(needed > 0) || !(length > 0)) {
-      return undefined;
-    }
-    const inv = 1 / length;
-    return {
-      x: x + pushX * inv * needed,
-      z: z + pushZ * inv * needed,
-    };
+    const radial = clusterRadialWorld(
+      descriptor.direction,
+      descriptor.majorRadius,
+      descriptor.minorRadius,
+      spec.localU,
+      spec.localV,
+    );
+    return resolveOverlapPush(
+      x,
+      z,
+      existing.instance.x,
+      existing.instance.z,
+      footprint,
+      existing.footprintRadius,
+      radial.x,
+      radial.z,
+      Math.cos(descriptor.direction),
+      Math.sin(descriptor.direction),
+    );
   }
 
   private createInstance(
@@ -1219,19 +1233,35 @@ export class StoneField {
     valueScale: number,
     moss: number,
     variant: StoneMeshData,
+    role: StoneClusterRole = "debris",
   ): StoneInstance {
-    const used = variant;
     const graniteBlend = smoothstep(
       height,
       this.config.grassMaxAltitude - 35,
       this.config.grassMaxAltitude + 30,
     );
+    const embedMultiplier =
+      archetype === "pebble" && role === "debris"
+        ? 1.25
+        : role === "anchor"
+          ? 1.08
+          : role === "secondary"
+            ? 1.03
+            : 1;
     const sink =
-      used.metrics.embed * used.metrics.height * scale +
+      variant.metrics.embed * variant.metrics.height * scale * embedMultiplier +
       (1 - normal.y) * 0.55 * scale;
-    const clearBase = used.metrics.contactRadius * scale;
-    const clearRadius =
-      scale >= CLEAR_SCALE_CUTOFF ? clearBase * 0.92 + 0.08 : 0;
+    const contact = variant.metrics.contactRadius * scale;
+    let clearRadius = 0;
+    if (scale >= CLEAR_SCALE_CUTOFF) {
+      if (role === "anchor") {
+        clearRadius = contact * 0.88 + 0.08;
+      } else if (role === "secondary") {
+        clearRadius = contact * 0.72 + 0.06;
+      } else if (!(role === "debris" && scale < 0.7)) {
+        clearRadius = contact * 0.45;
+      }
+    }
     const tiltStrength =
       archetype === "pebble"
         ? 0.85
@@ -1264,19 +1294,8 @@ export class StoneField {
   private memberMoss(
     descriptor: StoneClusterDescriptor,
     spec: StoneClusterMemberSpec,
-    height: number,
   ): number {
-    return clamp01(
-      stoneMossBase(
-        height,
-        descriptor.biomeIndex,
-        descriptor.surfaceRockiness,
-        this.config.grassMinAltitude,
-        this.config.grassMaxAltitude,
-      ) *
-        descriptor.mossBias *
-        spec.mossScale,
-    );
+    return clamp01(descriptor.mossBase * descriptor.mossBias * spec.mossScale);
   }
 
   private insideWorld(x: number, z: number): boolean {
@@ -1284,17 +1303,17 @@ export class StoneField {
     return Math.abs(x) <= limit && Math.abs(z) <= limit;
   }
 
-  private circleMissesAabb(
-    centerX: number,
-    centerZ: number,
-    radius: number,
-    minX: number,
-    maxX: number,
-    minZ: number,
-    maxZ: number,
+  private insideInfluence(
+    descriptor: StoneClusterDescriptor,
+    x: number,
+    z: number,
   ): boolean {
-    const dx = Math.max(minX - centerX, 0, centerX - maxX);
-    const dz = Math.max(minZ - centerZ, 0, centerZ - maxZ);
-    return dx * dx + dz * dz > radius * radius;
+    return clusterPointInsideInfluence(
+      descriptor.centerX,
+      descriptor.centerZ,
+      descriptor.influenceRadius,
+      x,
+      z,
+    );
   }
 }

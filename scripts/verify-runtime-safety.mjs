@@ -53,6 +53,14 @@ assert(
   "World visual-matrix QA must remain opt-in and outside the default bundle path.",
 );
 assert(
+  world.includes('params.get("riverTuning") === "1"') &&
+    /await import\(\s*"\.\.\/dev\/RiverDevelopmentConfig"\s*\)/.test(world) &&
+    /await import\(\s*"\.\/RiverArtMenu"\s*\)/.test(world) &&
+    !world.includes('import { RiverArtMenu }') &&
+    !world.includes('import { applyRiverDevelopmentConfig }'),
+  "River tuning must remain opt-in and outside the default bundle path.",
+);
+assert(
   main.includes('statsPanelEnabled: params.get("stats") === "1"') &&
     world.includes("attachWorldStatsPanel") &&
     world.includes("this.stats?.update()") &&

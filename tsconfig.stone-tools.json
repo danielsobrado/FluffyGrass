@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "include": [
     "tools/stone-gallery/main.ts",
-    "tools/stone-world/main.ts"
+    "tools/stone-world/main.ts",
+    "tools/stone-world/StoneClusterTuningMenu.ts",
+    "tools/stone-world/StoneWorldProbeController.ts"
   ]
 }

@@ -90,6 +90,36 @@ try {
     );
 
     assert(
+      world.riverWidthVariation === 0.08 &&
+        world.riverBendBankAsymmetry === 0.04 &&
+        world.riverDepthVariation === 0.16 &&
+        world.riverBendChannelShift === 0.2 &&
+        world.waterRiverPoolFlowScale === 0.8 &&
+        world.waterRiverRiffleFlowScale === 1.2 &&
+        world.waterShoreFoamWeight === 0.14 &&
+        world.waterRiffleFoamWeight === 0.4 &&
+        world.waterStoneFoamWeight === 0.56,
+      "Shipped river morphology and foam-balance production values must parse exactly.",
+    );
+    assert(
+      world.stoneDensity === 0.17 &&
+        world.stoneClusterChance === 0.82 &&
+        world.stoneClusterSpacing === 56 &&
+        world.stoneClusterCenterJitter === 0.26 &&
+        world.stoneClusterRadiusMin === 10 &&
+        world.stoneClusterRadiusMax === 22 &&
+        world.stoneClusterAspectMin === 0.58 &&
+        world.stoneClusterAspectMax === 0.92 &&
+        world.stoneClusterBudgetMin === 4 &&
+        world.stoneClusterBudgetMax === 8 &&
+        world.stoneClusterCoreRatio === 0.42 &&
+        world.stoneClusterShoulderRatio === 0.78 &&
+        world.stoneClusterHaloRatio === 1.12 &&
+        world.stoneClusterDensityResponse === 6 &&
+        world.stoneSingletonChance === 0.1,
+      "Shipped stone cluster production values must parse exactly.",
+    );
+    assert(
       world.grassFarImpostorsPerPatch === 1,
       "World config must retain the one-instance/four-card far-impostor contract.",
     );
@@ -230,6 +260,33 @@ try {
       () =>
         load(
           worldLoader,
+          worldSource.replace(
+            "riverWidthVariation: 0.08",
+            "riverWidthVariation: 0.12",
+          ).replace(
+            "riverBendBankAsymmetry: 0.04",
+            "riverBendBankAsymmetry: 0.07",
+          ),
+        ),
+      /1\.18 safety envelope/,
+      "Combined river width tuning must stay inside the global safety envelope.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "waterRiverPoolFlowScale: 0.80",
+            "waterRiverPoolFlowScale: 0.50",
+          ),
+        ),
+      /waterRiverPoolFlowScale must be at least 0.65/,
+      "Pool flow scale must stay inside the artist range.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
           worldSource.replace("seed: 42017", "seed: 9007199254740992"),
         ),
       /seed must be a safe integer/,
@@ -308,6 +365,34 @@ try {
         ),
       /must not contain more than 32 near-grass tiles per axis/,
       "Near-grass streaming must cap per-chunk tile cardinality.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "stoneClusterRadiusMin: 10",
+            "stoneClusterRadiusMin: 24",
+          ),
+        ),
+      /stoneClusterRadiusMin must be lower than stoneClusterRadiusMax/,
+      "Stone cluster radius range must stay ordered.",
+    );
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource
+            .replace("stoneClusterSpacing: 56", "stoneClusterSpacing: 40")
+            .replace(
+              "stoneClusterCenterJitter: 0.26",
+              "stoneClusterCenterJitter: 0.35",
+            )
+            .replace("stoneClusterRadiusMax: 22", "stoneClusterRadiusMax: 30")
+            .replace("stoneClusterHaloRatio: 1.12", "stoneClusterHaloRatio: 1.25"),
+        ),
+      /must not exceed half of stoneClusterSpacing/,
+      "Cluster influence radius must not exceed half of stoneClusterSpacing.",
     );
     await expectReject(
       () =>
@@ -399,6 +484,20 @@ try {
         ),
       /desktopShadowMapSize must be a power of two/,
       "Power-of-two validation must reject large integers whose logarithm rounds to an integer.",
+    );
+
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace("stoneClusterSpacing: 56", "stoneClusterSpacing: 40")
+            .replace("stoneClusterHaloRatio: 1.12", "stoneClusterHaloRatio: 1.25")
+            .replace("stoneClusterRadiusMax: 22", "stoneClusterRadiusMax: 16")
+            .replace("stoneClusterCenterJitter: 0.26", "stoneClusterCenterJitter: 0.35")
+            .replace("stoneCellSize: 16", "stoneCellSize: 64"),
+        ),
+      /must stay inside the fixed 3x3 macro query/,
+      "Cluster footprint, jitter, and cell size must remain inside the fixed 3x3 query.",
     );
 
     console.log("[config] World, grass, and runtime configuration contracts verified.");

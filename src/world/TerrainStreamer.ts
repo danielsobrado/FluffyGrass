@@ -139,6 +139,17 @@ export class TerrainStreamer {
     this.materialController.setGrassArtDirection(direction);
   }
 
+  setLiveWaterVisuals(
+    visuals: Parameters<WaterMaterialController["setLiveVisuals"]>[0] &
+      Parameters<WaterBedMaterialController["setLiveVisuals"]>[0],
+  ): void {
+    if (this.disposed) {
+      return;
+    }
+    this.waterMaterialController?.setLiveVisuals(visuals);
+    this.waterBedMaterialController?.setLiveVisuals(visuals);
+  }
+
   private reconcile(): void {
     const radius = this.compact
       ? this.config.terrainRadiusCompact

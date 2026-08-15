@@ -30,6 +30,9 @@ export interface WorldVisualPoint {
   stoneClearance: number;
   waterProximity: number;
   biomeIndex: number;
+  riverMorphology: number;
+  riverBend: number;
+  riverLateral: number;
 }
 
 export interface WorldVisualLocations {
@@ -49,6 +52,11 @@ export interface WorldVisualLocations {
   stoneWake: WorldVisualPoint;
   kneeDeep: WorldVisualPoint;
   waistDeep: WorldVisualPoint;
+  riverPool: WorldVisualPoint;
+  riverRiffle: WorldVisualPoint;
+  riverStraight: WorldVisualPoint;
+  riverInsideBend: WorldVisualPoint;
+  riverOutsideBend: WorldVisualPoint;
 }
 
 const SEARCH_RADIUS = 480;
@@ -91,6 +99,11 @@ export async function findWorldVisualLocations(
     stoneWake: undefined,
     kneeDeep: undefined,
     waistDeep: undefined,
+    riverPool: undefined,
+    riverRiffle: undefined,
+    riverStraight: undefined,
+    riverInsideBend: undefined,
+    riverOutsideBend: undefined,
   };
 
   for (let z = originZ - SEARCH_RADIUS; z <= originZ + SEARCH_RADIUS; z += SEARCH_STEP) {
@@ -112,6 +125,11 @@ export async function findWorldVisualLocations(
       consider(best, "stoneWake", point, stoneWakeScore(point));
       consider(best, "kneeDeep", point, kneeDeepScore(point));
       consider(best, "waistDeep", point, waistDeepScore(point));
+      consider(best, "riverPool", point, riverPoolScore(point));
+      consider(best, "riverRiffle", point, riverRiffleScore(point));
+      consider(best, "riverStraight", point, riverStraightScore(point));
+      consider(best, "riverInsideBend", point, riverInsideBendScore(point));
+      consider(best, "riverOutsideBend", point, riverOutsideBendScore(point));
     }
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
@@ -139,6 +157,19 @@ export async function findWorldVisualLocations(
     stoneWake: best.stoneWake?.point ?? best.riverMedium?.point ?? origin,
     kneeDeep: best.kneeDeep?.point ?? best.riverShallow?.point ?? origin,
     waistDeep: best.waistDeep?.point ?? best.riverMedium?.point ?? origin,
+    riverPool:
+      best.riverPool?.point ?? best.riverMedium?.point ?? best.waistDeep?.point ?? origin,
+    riverRiffle:
+      best.riverRiffle?.point ??
+      best.riverShallow?.point ??
+      best.kneeDeep?.point ??
+      origin,
+    riverStraight:
+      best.riverStraight?.point ?? best.riverMedium?.point ?? origin,
+    riverInsideBend:
+      best.riverInsideBend?.point ?? best.riverMedium?.point ?? origin,
+    riverOutsideBend:
+      best.riverOutsideBend?.point ?? best.riverMedium?.point ?? origin,
   };
 }
 
@@ -178,6 +209,9 @@ function samplePoint(
     stoneClearance: sampleStoneGrassClearance(x, z),
     waterProximity: hydrology.waterProximity,
     biomeIndex: pickGrassBiomeIndex(x, z, biome),
+    riverMorphology: hydrology.riverMorphology,
+    riverBend: hydrology.riverBend,
+    riverLateral: hydrology.riverLateral,
   };
 }
 
@@ -292,4 +326,79 @@ function waistDeepScore(point: WorldVisualPoint): number {
     return 0;
   }
   return point.waterCoverage * (1 - Math.abs(point.waterDepth - 1) / 0.5);
+}
+
+function riverPoolScore(point: WorldVisualPoint): number {
+  if (
+    point.riverCoverage < 0.35 ||
+    point.riverMorphology < 0.5 ||
+    point.waterDepth < 0.7 ||
+    point.lakeCoverage > 0.45
+  ) {
+    return 0;
+  }
+  return (
+    point.riverCoverage * 0.35 +
+    point.riverMorphology * 0.4 +
+    Math.min(point.waterDepth / 2.4, 1) * 0.25
+  );
+}
+
+function riverRiffleScore(point: WorldVisualPoint): number {
+  if (
+    point.riverCoverage < 0.35 ||
+    point.riverMorphology > -0.5 ||
+    point.waterDepth < 0.08 ||
+    point.lakeCoverage > 0.45
+  ) {
+    return 0;
+  }
+  return (
+    point.riverCoverage * 0.45 +
+    -point.riverMorphology * 0.4 +
+    (1 - Math.min(point.waterDepth / 2.4, 1)) * 0.15
+  );
+}
+
+function riverStraightScore(point: WorldVisualPoint): number {
+  if (
+    point.riverCoverage < 0.35 ||
+    Math.abs(point.riverBend) > 0.08 ||
+    Math.abs(point.riverMorphology) > 0.25
+  ) {
+    return 0;
+  }
+  return (
+    point.riverCoverage *
+    (1 - Math.abs(point.riverBend) / 0.08) *
+    (1 - Math.abs(point.riverMorphology) / 0.25)
+  );
+}
+
+function riverInsideBendScore(point: WorldVisualPoint): number {
+  const absLateral = Math.abs(point.riverLateral);
+  if (
+    point.riverCoverage < 0.2 ||
+    Math.abs(point.riverBend) < 0.45 ||
+    absLateral < 0.4 ||
+    absLateral > 0.8 ||
+    Math.sign(point.riverLateral) !== Math.sign(point.riverBend)
+  ) {
+    return 0;
+  }
+  return point.riverCoverage * Math.abs(point.riverBend) * (1 - Math.abs(absLateral - 0.6));
+}
+
+function riverOutsideBendScore(point: WorldVisualPoint): number {
+  const absLateral = Math.abs(point.riverLateral);
+  if (
+    point.riverCoverage < 0.2 ||
+    Math.abs(point.riverBend) < 0.45 ||
+    absLateral < 0.4 ||
+    absLateral > 0.8 ||
+    Math.sign(point.riverLateral) === Math.sign(point.riverBend)
+  ) {
+    return 0;
+  }
+  return point.riverCoverage * Math.abs(point.riverBend) * (1 - Math.abs(absLateral - 0.6));
 }

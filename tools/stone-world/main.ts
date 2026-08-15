@@ -1,8 +1,15 @@
 import * as THREE from "three";
 import { WorldConfigLoader } from "../../src/world/WorldConfigLoader";
+import { validateWorldConfig } from "../../src/world/WorldConfigValidator";
 import { TerrainField } from "../../src/world/TerrainField";
 import { StoneField } from "../../src/world/stones/StoneField";
 import { WorldStoneSystem } from "../../src/world/stones/WorldStoneSystem";
+import type { WorldConfig } from "../../src/world/WorldConfig";
+import {
+  readStoneClusterQueryOverrides,
+  StoneClusterTuningMenu,
+  STONE_CLUSTER_QUERY_KEYS,
+} from "./StoneClusterTuningMenu";
 
 type GrowthMode = "natural" | "moss" | "lichen";
 
@@ -33,19 +40,6 @@ function readGrowthMode(value: string | null): GrowthMode {
   throw new Error(`Invalid growth=${value}; expected natural, moss, or lichen.`);
 }
 
-const focusX = readNumberParam("x", 0, -1_000_000, 1_000_000);
-const focusZ = readNumberParam("z", 0, -1_000_000, 1_000_000);
-const cameraHeight = readNumberParam("h", 26, 1, 1000);
-const cameraDistance = readNumberParam("d", 60, 1, 2000);
-const span = readNumberParam("span", 320, 64, 4096);
-const growth = readGrowthMode(params.get("growth"));
-
-const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
-const out = document.querySelector<HTMLElement>("#out");
-if (!canvas) {
-  throw new Error("Canvas #canvas missing.");
-}
-
 function reportFailure(detail: unknown): void {
   const message =
     detail instanceof Error ? detail.stack ?? detail.message : String(detail);
@@ -56,6 +50,13 @@ function reportFailure(detail: unknown): void {
   }
   document.title = "Stone world probe · FAILED";
 }
+
+const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+const out = document.querySelector<HTMLElement>("#out");
+if (!canvas) {
+  throw new Error("Canvas #canvas missing.");
+}
+
 window.addEventListener("error", (event) =>
   reportFailure(event.error ?? event.message),
 );
@@ -63,13 +64,16 @@ window.addEventListener("unhandledrejection", (event) =>
   reportFailure(event.reason),
 );
 
-const configRequest = new XMLHttpRequest();
-configRequest.open("GET", "./config/world.yaml", false);
-configRequest.send();
-if (configRequest.status !== 200 && configRequest.status !== 0) {
-  throw new Error(`Unable to load world config: HTTP ${configRequest.status}.`);
-}
-const loadedConfig = new WorldConfigLoader().parse(configRequest.responseText);
+const focusX = readNumberParam("x", 0, -1_000_000, 1_000_000);
+const focusZ = readNumberParam("z", 0, -1_000_000, 1_000_000);
+const cameraHeight = readNumberParam("h", 26, 1, 1000);
+const cameraDistance = readNumberParam("d", 60, 1, 2000);
+const span = readNumberParam("span", 320, 64, 4096);
+const growth = readGrowthMode(params.get("growth"));
+const showTuning = params.get("tune") === "1";
+const clusterOverrides = readStoneClusterQueryOverrides(params);
+
+const loadedConfig = await new WorldConfigLoader().load("./config/world.yaml");
 const halfWorld = loadedConfig.worldSize * 0.5;
 const patchHalfSpan = span * 0.5;
 if (
@@ -85,20 +89,38 @@ const probeChunkRadius = Math.max(
   0,
   Math.floor(span / (loadedConfig.chunkSize * 2)) - 1,
 );
-const config = {
-  ...loadedConfig,
-  stoneRadiusDesktop: Math.min(
-    loadedConfig.stoneRadiusDesktop,
-    probeChunkRadius,
-  ),
-  stoneRadiusCompact: Math.min(
-    loadedConfig.stoneRadiusCompact,
-    probeChunkRadius,
-  ),
-};
+
+function withProbeRadius(config: WorldConfig): WorldConfig {
+  const stoneRadiusDesktop = Math.min(config.stoneRadiusDesktop, probeChunkRadius);
+  const stoneRadiusCompact = Math.min(config.stoneRadiusCompact, probeChunkRadius);
+  const stoneDetailRadius = Math.min(config.stoneDetailRadius, stoneRadiusDesktop);
+  const stoneDetailRadiusCompact = Math.min(
+    config.stoneDetailRadiusCompact,
+    stoneDetailRadius,
+    stoneRadiusCompact,
+  );
+  return {
+    ...config,
+    stoneRadiusDesktop,
+    stoneRadiusCompact,
+    stoneDetailRadius,
+    stoneDetailRadiusCompact,
+  };
+}
+
+function mergeStoneConfig(base: WorldConfig, overrides: Partial<WorldConfig>): WorldConfig {
+  const merged = withProbeRadius({ ...base, ...overrides });
+  validateWorldConfig(merged);
+  return merged;
+}
+
+const config = mergeStoneConfig(loadedConfig, clusterOverrides);
 const field = new TerrainField(config);
-const stoneField = new StoneField(field, config);
-if (growth === "moss" || growth === "lichen") {
+
+function applyGrowth(stoneField: StoneField): StoneField {
+  if (growth !== "moss" && growth !== "lichen") {
+    return stoneField;
+  }
   const collect = stoneField.collectChunkInstances.bind(stoneField);
   stoneField.collectChunkInstances = ((...args: Parameters<typeof collect>) => {
     const instances = collect(...args);
@@ -120,6 +142,7 @@ if (growth === "moss" || growth === "lichen") {
     }
     return instances;
   }) as typeof stoneField.collectChunkInstances;
+  return stoneField;
 }
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -131,7 +154,6 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#bfd4df");
 scene.fog = new THREE.FogExp2("#bfd4df", 0.00105);
-
 scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
 const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
 sun.position.set(350, 500, 220).normalize().multiplyScalar(200);
@@ -159,12 +181,7 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
   terrainPositions.setZ(index, z);
   terrainPositions.setY(index, height);
   field.sampleNormal(x, z, normalScratch);
-  const suitability = field.sampleGrassSuitability(
-    x,
-    z,
-    height,
-    normalScratch,
-  );
+  const suitability = field.sampleGrassSuitability(x, z, height, normalScratch);
   field.sampleColor(
     x,
     z,
@@ -173,7 +190,6 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
     field.sampleEcologyAt(x, z, height),
     colorScratch,
   );
-
   field.samplePathDistances(x, z, pathScratch);
   const visibility = field.samplePathVisibility(height);
   if (visibility > 0.01) {
@@ -192,15 +208,11 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
       colorScratch.lerp(PATH_SOIL_COLOR, tread * visibility);
     }
   }
-
   terrainColors[index * 3] = colorScratch.r;
   terrainColors[index * 3 + 1] = colorScratch.g;
   terrainColors[index * 3 + 2] = colorScratch.b;
 }
-terrainGeometry.setAttribute(
-  "color",
-  new THREE.BufferAttribute(terrainColors, 3),
-);
+terrainGeometry.setAttribute("color", new THREE.BufferAttribute(terrainColors, 3));
 terrainGeometry.computeVertexNormals();
 scene.add(
   new THREE.Mesh(
@@ -208,13 +220,6 @@ scene.add(
     new THREE.MeshLambertMaterial({ vertexColors: true }),
   ),
 );
-
-const stones = new WorldStoneSystem(scene, stoneField, config, false, false);
-const focus = new THREE.Vector3(focusX, 0, focusZ);
-stones.update(focus, Number.POSITIVE_INFINITY);
-for (let pass = 0; pass < 400; pass += 1) {
-  stones.update(focus, Number.POSITIVE_INFINITY);
-}
 
 const groundHeight = field.sampleHeight(focusX, focusZ);
 const camera = new THREE.PerspectiveCamera(
@@ -230,13 +235,70 @@ camera.position.set(
 );
 camera.lookAt(focusX, groundHeight + 2, focusZ);
 
-const diagnostics = stones.getDiagnostics();
-if (out) {
+let stoneField = applyGrowth(new StoneField(field, config));
+let stones = new WorldStoneSystem(scene, stoneField, config, false, false);
+const focus = new THREE.Vector3(focusX, 0, focusZ);
+
+function drainStoneBuild(system: WorldStoneSystem): void {
+  system.update(focus, Number.POSITIVE_INFINITY);
+  for (let pass = 0; pass < 400; pass += 1) {
+    system.update(focus, Number.POSITIVE_INFINITY);
+  }
+}
+
+function refreshDiagnostics(): void {
+  const diagnostics = stones.getDiagnostics();
+  const summary = stoneField.summarizeBounds(
+    focusX - patchHalfSpan,
+    focusZ - patchHalfSpan,
+    focusX + patchHalfSpan,
+    focusZ + patchHalfSpan,
+  );
+  if (!out) {
+    return;
+  }
   out.textContent =
     `focus ${focusX} / ${focusZ} · ${growth} growth · ground ${groundHeight.toFixed(1)} m\n` +
-    `${diagnostics.stones} stones · ${diagnostics.activeChunks} chunks · ` +
-    `${diagnostics.triangles.toLocaleString()} tris · ` +
-    `build peak ${diagnostics.maxBuildMs.toFixed(1)} ms`;
+    `${diagnostics.stones} stones · ${diagnostics.activeChunks} batches · ` +
+    `${diagnostics.drawCalls} draws · ${diagnostics.triangles.toLocaleString()} tris\n` +
+    `build last ${diagnostics.lastBuildMs.toFixed(1)} ms · peak ${diagnostics.maxBuildMs.toFixed(1)} ms\n` +
+    `clusters ${summary.activeClusters} · compact ${summary.compact} ridge ${summary.ridge} ` +
+    `scree ${summary.scree} fan ${summary.fan}\n` +
+    `members ${summary.acceptedMembers} · splits ${summary.splits} · singletons ${summary.singletons}`;
+}
+
+drainStoneBuild(stones);
+refreshDiagnostics();
+
+function rebuildStones(nextConfig: WorldConfig): void {
+  stones.dispose();
+  stoneField = applyGrowth(new StoneField(field, nextConfig));
+  stones = new WorldStoneSystem(scene, stoneField, nextConfig, false, false);
+  drainStoneBuild(stones);
+  refreshDiagnostics();
+}
+
+if (showTuning) {
+  new StoneClusterTuningMenu(
+    config,
+    (nextConfig) => {
+      rebuildStones(withProbeRadius(nextConfig));
+    },
+    (current) => {
+      const next = new URLSearchParams(params);
+      next.set("tune", "1");
+      next.set("x", String(focusX));
+      next.set("z", String(focusZ));
+      next.set("h", String(cameraHeight));
+      next.set("d", String(cameraDistance));
+      next.set("span", String(span));
+      next.set("growth", growth);
+      for (const key of STONE_CLUSTER_QUERY_KEYS) {
+        next.set(key, String(current[key]));
+      }
+      return `${window.location.pathname}?${next.toString()}`;
+    },
+  );
 }
 
 function frame(): void {

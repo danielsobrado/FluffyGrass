@@ -22,6 +22,9 @@ export interface HydrologySample {
   lakeCoverage: number;
   flowX: number;
   flowZ: number;
+  riverMorphology: number;
+  riverBend: number;
+  riverLateral: number;
 }
 
 export function createHydrologySample(): HydrologySample {
@@ -35,6 +38,9 @@ export function createHydrologySample(): HydrologySample {
     lakeCoverage: 0,
     flowX: 0,
     flowZ: 0,
+    riverMorphology: 0,
+    riverBend: 0,
+    riverLateral: 0,
   };
 }
 
@@ -82,10 +88,7 @@ export class HydrologyField {
     if (this.config.waterEnabled < 1) return height;
 
     this.sampleStructure(x, z, height);
-    const riverDepth =
-      this.config.riverDepth *
-      (this.river.coverage * 0.72 + this.river.bank * 0.28);
-    let carved = height - riverDepth;
+    let carved = height - this.river.incisionDepth;
 
     if (this.lake.basin > 0) {
       const core = 1 - clamp01(this.lake.normalizedDistance);
@@ -129,8 +132,6 @@ export class HydrologyField {
 
     const waterCoverage = Math.max(this.river.coverage, this.lake.coverage);
     const waterProximity = Math.max(this.river.proximity, this.lake.proximity);
-    const riverWaterDepth =
-      this.config.riverDepth * (0.58 + this.river.coverage * 0.12);
     const lakeSurfaceActive = this.lake.basin > 0.001;
 
     target.waterCoverage = clamp01(waterCoverage);
@@ -140,12 +141,15 @@ export class HydrologyField {
     target.waterLevel =
       (lakeSurfaceActive
         ? this.lake.waterLevel
-        : carvedHeight + riverWaterDepth * this.river.coverage) +
+        : carvedHeight + this.river.incisionDepth) +
       this.config.waterSurfaceOffset;
     target.riverCoverage = clamp01(this.river.coverage);
     target.lakeCoverage = clamp01(this.lake.coverage);
     target.flowX = this.river.flowX;
     target.flowZ = this.river.flowZ;
+    target.riverMorphology = this.river.morphology;
+    target.riverBend = this.river.bend;
+    target.riverLateral = this.river.lateral;
     return target;
   }
 
@@ -196,6 +200,9 @@ export class HydrologyField {
     target.lakeCoverage = 0;
     target.flowX = 0;
     target.flowZ = 0;
+    target.riverMorphology = 0;
+    target.riverBend = 0;
+    target.riverLateral = 0;
     return target;
   }
 }

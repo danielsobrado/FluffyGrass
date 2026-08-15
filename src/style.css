@@ -185,6 +185,70 @@ canvas {
   background: rgb(83 126 63 / 82%);
 }
 
+.river-art-menu {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 130;
+  width: 268px;
+  max-height: calc(100dvh - 28px);
+  overflow: auto;
+  padding: 9px 10px 10px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  background: rgb(18 24 22 / 82%);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+  color: #edf5e9;
+  font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  backdrop-filter: blur(10px);
+}
+
+.river-art-menu summary {
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.river-art-menu h2 {
+  margin: 10px 0 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #bed6b0;
+}
+
+.river-art-menu label {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.river-art-menu input,
+.river-art-menu button {
+  min-width: 0;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 5px;
+  background: rgb(9 14 12 / 76%);
+  color: inherit;
+  font: inherit;
+}
+
+.river-art-menu button {
+  width: 100%;
+  margin-top: 9px;
+  padding: 6px 8px;
+  cursor: pointer;
+  background: rgb(63 108 126 / 82%);
+}
+
+.river-art-pending {
+  margin: 8px 0 0;
+  color: #e3c37a;
+}
+
 .detail-foliage-menu {
   position: fixed;
   top: calc(max(14px, env(safe-area-inset-top)) + 160px);

@@ -35,9 +35,18 @@ try {
   const { TerrainSurfaceField } = await server.ssrLoadModule(
     "/src/world/terrain/TerrainSurfaceField.ts",
   );
-  const { createHydrologySample } = await server.ssrLoadModule(
+  const {
+    createHydrologySample,
+  } = await server.ssrLoadModule(
     "/src/world/hydrology/HydrologyField.ts",
   );
+  const { RiverField, createRiverSample } = await server.ssrLoadModule(
+    "/src/world/hydrology/RiverField.ts",
+  );
+  const {
+    RIVER_GLOBAL_MAX_WIDTH_SCALE,
+    RIVER_GLOBAL_MIN_WIDTH_SCALE,
+  } = await server.ssrLoadModule("/src/world/hydrology/RiverTuning.ts");
   const { LakeField, createLakeSample } = await server.ssrLoadModule(
     "/src/world/hydrology/LakeField.ts",
   );
@@ -315,6 +324,9 @@ try {
     "lakeCoverage",
     "flowX",
     "flowZ",
+    "riverMorphology",
+    "riverBend",
+    "riverLateral",
   ]) {
     assertClose(
       afterNormal[key],
@@ -437,6 +449,285 @@ try {
     setStoneClearanceField(undefined);
   }
 
+  const riverField = new RiverField(config);
+  const riverA = createRiverSample();
+  const riverB = createRiverSample();
+  const MORPH_MIN = -768;
+  const MORPH_MAX = 768;
+  const MORPH_STEP = 8;
+  const WIDTH_EPSILON = 1e-4;
+  let poolSamples = 0;
+  let riffleSamples = 0;
+  let poolWidthSum = 0;
+  let riffleWidthSum = 0;
+  let poolCenterDepthSum = 0;
+  let riffleCenterDepthSum = 0;
+  let poolCenterCount = 0;
+  let riffleCenterCount = 0;
+  let wetMorphologySamples = 0;
+  const straightInside = { 45: [], 70: [] };
+  const straightOutside = { 45: [], 70: [] };
+  const positiveInside = { 45: [], 70: [] };
+  const positiveOutside = { 45: [], 70: [] };
+  const negativeInside = { 45: [], 70: [] };
+  const negativeOutside = { 45: [], 70: [] };
+  const referenceHalfWidth = config.riverWidth * 0.5;
+
+  const pushBand = (target, absLateral, depth) => {
+    if (Math.abs(absLateral - 0.45) <= 0.06) target[45].push(depth);
+    if (Math.abs(absLateral - 0.7) <= 0.06) target[70].push(depth);
+  };
+
+  for (let z = MORPH_MIN; z <= MORPH_MAX; z += MORPH_STEP) {
+    for (let x = MORPH_MIN; x <= MORPH_MAX; x += MORPH_STEP) {
+      riverField.sample(x, z, 18, riverA);
+      riverField.sample(x, z, 18, riverB);
+      for (const key of [
+        "coverage",
+        "bank",
+        "proximity",
+        "flowX",
+        "flowZ",
+        "morphology",
+        "bend",
+        "lateral",
+        "localHalfWidth",
+        "bedDepth",
+        "incisionDepth",
+      ]) {
+        assertClose(
+          riverA[key],
+          riverB[key],
+          `River ${key} must be deterministic at ${x}, ${z}.`,
+        );
+      }
+      assert(
+        riverA.morphology >= -1 && riverA.morphology <= 1,
+        `Morphology must stay in -1..1, received ${riverA.morphology}.`,
+      );
+      if (riverA.coverage <= 0.02) continue;
+      wetMorphologySamples += 1;
+      const widthScale = riverA.localHalfWidth / referenceHalfWidth;
+      assert(
+        widthScale >= RIVER_GLOBAL_MIN_WIDTH_SCALE - WIDTH_EPSILON &&
+          widthScale <= RIVER_GLOBAL_MAX_WIDTH_SCALE + WIDTH_EPSILON,
+        `Local width scale ${widthScale} left the 0.82..1.18 envelope at ${x}, ${z}.`,
+      );
+      if (riverA.morphology >= 0.5) {
+        poolSamples += 1;
+        poolWidthSum += riverA.localHalfWidth;
+        if (Math.abs(riverA.lateral) <= 0.12) {
+          poolCenterDepthSum += riverA.bedDepth;
+          poolCenterCount += 1;
+        }
+      } else if (riverA.morphology <= -0.5) {
+        riffleSamples += 1;
+        riffleWidthSum += riverA.localHalfWidth;
+        if (Math.abs(riverA.lateral) <= 0.12) {
+          riffleCenterDepthSum += riverA.bedDepth;
+          riffleCenterCount += 1;
+        }
+      }
+      const absLateral = Math.abs(riverA.lateral);
+      if (Math.abs(riverA.bend) < 0.05) {
+        if (riverA.lateral >= 0) pushBand(straightInside, absLateral, riverA.bedDepth);
+        else pushBand(straightOutside, absLateral, riverA.bedDepth);
+      }
+      if (riverA.bend >= 0.45) {
+        if (Math.sign(riverA.lateral) === Math.sign(riverA.bend)) {
+          pushBand(positiveInside, absLateral, riverA.bedDepth);
+        } else {
+          pushBand(positiveOutside, absLateral, riverA.bedDepth);
+        }
+      }
+      if (riverA.bend <= -0.45) {
+        if (Math.sign(riverA.lateral) === Math.sign(riverA.bend)) {
+          pushBand(negativeInside, absLateral, riverA.bedDepth);
+        } else {
+          pushBand(negativeOutside, absLateral, riverA.bedDepth);
+        }
+      }
+    }
+  }
+
+  assert(wetMorphologySamples > 200, "Morphology sweep must find wet river samples.");
+  assert(poolSamples > 20, "Normalized morphology must reach the pool QA band.");
+  assert(riffleSamples > 20, "Normalized morphology must reach the riffle QA band.");
+  assert(
+    poolWidthSum / poolSamples > riffleWidthSum / riffleSamples,
+    "Pool candidates must be wider than riffle candidates on average.",
+  );
+  assert(
+    poolCenterCount > 5 && riffleCenterCount > 5,
+    "Pool/riffle centre-depth statistics need centreline samples.",
+  );
+  assert(
+    poolCenterDepthSum / poolCenterCount >
+      riffleCenterDepthSum / riffleCenterCount,
+    "Pool candidates must be deeper on the centreline than riffle candidates.",
+  );
+
+  const mean = (values) =>
+    values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+  for (const band of [45, 70]) {
+    if (straightInside[band].length > 8 && straightOutside[band].length > 8) {
+      assert(
+        Math.abs(mean(straightInside[band]) - mean(straightOutside[band])) < 0.12,
+        `Near-straight rivers must stay nearly symmetric at |lateral|=0.${band}.`,
+      );
+    }
+  }
+  for (const band of [45, 70]) {
+    if (positiveOutside[band].length > 4 && positiveInside[band].length > 4) {
+      assert(
+        mean(positiveOutside[band]) > mean(positiveInside[band]),
+        `Positive bends must cut a deeper outside channel at |lateral|=0.${band}.`,
+      );
+    }
+    if (negativeOutside[band].length > 4 && negativeInside[band].length > 4) {
+      assert(
+        mean(negativeOutside[band]) > mean(negativeInside[band]),
+        `Negative bends must cut a deeper outside channel at |lateral|=0.${band}.`,
+      );
+    }
+  }
+
+  const tightConfig = {
+    ...config,
+    riverWidthVariation: 0.12,
+    riverBendBankAsymmetry: 0.07,
+  };
+  let envelopeRejected = false;
+  try {
+    validateWorldConfig(tightConfig);
+  } catch {
+    envelopeRejected = true;
+  }
+  assert(
+    envelopeRejected,
+    "Validator must reject combined width tuning that exceeds the 1.18 envelope.",
+  );
+
+  const continuityOriginX = riverPoint.x;
+  const continuityOriginZ = riverPoint.z;
+  riverField.sample(continuityOriginX, continuityOriginZ, 18, riverA);
+  let walkX = continuityOriginX;
+  let walkZ = continuityOriginZ;
+  let previous;
+  for (let distance = 0; distance <= 512; distance += 1) {
+    riverField.sample(walkX, walkZ, 18, riverA);
+    if (previous) {
+      assert(
+        Number.isFinite(riverA.morphology) &&
+          Number.isFinite(riverA.localHalfWidth) &&
+          Number.isFinite(riverA.bedDepth),
+        "Longitudinal river fields must stay finite.",
+      );
+      assert(
+        Math.abs(riverA.morphology - previous.morphology) < 0.35 &&
+          Math.abs(riverA.localHalfWidth - previous.localHalfWidth) < 1.6 &&
+          Math.abs(riverA.bedDepth - previous.bedDepth) < 0.85,
+        `River morphology must change continuously along ${walkX}, ${walkZ}.`,
+      );
+    }
+    previous = {
+      morphology: riverA.morphology,
+      localHalfWidth: riverA.localHalfWidth,
+      bedDepth: riverA.bedDepth,
+    };
+    walkX += riverA.flowX;
+    walkZ += riverA.flowZ;
+  }
+
+  const chunkSize = config.chunkSize;
+  const seamX = Math.round(riverPoint.x / chunkSize) * chunkSize;
+  const seamZ = Math.round(riverPoint.z / chunkSize) * chunkSize;
+  for (const [x, z] of [
+    [seamX, seamZ],
+    [seamX + 1e-6, seamZ],
+    [seamX - 1e-6, seamZ],
+    [seamX, seamZ + 1e-6],
+    [seamX, seamZ - 1e-6],
+  ]) {
+    const height = terrain.sampleHeight(x, z);
+    const left = createHydrologySample();
+    const right = createHydrologySample();
+    terrain.sampleHydrology(x, z, height, left);
+    terrain.sampleHydrology(x, z, height, right);
+    for (const key of [
+      "riverCoverage",
+      "flowX",
+      "flowZ",
+      "riverMorphology",
+      "riverBend",
+      "riverLateral",
+      "waterLevel",
+    ]) {
+      assertClose(left[key], right[key], `Chunk-seam ${key} must not depend on call order.`);
+    }
+  }
+
+  const CROSS_FLOW_OFFSET = 0.75;
+  const CROSS_FLOW_BASELINE_P95 = 0.3353356786874997;
+  // 5% over the pre-R1 baseline, plus a small allowance for the wet-set change
+  // that local width variation introduces at the same sample grid.
+  const CROSS_FLOW_P95_LIMIT = CROSS_FLOW_BASELINE_P95 * 1.05 + 0.01;
+  const crossFlowSlopes = [];
+  const crossHydrology = createHydrologySample();
+  const leftHydrology = createHydrologySample();
+  const rightHydrology = createHydrologySample();
+  for (let z = MORPH_MIN; z <= MORPH_MAX; z += MORPH_STEP) {
+    for (let x = MORPH_MIN; x <= MORPH_MAX; x += MORPH_STEP) {
+      const height = terrain.sampleHeight(x, z);
+      terrain.sampleHydrology(x, z, height, crossHydrology);
+      if (
+        crossHydrology.riverCoverage < 0.35 ||
+        crossHydrology.lakeCoverage > 0.05
+      ) {
+        continue;
+      }
+      const flowLength = Math.hypot(crossHydrology.flowX, crossHydrology.flowZ);
+      if (!(flowLength > 1e-6)) continue;
+      const perpX = -crossHydrology.flowZ / flowLength;
+      const perpZ = crossHydrology.flowX / flowLength;
+      const leftX = x + perpX * CROSS_FLOW_OFFSET;
+      const leftZ = z + perpZ * CROSS_FLOW_OFFSET;
+      const rightX = x - perpX * CROSS_FLOW_OFFSET;
+      const rightZ = z - perpZ * CROSS_FLOW_OFFSET;
+      const leftHeight = terrain.sampleHeight(leftX, leftZ);
+      const rightHeight = terrain.sampleHeight(rightX, rightZ);
+      terrain.sampleHydrology(leftX, leftZ, leftHeight, leftHydrology);
+      terrain.sampleHydrology(rightX, rightZ, rightHeight, rightHydrology);
+      if (
+        leftHydrology.riverCoverage < 0.35 ||
+        rightHydrology.riverCoverage < 0.35
+      ) {
+        continue;
+      }
+      const slope =
+        Math.abs(leftHydrology.waterLevel - rightHydrology.waterLevel) /
+        (2 * CROSS_FLOW_OFFSET);
+      assert(Number.isFinite(slope), "Cross-flow surface slope must stay finite.");
+      crossFlowSlopes.push(slope);
+    }
+  }
+  crossFlowSlopes.sort((left, right) => left - right);
+  const crossFlowP95 =
+    crossFlowSlopes[
+      Math.min(
+        crossFlowSlopes.length - 1,
+        Math.max(0, Math.ceil(0.95 * crossFlowSlopes.length) - 1),
+      )
+    ];
+  assert(
+    crossFlowSlopes.length > 100,
+    "Cross-flow regression needs enough wet river samples.",
+  );
+  assert(
+    crossFlowP95 <= CROSS_FLOW_P95_LIMIT,
+    `Cross-flow p95 slope ${crossFlowP95} exceeded the ${CROSS_FLOW_P95_LIMIT} regression limit.`,
+  );
+
   const waterController = new WaterMaterialController(config);
   const shader = {
     uniforms: {},
@@ -463,6 +754,9 @@ try {
     "uWaterSunDirection",
     "waterGlint",
     "waterStoneFoam",
+    "waterLocalFlowSpeed",
+    "waterRiffleEnergy",
+    "uWaterShoreFoamWeight",
   ]) {
     assert(shader.fragmentShader.includes(token), `Water shader is missing ${token}.`);
   }

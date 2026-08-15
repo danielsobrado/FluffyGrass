@@ -21,6 +21,7 @@ uniform float uWaterBedStrength;
 uniform float uWaterBedRefraction;
 uniform float uWaterAlgaeStrength;
 uniform float uWaterCausticStrength;
+uniform float uWaterRiverReferenceDepth;
 uniform vec3 uWaterPebbleDark;
 uniform vec3 uWaterPebbleLight;
 uniform vec3 uWaterSand;
@@ -54,6 +55,20 @@ float waterBedWobble = sin(
   dot(vWaterBedWorldPosition.xz, waterBedFlowPerpendicular) * 0.18 +
   uWaterTime * mix(0.12, 0.34, waterBedRiverAmount)
 );
+float bedDepthRatio =
+  waterBedDepth / max(0.1, uWaterRiverReferenceDepth);
+float bedChannelCore = smoothstep(0.40, 0.88, waterBedCoverageRaw);
+float bedRiffle =
+  waterBedRiverAmount *
+  bedChannelCore *
+  (1.0 - smoothstep(0.68, 1.02, bedDepthRatio));
+float bedPool =
+  waterBedRiverAmount *
+  bedChannelCore *
+  smoothstep(1.05, 1.24, bedDepthRatio);
+float bedBank =
+  waterBedRiverAmount *
+  (1.0 - smoothstep(0.42, 0.86, waterBedCoverageRaw));
 vec2 waterBedPosition = vWaterBedWorldPosition.xz +
   waterBedViewRay.xz * waterBedDepth * uWaterBedRefraction *
     (0.025 + waterBedGrazing * 0.05) +
@@ -66,9 +81,14 @@ vec3 waterBedColor = waterSampleRiverBed(
   waterBedFlowDirection,
   uWaterTime,
   waterBedRiverAmount,
+  bedRiffle,
+  bedPool,
+  bedBank,
+  bedChannelCore,
   waterBedRelief
 );
 waterBedColor *= 0.96 + waterBedRelief * 0.06;
+waterBedColor *= 1.0 - bedPool * 0.05;
 
 float waterBedShallow = 1.0 - smoothstep(0.18, 2.4, waterBedDepth);
 float waterBedCausticA = texture2D(

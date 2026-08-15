@@ -264,6 +264,37 @@ terrainSurfaceColor *= 1.0 + terrainMicroAlbedo;
 terrainSurfaceColor *= 1.0 -
   uTerrainCanopyDarkening * terrainCoverage * terrainVigor;
 
+float shoreBand = smoothstep(
+  0.94,
+  1.0,
+  terrainWaterProximity
+);
+float shoreExposure =
+  shoreBand * (1.0 - terrainCoverage * 0.75);
+float shorePatch = clamp(
+  0.55 +
+  (terrainBaseNoise.r - 0.5) * 0.90 +
+  (terrainMesoNoise.g - 0.5) * 0.65,
+  0.0,
+  1.0
+);
+float shoreMud =
+  shoreExposure *
+  (1.0 - smoothstep(0.46, 0.63, shorePatch));
+float shoreGravel =
+  shoreExposure *
+  smoothstep(0.68, 0.84, shorePatch);
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  uTerrainSoilRich * 0.82,
+  shoreMud
+);
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  uTerrainPathGrit,
+  shoreGravel
+);
+
 float terrainEcologyMask = smoothstep(0.025, 0.34, terrainSuitability);
 diffuseColor.rgb = mix(diffuseColor.rgb, terrainSurfaceColor, terrainEcologyMask);
 

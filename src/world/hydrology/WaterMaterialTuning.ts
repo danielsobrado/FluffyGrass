@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
 
-export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v9";
-export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v2";
+export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v10";
+export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v3";
 export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
 export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_BED_NOISE_SEED_SALT = 0x3b1f7a2d;
@@ -24,3 +24,8 @@ export const WATER_SUN_DIRECTION = new THREE.Vector3(
 ).normalize();
 /** Compact profiles keep identity but drop micro glint/caustic/wake energy. */
 export const WATER_COMPACT_DETAIL_SCALE = 0.55;
+export const WATER_RIVER_POOL_FREQUENCY_SCALE = 0.9;
+export const WATER_RIVER_RIFFLE_FREQUENCY_SCALE = 1.14;
+export const WATER_RIVER_SHALLOW_ENERGY_WEIGHT = 0.86;
+export const WATER_RIVER_SLOPE_ENERGY_WEIGHT = 0.14;
+export const WATER_RIVER_BANK_FLOW_SCALE = 0.75;

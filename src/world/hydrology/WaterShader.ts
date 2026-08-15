@@ -1,5 +1,12 @@
 import { WATER_FLOW_FRAGMENT_FUNCTIONS } from "./WaterFlowShader";
-import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
+import {
+  WATER_RIVER_BANK_FLOW_SCALE,
+  WATER_RIVER_POOL_FREQUENCY_SCALE,
+  WATER_RIVER_RIFFLE_FREQUENCY_SCALE,
+  WATER_RIVER_SHALLOW_ENERGY_WEIGHT,
+  WATER_RIVER_SLOPE_ENERGY_WEIGHT,
+  WATER_VISIBLE_COVERAGE_THRESHOLD,
+} from "./WaterMaterialTuning";
 
 export const WATER_VERTEX_DECLARATIONS = `
 attribute vec4 waterData;
@@ -23,7 +30,13 @@ uniform float uWaterOpacity;
 uniform float uWaterRippleStrength;
 uniform float uWaterRippleScale;
 uniform float uWaterFlowSpeed;
+uniform float uWaterRiverReferenceDepth;
+uniform float uWaterRiverPoolFlowScale;
+uniform float uWaterRiverRiffleFlowScale;
 uniform float uWaterFoamStrength;
+uniform float uWaterShoreFoamWeight;
+uniform float uWaterRiffleFoamWeight;
+uniform float uWaterStoneFoamWeight;
 uniform float uWaterFresnelStrength;
 uniform float uWaterDepthFade;
 uniform float uWaterDetailDistance;
@@ -71,6 +84,35 @@ float waterDetailWeight = 1.0 - smoothstep(
   uWaterDetailDistance,
   waterDistance
 );
+float waterRiverDepthRatio =
+  waterDepth / max(0.1, uWaterRiverReferenceDepth);
+float waterChannelCore = smoothstep(0.35, 0.88, waterCoverageRaw);
+float waterShallowEnergy = 1.0 - smoothstep(0.68, 1.02, waterRiverDepthRatio);
+float waterSurfaceSlopeEnergy = saturate(
+  (1.0 - waterGeometricNormal.y) * 6.0
+);
+float waterEnergy01 = saturate(
+  (
+    waterShallowEnergy * ${WATER_RIVER_SHALLOW_ENERGY_WEIGHT} +
+    waterSurfaceSlopeEnergy * ${WATER_RIVER_SLOPE_ENERGY_WEIGHT}
+  ) * waterChannelCore
+);
+float waterLocalFlowScale = mix(
+  uWaterRiverPoolFlowScale,
+  uWaterRiverRiffleFlowScale,
+  waterEnergy01
+);
+waterLocalFlowScale *= mix(
+  ${WATER_RIVER_BANK_FLOW_SCALE},
+  1.0,
+  waterChannelCore
+);
+float waterLocalFlowSpeed = uWaterFlowSpeed * waterLocalFlowScale;
+float waterRiverFrequencyScale = mix(
+  ${WATER_RIVER_POOL_FREQUENCY_SCALE},
+  ${WATER_RIVER_RIFFLE_FREQUENCY_SCALE},
+  waterEnergy01
+);
 float waterScale = uWaterRippleScale;
 float waterTime = uWaterTime;
 vec4 waterFlowNoise = vec4(0.5);
@@ -80,7 +122,7 @@ if (waterDetailWeight > 0.001) {
     waterFlowDirection,
     waterTime,
     uWaterFlowNoiseScale,
-    uWaterFlowSpeed * mix(0.2, 1.0, waterRiverAmount)
+    mix(uWaterFlowSpeed * 0.2, waterLocalFlowSpeed, waterRiverAmount)
   );
 }
 vec2 waterNoiseOffset = (waterFlowNoise.rg * 2.0 - 1.0) *
@@ -110,17 +152,23 @@ float waterRiverPhaseC = 0.0;
 vec2 waterRiverSlope = vec2(0.0);
 if (waterRiverAmount > 0.02) {
   waterRiverPhaseA =
-    dot(waterWavePosition, waterFlowPerpendicular) * waterScale * 2.85 +
-    dot(waterWavePosition, waterFlowDirection) * waterScale * 0.34 -
-    waterTime * uWaterFlowSpeed * 2.2;
+    dot(waterWavePosition, waterFlowPerpendicular) *
+      waterScale * waterRiverFrequencyScale * 2.85 +
+    dot(waterWavePosition, waterFlowDirection) *
+      waterScale * waterRiverFrequencyScale * 0.34 -
+    waterTime * waterLocalFlowSpeed * 2.2;
   waterRiverPhaseB =
-    dot(waterWavePosition, waterFlowPerpendicular) * waterScale * 5.1 -
-    dot(waterWavePosition, waterFlowDirection) * waterScale * 0.18 -
-    waterTime * uWaterFlowSpeed * 3.65;
+    dot(waterWavePosition, waterFlowPerpendicular) *
+      waterScale * waterRiverFrequencyScale * 5.1 -
+    dot(waterWavePosition, waterFlowDirection) *
+      waterScale * waterRiverFrequencyScale * 0.18 -
+    waterTime * waterLocalFlowSpeed * 3.65;
   waterRiverPhaseC =
-    dot(waterWavePosition, waterFlowDirection) * waterScale * 1.35 +
-    dot(waterWavePosition, waterFlowPerpendicular) * waterScale * 0.72 -
-    waterTime * uWaterFlowSpeed * 1.15;
+    dot(waterWavePosition, waterFlowDirection) *
+      waterScale * waterRiverFrequencyScale * 1.35 +
+    dot(waterWavePosition, waterFlowPerpendicular) *
+      waterScale * waterRiverFrequencyScale * 0.72 -
+    waterTime * waterLocalFlowSpeed * 1.15;
   waterRiverSlope =
     waterFlowPerpendicular *
       (cos(waterRiverPhaseA) * 0.64 + cos(waterRiverPhaseB) * 0.27) +
@@ -176,8 +224,9 @@ vec3 waterSurfaceColor = uWaterShallow * waterTransmittance +
 
 if (waterRiverAmount > 0.02) {
   float waterFlowSheen = 0.5 + 0.5 * sin(
-    dot(waterWavePosition, waterFlowPerpendicular) * waterScale * 3.7 -
-    waterTime * uWaterFlowSpeed * 1.9
+    dot(waterWavePosition, waterFlowPerpendicular) *
+      waterScale * waterRiverFrequencyScale * 3.7 -
+    waterTime * waterLocalFlowSpeed * 1.9
   );
   waterSurfaceColor *= 0.975 + waterFlowSheen * 0.035 * waterRiverAmount;
 }
@@ -204,23 +253,44 @@ float waterGlint = waterSunSpecular * waterGlintBreakup *
   waterDetailWeight * uWaterGlintStrength;
 waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterGlint * 0.16);
 
+float waterPoolTint =
+  waterRiverAmount *
+  waterChannelCore *
+  smoothstep(1.05, 1.26, waterRiverDepthRatio);
+float waterRiffleTint =
+  waterRiverAmount *
+  waterChannelCore *
+  waterShallowEnergy *
+  waterEnergy01;
+waterSurfaceColor *=
+  1.0 - waterPoolTint * 0.03 +
+  waterRiffleTint * 0.02;
+
 float waterShoreBand =
   (1.0 - smoothstep(0.16, 0.66, waterCoverageRaw)) *
   smoothstep(0.025, 0.11, waterCoverageRaw);
 waterShoreBand *= 1.0 - smoothstep(0.28, 0.9, waterDepth);
 float waterRiverFoam = 0.0;
+float waterRiffleEnergy =
+  waterRiverAmount *
+  waterChannelCore *
+  waterDetailWeight *
+  waterShallowEnergy *
+  smoothstep(0.50, 0.86, waterEnergy01);
 if (waterRiverAmount > 0.02 && waterDetailWeight > 0.001) {
   float waterRifflePattern = 0.5 + 0.5 * sin(
     waterRiverPhaseA * 1.43 + sin(waterRiverPhaseB) * 0.86 +
     (waterFlowNoise.g - 0.5) * 2.2
   );
-  waterRiverFoam = smoothstep(0.82, 0.97, waterRifflePattern) *
-    waterRiverAmount * waterDetailWeight;
+  waterRiverFoam = smoothstep(0.82, 0.97, waterRifflePattern) * waterRiffleEnergy;
 }
 float waterStoneFoam = waterStoneActivity * (0.62 + waterFlowNoise.b * 0.38);
 float waterFoamAmount = saturate(
-  (waterShoreBand * 0.78 + waterRiverFoam * 0.16 + waterStoneFoam * 0.56) *
-  uWaterFoamStrength
+  (
+    waterShoreBand * uWaterShoreFoamWeight +
+    waterRiverFoam * uWaterRiffleFoamWeight +
+    waterStoneFoam * uWaterStoneFoamWeight
+  ) * uWaterFoamStrength
 );
 waterSurfaceColor = mix(waterSurfaceColor, uWaterFoam, waterFoamAmount);
 roughnessFactor = clamp(

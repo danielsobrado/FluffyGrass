@@ -1,5 +1,5 @@
 import { ECOLOGY_ROCK_SLOPE_START } from "../ecology/WorldEcologyTuning";
-import type { StoneArchetypeId } from "./StoneRecipe";
+import { STONE_ARCHETYPE_IDS, type StoneArchetypeId } from "./StoneRecipe";
 
 /**
  * Algorithm constants for macro stone geology.
@@ -29,22 +29,23 @@ export const STONE_CLUSTER_FAN_MIN_SLOPE = 0.08;
 export const STONE_CLUSTER_MEMBER_JITTER = 0.035;
 export const STONE_CLUSTER_FAN_MAX_LATERAL = 0.68;
 
-export const GOLDEN_ANGLE = 2.399963229728653;
-export const CLUSTER_MIN_SPACING_RATIO = 0.68;
-export const CLUSTER_INFLUENCE_SEPARATION_RATIO = 0.88;
-export const CLUSTER_PRIORITY_RANDOM_SHARE = 0.18;
-export const DOWNHILL_GRADIENT_MIN = 0.02;
-export const QUERY_EPSILON = 1e-6;
-
-export const RAW_CANDIDATE_CACHE_LIMIT = 512;
 export const STONE_CLUSTER_DESCRIPTOR_CACHE_LIMIT = 512;
 export const STONE_CLUSTER_RESOLVED_CACHE_LIMIT = 256;
 export const STONE_CLUSTER_CACHE_KEEP_RATIO = 0.6;
-
 export const STONE_CELL_MACRO_QUERY_COUNT = 9;
-export const STONE_CLUSTER_CONFLICT_NEIGHBOR_COUNT = 8;
+export const RAW_CANDIDATE_CACHE_LIMIT = 512;
+export const DESCRIPTOR_CACHE_LIMIT = 512;
+export const CLUSTER_MIN_SPACING_RATIO = 0.68;
+export const CLUSTER_INFLUENCE_SEPARATION_RATIO = 0.88;
+export const CLUSTER_PRIORITY_RANDOM_SHARE = 0.18;
+export const GOLDEN_ANGLE = 2.399963229728653;
+export const CONFLICT_NEIGHBOR_COUNT = 8;
+export const DOWNHILL_GRADIENT_EPSILON = 0.02;
+export const RIDGE_CONVEXITY_MIN = STONE_CLUSTER_RIDGE_CONVEXITY;
+export const FAN_CONVEXITY_MAX = STONE_CLUSTER_FAN_CONCAVITY;
+export const FAN_SLOPE_MIN = STONE_CLUSTER_FAN_MIN_SLOPE;
 
-export const MEMBER_LABELS: readonly string[] = [
+export const MEMBER_LABELS = [
   "member:0",
   "member:1",
   "member:2",
@@ -57,12 +58,12 @@ export const MEMBER_LABELS: readonly string[] = [
   "member:9",
   "member:10",
   "member:11",
-];
+] as const;
 
 export const ANCHOR_BIOME_MULTIPLIERS: readonly (readonly number[])[] = [
-  [0, 1.2, 1.15, 0.65, 0.15, 0.75],
-  [0, 1, 1.15, 1.05, 0.75, 0.95],
-  [0, 0.85, 1, 1.1, 1.2, 1.25],
+  [0.0, 1.2, 1.15, 0.65, 0.15, 0.75],
+  [0.0, 1.0, 1.15, 1.05, 0.75, 0.95],
+  [0.0, 0.85, 1.0, 1.1, 1.2, 1.25],
 ];
 
 export const SPLIT_CHANCE = 0.28;
@@ -74,6 +75,7 @@ export const OVERLAP_FOOTPRINT_FACTOR = 0.78;
 export const OVERLAP_PADDING = 0.12;
 export const OVERLAP_PUSH_EXTRA = 0.04;
 export const OVERLAP_COINCIDENT_EPSILON = 1e-6;
+export const CLUSTER_INFLUENCE_EPSILON = 1e-6;
 
 export const ROLE_YAW_EXTRA: Readonly<Record<StoneClusterRole, number>> = {
   anchor: 0,
@@ -140,8 +142,9 @@ export function smoothstep(
 }
 
 /**
- * Conservative normalized root reach for broad-phase and 3x3 coverage.
- * Fan has the widest lateral rule, and minorRadius never exceeds majorRadius.
+ * Fan/scree authored offsets can exceed the circular influence used for the
+ * 3x3 broad phase. Production influence stays `major * halo`; this helper is
+ * only for tests that need the unclamped ellipse envelope.
  */
 export function maxNormalizedReach(halo: number): number {
   return Math.hypot(
@@ -248,26 +251,6 @@ export function fillStoneCellMacroCoordinates(
   return STONE_CELL_MACRO_QUERY_COUNT;
 }
 
-export function fillConflictNeighborCoordinates(
-  gridX: number,
-  gridZ: number,
-  out: StoneMacroCoord[],
-): number {
-  let index = 0;
-  for (let dz = -1; dz <= 1; dz += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
-      if (dx === 0 && dz === 0) {
-        continue;
-      }
-      const slot = out[index] ?? (out[index] = { gridX: 0, gridZ: 0 });
-      slot.gridX = gridX + dx;
-      slot.gridZ = gridZ + dz;
-      index += 1;
-    }
-  }
-  return STONE_CLUSTER_CONFLICT_NEIGHBOR_COUNT;
-}
-
 export function clusterInfluenceIntersectsAabb(
   centerX: number,
   centerZ: number,
@@ -282,60 +265,41 @@ export function clusterInfluenceIntersectsAabb(
   return dx * dx + dz * dz <= influenceRadius * influenceRadius;
 }
 
-export function clusterMinimumSeparation(
-  spacing: number,
+export function clusterPointInsideInfluence(
+  centerX: number,
+  centerZ: number,
   influenceRadius: number,
-  neighborInfluenceRadius: number,
-): number {
-  return Math.max(
-    spacing * CLUSTER_MIN_SPACING_RATIO,
-    (influenceRadius + neighborInfluenceRadius) *
-      CLUSTER_INFLUENCE_SEPARATION_RATIO,
+  x: number,
+  z: number,
+): boolean {
+  const offsetX = x - centerX;
+  const offsetZ = z - centerZ;
+  return (
+    offsetX * offsetX + offsetZ * offsetZ <=
+    influenceRadius * influenceRadius
   );
 }
 
-export function pushOverlapOnce(
-  candidateX: number,
-  candidateZ: number,
-  candidateFootprint: number,
-  existingX: number,
-  existingZ: number,
-  existingFootprint: number,
-  outwardX: number,
-  outwardZ: number,
-): { x: number; z: number; moved: boolean } {
-  const offsetX = candidateX - existingX;
-  const offsetZ = candidateZ - existingZ;
-  const distanceSquared = offsetX * offsetX + offsetZ * offsetZ;
-  const minimum =
-    OVERLAP_FOOTPRINT_FACTOR * (candidateFootprint + existingFootprint) +
-    OVERLAP_PADDING;
-  if (distanceSquared >= minimum * minimum) {
-    return { x: candidateX, z: candidateZ, moved: false };
+export function clampClusterLocalToInfluence(
+  localU: number,
+  localV: number,
+  majorRadius: number,
+  minorRadius: number,
+  influenceRadius: number,
+): { u: number; v: number } {
+  const worldU = localU * majorRadius;
+  const worldV = localV * minorRadius;
+  const reach = Math.hypot(worldU, worldV);
+  const limit = Math.max(0, influenceRadius * (1 - CLUSTER_INFLUENCE_EPSILON));
+  if (!(reach > limit) || limit <= 0) {
+    return { u: localU, v: localV };
   }
-  let pushX = offsetX;
-  let pushZ = offsetZ;
-  let distance = Math.sqrt(distanceSquared);
-  if (distance <= OVERLAP_COINCIDENT_EPSILON) {
-    const outwardLength = Math.hypot(outwardX, outwardZ);
-    if (outwardLength > OVERLAP_COINCIDENT_EPSILON) {
-      pushX = outwardX / outwardLength;
-      pushZ = outwardZ / outwardLength;
-    } else {
-      pushX = 1;
-      pushZ = 0;
-    }
-    distance = 0;
-  } else {
-    pushX /= distance;
-    pushZ /= distance;
-  }
-  const needed = minimum - distance + OVERLAP_PUSH_EXTRA;
-  return {
-    x: candidateX + pushX * needed,
-    z: candidateZ + pushZ * needed,
-    moved: true,
-  };
+  const scale = limit / reach;
+  return { u: localU * scale, v: localV * scale };
+}
+
+export function stoneClusterMemberLabel(index: number): string {
+  return MEMBER_LABELS[index] ?? `member:${index}`;
 }
 
 export function clusterLocalToWorld(
@@ -371,5 +335,124 @@ export function clusterRadialWorld(
   return {
     x: dirX * (localU * majorRadius) + perpX * (localV * minorRadius),
     z: dirZ * (localU * majorRadius) + perpZ * (localV * minorRadius),
+  };
+}
+
+export function archetypeBiomeMultiplier(
+  archetype: StoneArchetypeId,
+  biomeIndex: number,
+): number {
+  const row = ANCHOR_BIOME_MULTIPLIERS[biomeIndex] ?? ANCHOR_BIOME_MULTIPLIERS[0];
+  const index = STONE_ARCHETYPE_IDS.indexOf(archetype);
+  return index >= 0 ? row[index] : 1;
+}
+
+export function clusterMinimumSeparation(
+  spacing: number,
+  influenceA: number,
+  influenceB: number,
+): number {
+  return Math.max(
+    spacing * CLUSTER_MIN_SPACING_RATIO,
+    (influenceA + influenceB) * CLUSTER_INFLUENCE_SEPARATION_RATIO,
+  );
+}
+
+export function clusterWinsConflict(
+  priority: number,
+  gridX: number,
+  gridZ: number,
+  otherPriority: number,
+  otherGridX: number,
+  otherGridZ: number,
+): boolean {
+  if (priority !== otherPriority) {
+    return priority > otherPriority;
+  }
+  if (gridX !== otherGridX) {
+    return gridX < otherGridX;
+  }
+  return gridZ < otherGridZ;
+}
+
+export function fillClusterConflictNeighbors(
+  gridX: number,
+  gridZ: number,
+  out: StoneMacroCoord[],
+): number {
+  let index = 0;
+  for (let dz = -1; dz <= 1; dz += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (dx === 0 && dz === 0) {
+        continue;
+      }
+      const slot = out[index] ?? (out[index] = { gridX: 0, gridZ: 0 });
+      slot.gridX = gridX + dx;
+      slot.gridZ = gridZ + dz;
+      index += 1;
+    }
+  }
+  return CONFLICT_NEIGHBOR_COUNT;
+}
+
+export function clusterEnvironmentMossBase(
+  height: number,
+  moisture: number,
+  exposure: number,
+  rockiness: number,
+  grassMinAltitude: number,
+  grassMaxAltitude: number,
+): number {
+  const altitudeFade =
+    smoothstep(height, grassMinAltitude - 4, grassMinAltitude + 10) *
+    (1 - smoothstep(height, grassMaxAltitude - 45, grassMaxAltitude + 5));
+  return clamp01(
+    smoothstep(moisture, 0.16, 0.72) *
+      lerp(1.12, 0.78, exposure) *
+      lerp(1.0, 0.72, rockiness) *
+      altitudeFade,
+  );
+}
+
+export function resolveOverlapPush(
+  x: number,
+  z: number,
+  existingX: number,
+  existingZ: number,
+  candidateFootprint: number,
+  existingFootprint: number,
+  radialX: number,
+  radialZ: number,
+  fallbackX: number,
+  fallbackZ: number,
+): { x: number; z: number } | undefined {
+  let pushX = x - existingX;
+  let pushZ = z - existingZ;
+  let length = Math.hypot(pushX, pushZ);
+  if (length < OVERLAP_COINCIDENT_EPSILON) {
+    pushX = radialX;
+    pushZ = radialZ;
+    length = Math.hypot(pushX, pushZ);
+    if (length < OVERLAP_COINCIDENT_EPSILON) {
+      pushX = fallbackX;
+      pushZ = fallbackZ;
+      length = Math.hypot(pushX, pushZ);
+      if (length < OVERLAP_COINCIDENT_EPSILON) {
+        return undefined;
+      }
+    }
+  }
+  const minimum =
+    OVERLAP_FOOTPRINT_FACTOR * (candidateFootprint + existingFootprint) +
+    OVERLAP_PADDING;
+  const current = Math.hypot(x - existingX, z - existingZ);
+  const needed = minimum - current + OVERLAP_PUSH_EXTRA;
+  if (!(needed > 0) || !(length > 0)) {
+    return undefined;
+  }
+  const inv = 1 / length;
+  return {
+    x: x + pushX * inv * needed,
+    z: z + pushZ * inv * needed,
   };
 }

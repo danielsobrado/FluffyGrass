@@ -17,10 +17,20 @@ import {
   WATER_BED_VERTEX_POSITION,
 } from "./WaterBedMaterialShader";
 
+export type WaterBedLiveVisuals = Pick<
+  WorldConfig,
+  | "waterBedStrength"
+  | "waterBedScale"
+  | "waterBedRefraction"
+  | "waterAlgaeStrength"
+  | "waterCausticStrength"
+>;
+
 export class WaterBedMaterialController {
   readonly material: THREE.MeshLambertMaterial;
   private readonly bedTexture: THREE.DataTexture;
   private readonly uniforms: Record<string, THREE.IUniform>;
+  private readonly detailScale: number;
 
   constructor(config: WorldConfig, compact = false) {
     this.bedTexture = createWaterBedTexture(
@@ -39,6 +49,7 @@ export class WaterBedMaterialController {
       polygonOffsetUnits: -1,
     });
     const detailScale = compact ? WATER_COMPACT_DETAIL_SCALE : 1;
+    this.detailScale = detailScale;
     this.uniforms = {
       uWaterTime: { value: 0 },
       uWaterBedNoise: { value: this.bedTexture },
@@ -48,6 +59,9 @@ export class WaterBedMaterialController {
       uWaterAlgaeStrength: { value: config.waterAlgaeStrength },
       uWaterCausticStrength: {
         value: config.waterCausticStrength * detailScale,
+      },
+      uWaterRiverReferenceDepth: {
+        value: config.riverDepth + config.waterSurfaceOffset,
       },
       uWaterPebbleDark: { value: WATER_PEBBLE_DARK_COLOR },
       uWaterPebbleLight: { value: WATER_PEBBLE_LIGHT_COLOR },
@@ -59,6 +73,15 @@ export class WaterBedMaterialController {
 
   update(elapsedSeconds: number): void {
     this.uniforms.uWaterTime.value = elapsedSeconds;
+  }
+
+  setLiveVisuals(visuals: WaterBedLiveVisuals): void {
+    this.uniforms.uWaterBedScale.value = visuals.waterBedScale;
+    this.uniforms.uWaterBedStrength.value = visuals.waterBedStrength;
+    this.uniforms.uWaterBedRefraction.value = visuals.waterBedRefraction;
+    this.uniforms.uWaterAlgaeStrength.value = visuals.waterAlgaeStrength;
+    this.uniforms.uWaterCausticStrength.value =
+      visuals.waterCausticStrength * this.detailScale;
   }
 
   dispose(): void {

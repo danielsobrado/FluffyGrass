@@ -172,6 +172,18 @@ try {
   );
   assertClose(gradient.gradientZ, 0, "A level river must shade level across z.");
 
+  const waterShaderSource = readFileSync(
+    resolve(REPOSITORY_ROOT, "src/world/hydrology/WaterShader.ts"),
+    "utf8",
+  );
+  assert(
+    waterShaderSource.includes("waterLocalFlowSpeed") &&
+      waterShaderSource.includes("waterRiverFrequencyScale") &&
+      waterShaderSource.includes("uWaterRiverPoolFlowScale") &&
+      waterShaderSource.includes("mix(uWaterFlowSpeed * 0.2, waterLocalFlowSpeed, waterRiverAmount)"),
+    "River visual flow must scale from existing coverage/depth rather than a new GPU channel.",
+  );
+
   console.log(
     "[water-flow] Downhill CPU wakes, coherent packed flow, budgeted interactions, and single-pass water verified.",
   );

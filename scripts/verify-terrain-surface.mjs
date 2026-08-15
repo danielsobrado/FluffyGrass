@@ -217,6 +217,13 @@ try {
       TERRAIN_DETAIL_COLOR.includes("terrainWaterProximity"),
     "Terrain environment channels must carry hydrology into wet-ground shading.",
   );
+  assert(
+    TERRAIN_DETAIL_COLOR.includes("shoreMud") &&
+      TERRAIN_DETAIL_COLOR.includes("shoreGravel") &&
+      TERRAIN_DETAIL_COLOR.includes("terrainBaseNoise") &&
+      TERRAIN_DETAIL_COLOR.includes("terrainMesoNoise"),
+    "Shore mud/gravel must be composed from existing terrain samples.",
+  );
   const microStart = rawConfig.grassUltraNearDistance;
   const microEnd = microStart + rawConfig.grassUltraNearTransitionDistance;
   assert(

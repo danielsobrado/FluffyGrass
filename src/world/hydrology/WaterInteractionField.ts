@@ -5,7 +5,16 @@ import type { HydrologySample } from "./HydrologyField";
 const STONE_INTERACTION_EXTRA_RADIUS = 0.75;
 const MIN_RIVER_WAKE_COVERAGE = 0.02;
 const WAKE_SAMPLE_COUNT = 3;
+const WAKE_START_STRENGTH = 0.85;
 const WAKE_END_STRENGTH = 0.55;
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
+}
 
 export interface WaterInteractionSample {
   obstacle: number;
@@ -38,10 +47,7 @@ export class WaterInteractionField {
       z,
       STONE_INTERACTION_EXTRA_RADIUS,
     );
-    target.obstacle = Math.max(
-      0,
-      Math.min(1, 1 - Math.min(stoneClearance, expandedClearance)),
-    );
+    target.obstacle = clamp01(1 - Math.min(stoneClearance, expandedClearance));
 
     if (
       this.config.waterStoneWakeStrength <= 0 ||
@@ -61,13 +67,15 @@ export class WaterInteractionField {
     for (let index = 1; index <= WAKE_SAMPLE_COUNT; index += 1) {
       const progress = index / WAKE_SAMPLE_COUNT;
       const distance = this.config.waterStoneWakeLength * progress;
+      const wakeRadius =
+        STONE_INTERACTION_EXTRA_RADIUS * (0.7 + progress * 0.8);
       const upstreamClearance = sampleStoneGrassClearance(
         x - flowX * distance,
         z - flowZ * distance,
-        STONE_INTERACTION_EXTRA_RADIUS,
+        wakeRadius,
       );
-      const upstreamObstacle = Math.max(0, Math.min(1, 1 - upstreamClearance));
-      const strength = 1 - (1 - WAKE_END_STRENGTH) * progress;
+      const upstreamObstacle = clamp01(1 - upstreamClearance);
+      const strength = lerp(WAKE_START_STRENGTH, WAKE_END_STRENGTH, progress);
       wake = Math.max(wake, upstreamObstacle * strength);
     }
 

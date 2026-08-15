@@ -1,14 +1,29 @@
 import type { WorldConfig } from "../WorldConfig";
+import {
+  RIVER_BANK_INCISION_SCALE,
+  RIVER_BASE_MAX_WIDTH_SCALE,
+  RIVER_BASE_MIN_WIDTH_SCALE,
+  RIVER_CHANNEL_DEPTH_SHARE,
+  RIVER_CHANNEL_INNER,
+  RIVER_CHANNEL_OUTER,
+  RIVER_DEPTH_EDGE_START,
+  RIVER_GLOBAL_MAX_WIDTH_SCALE,
+  RIVER_GLOBAL_MIN_WIDTH_SCALE,
+  RIVER_MORPH_MAX_ABS,
+  RIVER_MORPH_PRIMARY_WEIGHT,
+  RIVER_MORPH_SECONDARY_WEIGHT,
+  RIVER_SECONDARY_AMPLITUDE,
+  RIVER_SHELF_DEPTH_SHARE,
+  RIVER_SHELF_START,
+} from "./RiverTuning";
 
 const TWO_PI = Math.PI * 2;
 const RIVER_EDGE_FEATHER = 0.8;
 const RIVER_LOD_VISIBLE_EDGE_FACTOR = 0.75;
 const RIVER_ALTITUDE_FADE = 18;
-const RIVER_SECONDARY_AMPLITUDE = 0.3;
 const RIVER_LATERAL_OFFSET = 0.18;
-const RIVER_MIN_WIDTH_SCALE = 0.82;
 const RIVER_MAX_MEANDER_SCALE = 1.15;
-export const HYDROLOGY_RIVER_MAX_WIDTH_SCALE = 1.18;
+export const HYDROLOGY_RIVER_MAX_WIDTH_SCALE = RIVER_GLOBAL_MAX_WIDTH_SCALE;
 
 export interface RiverSample {
   coverage: number;
@@ -16,10 +31,28 @@ export interface RiverSample {
   proximity: number;
   flowX: number;
   flowZ: number;
+  morphology: number;
+  bend: number;
+  lateral: number;
+  localHalfWidth: number;
+  bedDepth: number;
+  incisionDepth: number;
 }
 
 export function createRiverSample(): RiverSample {
-  return { coverage: 0, bank: 0, proximity: 0, flowX: 0, flowZ: 0 };
+  return {
+    coverage: 0,
+    bank: 0,
+    proximity: 0,
+    flowX: 0,
+    flowZ: 0,
+    morphology: 0,
+    bend: 0,
+    lateral: 0,
+    localHalfWidth: 0,
+    bedDepth: 0,
+    incisionDepth: 0,
+  };
 }
 
 export function resolveHydrologyRiverMinimumSeparation(
@@ -36,7 +69,7 @@ export function resolveHydrologyRiverMinimumSeparation(
 
 export function resolveHydrologyRiverWetHalfWidth(config: WorldConfig): number {
   return (
-    config.riverWidth * HYDROLOGY_RIVER_MAX_WIDTH_SCALE * 0.5 +
+    config.riverWidth * RIVER_GLOBAL_MAX_WIDTH_SCALE * 0.5 +
     config.waterHumidityRadius
   );
 }
@@ -45,13 +78,17 @@ export function resolveHydrologyRiverMinimumVisibleHalfWidth(
   config: WorldConfig,
 ): number {
   return (
-    config.riverWidth * RIVER_MIN_WIDTH_SCALE * 0.5 +
+    config.riverWidth * RIVER_GLOBAL_MIN_WIDTH_SCALE * 0.5 +
     RIVER_EDGE_FEATHER * RIVER_LOD_VISIBLE_EDGE_FACTOR
   );
 }
 
 function lerp(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function smoothstep(value: number, minimum: number, maximum: number): number {
@@ -74,16 +111,19 @@ interface RiverLaneShape {
   phasePrimary: number;
   phaseSecondary: number;
   amplitude: number;
-  halfWidth: number;
+  baseHalfWidth: number;
   flowSign: number;
 }
 
 /** One lane evaluated at the sampled x, keeping the phases the winner needs. */
 interface RiverLane {
   shape: RiverLaneShape;
+  signedDistance: number;
   distance: number;
   primaryPhase: number;
   secondaryPhase: number;
+  primarySin: number;
+  secondarySin: number;
 }
 
 /** Power of two so the slot index is a mask away, and >= 2 so adjacent lanes fit. */
@@ -97,8 +137,20 @@ function createLaneShape(): RiverLaneShape {
     phasePrimary: 0,
     phaseSecondary: 0,
     amplitude: 0,
-    halfWidth: 0,
+    baseHalfWidth: 0,
     flowSign: 1,
+  };
+}
+
+function createLane(): RiverLane {
+  return {
+    shape: createLaneShape(),
+    signedDistance: 0,
+    distance: 0,
+    primaryPhase: 0,
+    secondaryPhase: 0,
+    primarySin: 0,
+    secondarySin: 0,
   };
 }
 
@@ -115,18 +167,8 @@ export class RiverField {
     { length: LANE_SHAPE_CACHE_SIZE },
     createLaneShape,
   );
-  private readonly laneA: RiverLane = {
-    shape: createLaneShape(),
-    distance: 0,
-    primaryPhase: 0,
-    secondaryPhase: 0,
-  };
-  private readonly laneB: RiverLane = {
-    shape: createLaneShape(),
-    distance: 0,
-    primaryPhase: 0,
-    secondaryPhase: 0,
-  };
+  private readonly laneA: RiverLane = createLane();
+  private readonly laneB: RiverLane = createLane();
 
   constructor(private readonly config: WorldConfig) {
     this.primaryFrequency = TWO_PI / (config.riverSpacing * 1.7);
@@ -144,40 +186,7 @@ export class RiverField {
     this.sampleLane(lowerIndex + 1, x, z, this.laneB);
     const lane =
       this.laneA.distance <= this.laneB.distance ? this.laneA : this.laneB;
-    const halfWidth = lane.shape.halfWidth;
-    const altitudeMask =
-      1 -
-      smoothstep(
-        height,
-        this.config.riverMaxAltitude - RIVER_ALTITUDE_FADE,
-        this.config.riverMaxAltitude,
-      );
-
-    target.coverage =
-      (1 -
-        smoothstep(
-          lane.distance,
-          Math.max(0, halfWidth - RIVER_EDGE_FEATHER),
-          halfWidth + RIVER_EDGE_FEATHER,
-        )) *
-      altitudeMask;
-    target.bank =
-      (1 -
-        smoothstep(
-          lane.distance,
-          halfWidth,
-          halfWidth + this.config.riverBankWidth,
-        )) *
-      altitudeMask;
-    target.proximity =
-      (1 -
-        smoothstep(
-          lane.distance,
-          halfWidth,
-          halfWidth + this.config.waterHumidityRadius,
-        )) *
-      altitudeMask;
-    this.resolveFlow(lane, target);
+    this.resolveSelectedLane(lane, height, target);
     return target;
   }
 
@@ -190,33 +199,140 @@ export class RiverField {
     const shape = this.resolveLaneShape(index);
     const primaryPhase = x * this.primaryFrequency + shape.phasePrimary;
     const secondaryPhase = x * this.secondaryFrequency + shape.phaseSecondary;
+    const primarySin = Math.sin(primaryPhase);
+    const secondarySin = Math.sin(secondaryPhase);
     const centerZ =
       shape.laneOffset +
-      Math.sin(primaryPhase) * shape.amplitude +
-      Math.sin(secondaryPhase) * shape.amplitude * RIVER_SECONDARY_AMPLITUDE;
+      primarySin * shape.amplitude +
+      secondarySin * shape.amplitude * RIVER_SECONDARY_AMPLITUDE;
+    const signedDistance = z - centerZ;
 
     target.shape = shape;
-    target.distance = Math.abs(z - centerZ);
+    target.signedDistance = signedDistance;
+    target.distance = Math.abs(signedDistance);
     target.primaryPhase = primaryPhase;
     target.secondaryPhase = secondaryPhase;
+    target.primarySin = primarySin;
+    target.secondarySin = secondarySin;
   }
 
-  /** Only the nearest lane contributes, so its tangent is resolved after the pick. */
-  private resolveFlow(lane: RiverLane, target: RiverSample): void {
+  /** Cosines, morphology, and the provisional tangent are selected-lane work. */
+  private resolveSelectedLane(
+    lane: RiverLane,
+    height: number,
+    target: RiverSample,
+  ): void {
     const amplitude = lane.shape.amplitude;
-    const derivative =
-      Math.cos(lane.primaryPhase) * amplitude * this.primaryFrequency +
-      Math.cos(lane.secondaryPhase) *
+    const primaryCos = Math.cos(lane.primaryPhase);
+    const secondaryCos = Math.cos(lane.secondaryPhase);
+    const morphologyRaw =
+      lane.primarySin * lane.secondarySin * RIVER_MORPH_PRIMARY_WEIGHT +
+      primaryCos * secondaryCos * RIVER_MORPH_SECONDARY_WEIGHT;
+    const morphology = clamp(morphologyRaw / RIVER_MORPH_MAX_ABS, -1, 1);
+
+    const firstDerivative =
+      primaryCos * amplitude * this.primaryFrequency +
+      secondaryCos *
         amplitude *
         RIVER_SECONDARY_AMPLITUDE *
         this.secondaryFrequency;
-    const flowSign = lane.shape.flowSign;
-    // The meander derivative is bounded well inside float range, so the plain
-    // tangent length is exact enough and far cheaper than Math.hypot.
-    const flowLength = Math.sqrt(1 + derivative * derivative);
+    const secondDerivative =
+      -lane.primarySin *
+        amplitude *
+        this.primaryFrequency *
+        this.primaryFrequency -
+      lane.secondarySin *
+        amplitude *
+        RIVER_SECONDARY_AMPLITUDE *
+        this.secondaryFrequency *
+        this.secondaryFrequency;
+    const secondDerivativeReference = Math.max(
+      1e-9,
+      amplitude *
+        (this.primaryFrequency * this.primaryFrequency +
+          RIVER_SECONDARY_AMPLITUDE *
+            this.secondaryFrequency *
+            this.secondaryFrequency),
+    );
+    const bend = clamp(secondDerivative / secondDerivativeReference, -1, 1);
 
-    target.flowX = flowSign / flowLength;
-    target.flowZ = (flowSign * derivative) / flowLength;
+    const side =
+      lane.signedDistance > 0 ? 1 : lane.signedDistance < 0 ? -1 : 0;
+    const morphologyWidth = 1 + this.config.riverWidthVariation * morphology;
+    const bendSide = bend * side;
+    const bendWidth = 1 + this.config.riverBendBankAsymmetry * bendSide;
+    const localHalfWidth =
+      lane.shape.baseHalfWidth * morphologyWidth * bendWidth;
+    const altitudeMask =
+      1 -
+      smoothstep(
+        height,
+        this.config.riverMaxAltitude - RIVER_ALTITUDE_FADE,
+        this.config.riverMaxAltitude,
+      );
+
+    target.coverage =
+      (1 -
+        smoothstep(
+          lane.distance,
+          Math.max(0, localHalfWidth - RIVER_EDGE_FEATHER),
+          localHalfWidth + RIVER_EDGE_FEATHER,
+        )) *
+      altitudeMask;
+    target.bank =
+      (1 -
+        smoothstep(
+          lane.distance,
+          localHalfWidth,
+          localHalfWidth + this.config.riverBankWidth,
+        )) *
+      altitudeMask;
+    target.proximity =
+      (1 -
+        smoothstep(
+          lane.distance,
+          localHalfWidth,
+          localHalfWidth + this.config.waterHumidityRadius,
+        )) *
+      altitudeMask;
+
+    const lateral = clamp(
+      lane.signedDistance / Math.max(localHalfWidth, 1e-6),
+      -1,
+      1,
+    );
+    const absLateral = Math.abs(lateral);
+    const channelCenter = -bend * this.config.riverBendChannelShift;
+    const edgeMask =
+      1 - smoothstep(absLateral, RIVER_DEPTH_EDGE_START, 1);
+    const shelf =
+      RIVER_SHELF_DEPTH_SHARE *
+      (1 - smoothstep(absLateral, RIVER_SHELF_START, 1));
+    const channelDistance = Math.abs(lateral - channelCenter);
+    const channel =
+      RIVER_CHANNEL_DEPTH_SHARE *
+      (1 -
+        smoothstep(channelDistance, RIVER_CHANNEL_INNER, RIVER_CHANNEL_OUTER));
+    const section = clamp((shelf + channel) * edgeMask, 0, 1);
+    const depthScale = 1 + this.config.riverDepthVariation * morphology;
+    const bedDepth =
+      this.config.riverDepth * section * depthScale * altitudeMask;
+    const shoulderIncision =
+      this.config.riverDepth *
+      RIVER_BANK_INCISION_SCALE *
+      target.bank *
+      (1 - target.coverage);
+
+    const tangentLength = Math.sqrt(1 + firstDerivative * firstDerivative);
+    const flowSign = lane.shape.flowSign;
+    target.flowX = flowSign / tangentLength;
+    target.flowZ = (flowSign * firstDerivative) / tangentLength;
+    target.morphology = morphology;
+    target.bend = bend;
+    target.lateral = lateral;
+    target.localHalfWidth = localHalfWidth;
+    target.bedDepth = bedDepth;
+    target.incisionDepth = bedDepth + shoulderIncision;
   }
 
   private resolveLaneShape(index: number): RiverLaneShape {
@@ -228,9 +344,9 @@ export class RiverField {
       (hash(index, seed + 1327) - 0.5) *
       this.config.riverSpacing *
       RIVER_LATERAL_OFFSET;
-    const widthScale = lerp(
-      RIVER_MIN_WIDTH_SCALE,
-      HYDROLOGY_RIVER_MAX_WIDTH_SCALE,
+    const baseWidthScale = lerp(
+      RIVER_BASE_MIN_WIDTH_SCALE,
+      RIVER_BASE_MAX_WIDTH_SCALE,
       hash(index, seed + 1361),
     );
 
@@ -241,7 +357,7 @@ export class RiverField {
     shape.amplitude =
       this.config.riverMeander *
       lerp(0.72, RIVER_MAX_MEANDER_SCALE, hash(index, seed + 1319));
-    shape.halfWidth = this.config.riverWidth * widthScale * 0.5;
+    shape.baseHalfWidth = this.config.riverWidth * baseWidthScale * 0.5;
     shape.flowSign = hash(index, seed + 1373) < 0.5 ? -1 : 1;
     return shape;
   }

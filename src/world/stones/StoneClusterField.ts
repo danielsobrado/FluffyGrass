@@ -25,16 +25,22 @@ import {
   classifyStoneClusterProcess,
   clamp,
   clamp01,
+  CLUSTER_PRIORITY_RANDOM_SHARE,
   clusterCacheKeepCount,
+  clusterEnvironmentMossBase,
   clusterGridKey,
+  clusterMinimumSeparation,
+  clusterWinsConflict,
   COMPACT_ASPECT_BLEND,
   COMPACT_DIRECTION_SPREAD,
+  DESCRIPTOR_CACHE_LIMIT,
+  DOWNHILL_GRADIENT_EPSILON,
   FAN_ASPECT_BLEND,
+  fillClusterConflictNeighbors,
   lerp,
-  maxNormalizedReach,
+  RAW_CANDIDATE_CACHE_LIMIT,
   SCREE_ASPECT_BLEND,
   smoothstep,
-  STONE_CLUSTER_DESCRIPTOR_CACHE_LIMIT,
   STONE_CLUSTER_DOMAIN,
   STONE_GEOLOGY_FINE_SEED_XOR,
   STONE_ROCK_SEED_XOR,
@@ -42,28 +48,29 @@ import {
   STRIKE_PERIOD,
   trimOldestCacheEntries,
   type StoneClusterProcess,
+  type StoneMacroCoord,
 } from "./StoneClusterTuning";
 
-/**
- * Macro geological lattice for world stones.
- *
- * One potential cluster per macro cell. The descriptor is a pure function of
- * coordinates and config: cache eviction may recompute, never rewrite, a
- * formation. Terrain and ecology are sampled once per uncached descriptor at
- * the jittered center.
- */
-
-export interface StoneClusterDescriptor {
+export interface StoneClusterCandidate {
   readonly gridX: number;
   readonly gridZ: number;
   readonly seed: number;
-  readonly active: boolean;
   readonly centerX: number;
   readonly centerZ: number;
   readonly height: number;
   readonly geologyPotential: number;
+  readonly moisture: number;
+  readonly fertility: number;
+  readonly exposure: number;
+  readonly disturbance: number;
   readonly surfaceRockiness: number;
+  readonly landformSlope: number;
+  readonly landformConvexity: number;
+  readonly landformGradientX: number;
+  readonly landformGradientZ: number;
   readonly suitability: number;
+  readonly rawActive: boolean;
+  readonly priority: number;
   readonly process: StoneClusterProcess;
   readonly strike: number;
   readonly direction: number;
@@ -74,26 +81,56 @@ export interface StoneClusterDescriptor {
   readonly biomeIndex: number;
   readonly paletteKey: StonePaletteKey;
   readonly valueBase: number;
+  readonly mossBase: number;
   readonly mossBias: number;
 }
 
+export interface StoneClusterDescriptor extends StoneClusterCandidate {
+  readonly active: boolean;
+}
+
+/**
+ * Macro geological lattice for world stones.
+ *
+ * Raw candidates are independent of neighbors. Final descriptors apply
+ * eight-neighbor conflict suppression. Terrain and ecology are sampled once
+ * per uncached raw candidate at the jittered center.
+ */
 export class StoneClusterField {
+  private readonly rawCandidates = new Map<string, StoneClusterCandidate>();
   private readonly descriptors = new Map<string, StoneClusterDescriptor>();
   private readonly rockSeed: number;
   private readonly landformScratch: TerrainLandform = createTerrainLandform();
   private readonly hydrologyScratch: HydrologySample = createHydrologySample();
   private readonly pathScratch = new THREE.Vector2();
   private readonly ecologyScratch: WorldEcologySample = createEcologySample();
-  private readonly normalScratch = new THREE.Vector3();
   private readonly biomeScratch = createGrassBiomeSample();
-  private readonly normalizedReach: number;
+  private readonly conflictScratch: StoneMacroCoord[] = [];
+  private readonly conflictNeighborX = new Int32Array(8);
+  private readonly conflictNeighborZ = new Int32Array(8);
 
   constructor(
     private readonly field: TerrainField,
     private readonly config: WorldConfig,
   ) {
     this.rockSeed = (config.seed ^ STONE_ROCK_SEED_XOR) >>> 0;
-    this.normalizedReach = maxNormalizedReach(config.stoneClusterHaloRatio);
+  }
+
+  getRawCandidate(gridX: number, gridZ: number): StoneClusterCandidate {
+    const key = clusterGridKey(gridX, gridZ);
+    const cached = this.rawCandidates.get(key);
+    if (cached) {
+      return cached;
+    }
+    const candidate = this.createRawCandidate(gridX, gridZ);
+    if (this.rawCandidates.size >= RAW_CANDIDATE_CACHE_LIMIT) {
+      trimOldestCacheEntries(
+        this.rawCandidates,
+        clusterCacheKeepCount(RAW_CANDIDATE_CACHE_LIMIT),
+      );
+    }
+    this.rawCandidates.set(key, candidate);
+    return candidate;
   }
 
   getDescriptor(gridX: number, gridZ: number): StoneClusterDescriptor {
@@ -102,21 +139,21 @@ export class StoneClusterField {
     if (cached) {
       return cached;
     }
-    const descriptor = this.createDescriptor(gridX, gridZ);
-    if (this.descriptors.size >= STONE_CLUSTER_DESCRIPTOR_CACHE_LIMIT) {
+    const raw = this.getRawCandidate(gridX, gridZ);
+    const descriptor: StoneClusterDescriptor = {
+      ...raw,
+      active: raw.rawActive && this.winsConflict(raw),
+    };
+    if (this.descriptors.size >= DESCRIPTOR_CACHE_LIMIT) {
       trimOldestCacheEntries(
         this.descriptors,
-        clusterCacheKeepCount(STONE_CLUSTER_DESCRIPTOR_CACHE_LIMIT),
+        clusterCacheKeepCount(DESCRIPTOR_CACHE_LIMIT),
       );
     }
     this.descriptors.set(key, descriptor);
     return descriptor;
   }
 
-  /**
-   * Underlying formation likelihood. Surface exposure is ecology.rockiness;
-   * this field only answers whether rock is likely in the substrate.
-   */
   sampleGeologyPotential(x: number, z: number): number {
     const coarse = this.valueNoise(x / 240, z / 240, this.rockSeed);
     const fine = this.valueNoise(
@@ -138,7 +175,58 @@ export class StoneClusterField {
     );
   }
 
-  private createDescriptor(gridX: number, gridZ: number): StoneClusterDescriptor {
+  private winsConflict(raw: StoneClusterCandidate): boolean {
+    const count = fillClusterConflictNeighbors(
+      raw.gridX,
+      raw.gridZ,
+      this.conflictScratch,
+    );
+    for (let index = 0; index < count; index += 1) {
+      const slot = this.conflictScratch[index];
+      this.conflictNeighborX[index] = slot.gridX;
+      this.conflictNeighborZ[index] = slot.gridZ;
+    }
+    const spacing = this.config.stoneClusterSpacing;
+    for (let index = 0; index < count; index += 1) {
+      const neighbor = this.getRawCandidate(
+        this.conflictNeighborX[index],
+        this.conflictNeighborZ[index],
+      );
+      if (!neighbor.rawActive) {
+        continue;
+      }
+      const distance = Math.hypot(
+        raw.centerX - neighbor.centerX,
+        raw.centerZ - neighbor.centerZ,
+      );
+      const minimum = clusterMinimumSeparation(
+        spacing,
+        raw.influenceRadius,
+        neighbor.influenceRadius,
+      );
+      if (distance >= minimum) {
+        continue;
+      }
+      if (
+        !clusterWinsConflict(
+          raw.priority,
+          raw.gridX,
+          raw.gridZ,
+          neighbor.priority,
+          neighbor.gridX,
+          neighbor.gridZ,
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private createRawCandidate(
+    gridX: number,
+    gridZ: number,
+  ): StoneClusterCandidate {
     const spacing = this.config.stoneClusterSpacing;
     const seed = hashStoneCell(
       gridX,
@@ -154,11 +242,10 @@ export class StoneClusterField {
 
     const geologyPotential = this.sampleGeologyPotential(centerX, centerZ);
     const height = this.field.sampleHeight(centerX, centerZ);
-    const landform = this.field.sampleLandform(
-      centerX,
-      centerZ,
-      this.landformScratch,
-    );
+    // Hydrology must run before landform. `sampleHeight` leaves a same-point
+    // carve cache that `sampleHydrology` consumes; landform lattice misses
+    // call `sampleHeight` at other points and would make moisture depend on
+    // whether those lattice cells were already memoized.
     const hydrology = this.field.sampleHydrology(
       centerX,
       centerZ,
@@ -170,40 +257,71 @@ export class StoneClusterField {
       centerZ,
       this.pathScratch,
     );
-    const ecology = this.field.resolveEcology(
+    const landform = this.field.sampleLandform(
       centerX,
       centerZ,
+      this.landformScratch,
+    );
+    const landformSnapshot: TerrainLandform = {
+      convexity: landform.convexity,
+      slope: landform.slope,
+      gradientX: landform.gradientX,
+      gradientZ: landform.gradientZ,
+    };
+    const ecology = this.field.resolveEcologyFromLandform(
       height,
+      landformSnapshot,
       hydrology,
       pathDistances,
       this.ecologyScratch,
     );
-    const biome = sampleGrassBiome(centerX, centerZ, this.biomeScratch);
-    const biomeIndex = Math.min(
-      pickGrassBiomeIndex(centerX, centerZ, biome),
-      BIOME_PALETTE.length - 1,
-    );
+    const moisture = ecology.moisture;
+    const fertility = ecology.fertility;
+    const exposure = ecology.exposure;
+    const disturbance = ecology.disturbance;
     const surfaceRockiness = ecology.rockiness;
-    const surfaceVisibility = 0.18 + 0.82 * surfaceRockiness;
-    const pathSurvival = 1 - 0.9 * ecology.disturbance;
+    const biome = sampleGrassBiome(centerX, centerZ, this.biomeScratch);
+    const biomeIndex = pickGrassBiomeIndex(centerX, centerZ, biome);
     const suitability = clamp01(
-      geologyPotential * surfaceVisibility * pathSurvival,
+      geologyPotential *
+        (0.18 + 0.82 * surfaceRockiness) *
+        (1 - 0.9 * disturbance),
     );
 
     const densityResponse =
-      1 - Math.exp(-this.config.stoneClusterDensityResponse * this.config.stoneDensity);
+      1 -
+      Math.exp(
+        -this.config.stoneClusterDensityResponse * this.config.stoneDensity,
+      );
     const suitabilityResponse = smoothstep(suitability, 0.14, 0.72);
-    const activationProbability =
-      this.config.stoneClusterChance * densityResponse * suitabilityResponse;
-    const active = rng.fork("activation").chance(activationProbability);
+    const rawActive = rng
+      .fork("activation")
+      .chance(
+        clamp01(
+          this.config.stoneClusterChance * densityResponse * suitabilityResponse,
+        ),
+      );
+    const priority =
+      suitability * (1 - CLUSTER_PRIORITY_RANDOM_SHARE) +
+      rng.fork("priority").next() * CLUSTER_PRIORITY_RANDOM_SHARE;
 
-    const process = classifyStoneClusterProcess(landform.slope, landform.convexity);
+    const process = classifyStoneClusterProcess(
+      landformSnapshot.slope,
+      landformSnapshot.convexity,
+    );
     const strike = this.sampleStrike(centerX, centerZ);
-    const normal = this.field.sampleNormal(centerX, centerZ, this.normalScratch);
-    const downhillAngle = Math.atan2(normal.z, normal.x);
+    const gradientLength = Math.hypot(
+      landformSnapshot.gradientX,
+      landformSnapshot.gradientZ,
+    );
+    const downhillAngle =
+      gradientLength >= DOWNHILL_GRADIENT_EPSILON
+        ? Math.atan2(-landformSnapshot.gradientZ, -landformSnapshot.gradientX)
+        : strike;
+    const directionJitter = rng.fork("direction").signed(COMPACT_DIRECTION_SPREAD);
     let direction: number;
     if (process === "compact") {
-      direction = strike + rng.fork("direction").signed(COMPACT_DIRECTION_SPREAD);
+      direction = strike + directionJitter;
     } else if (process === "ridge") {
       direction = strike;
     } else {
@@ -232,7 +350,7 @@ export class StoneClusterField {
       aspect = lerp(aspect, 0.88, FAN_ASPECT_BLEND);
     }
     const minorRadius = majorRadius * aspect;
-    const influenceRadius = majorRadius * this.normalizedReach;
+    const influenceRadius = majorRadius * this.config.stoneClusterHaloRatio;
 
     const budgetT = smoothstep(suitability, 0.25, 0.8);
     const budget = clamp(
@@ -247,14 +365,13 @@ export class StoneClusterField {
       this.config.stoneClusterBudgetMax,
     );
 
-    const valueBase = rng.fork("value").range(0.96, 1.03);
-    const mossBias = rng.fork("moss").range(0.88, 1.12);
-    let paletteKey = BIOME_PALETTE[biomeIndex];
-    if (
-      biomeIndex === 0 &&
-      surfaceRockiness < 0.35 &&
-      rng.fork("palette-mossy").chance(0.22)
-    ) {
+    const valueBase = rng.fork("value-base").range(0.97, 1.03);
+    const mossBias = rng.fork("moss-bias").range(0.9, 1.1);
+    const mossyHit = rng
+      .fork("mossy-palette")
+      .chance(clamp01(0.1 + moisture * 0.22 - exposure * 0.08));
+    let paletteKey = BIOME_PALETTE[biomeIndex] ?? BIOME_PALETTE[0];
+    if (paletteKey === "meadowSage" && moisture >= 0.42 && mossyHit) {
       paletteKey = "mossy";
     }
 
@@ -262,13 +379,22 @@ export class StoneClusterField {
       gridX,
       gridZ,
       seed,
-      active,
       centerX,
       centerZ,
       height,
       geologyPotential,
+      moisture,
+      fertility,
+      exposure,
+      disturbance,
       surfaceRockiness,
+      landformSlope: landformSnapshot.slope,
+      landformConvexity: landformSnapshot.convexity,
+      landformGradientX: landformSnapshot.gradientX,
+      landformGradientZ: landformSnapshot.gradientZ,
       suitability,
+      rawActive,
+      priority,
       process,
       strike,
       direction,
@@ -279,6 +405,14 @@ export class StoneClusterField {
       biomeIndex,
       paletteKey,
       valueBase,
+      mossBase: clusterEnvironmentMossBase(
+        height,
+        moisture,
+        exposure,
+        surfaceRockiness,
+        this.config.grassMinAltitude,
+        this.config.grassMaxAltitude,
+      ),
       mossBias,
     };
   }

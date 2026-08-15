@@ -5,6 +5,7 @@ import {
   resolveHydrologyRiverMinimumVisibleHalfWidth,
   resolveHydrologyRiverWetHalfWidth,
 } from "./RiverField";
+import { validateRiverWidthEnvelope } from "./RiverTuning";
 
 export function validateHydrologyConfig(config: WorldConfig): void {
   if (config.lakeRadiusMin > config.lakeRadiusMax) {
@@ -44,4 +45,8 @@ export function validateHydrologyConfig(config: WorldConfig): void {
   ) {
     throw new Error("waterSurfaceOffset must remain smaller than river and lake depth.");
   }
+  validateRiverWidthEnvelope(
+    config.riverWidthVariation,
+    config.riverBendBankAsymmetry,
+  );
 }

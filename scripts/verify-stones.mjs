@@ -11,6 +11,12 @@ const configSource = readFileSync(
   resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
   "utf8",
 );
+const baseline = JSON.parse(
+  readFileSync(
+    resolve(REPOSITORY_ROOT, "qa/stones/stone-performance-baseline.json"),
+    "utf8",
+  ),
+);
 
 const server = await createServer({
   configFile: false,
@@ -34,6 +40,15 @@ try {
   const growthVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneGrowthVerification.ts",
   );
+  const clusterVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneClusterVerification.ts",
+  );
+  const clusterPerformanceVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneClusterPerformanceVerification.ts",
+  );
+  const shaderVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneShaderPerformanceVerification.ts",
+  );
   const performanceVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneRenderPerformanceVerification.ts",
   );
@@ -47,13 +62,21 @@ try {
     configSource,
   );
   const growthSummary = growthVerification.verifyStoneGrowthField();
+  const clusterSummary = clusterVerification.verifyStoneClusters(configSource);
+  const clusterPerformanceSummary =
+    clusterPerformanceVerification.verifyStoneClusterPerformance(
+      configSource,
+      baseline,
+    );
+  const shaderSummary =
+    shaderVerification.verifyStoneShaderPerformance(configSource);
   const performanceSummary =
     performanceVerification.verifyStoneRenderPerformance(configSource);
   const systemPerformanceSummary =
     systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clusterSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);

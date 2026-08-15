@@ -56,8 +56,12 @@ assert(
     bedShader.includes("waterSampleRiverBed") &&
     bedShader.includes("waterBedCaustic") &&
     bedShader.includes("uWaterCausticStrength") &&
-    bedMaterial.includes("uWaterCausticStrength"),
-  "The bed pass must be the sole owner of cobbles, algae, and shallow caustics.",
+    bedMaterial.includes("uWaterCausticStrength") &&
+    bedFunctions.includes("bedRiffle") &&
+    bedFunctions.includes("fineDeposition") &&
+    bedShader.includes("uWaterRiverReferenceDepth") &&
+    bedMaterial.includes("uWaterRiverReferenceDepth"),
+  "The bed pass must own cobbles, algae, caustics, and depth-driven composition.",
 );
 assert(
   bedMaterial.includes("transparent: false") &&
@@ -83,6 +87,22 @@ assert(
     waterShader.includes("waterViewDiff") &&
     bedShader.includes("waterBedViewDiff"),
   "Water and bed shaders must guard against zero-length vector normalizations.",
+);
+assert(
+  waterShader.includes("uWaterFlowNoise") &&
+    waterMaterial.includes("uWaterFlowNoise") &&
+    !waterShader.includes("uWaterRiverNoise") &&
+    !waterMaterial.includes("uWaterRiverNoise"),
+  "Surface water must keep its existing flow-noise sampler and must not add a river noise map.",
+);
+assert(
+  waterShader.includes("waterLocalFlowSpeed") &&
+    waterShader.includes("waterRiffleEnergy") &&
+    waterShader.includes("uWaterShoreFoamWeight") &&
+    waterShader.includes("waterPoolTint") &&
+    waterMaterial.includes("uWaterRiverReferenceDepth") &&
+    waterMaterial.includes("forceSinglePass = true"),
+  "Local river energy, foam hierarchy, and restrained tint must stay on the existing surface pass.",
 );
 assert(
   tuning.includes("WATER_MATERIAL_CACHE_KEY") &&

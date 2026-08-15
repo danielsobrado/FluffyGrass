@@ -13,6 +13,37 @@ export interface WorldVisualPose {
 
 const LOOK_HEIGHT = 1.15;
 
+export type RiverTuningLandmark =
+  | "pool"
+  | "riffle"
+  | "straight"
+  | "insideBend"
+  | "outsideBend"
+  | "wetBank"
+  | "stoneWake";
+
+export function createRiverTuningPose(
+  locations: WorldVisualLocations,
+  landmark: RiverTuningLandmark,
+): WorldVisualPose {
+  switch (landmark) {
+    case "pool":
+      return grazingAlongFlow("qa-river-pool", locations.riverPool, true, 12, 1.5);
+    case "riffle":
+      return alongFlow("qa-river-riffle", locations.riverRiffle, false, 11, 1.6);
+    case "straight":
+      return acrossChannel("qa-river-straight", locations.riverStraight, 8, 1.8);
+    case "insideBend":
+      return acrossChannel("qa-river-inside", locations.riverInsideBend, 7.5, 1.7);
+    case "outsideBend":
+      return acrossChannel("qa-river-outside", locations.riverOutsideBend, 7.5, 1.7);
+    case "wetBank":
+      return look("qa-river-wet-bank", locations.wetBank, 5.5, 1.6, 0.7, 0.35);
+    case "stoneWake":
+      return alongFlow("qa-river-stone-wake", locations.stoneWake, true, 6.5, 1.8);
+  }
+}
+
 export function createWorldVisualPoses(
   locations: WorldVisualLocations,
 ): WorldVisualPose[] {
@@ -53,6 +84,13 @@ export function createWorldVisualPoses(
     alongSun("w0-away-from-sun", locations.riverShallow, true, 11, 1.7),
     alongFlow("w0-upstream", locations.riverMedium, false, 10, 1.9),
     alongFlow("w0-downstream", locations.riverMedium, true, 10, 1.9),
+    topDown("w0-river-pool-topdown", locations.riverPool, 8),
+    grazingAlongFlow("w0-river-pool-grazing", locations.riverPool, true, 12, 1.5),
+    topDown("w0-river-riffle-topdown", locations.riverRiffle, 7),
+    alongFlow("w0-river-riffle-upstream", locations.riverRiffle, false, 11, 1.6),
+    acrossChannel("w0-river-inside-bend", locations.riverInsideBend, 7.5, 1.7),
+    acrossChannel("w0-river-outside-bend", locations.riverOutsideBend, 7.5, 1.7),
+    acrossChannel("w0-river-straight-cross", locations.riverStraight, 8, 1.8),
     look("w13-character-in-front", locations.shore, 5.2, 1.85, 0.95, 0.05),
     look("w13-character-submerged", locations.waistDeep, 4.8, 1.7, 0.8, 0.2),
     topDown("w13-cape-over-bed", locations.kneeDeep, 4.2),
@@ -146,4 +184,26 @@ function alongFlow(
   const dirZ = length > 1e-4 ? point.flowZ / length : 0.63;
   const sign = downstream ? 1 : -1;
   return look(name, point, distance, height, dirX * sign, dirZ * sign);
+}
+
+function grazingAlongFlow(
+  name: string,
+  point: WorldVisualPoint,
+  downstream: boolean,
+  distance: number,
+  height: number,
+): WorldVisualPose {
+  return alongFlow(name, point, downstream, distance, height);
+}
+
+function acrossChannel(
+  name: string,
+  point: WorldVisualPoint,
+  distance: number,
+  height: number,
+): WorldVisualPose {
+  const length = Math.hypot(point.flowX, point.flowZ);
+  const dirX = length > 1e-4 ? -point.flowZ / length : -0.63;
+  const dirZ = length > 1e-4 ? point.flowX / length : 0.78;
+  return look(name, point, distance, height, dirX, dirZ);
 }
