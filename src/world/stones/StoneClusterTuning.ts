@@ -33,6 +33,10 @@ export const STONE_CLUSTER_DESCRIPTOR_CACHE_LIMIT = 512;
 export const STONE_CLUSTER_RESOLVED_CACHE_LIMIT = 256;
 export const STONE_CLUSTER_CACHE_KEEP_RATIO = 0.6;
 export const STONE_CELL_MACRO_QUERY_COUNT = 9;
+export const STONE_CELL_SOURCE_MARGIN = 1;
+/** Packed lattice keys stay unique for indices in ±16383. */
+export const LATTICE_KEY_OFFSET = 16384;
+export const LATTICE_KEY_STRIDE = 32768;
 export const RAW_CANDIDATE_CACHE_LIMIT = 512;
 export const DESCRIPTOR_CACHE_LIMIT = 512;
 export const CLUSTER_MIN_SPACING_RATIO = 0.68;
@@ -171,6 +175,22 @@ export function trimOldestCacheEntries<K, V>(
 
 export function clusterGridKey(gridX: number, gridZ: number): string {
   return `${gridX}:${gridZ}`;
+}
+
+export function packLatticeKey(x: number, z: number): number {
+  return (z + LATTICE_KEY_OFFSET) * LATTICE_KEY_STRIDE + (x + LATTICE_KEY_OFFSET);
+}
+
+export function stoneSourceCellCacheLimit(
+  radiusChunks: number,
+  chunkSize: number,
+  cellSize: number,
+  margin: number = STONE_CELL_SOURCE_MARGIN,
+): number {
+  const ringChunks = 2 * radiusChunks + 1;
+  const cellsPerChunkAxis = chunkSize / cellSize;
+  const cellsAxis = ringChunks * cellsPerChunkAxis + 2 * margin;
+  return cellsAxis * cellsAxis;
 }
 
 export function classifyStoneClusterProcess(

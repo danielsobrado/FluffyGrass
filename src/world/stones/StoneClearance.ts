@@ -65,7 +65,11 @@ export function sampleStoneGrassClearance(
   x: number,
   z: number,
   extraRadius = 0,
+  field?: StoneField,
 ): number {
-  if (activeCache) return activeCache.sample(x, z, extraRadius);
-  return activeField ? activeField.sampleGrassClearance(x, z, extraRadius) : 1;
+  if (activeCache && (!field || field === activeField)) {
+    return activeCache.sample(x, z, extraRadius);
+  }
+  const source = field ?? activeField;
+  return source ? source.sampleGrassClearance(x, z, extraRadius) : 1;
 }

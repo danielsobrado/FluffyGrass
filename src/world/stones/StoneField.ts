@@ -21,7 +21,6 @@ import {
 import {
   clamp01,
   clusterCacheKeepCount,
-  clusterGridKey,
   clusterInfluenceIntersectsAabb,
   clusterLocalToWorld,
   clusterPointInsideInfluence,
@@ -30,6 +29,7 @@ import {
   lerp,
   OVERLAP_FOOTPRINT_FACTOR,
   OVERLAP_PADDING,
+  packLatticeKey,
   resolveOverlapPush,
   singletonProbability,
   smoothstep,
@@ -37,8 +37,10 @@ import {
   SPLIT_GAP_MAX,
   SPLIT_GAP_MIN,
   STONE_CELL_DOMAIN,
+  STONE_CELL_SOURCE_MARGIN,
   STONE_CLUSTER_RESOLVED_CACHE_LIMIT,
   stoneClusterMemberLabel,
+  stoneSourceCellCacheLimit,
   trimOldestCacheEntries,
   type StoneClusterRole,
   type StoneMacroCoord,
@@ -131,10 +133,7 @@ interface AcceptedMember {
   localV: number;
 }
 
-const CELL_CACHE_LIMIT = 640;
-const CELL_CACHE_TRIM = 384;
-/** Generated verge stones may cross one source-cell edge. */
-const CHUNK_SOURCE_CELL_MARGIN = 1;
+const CHUNK_SOURCE_CELL_MARGIN = STONE_CELL_SOURCE_MARGIN;
 /** Below this scale a stone nestles into grass instead of clearing it. */
 const CLEAR_SCALE_CUTOFF = 0.5;
 /** Slope gates on the terrain normal's Y component. */
@@ -156,12 +155,14 @@ const EMPTY_RESOLVED: StoneResolvedCluster = {
 
 export class StoneField {
   private readonly cellSize: number;
-  private readonly cells = new Map<string, StoneInstance[]>();
-  private readonly cellSingletons = new Map<string, number>();
-  private readonly resolvedClusters = new Map<string, StoneResolvedCluster>();
+  private readonly cellCacheLimit: number;
+  private readonly cells = new Map<number, StoneInstance[]>();
+  private readonly cellSingletons = new Map<number, number>();
+  private readonly resolvedClusters = new Map<number, StoneResolvedCluster>();
   private readonly variants = new Map<string, StoneMeshData>();
   private readonly normalScratch = new THREE.Vector3();
   private readonly pathScratch = new THREE.Vector2();
+  private readonly tangentScratch = { x: 0, z: 0 };
   private readonly macroScratch: StoneMacroCoord[] = [];
   private readonly clusterField: StoneClusterField;
   private readonly composition: StoneClusterComposition;
@@ -172,9 +173,18 @@ export class StoneField {
     private readonly config: WorldConfig,
   ) {
     this.cellSize = config.stoneCellSize;
+    this.cellCacheLimit = stoneSourceCellCacheLimit(
+      config.stoneRadiusDesktop,
+      config.chunkSize,
+      config.stoneCellSize,
+    );
     this.enabled = config.stonesEnabled >= 1;
     this.clusterField = new StoneClusterField(field, config);
     this.composition = new StoneClusterComposition(config);
+  }
+
+  getCellCacheLimit(): number {
+    return this.cellCacheLimit;
   }
 
   getClusterField(): StoneClusterField {
@@ -186,7 +196,7 @@ export class StoneField {
   }
 
   getResolvedCluster(gridX: number, gridZ: number): StoneResolvedCluster {
-    const key = clusterGridKey(gridX, gridZ);
+    const key = packLatticeKey(gridX, gridZ);
     const cached = this.resolvedClusters.get(key);
     if (cached) {
       return cached;
@@ -374,7 +384,7 @@ export class StoneField {
     for (let cellZ = firstCellZ; cellZ <= lastCellZ; cellZ += 1) {
       for (let cellX = firstCellX; cellX <= lastCellX; cellX += 1) {
         this.getCellInstances(cellX, cellZ);
-        summary.singletons += this.cellSingletons.get(`${cellX}:${cellZ}`) ?? 0;
+        summary.singletons += this.cellSingletons.get(packLatticeKey(cellX, cellZ)) ?? 0;
       }
     }
     return summary;
@@ -417,17 +427,17 @@ export class StoneField {
   }
 
   private getCellInstances(cellX: number, cellZ: number): StoneInstance[] {
-    const key = `${cellX}:${cellZ}`;
+    const key = packLatticeKey(cellX, cellZ);
     const cached = this.cells.get(key);
     if (cached) {
       return cached;
     }
     const instances = this.generateCell(cellX, cellZ);
-    if (this.cells.size >= CELL_CACHE_LIMIT) {
+    if (this.cells.size >= this.cellCacheLimit) {
       for (const staleKey of this.cells.keys()) {
         this.cells.delete(staleKey);
         this.cellSingletons.delete(staleKey);
-        if (this.cells.size <= CELL_CACHE_TRIM) {
+        if (this.cells.size < this.cellCacheLimit) {
           break;
         }
       }
@@ -448,7 +458,7 @@ export class StoneField {
     const minZ = originZ;
     const maxX = originX + this.cellSize;
     const maxZ = originZ + this.cellSize;
-    const cellKey = `${cellX}:${cellZ}`;
+    const cellKey = packLatticeKey(cellX, cellZ);
 
     const halfWorld = this.config.worldSize * 0.5;
     if (
@@ -942,15 +952,13 @@ export class StoneField {
     ) {
       return;
     }
-    const centerTangent = this.samplePathTangent(centerX, centerZ);
-    if (!centerTangent) {
-      return;
-    }
-
     const ecology = this.field.sampleEcologyAt(centerX, centerZ, centerHeight);
     const regionalStonePotential =
       0.45 * geologyPotential + 0.55 * ecology.rockiness;
     const attempts = random.integer(1, VERGE_MAX_PER_CELL);
+    let alongX = 0;
+    let alongZ = 0;
+    let haveCenterTangent = false;
     for (let index = 0; index < attempts; index += 1) {
       const attempt = random.fork(`verge:${index}`);
       if (
@@ -960,9 +968,17 @@ export class StoneField {
       ) {
         continue;
       }
+      if (!haveCenterTangent) {
+        if (!this.samplePathTangent(centerX, centerZ)) {
+          return;
+        }
+        alongX = this.tangentScratch.x;
+        alongZ = this.tangentScratch.z;
+        haveCenterTangent = true;
+      }
       const along = attempt.range(-0.5, 0.5) * this.cellSize;
-      const sampleX = centerX + centerTangent.x * along;
-      const sampleZ = centerZ + centerTangent.z * along;
+      const sampleX = centerX + alongX * along;
+      const sampleZ = centerZ + alongZ * along;
       const height = this.field.sampleHeight(sampleX, sampleZ);
       if (this.field.samplePathVisibility(height) <= 0.05) {
         continue;
@@ -975,12 +991,11 @@ export class StoneField {
       ) {
         continue;
       }
-      const tangent = this.samplePathTangent(sampleX, sampleZ);
-      if (!tangent) {
+      if (!this.samplePathTangent(sampleX, sampleZ)) {
         continue;
       }
-      const acrossX = tangent.z;
-      const acrossZ = -tangent.x;
+      const acrossX = this.tangentScratch.z;
+      const acrossZ = -this.tangentScratch.x;
       const side = distance >= 0 ? 1 : -1;
       const archetype: StoneArchetypeId = attempt.chance(0.55)
         ? "pebble"
@@ -1016,8 +1031,8 @@ export class StoneField {
         if (!stepTangent) {
           break;
         }
-        stepAcrossX = stepTangent.z;
-        stepAcrossZ = -stepTangent.x;
+        stepAcrossX = this.tangentScratch.z;
+        stepAcrossZ = -this.tangentScratch.x;
       }
       const landed = Math.abs(currentDistance);
       const bandMin = clearance + footprint + 0.05;
@@ -1080,10 +1095,7 @@ export class StoneField {
     }
   }
 
-  private samplePathTangent(
-    x: number,
-    z: number,
-  ): { x: number; z: number } | undefined {
+  private samplePathTangent(x: number, z: number): boolean {
     const step = 0.6;
     this.field.samplePathDistances(x + step, z, this.pathScratch);
     const east = this.pathScratch.x;
@@ -1097,9 +1109,11 @@ export class StoneField {
     const gradientZ = (north - south) / (2 * step);
     const length = Math.hypot(gradientX, gradientZ);
     if (!(length > 1e-4)) {
-      return undefined;
+      return false;
     }
-    return { x: -gradientZ / length, z: gradientX / length };
+    this.tangentScratch.x = -gradientZ / length;
+    this.tangentScratch.z = gradientX / length;
+    return true;
   }
 
   private samplePlacement(
@@ -1117,7 +1131,7 @@ export class StoneField {
       }
     | undefined {
     const height = this.field.sampleHeight(x, z);
-    const normal = this.field.sampleNormal(x, z, this.normalScratch).clone();
+    const normal = this.field.sampleNormal(x, z, this.normalScratch);
     if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }

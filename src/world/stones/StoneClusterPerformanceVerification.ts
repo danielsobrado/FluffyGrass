@@ -1,6 +1,7 @@
 import { TerrainField } from "../TerrainField";
 import { WorldConfigLoader } from "../WorldConfigLoader";
 import { StoneField } from "./StoneField";
+import { stoneSourceCellCacheLimit } from "./StoneClusterTuning";
 
 export interface StonePerformanceBaseline {
   readonly seed: number;
@@ -76,6 +77,15 @@ export function verifyStoneClusterPerformance(
   );
   const terrain = new TerrainField(config);
   const stones = new StoneField(terrain, config);
+  assert(
+    stones.getCellCacheLimit() >=
+      stoneSourceCellCacheLimit(
+        config.stoneRadiusDesktop,
+        config.chunkSize,
+        config.stoneCellSize,
+      ),
+    "Cell cache is smaller than the desktop source-cell ring.",
+  );
   const metrics = collectMetrics(stones, baseline.chunkMin, baseline.chunkMax);
   assert(
     metrics.includeSmallRoots <= baseline.includeSmallRoots,
@@ -93,10 +103,9 @@ export function verifyStoneClusterPerformance(
     metrics.coarseTrianglePotential <= baseline.coarseTrianglePotential,
     `coarseTrianglePotential rose from ${baseline.coarseTrianglePotential} to ${metrics.coarseTrianglePotential}.`,
   );
-  const localCap = baseline.maxRootsInChunk + config.stoneClusterBudgetMax;
   assert(
-    metrics.maxRootsInChunk <= localCap,
-    `maxRootsInChunk ${metrics.maxRootsInChunk} exceeded ${localCap}.`,
+    metrics.maxRootsInChunk <= baseline.maxRootsInChunk,
+    `maxRootsInChunk ${metrics.maxRootsInChunk} exceeded ${baseline.maxRootsInChunk}.`,
   );
   return (
     `roots ${metrics.includeSmallRoots}/${metrics.farRoots} · ` +

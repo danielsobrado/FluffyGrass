@@ -464,3 +464,46 @@ export class StoneClusterField {
     return lower + (upper - lower) * weightZ;
   }
 }
+
+function quietCandidate(
+  gridX: number,
+  gridZ: number,
+  seed: number,
+  centerX: number,
+  centerZ: number,
+  geologyPotential: number,
+): StoneClusterCandidate {
+  return {
+    gridX,
+    gridZ,
+    seed,
+    centerX,
+    centerZ,
+    height: 0,
+    geologyPotential,
+    moisture: 0,
+    fertility: 0,
+    exposure: 0,
+    disturbance: 0,
+    surfaceRockiness: 0,
+    landformSlope: 0,
+    landformConvexity: 0,
+    landformGradientX: 0,
+    landformGradientZ: 0,
+    suitability: 0,
+    rawActive: false,
+    priority: 0,
+    process: "compact",
+    strike: 0,
+    direction: 0,
+    majorRadius: 0,
+    minorRadius: 0,
+    influenceRadius: 0,
+    budget: 0,
+    biomeIndex: 0,
+    paletteKey: BIOME_PALETTE[0],
+    valueBase: 1,
+    mossBase: 0,
+    mossBias: 1,
+  };
+}

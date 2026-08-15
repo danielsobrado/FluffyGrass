@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { StoneField } from "./stones/StoneField";
+import { sampleStoneGrassClearance } from "./stones/StoneClearance";
 import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
 
@@ -203,12 +204,14 @@ export class DenseSpawnLocator {
           height,
           clearanceRadius,
         );
-        const stoneClearance =
-          this.stones?.sampleGrassClearance(
-            candidateX,
-            candidateZ,
-            clearanceRadius,
-          ) ?? 1;
+        const stoneClearance = this.stones
+          ? sampleStoneGrassClearance(
+              candidateX,
+              candidateZ,
+              clearanceRadius,
+              this.stones,
+            )
+          : 1;
         const clearance = Math.min(pathClearance, stoneClearance);
         if (clearance <= 0.5) {
           continue;

@@ -14,6 +14,7 @@ import {
   DESCRIPTOR_CACHE_LIMIT,
   MEMBER_LABELS,
   RAW_CANDIDATE_CACHE_LIMIT,
+  classifyStoneClusterProcess,
   clampClusterLocalToInfluence,
   clusterInfluenceIntersectsAabb,
   clusterLocalToWorld,
@@ -22,8 +23,11 @@ import {
   fillClusterConflictNeighbors,
   fillStoneCellMacroCoordinates,
   maxNormalizedReach,
+  packLatticeKey,
   resolveOverlapPush,
   STONE_CELL_MACRO_QUERY_COUNT,
+  STONE_CELL_SOURCE_MARGIN,
+  stoneSourceCellCacheLimit,
   type StoneClusterProcess,
   type StoneMacroCoord,
 } from "./StoneClusterTuning";
@@ -401,9 +405,33 @@ export function verifyStoneClusters(configSource: string): string {
   const processSeen = new Set<StoneClusterProcess>();
   let activeCount = 0;
   let splitChecked = false;
+  let quietMacros = 0;
   visitDomain(PRIMARY_MIN, PRIMARY_MAX, (gridX, gridZ) => {
     const descriptor = first.clusters.getDescriptor(gridX, gridZ);
-    processSeen.add(descriptor.process);
+    if (descriptor.geologyPotential <= 0) {
+      quietMacros += 1;
+      assert(!descriptor.rawActive, `Quiet macro ${gridX}:${gridZ} activated.`);
+      assert(
+        descriptor.majorRadius === 0 && descriptor.influenceRadius === 0,
+        `Quiet macro ${gridX}:${gridZ} still built radii.`,
+      );
+    } else {
+      processSeen.add(descriptor.process);
+      assert(
+        descriptor.process ===
+          classifyStoneClusterProcess(
+            descriptor.landformSlope,
+            descriptor.landformConvexity,
+          ),
+        `Process drifted from landform at ${gridX}:${gridZ}.`,
+      );
+      if (!descriptor.rawActive) {
+        assert(
+          descriptor.majorRadius === 0,
+          `Inactive macro ${gridX}:${gridZ} still built radii.`,
+        );
+      }
+    }
     if (!descriptor.active) {
       return;
     }
@@ -524,6 +552,21 @@ export function verifyStoneClusters(configSource: string): string {
     assert(processSeen.has(process), `Missing process ${process} in the primary domain.`);
   }
   assert(activeCount > 0, "Primary domain produced no active formations.");
+  assert(quietMacros > 0, "Primary domain produced no quiet macros for the geology early-out.");
+  assert(
+    first.stones.getCellCacheLimit() >=
+      stoneSourceCellCacheLimit(
+        config.stoneRadiusDesktop,
+        config.chunkSize,
+        config.stoneCellSize,
+        STONE_CELL_SOURCE_MARGIN,
+      ),
+    "Cell cache is smaller than the desktop source-cell ring.",
+  );
+  assert(
+    packLatticeKey(2, -5) !== packLatticeKey(-5, 2),
+    "Packed lattice keys collided for swapped coordinates.",
+  );
   if (!splitChecked) {
     let sample: StoneClusterDescriptor | undefined;
     visitDomain(PRIMARY_MIN, PRIMARY_MAX, (gridX, gridZ) => {
