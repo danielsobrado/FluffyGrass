@@ -3,58 +3,65 @@
 ## Status
 
 - Target branch: `main`
-- Target: current FluffyGrass PoC detail-foliage system
-- Scope: small bushes, flowers, ferns, broadleaf plants, seed heads, clustered distribution, ecological placement, deterministic tuning, and performance protection
-- Renderer: preserve the existing detail-foliage atlas/material/instancing architecture
-- Runtime dependencies: no new dependencies
-- Deployment: manual GitHub Pages deployment; no GitHub Actions
+- Scope: small bushes, flowers, ferns, broadleaf plants, seed heads, clustered distribution, ecology, deterministic tuning, verification, and performance protection
+- Renderer: preserve the current atlas/material/instancing architecture
+- Runtime dependencies: none added
+- Deployment: manual GitHub Pages only; no GitHub Actions
 - Principles: KISS, SOLID, deterministic, bounded, allocation-light, configuration-backed, build-time composition only
 
-This is the final implementation specification. During implementation, do not redesign the system unless a deterministic verifier or a concrete rendering defect proves that one of these decisions is invalid.
+This is the implementation specification. Do not redesign it during implementation unless a deterministic verifier, profiling result, or concrete visual defect proves a decision invalid.
 
 ---
 
 # Objective
 
-Make the existing detail-foliage layer read like small authored plant communities rather than an even decorative scatter.
+Make the detail-foliage layer read as small authored plant communities rather than an even decorative scatter.
 
 Target hierarchy:
 
 ```text
 glade
-    -> colony
-        -> clump
-            -> individual plant
+  -> colony
+      -> clump
+          -> individual plant
 ```
 
 Target rhythm:
 
 ```text
 quiet grass
-    -> coherent daisy pocket
-    -> quiet grass
-    -> fern/broadleaf pocket beside stone
-    -> occasional low-shrub anchor
-    -> quiet grass
-    -> sparse seed-head pocket
+  -> coherent daisy pocket
+  -> quiet grass
+  -> fern/broadleaf pocket beside stone
+  -> occasional low-shrub anchor
+  -> quiet grass
+  -> sparse seed-head pocket
 ```
 
-The visual improvement must come from:
+The improvement must come from:
 
 1. negative space;
-2. correlated local families;
-3. coherent local flower color;
-4. genuinely different silhouettes;
+2. correlated local plant families;
+3. coherent local flower tint;
+4. clearly different silhouettes;
 5. ecological agreement;
-6. subtle age/height hierarchy;
-7. fewer unrelated accents, not more cards.
+6. subtle internal age/height hierarchy;
+7. fewer unrelated accents, not more rendered cards.
 
-## Non-goals
+## Important interpretation
+
+A visually dense colony is dense **relative to its surrounding quiet space**. This implementation never raises a candidate's survival probability above the current baseline. Saved cards are not literally redistributed into colony cores.
+
+That is deliberate: composition should improve while workload stays equal or lower.
+
+---
+
+# Non-Goals
 
 Do not:
 
-- add 3D shrub meshes in this phase;
-- increase the detail-foliage render radius;
+- add 3D shrub meshes;
+- increase detail-foliage render radius;
 - add shadows to accents;
 - add another material;
 - add another runtime texture;
@@ -62,17 +69,16 @@ Do not:
 - add instance attributes for colony data;
 - use Poisson-disc placement;
 - use neighbor searches;
-- use physics or relaxation;
+- use physics or iterative relaxation;
 - add per-frame colony/ecology work;
-- add foliage interaction/trail bending;
-- add more flower colors before distribution is proven;
-- increase production density above the current 0.35 cards/m².
+- add foliage trail interaction;
+- add new flower colors before distribution is proven;
+- increase production density above 0.35 cards/m²;
+- widen analytical bounds to accommodate the new plants.
 
 ---
 
-# Current Baseline to Preserve
-
-The current implementation already has the correct cheap rendering architecture:
+# Current Renderer Contract to Preserve
 
 ```text
 tile size                         16 m
@@ -81,7 +87,7 @@ candidates per full tile          90
 detail fade midpoint              27 m
 detail fade half-width            3 m
 visibility radius                 32 m
-card topology                     one upright yaw billboard
+card topology                     upright yaw billboard
 card geometry                     6 vertices / 4 triangles
 species slots                     8
 phenotype rows                    2
@@ -93,7 +99,7 @@ detail tiles built per frame      1
 normal per-frame distribution     none
 ```
 
-Important correction: the accent geometry is **not a crossed-card bush mesh**. It is one upright yaw billboard made from two stacked quads sharing the middle row. Shrub and broadleaf art must therefore read correctly from silhouette on that billboard.
+The accent geometry is one upright yaw billboard formed by two stacked quads sharing the middle row. It is not a crossed-card bush mesh. New shrub/rosette art must therefore read correctly from silhouette on that single billboard.
 
 Current reviewed workload reference:
 
@@ -105,40 +111,41 @@ reviewed detail draws              <= 22
 reviewed detail vertices           <= 12,420
 ```
 
-These are workload references, not timing promises.
+These are deterministic workload references, not timing promises.
 
 ---
 
 # Final Architecture Decisions
 
-1. Keep `WorldDetailFoliageMaterial` as the only detail-foliage material.
+1. `WorldDetailFoliageMaterial` remains the only detail-foliage material.
 2. Keep one procedural atlas.
 3. Keep exactly eight species columns.
 4. Keep exactly two phenotype rows.
-5. Keep the six-vertex billboard geometry.
+5. Keep six-vertex cards.
 6. Keep 16 m tiles.
-7. Keep the current fade and visibility distances.
+7. Keep current fade/visibility distances.
 8. Keep `castShadow = false` and `receiveShadow = false`.
-9. Keep the existing quality-governor accent density multiplier.
-10. Keep existing hard terrain/path/stone placement rejection.
-11. Add colony/composition only inside tile construction.
+9. Keep the current quality-governor accent density multiplier.
+10. Keep existing hard terrain/path/stone rejection.
+11. Colony/composition runs only during tile construction.
 12. Keep the existing stratified candidate grid.
 13. Add two continuous world-space distribution fields: macro colony + local clump.
-14. Use continuous macro channels for colony family/tint/maturity.
-15. Use one stable candidate identity hash for all individual decisions.
+14. Macro field also provides spatially correlated family/tint/maturity channels.
+15. Use one stable candidate identity hash for individual decisions.
 16. Separate candidate-position randomness from appearance/acceptance randomness.
 17. Resolve species/tint indices once when biome profiles load.
-18. Keep production art controls in flat `world.yaml`.
-19. Keep species/tint weights in `GrassBiomeProfiles.json`.
-20. Keep species habitat meaning in TypeScript constants.
-21. Use the existing diagnostics-only native DOM tuning pattern.
-22. Invalidate/rebuild detail tiles only after a tuning value is committed.
-23. Rebuild at the existing one-tile-per-frame rate.
-24. Density is tuned last and may go down, never above 0.35 in this phase.
+18. Put production art controls in flat `world.yaml`.
+19. Keep biome species/tint weights in `GrassBiomeProfiles.json`.
+20. Keep species habitat semantics in TypeScript constants.
+21. Use the current diagnostics-only native DOM tuning style.
+22. Rebuild detail tiles only after a tuning value is committed.
+23. Rebuild at the existing one-tile-per-frame budget.
+24. Density is tuned last and may only stay equal or decrease.
+25. `colonyStrength` is the master control for all new spatial correlation, not only density suppression.
 
 ---
 
-# Non-Negotiable Performance Contract
+# Performance Contract
 
 ```text
 new normal-frame distribution work                 0
@@ -161,7 +168,7 @@ average rendered detail cards                      <= previous same-pose baselin
 
 ## New candidate-loop work
 
-Only after the candidate has survived the existing cheap terrain/path/stone gates:
+Only after existing cheap terrain/path/stone gates pass:
 
 ```text
 continuous distribution fields                     2
@@ -175,9 +182,9 @@ new neighbor queries                               0
 new allocations introduced by colony logic         0
 ```
 
-The one candidate identity hash replaces multiple independent per-purpose world-position hashes. Its integer value is scrambled into separate channels.
+Channel scrambling from an already-computed hash is allowed and is not a new world-position hash.
 
-Existing candidate storage allocations in `WorldDetailFoliageField` are not part of this task. Do not add more allocations to them, but do not widen scope by rewriting the whole tile buffer system unless profiling later proves it useful.
+Do not rewrite the whole existing candidate buffer system as part of this work.
 
 ---
 
@@ -192,19 +199,17 @@ GRASS_MAX_ACCENT_SPECIES = 8;
 Use exactly:
 
 ```text
-index 0  grass-tuft
-index 1  low-shrub              replaces tall-tuft
-index 2  fern
-index 3  small-fern
-index 4  daisy
-index 5  round-bloom
-index 6  seed-head
-index 7  broadleaf-rosette      replaces sprig
+0  grass-tuft
+1  low-shrub              replaces tall-tuft
+2  fern
+3  small-fern
+4  daisy
+5  round-bloom
+6  seed-head
+7  broadleaf-rosette      replaces sprig
 ```
 
-## Accent categories
-
-Change the source-only semantic union to:
+## Categories
 
 ```ts
 export type GrassAccentCategory =
@@ -216,81 +221,67 @@ export type GrassAccentCategory =
   | "seed";
 ```
 
-This has no shader cost.
+No shader impact.
 
-## Exact starting species definitions
-
-Keep existing definitions for grass-tuft, fern, small-fern, daisy, round-bloom, and seed-head.
-
-Use these initial definitions for the two replacements:
+## Starting replacement definitions
 
 ```text
 low-shrub
     category               shrub
-    aspect                 1.10
+    aspect                 1.20
     windWeight             0.35
-    canopyHeightBand       [0.76, 1.18]
+    canopyHeightBand       [0.62, 0.98]
 
 broadleaf-rosette
     category               broadleaf
-    aspect                 1.15
+    aspect                 1.10
     windWeight             0.42
-    canopyHeightBand       [0.66, 0.92]
+    canopyHeightBand       [0.52, 0.78]
 ```
 
-These are initial art values. The menu does not tune species geometry; change them only after atlas/world visual QA.
+Do not tune these through the diagnostics menu.
 
 ## Bounds invariants
 
-The current catalogue maximums are:
+Keep catalogue ceilings at or below the current maxima:
 
 ```text
-maximum canopy-height multiplier    1.72
-maximum canopy-width multiplier     1.314
+maximum canopy-height multiplier    <= 1.72
+maximum canopy-width multiplier     <= 1.314
 ```
 
-The replacements above remain below both:
+The replacements remain below them:
 
 ```text
-low-shrub width ceiling             1.18 * 1.10 = 1.298
-broadleaf width ceiling             0.92 * 1.15 = 1.058
+low-shrub width ceiling             0.98 * 1.20 = 1.176
+broadleaf width ceiling             0.78 * 1.10 = 0.858
 ```
 
-Therefore the new species must not increase `WorldDetailFoliageFactory` analytical bounds.
-
-Add a verifier that fails if either catalogue maximum becomes greater than:
-
-```text
-height multiplier > 1.72
-width multiplier  > 1.314
-```
-
-Do not enlarge the bounds to accommodate this work.
+Do not enlarge culling bounds for this work.
 
 ---
 
 # Deterministic Randomness Model
 
-The current builder uses one tile `SeededRandom` for both candidate jitter and accepted-card appearance. Because accepted candidates consume extra PRNG values, changing an acceptance rule can shift the PRNG stream and move later candidate positions.
+## Problem being fixed
 
-That is bad for tuning and A/B comparison.
+The current tile `SeededRandom` is used for both candidate positions and accepted-card appearance. Rejections consume a different number of draws, which can move later candidate positions after a tuning change.
 
-Fix it as part of this implementation.
+That makes A/B tuning noisy.
 
 ## Position stream
 
-`WorldDetailFoliageField.ts` keeps one tile-seeded `SeededRandom` used **only** for stratified candidate x/z jitter.
+In `WorldDetailFoliageField.ts`, keep a tile-seeded `SeededRandom` named `positionRandom`.
 
-For every candidate, regardless of later rejection, consume exactly:
+For every requested candidate, regardless of rejection, consume exactly:
 
 ```text
 1 draw for x jitter
 1 draw for z jitter
 ```
 
-Never use that PRNG for:
+Never use this PRNG for:
 
-- height;
 - species;
 - tint;
 - phenotype;
@@ -298,51 +289,32 @@ Never use that PRNG for:
 - yaw;
 - wind;
 - AO;
+- height;
 - acceptance.
 
-Result: with the same density, candidate locations do not move when colony/ecology/tint parameters change.
+At unchanged density, candidate coordinates must not move when composition settings change.
 
 ## Candidate identity
 
-For each candidate after x/z is known:
+After x/z is known:
 
 ```text
 qx = round(x * 100)
 qz = round(z * 100)
-candidateHash = hashInt2(qx, qz, worldSeed ^ CANDIDATE_SALT)
+candidateHash = detailFoliageHashInt2(
+    qx,
+    qz,
+    worldSeed ^ CANDIDATE_SALT
+)
 ```
 
-One-centimetre quantization matches the existing world-position hash convention and is much finer than the candidate spacing.
+One-centimetre quantization is far finer than candidate spacing and matches the current style of world-position hashing.
 
-All individual scalar rolls are derived from `candidateHash` with fixed channel salts.
+All individual random channels come from this one hash.
 
-Examples:
+## New file: `src/world/grass/DetailFoliageRandom.ts`
 
-```text
-biome density roll
-distribution keep roll
-dominant/companion decision
-companion weighted-pick roll
-tint coherence decision
-individual tint roll
-height roll
-individual maturity roll
-phenotype row roll
-yaw roll
-dither roll
-wind roll
-AO micro-variation roll
-```
-
-Do not compute a fresh world-position hash for every one of these.
-
-## New pure helper
-
-Add:
-
-`src/world/grass/DetailFoliageRandom.ts`
-
-Responsibilities only:
+Provide:
 
 ```ts
 export function detailFoliageHashInt2(
@@ -364,12 +336,10 @@ export function detailFoliageChannel01(
 ): number;
 ```
 
-No Three.js. No PRNG object. No config.
-
 Use:
 
 ```ts
-function detailFoliageHashInt2(
+export function detailFoliageHashInt2(
   x: number,
   z: number,
   seed: number,
@@ -379,20 +349,10 @@ function detailFoliageHashInt2(
   return (value ^ (value >>> 16)) >>> 0;
 }
 
-function detailFoliagePositionHash(
-  x: number,
-  z: number,
-  seed: number,
+export function detailFoliageChannel01(
+  hash: number,
   salt: number,
 ): number {
-  return detailFoliageHashInt2(
-    Math.round(x * 100),
-    Math.round(z * 100),
-    (seed ^ salt) >>> 0,
-  );
-}
-
-function detailFoliageChannel01(hash: number, salt: number): number {
   let value = hash ^ salt;
   value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
   value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
@@ -401,49 +361,15 @@ function detailFoliageChannel01(hash: number, salt: number): number {
 }
 ```
 
-Source salts are identity constants, not YAML art controls.
-
-Use these candidate domains so implementation does not invent them ad hoc:
-
-```ts
-const CANDIDATE_SALT = 0x517cc1b7;
-const BIOME_DENSITY_CHANNEL_SALT = 0xa24baed5;
-const DISTRIBUTION_KEEP_CHANNEL_SALT = 0x9fb21c65;
-const DOMINANT_DECISION_SALT = 0x68e31da4;
-const COMPANION_PICK_SALT = 0xb5297a4d;
-const TINT_COHERENCE_SALT = 0x1b56c4e9;
-const TINT_PICK_SALT = 0xd3a2646c;
-const HEIGHT_SALT = 0xfd7046c5;
-const INDIVIDUAL_MATURITY_SALT = 0xb55a4f09;
-const PHENOTYPE_SALT = 0x7f4a7c15;
-const YAW_SALT = 0x94d049bb;
-const DITHER_SALT = 0x369dea0f;
-const WIND_SALT = 0xdb4f0b91;
-const AO_SALT = 0xbb67ae85;
-```
-
-Keep the current tile-position seed domain for `positionRandom`; only its *usage* changes. This minimizes unrelated world-layout change while removing acceptance-dependent PRNG consumption.
-
-Once shipped, changing these salts intentionally changes world identity and must update the golden deterministic digest.
+Source salts are identity/version constants, not YAML controls.
 
 ---
 
 # Exact Distribution Algorithm
 
-## New file
+## New file: `src/world/grass/WorldDetailFoliageDistribution.ts`
 
-`src/world/grass/WorldDetailFoliageDistribution.ts`
-
-Own only continuous spatial composition.
-
-Must not import:
-
-- Three.js;
-- renderer/material classes;
-- terrain;
-- hydrology;
-- ecology;
-- tile coordinates.
+No Three.js, terrain, hydrology, ecology, or tile-coordinate imports.
 
 ## API
 
@@ -463,9 +389,7 @@ export function createDetailFoliageDistributionSample():
 
 export class WorldDetailFoliageDistribution {
   constructor(seed: number, tuning: DetailFoliageTuning);
-
   setTuning(tuning: DetailFoliageTuning): void;
-
   sample(
     x: number,
     z: number,
@@ -476,9 +400,7 @@ export class WorldDetailFoliageDistribution {
 
 `sample()` allocates nothing.
 
-## Fixed domains
-
-Use two hash domains:
+## Hash domains
 
 ```ts
 const COLONY_SALT = 0x6d2b79f5;
@@ -494,35 +416,31 @@ const CHANNEL_CLUMP_SALT = 0x165667b1;
 Use:
 
 ```text
-colony lattice seed = worldSeed ^ COLONY_SALT
-clump lattice seed  = worldSeed ^ CLUMP_SALT
+macro seed = worldSeed ^ COLONY_SALT
+clump seed = worldSeed ^ CLUMP_SALT
 ```
 
 ## Multi-channel macro field
 
-At each of the four macro lattice corners:
+At four macro lattice corners:
 
-1. call `detailFoliageHashInt2()` once;
-2. derive four channels from that integer:
-   - presence;
-   - family;
-   - tint;
-   - maturity.
+1. call `detailFoliageHashInt2()` once per corner;
+2. derive presence, family, tint, maturity using channel salts.
 
-Do not run four separate value-noise fields.
+At four clump lattice corners:
 
-At each of the four clump lattice corners:
+1. call `detailFoliageHashInt2()` once per corner;
+2. derive the clump channel.
 
-1. call `detailFoliageHashInt2()` once;
-2. derive only the clump channel.
-
-Total lattice-coordinate hashes per sample:
+Total lattice-coordinate hashes:
 
 ```text
 4 macro + 4 clump = 8
 ```
 
-## Value-noise interpolation
+Do not create separate noise fields for family/tint/maturity.
+
+## Value interpolation
 
 For field size `S`:
 
@@ -536,42 +454,36 @@ fz = v - iz
 
 wx = fx² * (3 - 2fx)
 wz = fz² * (3 - 2fz)
-```
 
-For each channel:
-
-```text
 lower = lerp(c00, c10, wx)
 upper = lerp(c01, c11, wx)
 value = lerp(lower, upper, wz)
 ```
 
-No sine noise. No extra octave. No texture.
+No additional octave, sine noise, or texture.
 
-## Production starting scales
+## Starting scales
 
-Use:
-
-```text
+```yaml
 detailFoliageColonyWorldSize: 11
 detailFoliageClumpWorldSize: 2.25
 ```
 
-The macro scale is deliberately larger than the previous 9 m proposal. At the current ~30 m visible radius, 11 m gives fewer, more legible communities instead of many small procedural patches.
+11 m is intentional: at a ~30 m visible radius it produces a few legible communities instead of many small patches.
 
 ## Shape equations
 
 Let:
 
 ```text
-M = macro presence channel
+M = macro presence
 C = clump channel
 Q = quietZoneThreshold
 S = colonyStrength
 B = backgroundSuppression
 ```
 
-Use exactly:
+Use:
 
 ```text
 macroBand = smoothstep(Q, min(1, Q + 0.40), M)
@@ -591,36 +503,52 @@ keepMultiplier =
     mix(1, structuredKeep, S)
 ```
 
-Clamp final outputs to `[0,1]`.
+Clamp outputs to `[0,1]`.
 
 Set:
 
 ```text
-sample.colony        = macroBand
-sample.clump         = clumpBand
-sample.core          = core
-sample.keepMultiplier= keepMultiplier
-sample.familyRoll    = interpolated macro family channel
-sample.tintRoll      = interpolated macro tint channel
-sample.maturityRoll  = interpolated macro maturity channel
+sample.colony         = macroBand
+sample.clump          = clumpBand
+sample.core           = core
+sample.keepMultiplier = keepMultiplier
+sample.familyRoll     = macro family channel
+sample.tintRoll       = macro tint channel
+sample.maturityRoll   = macro maturity channel
 ```
 
-Properties:
+## Master-correlation rule
 
-- `S = 0` disables the new distribution suppression;
-- `keepMultiplier <= 1`, so the new layer can only remove candidates;
-- quiet areas still retain rare survivors;
-- clump detail changes local density inside macro colonies;
-- family/tint/maturity remain spatially correlated;
-- no tile coordinate can create a seam.
+`colonyStrength` controls all new spatial correlation.
+
+Therefore later algorithms must use:
+
+```text
+correlation = clamp01(tuning.colonyStrength)
+```
+
+for:
+
+- dominant-family probability;
+- tint-family coherence;
+- spatial maturity contribution;
+- core height bias.
+
+At `colonyStrength = 0`:
+
+- `keepMultiplier = 1`;
+- dominant-family correlation = 0;
+- colony tint coherence contribution = 0;
+- macro maturity contribution = 0;
+- core height shift = 0.
+
+This gives the menu one predictable master off-switch for the new composition model.
 
 ---
 
 # Exact Candidate Pipeline
 
-## File
-
-`src/world/grass/WorldDetailFoliageField.ts`
+## File: `src/world/grass/WorldDetailFoliageField.ts`
 
 Keep the existing stratified grid.
 
@@ -645,46 +573,46 @@ requested = 90
 
 ## Required order
 
-For each candidate:
+For each requested candidate:
 
 ```text
-1   consume exactly two position-PRNG values for x/z
-2   calculate height
-3   grass suitability without slope
-4   reject if below MIN_SUITABILITY
-5   sample path mask
+1   consume x/z from positionRandom
+2   sample terrain height
+3   sample grass suitability without slope
+4   reject below MIN_SUITABILITY
+5   sample path grass mask
 6   reject hard path core
-7   sample stone clearance
+7   sample stone grass-clearance mask
 8   reject hard stone clearance
 9   sample normal
-10  calculate complete grass suitability
-11  reject if below MIN_SUITABILITY
+10  compute complete suitability
+11  reject below MIN_SUITABILITY
 12  sample biome/profile
 13  sample existing ecology once
 14  fill existing reusable GrassHabitatSample
 15  reject existing accentChance minimum
 16  compute candidateHash once
-17  apply existing biome accentDensity gate using candidateHash channel
+17  apply biome accentDensity gate using candidate hash channel
 18  distribution.sample(x, z)
-19  apply distribution keep gate using candidateHash channel
-20  resolve species/tint with affinity module
+19  apply distribution keep gate
+20  resolve species/tint through affinity module
 21  resolve height inside species band
-22  resolve mature/young phenotype
-23  resolve yaw/dither/wind/AO from candidateHash channels
+22  resolve phenotype row
+23  resolve yaw/dither/wind/AO from candidate hash channels
 24  write existing matrix and packed instance metadata
 ```
 
-Do not:
+Do not sample distribution before hard placement gates.
 
-- call distribution before the hard placement gates;
-- resample ecology;
-- create a new random generator per candidate;
-- use the position PRNG after step 1;
-- add candidate neighbor checks.
+Do not resample ecology.
+
+Do not instantiate a PRNG per candidate.
+
+Do not use `positionRandom` after step 1.
+
+Do not query neighbors.
 
 ## Biome-density gate
-
-Replace the current dedicated world-position hash with a candidate channel:
 
 ```text
 biomeDensityRoll =
@@ -694,9 +622,7 @@ if biomeDensityRoll >= profile.accentDensity:
     reject
 ```
 
-This preserves the same behavior while avoiding another world-position hash.
-
-## Distribution keep gate
+## Distribution gate
 
 ```text
 keepRoll =
@@ -706,21 +632,15 @@ if keepRoll >= distribution.keepMultiplier:
     reject
 ```
 
-This gate only removes candidates.
+Because `keepMultiplier <= 1`, the new composition can only reduce card count.
 
 ---
 
 # Biome Profile Runtime Resolution
 
-## File
+## File: `src/grass/biome/GrassBiomeProfile.ts`
 
-`src/grass/biome/GrassBiomeProfile.ts`
-
-The JSON authoring shape and runtime shape should be separate.
-
-Do not add resolved numeric fields directly to a literal default type that is also used as source data.
-
-Use an internal/source shape:
+Separate authoring/source shape from resolved runtime shape.
 
 ```ts
 interface GrassBiomeAccentSpeciesSource {
@@ -728,11 +648,7 @@ interface GrassBiomeAccentSpeciesSource {
   tint?: string;
   weight: number;
 }
-```
 
-Runtime shape:
-
-```ts
 export interface GrassBiomeAccentSpecies {
   species: string;
   speciesIndex: number;
@@ -742,31 +658,21 @@ export interface GrassBiomeAccentSpecies {
 }
 ```
 
-Rename the fallback to make its role obvious:
+Rename fallback source data:
 
 ```text
 DEFAULT_ACCENT_SPECIES_SOURCE
 ```
 
-Route both JSON entries and fallback entries through the same resolution function.
+Route JSON and fallback entries through one resolver:
 
-Add a deterministic build-cost ceiling:
-
-```ts
-export const GRASS_MAX_ACCENT_PROFILE_ENTRIES = 16;
-```
-
-Reject any biome `accentSpecies` array longer than 16. The proposed meadow list has 13 entries, so this leaves art headroom while bounding the repeated weighted scans.
-
-For each source entry:
-
-1. validate species string;
-2. resolve `findGrassAccentSpecies()`;
+1. validate species;
+2. resolve species index;
 3. fail if absent;
 4. validate tint;
-5. resolve tint row once;
-6. validate weight;
-7. freeze the resolved runtime object.
+5. resolve tint row;
+6. validate positive finite weight;
+7. freeze the resolved runtime entry.
 
 After this change, candidate loops must not call:
 
@@ -775,30 +681,15 @@ GRASS_ACCENT_SPECIES.find(...)
 resolveGrassAccentTintRow(...)
 ```
 
-Profile loading does those lookups once.
-
 ---
 
-# Exact Affinity and Selection Algorithm
+# Exact Affinity Algorithm
 
-## New file
+## New file: `src/world/grass/DetailFoliageAffinity.ts`
 
-`src/world/grass/DetailFoliageAffinity.ts`
+No renderer imports and no candidate-loop allocations.
 
-Responsibilities:
-
-- species habitat scoring;
-- edge weighting;
-- dominant colony entry;
-- dominant-vs-companion decision;
-- companion selection;
-- flower tint resolution.
-
-No renderer imports. No allocations in the hot selection functions.
-
-## Output target
-
-Use a reusable target, not a newly allocated `{ speciesIndex, tintRow }` on every candidate:
+## Output
 
 ```ts
 export interface DetailFoliageSelection {
@@ -822,10 +713,6 @@ export function resolveDetailFoliageSelection(
 ): boolean;
 ```
 
-Return `false` only if no legal positive-weight selection is possible.
-
-The factory owns one reused `DetailFoliageSelection`.
-
 ## Preference helper
 
 ```ts
@@ -838,7 +725,7 @@ function preference(
 }
 ```
 
-## Exact habitat score
+## Habitat score
 
 Importance weights:
 
@@ -851,7 +738,7 @@ disturbance    1.2
 sum            4.6
 ```
 
-For species habitat target/tolerance values:
+Targets use `target/tolerance`:
 
 | Species | Moisture | Fertility | Exposure | Rockiness | Disturbance |
 | --- | --- | --- | --- | --- | --- |
@@ -876,76 +763,65 @@ raw =
     pref(disturbance) * 1.2
   ) / 4.6
 
-habitatScore =
-    0.15 + 0.85 * raw
+habitatScore = 0.15 + 0.85 * raw
 ```
 
 The 0.15 floor prevents ecological hard walls.
 
-Do not add species-specific importance weights in the first implementation. The target/tolerance table is enough and keeps the system understandable.
-
-## Ecology weighting
-
-For every profile accent entry:
+For every accent profile entry:
 
 ```text
-ecologyAdjustedWeight =
+weight =
     entry.weight *
-    mix(
-      1,
-      habitatScore(species, ecology),
-      tuning.ecologyStrength
-    )
+    mix(1, habitatScore, tuning.ecologyStrength)
 ```
 
-## Path/stone fringe signals
+## Edge signals
 
-Hard masks remain authoritative.
+Current masks are grass-clearance masks: approximately 0 inside the excluded core and 1 on fully clear ground.
 
-After hard rejection:
+Only after the hard rejection has passed:
 
 ```text
 pathFringe  = clamp01(4 * pathMask  * (1 - pathMask))
 stoneFringe = clamp01(4 * stoneMask * (1 - stoneMask))
 ```
 
+This peaks at the soft transition, not inside the blocked core.
+
 Apply:
 
 ```text
 fern / small-fern / broadleaf:
-    weight *=
-      1 +
+  weight *= 1 +
+      stoneFringe *
       tuning.stoneFringeStrength *
-      tuning.edgeCompanionStrength *
-      stoneFringe
+      tuning.edgeCompanionStrength
 
 low-shrub:
-    weight *=
-      1 +
+  weight *= 1 +
+      stoneFringe *
       0.5 *
       tuning.stoneFringeStrength *
-      tuning.edgeCompanionStrength *
-      stoneFringe
+      tuning.edgeCompanionStrength
 
 daisy / round-bloom:
-    weight *=
-      1 +
+  weight *= 1 +
+      pathFringe *
       tuning.pathFringeStrength *
-      tuning.edgeCompanionStrength *
-      pathFringe
+      tuning.edgeCompanionStrength
 
 seed-head:
-    weight *=
-      1 +
-      tuning.pathFringeStrength *
-      tuning.edgeCompanionStrength *
+  weight *= 1 +
       pathFringe *
-      habitatDryness
+      habitatDryness *
+      tuning.pathFringeStrength *
+      tuning.edgeCompanionStrength
 ```
 
 Grass-tuft gets no edge boost.
 
-No edge formula may modify candidate acceptance or hard clearances.
+Edge weighting never changes hard placement clearances or candidate acceptance.
 
 ---
 
@@ -953,17 +829,15 @@ No edge formula may modify candidate acceptance or hard clearances.
 
 Do not allocate temporary arrays.
 
-For any weighted scan:
-
 ```text
 total = sum(positive finite weights)
 if total <= 0:
-    fail/fallback as defined
+    return no selection
 
 target = clamp01(roll) * total
-
 lastPositive = none
-for each entry in stable profile order:
+
+for entries in stable profile order:
     if weight <= 0:
         continue
     lastPositive = entry
@@ -974,9 +848,7 @@ for each entry in stable profile order:
 return lastPositive
 ```
 
-Returning `lastPositive` avoids floating-point tail failure when `roll` is extremely close to one.
-
-Profile array order is deterministic and already frozen.
+The `lastPositive` fallback protects against floating-point tail error near roll 1.
 
 ---
 
@@ -984,19 +856,14 @@ Profile array order is deterministic and already frozen.
 
 ## Dominant entry
 
-Use `distribution.familyRoll` to weighted-pick one profile entry using the ecology- and edge-adjusted weights.
+Weighted-pick a dominant entry using `distribution.familyRoll` and the ecology/edge-adjusted weights.
 
-Because `familyRoll` is a continuous macro field, neighboring candidates tend to choose the same dominant species.
-
-Repeated profile entries for the same flower species naturally sum their species probability through repeated weighted intervals.
+Because that roll is a continuous macro field, nearby candidates tend to resolve the same dominant entry.
 
 ## Dominant probability
 
-Use:
-
 ```text
-correlation =
-    smoothstep(0, 0.50, tuning.colonyStrength)
+correlation = clamp01(tuning.colonyStrength)
 
 localCoherence =
     mix(0.90, 1.00, distribution.core)
@@ -1009,23 +876,18 @@ pDominant =
     )
 ```
 
-At the shipped starting `colonyStrength = 0.80`, correlation is fully enabled. Colony cores are close to the configured dominant share; fringes remain slightly more mixed.
+At `colonyStrength = 0`, `pDominant = 0`.
 
-## Individual decision
+Individual decision:
 
 ```text
-dominantRoll =
-    candidateChannel(candidateHash, DOMINANT_DECISION_SALT)
-
-if dominantRoll < pDominant:
-    selectedSpecies = dominantSpecies
+if candidateChannel(candidateHash, DOMINANT_DECISION_SALT) < pDominant:
+    selected = dominant
 else:
-    selectedSpecies = compatible companion
+    selected = compatible companion
 ```
 
 ## Category compatibility
-
-Use exactly this starting matrix:
 
 | Dominant -> Candidate | tuft | shrub | fern | broadleaf | flower | seed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -1044,100 +906,99 @@ companionWeight =
     compatibility(dominantCategory, candidateCategory)
 ```
 
-Use a candidate hash channel for the companion weighted-pick roll.
+Use a candidate-hash channel for the companion weighted-pick roll.
 
-If all companion weights are zero, fall back to the normal ecology/edge-adjusted biome weighted pick.
+If no companion weight is positive, fall back to the normal ecology/edge-adjusted profile weighted pick.
 
-Do not add a species-pair matrix unless visual QA later proves category compatibility insufficient.
+Do not add a species-pair matrix in the first pass.
 
 ---
 
 # Exact Tint Algorithm
 
-Tint remains owned by `GrassBiomeProfiles.json`.
+Tint choices remain owned by `GrassBiomeProfiles.json`.
 
-Do not hardcode white/lavender/pink families in TypeScript.
+For a selected flower species:
 
-## Colony tint
+1. scan profile entries with matching `speciesIndex`;
+2. use positive adjusted weights only;
+3. weighted-pick the colony tint using `distribution.tintRoll`;
+4. do not allocate a filtered list.
 
-For the selected flowering species:
-
-1. scan profile entries with `entry.speciesIndex === selectedSpeciesIndex`;
-2. sum their positive **raw profile `entry.weight`** values;
-3. weighted-pick a tint using `distribution.tintRoll`;
-4. result is `colonyTintRow`.
-
-Do not allocate a filtered list.
-
-Use raw tint weights intentionally: once the species is already selected, habitat and edge multipliers are identical for every tint entry of that species and therefore cancel from the tint ratio. Recomputing them would add work without changing the result.
-
-## Per-flower tint
-
-Use:
+Master-correlation rule:
 
 ```text
-tintCoherenceRoll =
-    candidateChannel(candidateHash, TINT_COHERENCE_SALT)
+effectiveTintCoherence =
+    tuning.tintCoherence *
+    tuning.colonyStrength
+```
 
-if tintCoherenceRoll < tuning.tintCoherence:
+Then:
+
+```text
+if candidateChannel(candidateHash, TINT_COHERENCE_SALT)
+    < effectiveTintCoherence:
     tintRow = colonyTintRow
 else:
-    tintRow = weighted profile tint for the same species
+    tintRow = independently weighted tint for this species
 ```
 
-Use another candidate hash channel for the individual weighted tint roll.
+Use a separate candidate channel for the independent tint roll.
 
-Non-flower species use:
+At `colonyStrength = 0`, flower tint is fully independent again.
 
-```text
-tintRow = 0
-```
-
-The atlas B channel is zero for untinted foliage, so this remains visually neutral.
+Non-flower species use tint row 0.
 
 ---
 
 # Exact Height and Maturity Algorithm
 
-Do not scale card height above a species `canopyHeightBand`.
-
-That would require larger analytical bounds.
+Never scale card height above `species.canopyHeightBand`.
 
 ## Height
 
 ```text
+correlation = clamp01(tuning.colonyStrength)
+
 baseHeightRoll =
     candidateChannel(candidateHash, HEIGHT_SALT)
 
-heightRoll =
-    clamp01(
-      baseHeightRoll +
-      tuning.coreHeightBias *
-      (distribution.core - 0.50)
-    )
+heightShift =
+    tuning.coreHeightBias *
+    correlation *
+    (distribution.core - 0.50)
+
+heightRoll = clamp01(baseHeightRoll + heightShift)
 
 cardHeight =
     lerp(
       species.canopyHeightBand[0],
       species.canopyHeightBand[1],
       heightRoll
-    ) *
-    canopyHeight
+    ) * canopyHeight
 ```
 
-`coreHeightBias` is a normalized shift **inside the declared band**, not a scale multiplier.
+This creates hierarchy inside the declared band and does not change analytical bounds.
 
 ## Maturity
 
+Use macro maturity only in proportion to `colonyStrength`:
+
 ```text
-individualMaturityRoll =
-    candidateChannel(candidateHash, INDIVIDUAL_MATURITY_SALT)
+correlation = clamp01(tuning.colonyStrength)
+individual = candidateChannel(candidateHash, INDIVIDUAL_MATURITY_SALT)
+
+spatialMaturity =
+    clamp01(
+      0.75 * distribution.maturityRoll +
+      0.25 * distribution.core
+    )
 
 maturity =
-    clamp01(
-      0.60 * distribution.maturityRoll +
-      0.25 * individualMaturityRoll +
-      0.15 * distribution.core
+    mix(
+      individual,
+      0.70 * spatialMaturity + 0.30 * individual,
+      correlation
     )
 
 pMatureRow =
@@ -1145,17 +1006,15 @@ pMatureRow =
       tuning.maturePhenotypeBias *
       (0.35 + 0.65 * maturity)
     )
-```
-
-Then:
-
-```text
-phenotypeRoll =
-    candidateChannel(candidateHash, PHENOTYPE_SALT)
 
 variantRow =
-    phenotypeRoll < pMatureRow ? 1 : 0
+    candidateChannel(candidateHash, PHENOTYPE_SALT)
+      < pMatureRow
+      ? 1
+      : 0
 ```
+
+At `colonyStrength = 0`, maturity is individual only.
 
 No age attribute is added.
 
@@ -1163,39 +1022,33 @@ No age attribute is added.
 
 # Existing Appearance Rolls
 
-Replace accepted-card `SeededRandom` appearance draws with candidate hash channels.
+Accepted-card appearance must also stop consuming the position PRNG.
 
-Use:
+Use candidate channels:
 
 ```text
 yaw =
-    candidateChannel(candidateHash, YAW_SALT) *
-    TWO_PI
+    channel(YAW_SALT) * TWO_PI
 
 dither =
-    candidateChannel(candidateHash, DITHER_SALT)
+    channel(DITHER_SALT)
 
 windScale =
-    lerp(0.84, 1.16, candidateChannel(candidateHash, WIND_SALT)) *
+    lerp(0.84, 1.16, channel(WIND_SALT)) *
     profile.windDamping
 
 rootAo =
     resolveGrassCanopyAo(vigor, suitability) *
-    lerp(0.99, 1.01, candidateChannel(candidateHash, AO_SALT))
+    lerp(0.99, 1.01, channel(AO_SALT))
 ```
 
-This makes appearance stable under acceptance-rule changes and removes accepted-card PRNG coupling.
-
-Keep current:
+Keep:
 
 ```text
-coverage =
-    habitatSample.density *
-    pathMask *
-    stoneMask
+coverage = habitatSample.density * pathMask * stoneMask
 ```
 
-Keep current packed attribute:
+Keep packed data:
 
 ```text
 packGrassAccent(speciesIndex, variantRow, tintRow)
@@ -1207,26 +1060,18 @@ Keep dither sorting and `mesh.count` prefix trimming unchanged.
 
 # Exact Shrub Art Algorithm
 
-## File
+## File: `src/world/grass/WorldDetailFoliageAtlasFactory.ts`
 
-`src/world/grass/WorldDetailFoliageAtlasFactory.ts`
+Replace the `tall-tuft` draw path with `drawLowShrub()`.
 
-Replace the old `tall-tuft` draw path with:
+The shrub must read as a leafy miniature mass on one billboard, not as a round sprite.
 
-```ts
-drawLowShrub(...)
-```
-
-The shrub must read as a leafy miniature mass on **one billboard**, not as a circular blob.
-
-## Row 0 - compact/young
-
-Use deterministic ranges:
+## Row 0: compact/young
 
 ```text
 main branch groups                 5
-horizontal branch centers         -0.32 .. +0.32 cell width
-branch top                         0.55 .. 0.86 cell height
+horizontal centers                 -0.32 .. +0.32 cell width
+branch tops                        0.55 .. 0.86 cell height
 leaves                             14 .. 20
 leaf length                        0.08 .. 0.16 cell height
 leaf width/length                  0.38 .. 0.58
@@ -1234,12 +1079,12 @@ intentional silhouette holes       1
 center density                     high
 ```
 
-## Row 1 - mature/open
+## Row 1: mature/open
 
 ```text
 main branch groups                 6 .. 7
-horizontal branch centers         -0.45 .. +0.45
-branch top                         0.48 .. 0.92
+horizontal centers                 -0.45 .. +0.45
+branch tops                        0.48 .. 0.92
 leaves                             12 .. 18
 leaf length                        0.10 .. 0.18
 leaf width/length                  0.38 .. 0.60
@@ -1248,35 +1093,31 @@ center density                     medium
 lateral breaker leaves             1 .. 2
 ```
 
-## Drawing rules
+Rules:
 
-- asymmetric branch locations;
-- no mirrored left/right half;
+- asymmetric branch placement;
+- no mirrored halves;
 - no circle clusters;
 - tapered elliptical leaves;
-- some overlap, but preserve visible negative holes;
-- root/center darker than outer leaves;
-- outer leaves lighter toward tips;
-- no tint mask;
-- semantic R/G channels stay compatible with `grassResolvePalette`;
-- leave transparent gaps large enough to survive mip reduction;
-- do not draw single-pixel stems/leaves that disappear before the 27-30 m fade.
+- preserve transparent holes;
+- darker root/center;
+- slightly lighter outer tips;
+- tint mask = 0;
+- keep semantic R/G channels compatible with `grassResolvePalette`;
+- holes must be large enough to survive mip reduction;
+- do not draw one-pixel details that vanish before the fade.
 
 ---
 
 # Exact Broadleaf-Rosette Art Algorithm
 
-Replace the old `sprig` path with:
+Replace `sprig` with `drawBroadleafRosette()`.
 
-```ts
-drawBroadleafRosette(...)
-```
-
-## Row 0 - compact
+## Row 0: compact
 
 ```text
 leaves                             7
-base angular spacing               2π / 7
+base spacing                       2π / 7
 angle jitter                       ±0.18 rad
 leaf length                        0.30 .. 0.46 cell height
 leaf width/length                  0.22 .. 0.34
@@ -1284,29 +1125,29 @@ root offset radius                 0.00 .. 0.04
 center mass                        compact/dark
 ```
 
-## Row 1 - mature/asymmetric
+## Row 1: mature/asymmetric
 
 ```text
 leaves                             6 .. 9
-base angular spacing               2π / leafCount
+base spacing                       2π / leafCount
 angle jitter                       ±0.28 rad
 leaf length                        0.28 .. 0.52
 leaf width/length                  0.22 .. 0.36
-one side length multiplier         0.78 .. 0.92
-opposite side multiplier           1.00 .. 1.10
+one-side multiplier                0.78 .. 0.92
+opposite-side multiplier           1.00 .. 1.10
 center mass                        visible, less compact
 ```
 
 Each leaf:
 
 - tapers at root;
-- widens through the lower/middle section;
+- widens through lower/middle section;
 - tapers to tip;
 - has slight curvature;
-- varies shade along its length;
+- varies shade along length;
 - uses no tint mask.
 
-Avoid a flower-petal-ring appearance by varying length, width, angle, root offset, and overlap.
+Avoid a flower-petal-ring look by varying length, angle, width, root offset, and overlap.
 
 ---
 
@@ -1333,27 +1174,21 @@ No third-party assets.
 
 ---
 
-# Exact Biome Profile Starting Weights
+# Exact Biome Starting Weights
 
-These are the initial implementation values. They should be committed first, then tuned only after fixed-pose visual QA.
-
-Keep all existing palette/density/height/wind fields unchanged.
+Keep existing non-accent biome fields unchanged.
 
 ## Meadow
-
-Use:
 
 ```json
 [
   { "species": "daisy", "tint": "white", "weight": 1.20 },
   { "species": "daisy", "tint": "cream", "weight": 0.70 },
   { "species": "daisy", "tint": "sky-blue", "weight": 0.25 },
-
   { "species": "round-bloom", "tint": "pink", "weight": 0.35 },
   { "species": "round-bloom", "tint": "lavender", "weight": 0.25 },
   { "species": "round-bloom", "tint": "buttercup", "weight": 0.15 },
   { "species": "round-bloom", "tint": "poppy-red", "weight": 0.10 },
-
   { "species": "fern", "tint": "none", "weight": 1.70 },
   { "species": "small-fern", "tint": "none", "weight": 1.00 },
   { "species": "grass-tuft", "tint": "none", "weight": 3.60 },
@@ -1363,11 +1198,7 @@ Use:
 ]
 ```
 
-Green foliage remains dominant. Shrub is an occasional anchor. Seed heads are rare.
-
 ## Dry steppe
-
-Use:
 
 ```json
 [
@@ -1375,18 +1206,13 @@ Use:
   { "species": "grass-tuft", "tint": "none", "weight": 2.50 },
   { "species": "low-shrub", "tint": "none", "weight": 0.65 },
   { "species": "broadleaf-rosette", "tint": "none", "weight": 0.25 },
-
   { "species": "round-bloom", "tint": "buttercup", "weight": 0.50 },
   { "species": "round-bloom", "tint": "cream", "weight": 0.20 },
   { "species": "round-bloom", "tint": "poppy-red", "weight": 0.08 }
 ]
 ```
 
-Do not carry `tall-tuft` forward. Seed heads provide the tall dry silhouette.
-
 ## Alpine
-
-Use:
 
 ```json
 [
@@ -1394,31 +1220,26 @@ Use:
   { "species": "small-fern", "tint": "none", "weight": 1.20 },
   { "species": "broadleaf-rosette", "tint": "none", "weight": 0.70 },
   { "species": "low-shrub", "tint": "none", "weight": 0.12 },
-
   { "species": "daisy", "tint": "white", "weight": 0.65 },
   { "species": "daisy", "tint": "cream", "weight": 0.30 },
   { "species": "daisy", "tint": "sky-blue", "weight": 0.30 },
-
   { "species": "round-bloom", "tint": "lavender", "weight": 0.55 },
   { "species": "round-bloom", "tint": "pink", "weight": 0.20 }
 ]
 ```
 
-Shrubs remain very rare. Pale flower forms stay secondary to low green foliage.
+Green forms stay dominant in meadow; dry forms dominate steppe; shrubs stay rare alpine.
 
 ---
 
 # Production Configuration
 
-The current world config loader is flat numeric YAML. Keep it flat.
+Keep the current flat numeric world config.
 
-## `public/config/world.yaml`
-
-Add near the existing macro grass habitat settings:
+Add near macro grass settings:
 
 ```yaml
-# Detail foliage composition. These affect deterministic tile-build composition
-# only; material, atlas, topology, LOD, and render radius stay fixed.
+# Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
 detailFoliageDensity: 0.35
 detailFoliageColonyWorldSize: 11
 detailFoliageClumpWorldSize: 2.25
@@ -1435,17 +1256,13 @@ detailFoliageStoneFringeStrength: 0.38
 detailFoliagePathFringeStrength: 0.18
 ```
 
-These are the initial production values for implementation. Fine-tune them with the diagnostics menu only after F1-F5 are working.
+These are starting values. Final production values may change after fixed-pose visual tuning, within the allowed limits.
 
 ---
 
 # Runtime Tuning Contract
 
-## New file
-
-`src/world/grass/DetailFoliageTuning.ts`
-
-Define:
+## New file: `src/world/grass/DetailFoliageTuning.ts`
 
 ```ts
 export interface DetailFoliageTuning {
@@ -1466,7 +1283,7 @@ export interface DetailFoliageTuning {
 }
 ```
 
-Also define one shared limits table:
+Define one shared limits table:
 
 ```ts
 export const DETAIL_FOLIAGE_TUNING_LIMITS = {
@@ -1487,182 +1304,207 @@ export const DETAIL_FOLIAGE_TUNING_LIMITS = {
 } as const;
 ```
 
-Use this table from:
+Use this table from schema, diagnostics UI, normalization, and tests. Do not duplicate ranges.
 
-- `WorldConfigSchema.ts`;
-- `DetailFoliageTuningMenu.ts`;
-- runtime normalization;
-- deterministic config verification.
-
-Do not duplicate ranges in three files.
-
-## Functions
-
-Implement:
+Provide:
 
 ```ts
-export function createDetailFoliageTuning(
-  config: WorldConfig,
-): DetailFoliageTuning;
-
-export function normalizeDetailFoliageTuning(
-  tuning: DetailFoliageTuning,
-): DetailFoliageTuning;
-
-export function detailFoliageTuningEquals(
-  left: DetailFoliageTuning,
-  right: DetailFoliageTuning,
-): boolean;
+createDetailFoliageTuning(config)
+normalizeDetailFoliageTuning(tuning)
+detailFoliageTuningEquals(left, right)
 ```
 
-`normalizeDetailFoliageTuning()`:
+Normalization:
 
-1. clamps each value to shared limits;
-2. enforces:
-   ```text
-   clumpWorldSize <= colonyWorldSize * 0.5
-   ```
-3. returns a copy.
+1. clamp every value;
+2. enforce `clumpWorldSize <= colonyWorldSize * 0.5`;
+3. return a copy.
 
-`WorldConfigLoader` still rejects invalid production YAML; normalization exists for diagnostics/live input only.
+Production YAML still fails closed; normalization is for live diagnostics only.
 
 ---
 
-# World Config Files
+# Exact File Changes
 
-## `src/world/WorldConfig.ts`
+## New files
 
-Add the fourteen required numeric fields exactly matching YAML names.
+### `src/world/grass/DetailFoliageRandom.ts`
 
-## `src/world/WorldConfigSchema.ts`
+- integer hash primitives;
+- position hash;
+- channel scrambler;
+- no renderer/config dependency.
 
-Use `DETAIL_FOLIAGE_TUNING_LIMITS` for minimum/maximum values.
+### `src/world/grass/DetailFoliageTuning.ts`
 
-No optional keys.
+- tuning interface;
+- shared limits;
+- config mapping;
+- normalization;
+- equality.
 
-## `src/world/WorldConfigValidator.ts`
+### `src/world/grass/WorldDetailFoliageDistribution.ts`
+
+- two-scale continuous distribution;
+- macro presence/family/tint/maturity channels;
+- clump channel;
+- allocation-free sampling.
+
+### `src/world/grass/DetailFoliageAffinity.ts`
+
+- habitat table;
+- habitat score;
+- edge weighting;
+- weighted pick;
+- dominant/companion selection;
+- tint selection;
+- reusable result target.
+
+### `src/app/DetailFoliageTuningMenu.ts`
+
+- diagnostics-only native controls;
+- apply on `change`, not every `input`;
+- Reset to YAML;
+- YAML export.
+
+### `scripts/verify-detail-foliage-distribution.mjs`
+
+- deterministic distribution/selection tests.
+
+## Modify
+
+### `public/config/world.yaml`
+
+Add the fourteen flat production settings.
+
+### `src/world/WorldConfig.ts`
+
+Add fourteen required numeric fields.
+
+### `src/world/WorldConfigSchema.ts`
+
+Use `DETAIL_FOLIAGE_TUNING_LIMITS` minima/maxima.
+
+### `src/world/WorldConfigValidator.ts`
+
+Require:
+
+```text
+detailFoliageClumpWorldSize <= detailFoliageColonyWorldSize * 0.5
+```
+
+### `src/grass/biome/GrassAccentSpecies.ts`
+
+- add `shrub` and `broadleaf` categories;
+- replace species slots 1 and 7;
+- keep species count exactly 8.
+
+### `src/grass/biome/GrassBiomeProfile.ts`
+
+- split source/resolved accent shapes;
+- pre-resolve `speciesIndex` and `tintRow`;
+- route defaults through same resolver.
+
+### `src/grass/biome/GrassBiomeProfiles.json`
+
+Use the starting weights above.
+
+### `src/world/grass/WorldDetailFoliageAtlasFactory.ts`
+
+- replace tall-tuft with low shrub;
+- replace sprig with broadleaf rosette;
+- keep atlas dimensions/settings unchanged.
+
+### `src/world/grass/WorldDetailFoliageField.ts`
+
+- consume tuning;
+- move density to tuning;
+- split position PRNG from appearance;
+- one candidate hash;
+- integrate distribution/affinity after cheap gates;
+- use reusable output targets;
+- remove candidate-loop catalogue lookups;
+- keep all existing buffer/material/render architecture.
+
+### `src/world/grass/WorldNearGrassField.ts`
+
+- create/store tuning;
+- pass tuning to factory;
+- expose copy-safe getter/setter;
+- invalidate only detail tiles when tuning changes.
+
+### `src/world/WorldGrassSystem.ts`
+
+- delegate detail tuning getter/setter;
+- no distribution work in `update()`.
+
+### `src/app/WorldApp.ts`
+
+- create/dispose diagnostics tuning menu under current diagnostics conditions.
+
+### `scripts/verify-flower-variety.mjs`
+
+- species slot/category/art/bounds checks.
+
+### `scripts/verify-grass-performance.mjs`
+
+- workload, RNG separation, render-contract, and build-only checks.
+
+### `scripts/verify-config-contracts.mjs`
+
+- new config success/rejection cases.
+
+### `package.json`
 
 Add:
 
-```text
-detailFoliageClumpWorldSize <=
-    detailFoliageColonyWorldSize * 0.5
+```json
+"test:detail-foliage": "node scripts/verify-detail-foliage-distribution.mjs"
 ```
 
-Do not add subjective art rules to the production validator.
+Run it from `build` before flower-variety and grass-performance tests.
 
----
+### `docs/grass-detail-foliage-plan.md`
 
-# Detail Field Integration
-
-## `WorldDetailFoliageFactory`
-
-Own:
-
-```text
-DetailFoliageTuning
-WorldDetailFoliageDistribution
-one reused DetailFoliageDistributionSample
-one reused DetailFoliageSelection
-```
-
-Add:
-
-```ts
-setTuning(tuning: DetailFoliageTuning): void;
-```
-
-Setter:
-
-1. normalize/copy;
-2. update distribution tuning;
-3. do not rebuild itself;
-4. field invalidation is owned by `WorldDetailFoliageField` caller.
-
-## Candidate positions
-
-Rename the tile PRNG to make its role explicit:
-
-```text
-positionRandom
-```
-
-It may be used only for x/z stratified jitter.
-
-No `random.range()` or `random.next()` for accepted-card appearance after x/z.
-
-## Dither
-
-Candidate dither comes from candidate hash channel. It remains sorted ascending exactly as today.
-
-Quality-governor `densityScale` and prefix `mesh.count` trimming remain unchanged.
-
-## Matrix/buffer layout
-
-Do not change:
-
-```text
-instanceMatrix
-instanceVariation vec4
-instanceCoverage
-instanceBiome
-instanceAccent
-```
-
-Do not add:
-
-```text
-instanceColony
-instanceClump
-instanceAge
-instanceTintFamily
-```
+After implementation only, add a short shipped-status pointer to this plan.
 
 ---
 
 # Detail Field Invalidation for Diagnostics
 
-## `WorldDetailFoliageField.invalidate()`
-
-Implement:
+Add:
 
 ```ts
-invalidate(): void;
+WorldDetailFoliageField.invalidate(): void
 ```
 
 It must:
 
-1. dispose every built tile through `factory.disposeTile()`;
-2. remove tile meshes from scene;
-3. clear `tiles`;
-4. clear `emptyTiles`;
-5. clear `desired`;
-6. clear `queue`;
-7. clear reusable request state as needed;
-8. set `countsDirty = true`;
-9. reset center tile coordinates;
-10. reset reconciled/count focus sentinels;
-11. preserve `enabled`;
-12. preserve quality-governor `densityScale`;
-13. not rebuild synchronously.
+1. remove existing detail tile meshes;
+2. dispose each through the existing factory disposal path;
+3. clear built tiles;
+4. clear empty-tile cache;
+5. clear desired requests;
+6. clear queue;
+7. reset reusable request state as needed;
+8. mark count diagnostics dirty;
+9. reset center tile sentinels;
+10. reset reconciliation/count-focus sentinels;
+11. preserve enabled state;
+12. preserve quality-governor density scale;
+13. never synchronously rebuild.
 
-The next normal `update()` repopulates at `tilesPerFrame = 1`.
+The next normal update rebuilds at one tile/frame.
 
-If new normalized tuning equals current tuning, do nothing and do not invalidate.
-
-This path is diagnostics-only, so synchronous disposal of the small resident tile set is acceptable. Do not add production retirement machinery only for the tuning panel.
+If normalized tuning is unchanged, do nothing and do not invalidate.
 
 ---
 
-# Near Field / Grass System Wiring
+# Near Field / Grass System Tuning Wiring
 
-## `src/world/grass/WorldNearGrassField.ts`
+`WorldNearGrassField` owns the current normalized tuning copy.
 
-Create one tuning object from loaded `WorldConfig`.
-
-Pass it into `WorldDetailFoliageFactory`.
-
-Add:
+Expose:
 
 ```ts
 getDetailFoliageTuning(): DetailFoliageTuning;
@@ -1681,41 +1523,25 @@ normalize
 -> detailFoliageField.invalidate()
 ```
 
-Do not:
+Do not recreate atlas/material.
 
-- recreate atlas;
-- recreate material;
-- alter quality-governor rules.
-
-## `src/world/WorldGrassSystem.ts`
-
-Expose copy-safe delegating getter/setter.
-
-`update()` must remain free of distribution sampling and tuning logic.
+`WorldGrassSystem` exposes delegating copy-safe getter/setter only.
 
 ---
 
 # Diagnostics Tuning Menu
 
-## New file
-
-`src/app/DetailFoliageTuningMenu.ts`
+## New file: `src/app/DetailFoliageTuningMenu.ts`
 
 Use the same native DOM approach as `GrassArtMenu`.
-
-Do not add a GUI library.
 
 Create only when:
 
 ```text
-profile.showGui
-AND
-?diagnostics=1
+profile.showGui && diagnostics=1
 ```
 
-## Controls
-
-Use the shared `DETAIL_FOLIAGE_TUNING_LIMITS` table.
+Controls use `DETAIL_FOLIAGE_TUNING_LIMITS`.
 
 Labels:
 
@@ -1736,194 +1562,38 @@ Stone fringe
 Path fringe
 ```
 
-## Interaction
+Behavior:
 
-On `input`:
+- `input`: update displayed value only;
+- `change`: normalize, resync if necessary, compare, then apply once;
+- no rebuild for every slider pixel.
 
-```text
-update displayed value only
-```
+`Reset to YAML` restores an immutable initial tuning snapshot.
 
-On `change`:
-
-```text
-copy edited values
--> normalize
--> resync controls if cross-field normalization changed a value
--> if unchanged: stop
--> callback setDetailFoliageTuning()
-```
-
-Do not invalidate every slider pixel.
-
-## Reset
-
-`Reset to YAML` restores the immutable snapshot made from the loaded production tuning.
-
-## Export
-
-Export a flat YAML snippet using the production key names.
-
-Use the same clipboard + download fallback pattern as `GrassArtMenu`.
-
----
-
-# Exact File Change Map
-
-## New files
-
-### `src/world/grass/DetailFoliageRandom.ts`
-
-- deterministic integer hash primitives;
-- position hash;
-- channel scrambler;
-- no renderer/config dependency.
-
-### `src/world/grass/DetailFoliageTuning.ts`
-
-- tuning interface;
-- shared limits;
-- WorldConfig mapping;
-- normalization;
-- equality helper.
-
-### `src/world/grass/WorldDetailFoliageDistribution.ts`
-
-- two-scale continuous distribution;
-- four macro channels;
-- one clump channel;
-- allocation-free sample.
-
-### `src/world/grass/DetailFoliageAffinity.ts`
-
-- habitat table;
-- habitat score;
-- edge weights;
-- weighted pick;
-- dominant/companion selection;
-- tint selection;
-- reusable output target.
-
-### `src/app/DetailFoliageTuningMenu.ts`
-
-- diagnostics-only native controls;
-- change-on-release;
-- Reset to YAML;
-- YAML export.
-
-### `scripts/verify-detail-foliage-distribution.mjs`
-
-- deterministic distribution and selection tests.
-
-## Modified files
-
-### `public/config/world.yaml`
-
-Add final fourteen production values.
-
-### `src/world/WorldConfig.ts`
-
-Add fourteen fields.
-
-### `src/world/WorldConfigSchema.ts`
-
-Use shared tuning limits.
-
-### `src/world/WorldConfigValidator.ts`
-
-Add clump/colony scale rule.
-
-### `src/grass/biome/GrassAccentSpecies.ts`
-
-- add `shrub` and `broadleaf` categories;
-- replace slots 1 and 7;
-- keep count exactly eight.
-
-### `src/grass/biome/GrassBiomeProfile.ts`
-
-- separate source and resolved accent entry shapes;
-- pre-resolve `speciesIndex` and `tintRow`;
-- route defaults through the same resolver.
-
-### `src/grass/biome/GrassBiomeProfiles.json`
-
-Use exact starting weights in this plan.
-
-### `src/world/grass/WorldDetailFoliageAtlasFactory.ts`
-
-- replace tall-tuft with shrub art;
-- replace sprig with rosette art;
-- keep atlas dimensions/settings unchanged.
-
-### `src/world/grass/WorldDetailFoliageField.ts`
-
-- consume tuning;
-- split position PRNG from appearance;
-- use one candidate hash;
-- integrate distribution and affinity;
-- use reusable selection/distribution targets;
-- remove hot-loop species/tint catalogue lookups;
-- correlate height inside bands;
-- keep current buffers/render path.
-
-### `src/world/grass/WorldNearGrassField.ts`
-
-- create/store tuning;
-- pass to factory;
-- getter/setter;
-- invalidate detail only on changed tuning.
-
-### `src/world/WorldGrassSystem.ts`
-
-- delegate tuning getter/setter.
-
-### `src/app/WorldApp.ts`
-
-- create/dispose diagnostics tuning menu.
-
-### `scripts/verify-flower-variety.mjs`
-
-- new species/art structure/bounds checks.
-
-### `scripts/verify-grass-performance.mjs`
-
-- workload, RNG separation, renderer, and build-only checks.
-
-### `scripts/verify-config-contracts.mjs`
-
-- new config pass/fail cases.
-
-### `package.json`
-
-Add:
-
-```json
-"test:detail-foliage": "node scripts/verify-detail-foliage-distribution.mjs"
-```
-
-Run it from `build` before flower-variety and grass-performance verification.
-
-### `docs/grass-detail-foliage-plan.md`
-
-After implementation only: add a short shipped-status pointer to this plan. Do not duplicate this specification.
+YAML export uses flat production keys and the same clipboard/download fallback pattern as `GrassArtMenu`.
 
 ---
 
 # Deterministic Verification
 
-Automated gates protect determinism, workload, and structural behavior. Subjective art quality remains manual.
+Do not freeze a golden digest before the first implementation is visually accepted.
 
-## Test 1 - distribution golden digest
+During F1-F5, deterministic repeatability tests must compare two runs directly. After visual tuning is accepted, freeze the two reviewed SHA-256 values.
 
-Use a fixed 64 x 64 = 4,096 point grid:
+This avoids making early art iteration dependent on constantly editing premature goldens while still protecting the final world identity.
+
+## Test 1: distribution repeatability + final golden
+
+Grid:
 
 ```text
+64 x 64 = 4096 points
 x = -128 + ix * 4
 z = -128 + iz * 4
 ix, iz = 0..63
 ```
 
-Serialize in fixed field order:
+Serialize fixed-order, six-decimal values:
 
 ```text
 colony
@@ -1935,131 +1605,68 @@ tintRoll
 maturityRoll
 ```
 
-Quantize floats to six decimals.
+SHA-256 twice; require equality.
 
-Calculate SHA-256.
+After visual acceptance, freeze `DISTRIBUTION_GOLDEN_SHA256`.
 
-Run the complete sample twice and require equal digests.
+## Test 2: full selection repeatability + final golden
 
-After the first implementation is visually accepted, freeze:
-
-```text
-DISTRIBUTION_GOLDEN_SHA256
-```
-
-Do not invent a digest in advance.
-
-## Test 2 - full selection golden digest
-
-Use the same 4,096 coordinates with:
+Same grid, real meadow profile, fixed synthetic ecology:
 
 ```text
-real meadow profile
-synthetic ecology:
-    moisture       0.62
-    fertility      0.72
-    exposure       0.55
-    disturbance    0.08
-    rockiness      0.22
-habitatDryness     0.28
-pathMask           0.88
-stoneMask          0.92
+moisture       0.62
+fertility      0.72
+exposure       0.55
+disturbance    0.08
+rockiness      0.22
+habitatDryness 0.28
+pathMask       0.88
+stoneMask      0.92
 ```
 
-For each point:
-
-1. calculate candidateHash;
-2. distribution sample;
-3. distribution keep decision;
-4. if kept, resolve species/tint;
-5. serialize:
-   ```text
-   keep flag
-   speciesIndex or -1
-   tintRow or -1
-   ```
-
-SHA-256 the fixed-order output.
-
-After visual acceptance freeze:
+Serialize:
 
 ```text
-SELECTION_GOLDEN_SHA256
+keep flag
+speciesIndex or -1
+tintRow or -1
 ```
 
-This second digest intentionally catches changes to:
+Require repeated SHA-256 equality.
 
-- species weights;
-- affinity table;
-- compatibility;
-- tint logic;
-- candidate hash channels.
+After visual acceptance, freeze `SELECTION_GOLDEN_SHA256`.
 
-## Test 3 - tile-boundary continuity
+## Test 3: tile-boundary continuity
 
-For:
+Use boundaries `k = -8..8`, several fixed orthogonal coordinates, epsilon `0.001 m`.
 
-```text
-k = -8..8
-fixed other-axis samples:
-    -97.3
-    -31.2
-    0.7
-    42.9
-    111.4
-epsilon = 0.001 m
-```
+Test both x and z sides of every 16 m boundary.
 
-Sample both sides of every x and z 16 m boundary.
-
-For:
-
-```text
-colony
-clump
-core
-keepMultiplier
-familyRoll
-tintRoll
-maturityRoll
-```
-
-require:
+For all continuous distribution outputs require:
 
 ```text
 abs(left - right) <= 0.011
 ```
 
-Why 0.011 is the contract:
+Document the derivative bound in the verifier. Do not use screenshot-derived tolerance.
 
-- cubic interpolation derivative is at most 1.5 per normalized cell;
-- minimum clump scale is 1 m;
-- the 0.002 m cross-boundary span changes raw clump noise by at most 0.003;
-- `smoothstep(0.28, 0.72, C)` has maximum derivative `1.5 / 0.44`;
-- therefore the worst clump-band change is about `0.01023`;
-- macro channels are lower frequency and the final core/keep equations are bounded mixtures.
+Also statically assert distribution API has no tile coordinate input.
 
-The verifier should retain this derivation next to the assertion. Do not replace it with a screenshot tolerance.
-
-Also statically assert the distribution API contains no tile coordinate input.
-
-## Test 4 - output bounds
+## Test 4: bounds
 
 Across deterministic grids:
 
 ```text
-all distribution outputs finite
-all distribution outputs in [0,1]
+all values finite
+all normalized distribution values in [0,1]
 all weights finite and >= 0
 ```
 
-## Test 5 - negative space
+## Test 5: negative space
 
-Analyze 256 x 256 m.
+Analyze fixed 256 x 256 m area, divided into 8 m analysis cells.
 
-Divide into 8 m analysis cells.
-
-Inside every 8 m cell sample a 4 x 4 grid and calculate mean `keepMultiplier`.
+Sample each analysis cell on fixed 4 x 4 subgrid.
 
 Quiet cell:
 
@@ -2067,38 +1674,29 @@ Quiet cell:
 mean keepMultiplier < 0.55
 ```
 
-Shipped tuning must satisfy:
+Starting production tuning should land inside:
 
 ```text
-quiet cells       20% .. 60%
-mean keepMultiplier 0.58 .. 0.82
+quiet cells          20% .. 60%
+mean keepMultiplier  0.58 .. 0.82
 ```
 
-The mean gate prevents passing by creating a few extreme empty cells while leaving the rest nearly uniform.
+If the initial values miss these gates, tune YAML/menu parameters; do not weaken the gates without reviewing the visual objective.
 
-## Test 6 - family correlation
+## Test 6: family correlation
 
-Use a deterministic 128 x 128 sample grid at 1 m spacing with the same synthetic meadow ecology.
+Use fixed 128 x 128 grid at 1 m spacing with synthetic meadow ecology.
 
-Compare right/down neighboring kept samples only.
-
-For neighbors within `clumpWorldSize` require:
+For right/down neighboring kept samples:
 
 ```text
 same category ratio >= 0.60
-```
-
-Also compute a baseline that uses the same ecology-adjusted profile weights but independent candidate rolls with no macro family channel.
-
-Require:
-
-```text
 clustered same-species ratio >= independent baseline + 0.10
 ```
 
-Do not dynamically relax the threshold.
+Independent baseline uses the same ecology-adjusted profile weights but candidate-local rolls instead of the macro family channel.
 
-## Test 7 - tint correlation
+## Test 7: tint correlation
 
 For neighboring kept flower pairs:
 
@@ -2107,11 +1705,25 @@ same tint row ratio >= 0.65
 clustered same-tint ratio >= independent baseline + 0.12
 ```
 
-If the fixed region does not contain at least 100 flower pairs, enlarge the fixed test region once in source. Do not make the test adapt at runtime.
+Use a fixed test region large enough to yield at least 100 flower pairs. Do not adapt region size at runtime.
 
-## Test 8 - ecology directions
+## Test 8: master off-switch
 
-With all other inputs fixed:
+With identical inputs and `colonyStrength = 0`, assert:
+
+```text
+keepMultiplier == 1
+pDominant == 0
+effectiveTintCoherence == 0
+heightShift == 0
+maturity uses individual roll only
+```
+
+This prevents future partial-disable regressions.
+
+## Test 9: ecology direction
+
+Verify direction only:
 
 ```text
 fern(wet,sheltered)           > fern(dry,exposed)
@@ -2122,83 +1734,66 @@ seedHead(dry,exposed)         > seedHead(wet,sheltered)
 daisy(fertile,open)           > daisy(poor,disturbed)
 ```
 
-Test direction only, not exact score.
-
-## Test 9 - legal selections
-
-Across fixed samples:
+## Test 10: legal selections
 
 ```text
 speciesIndex 0..7
-tintRow inside current tint ceiling
-selected species exists in active biome profile
-non-flower tint row resolves to 0
-weighted pick has deterministic fallback
+tintRow within current tint ceiling
+selected species exists in active profile
+non-flower tint row = 0
+weighted pick deterministic fallback works
 ```
 
-## Test 10 - tuning normalization
-
-Test:
+## Test 11: tuning normalization
 
 ```text
-clump > colony/2 is normalized in live tuning
-production loader rejects the same invalid relationship
-equal normalized tuning does not cause an invalidation request
+clump > colony/2 normalizes in live tuning
+production loader rejects same invalid relationship
+equal normalized tuning does not trigger invalidation
 ```
 
 ---
 
-# Config Contract Verification
+# Config Verification
 
-Add explicit production rejection cases:
+Add explicit rejection tests:
 
 ```text
 detailFoliageDensity: 0.36                         reject
 detailFoliageColonyWorldSize: 5                    reject
 detailFoliageClumpWorldSize: 5                     reject
 clump > colony * 0.5                               reject
-detailFoliageDominantFamilyShare: 0.95              reject
-detailFoliageCoreHeightBias: 0.30                   reject
-detailFoliageSomethingElse: 1                       reject unknown key
+detailFoliageDominantFamilyShare: 0.95             reject
+detailFoliageCoreHeightBias: 0.30                  reject
+detailFoliageSomethingElse: 1                      reject unknown key
 ```
 
-Also assert all shipped values parse exactly.
+Also assert shipped values parse exactly.
 
 ---
 
-# Plant / Atlas Structural Verification
+# Structural Verification
 
-Extend `verify-flower-variety.mjs`.
-
-Keep all current flower checks.
-
-Add:
+Extend `verify-flower-variety.mjs`:
 
 ```text
 low-shrub exists at index 1
 broadleaf-rosette exists at index 7
 tall-tuft absent
 sprig absent
-species count exactly 8
-category union includes shrub/broadleaf
-GRASS_MAX_ACCENT_PROFILE_ENTRIES === 16
-every profile accentSpecies.length <= 16
-
+species count = 8
+category union includes shrub and broadleaf
 maximum canopy height <= 1.72
-maximum canopy width  <= 1.314
-
+maximum canopy width <= 1.314
 low-shrub aspect > seed-head aspect
-broadleaf maximum height < daisy maximum height
-broadleaf maximum height < seed-head maximum height
-
+broadleaf max height < daisy max height
+broadleaf max height < seed-head max height
 drawLowShrub exists
 drawBroadleafRosette exists
-both routines branch structurally on phenotype row
-
+both routines structurally branch by phenotype row
 atlas columns = 8
 variant rows = 2
-atlas width = 1024
-atlas height = 256
+atlas size = 1024 x 256
 ```
 
 Do not try to prove subjective beauty with regex.
@@ -2228,7 +1823,7 @@ castShadow = false
 receiveShadow = false
 same 6-vertex / 4-triangle card
 same fade/residency constants
-same four custom instance attributes
+same custom instance attributes
 no colony/clump/age/tint-family attribute
 ```
 
@@ -2241,13 +1836,13 @@ no distribution.sample in material update
 no distribution.sample in controller/render loop
 ```
 
-RNG separation contract:
+RNG contract:
 
 ```text
-positionRandom is used only for candidate x/z jitter
+positionRandom used only for x/z candidate jitter
 exactly two positionRandom draws per requested candidate
-accepted-card appearance uses candidate hash channels
-no accepted-card SeededRandom.range/next calls
+accepted-card appearance uses candidate channels
+no accepted-card positionRandom.next/range calls
 ```
 
 Lookup contract:
@@ -2255,11 +1850,8 @@ Lookup contract:
 ```text
 candidate loop contains no GRASS_ACCENT_SPECIES.find
 candidate loop contains no resolveGrassAccentTintRow
-resolved profile entry contains speciesIndex + tintRow
-every biome accentSpecies length <= 16
+resolved profile entries contain speciesIndex + tintRow
 ```
-
-With the 16-entry ceiling, keep selection to a small bounded number of linear scans. Do not sort or allocate temporary weight arrays in the candidate loop.
 
 Do not loosen the existing card/draw/vertex envelope.
 
@@ -2267,9 +1859,9 @@ Do not loosen the existing card/draw/vertex envelope.
 
 # Manual Baseline Before Implementation
 
-Before F1 code changes, record current `main` at the existing deterministic visual-matrix locations.
+Before F1, record current `main` at fixed deterministic locations.
 
-Use fixed:
+Pin:
 
 ```text
 world config
@@ -2302,9 +1894,7 @@ Capture:
 - dry steppe;
 - alpine;
 - close low-angle accent shot;
-- 10-25 m medium-distance accent field.
-
-Keep these as the before reference for final F7 comparison.
+- 10-25 m medium-distance field.
 
 ---
 
@@ -2312,75 +1902,61 @@ Keep these as the before reference for final F7 comparison.
 
 ## Meadow
 
-Must show:
-
-- obvious quiet grass regions;
+- obvious quiet regions;
 - coherent flower pockets;
 - broadleaf pockets;
 - occasional low shrub;
-- green foliage dominant overall;
+- green forms dominant;
 - no rainbow confetti;
 - no 16 m tile rhythm;
 - no obvious 11 m lattice squares.
 
 ## Rock
 
-Must show:
-
-- fern/broadleaf preference around believable protected transition regions;
-- hard stone clearance still respected;
-- no uniform plant rings around stones.
+- fern/broadleaf preference in believable transition areas;
+- hard stone clearance preserved;
+- no circular plant rings.
 
 ## Path
 
-Must show:
-
-- occasional interrupted flower pockets;
-- no continuous flower border;
-- shrub absent from hard tread.
+- interrupted flower pockets;
+- no continuous border ribbon;
+- shrubs absent from hard tread.
 
 ## Water edge
 
-Must show:
-
-- gradual increase in moisture-loving foliage;
+- moisture-loving plants increase gradually;
 - no abrupt species wall.
 
 ## Dry steppe
 
-Must show:
-
-- seed heads clearly dominant;
+- seed heads dominant;
 - shrubs sparse;
 - broadleaf rare;
-- flowers muted/sparse;
+- flowers sparse/muted;
 - negative space preserved.
 
 ## Alpine
 
-Must show:
-
 - low green forms dominant;
 - pale flowers restrained;
 - shrubs rare;
-- no meadow-like lush composition.
+- no copied meadow composition.
 
-## Close shrub/broadleaf
-
-Must show:
+## Close shrub/rosette
 
 - shrub reads as irregular leafy mass, not a circle;
-- transparent silhouette holes remain visible;
+- silhouette holes survive;
 - rosette reads as leaves, not petals;
-- no obvious billboard edge-on disappearance due current yaw-facing behavior.
+- no visible art defect from current yaw-billboard behavior.
 
 ## Medium distance
 
 At 10-25 m:
 
-- colonies read before individual cards;
+- colony reads before individual cards;
 - flower color reads as local patches;
-- detail disappears naturally into grass before the 30 m fade.
+- accents disappear naturally into grass before the fade.
 
 ---
 
@@ -2397,10 +1973,10 @@ detail draw architecture                 unchanged
 resident/drawn cards                     <= previous same-pose baseline
 ```
 
-A small increase in occasional detail tile build time is acceptable only if:
+A small detail-tile build-time increase is acceptable only if:
 
-- the existing near build deadline is respected;
-- detail still builds one tile per frame;
+- existing near build deadline is respected;
+- detail remains one tile/frame;
 - no visible compact-device spike appears;
 - deterministic operation bounds remain satisfied.
 
@@ -2410,11 +1986,9 @@ Do not add automated millisecond pass/fail gates.
 
 # Tuning Order
 
-Do not tune everything at once.
+Tune one dimension at a time.
 
 ## 1. Negative space
-
-Tune:
 
 ```text
 Quiet threshold
@@ -2431,18 +2005,14 @@ mean keepMultiplier 0.58-0.82
 
 ## 2. Colony shape
 
-Tune:
-
 ```text
 Colony strength
 Clump size
 ```
 
-Goal: irregular pockets, not smooth circles and not procedural speckle.
+Goal: irregular pockets, not smooth circles or procedural speckle.
 
 ## 3. Family coherence
-
-Tune:
 
 ```text
 Dominant family
@@ -2452,17 +2022,13 @@ Goal: recognizable communities without monoculture everywhere.
 
 ## 4. Tint coherence
 
-Tune:
-
 ```text
 Tint coherence
 ```
 
-Only after this should biome tint weights be adjusted.
+Only then adjust biome tint weights if necessary.
 
 ## 5. Ecology/edges
-
-Tune:
 
 ```text
 Ecology influence
@@ -2475,35 +2041,32 @@ Goal: environment explains composition without decorative borders.
 
 ## 6. Internal hierarchy
 
-Tune:
-
 ```text
 Core height bias
 Mature phenotype
 ```
 
-Goal: subtle age/height relationships entirely inside existing bounds.
+Goal: subtle relationships inside existing bounds.
 
 ## 7. Density last
 
-If the result is rich enough, reduce density.
+If visual richness is sufficient, reduce density.
 
-Never raise above 0.35 in this phase.
+Never exceed 0.35.
 
 ---
 
 # Implementation Phases
 
-## F0 - baseline
+## F0: baseline
 
 No code changes.
 
-- record fixed-pose visual/performance baseline;
-- preserve captures/metrics for final comparison.
+Record fixed-pose visual/performance baseline.
 
-## F1 - config + pure tuning/random helpers
+## F1: config + tuning/random helpers
 
-Add/change:
+Change/add:
 
 - `public/config/world.yaml`;
 - `WorldConfig.ts`;
@@ -2519,26 +2082,18 @@ npm run test:config
 npm run build
 ```
 
-No renderer/placement behavior change yet except config shape.
+No placement/render behavior change yet.
 
-## F2 - pure distribution
+## F2: pure distribution
 
 Add:
 
 - `WorldDetailFoliageDistribution.ts`;
 - initial `verify-detail-foliage-distribution.mjs`.
 
-Pass:
+Pass repeatability, continuity, bounds, negative-space, master-off checks.
 
-- repeatability;
-- distribution golden generation;
-- continuity;
-- output bounds;
-- negative-space range.
-
-No renderer integration yet.
-
-## F3 - profile pre-resolution + affinity
+## F3: profile pre-resolution + affinity
 
 Change/add:
 
@@ -2546,18 +2101,11 @@ Change/add:
 - `DetailFoliageAffinity.ts`;
 - extend deterministic verifier.
 
-Pass:
+Pass profile validation, ecology direction, deterministic picks, family/tint correlation.
 
-- source/resolved profile validation;
-- ecology direction;
-- deterministic picks;
-- family correlation;
-- tint correlation;
-- selection golden generation.
+No renderer integration yet.
 
-No world rendering integration yet.
-
-## F4 - field integration + deterministic RNG separation
+## F4: field integration + RNG separation
 
 Change:
 
@@ -2565,15 +2113,15 @@ Change:
 
 Pass:
 
-- <=90 candidates/tile;
-- candidate positions independent from acceptance/appearance;
+- <= 90 candidates/tile;
+- candidate positions independent of rejection/appearance;
 - no new instance attributes;
 - no extra terrain/hydrology/ecology samples;
 - distribution after hard gates only;
-- workload envelope unchanged or lower;
+- workload envelope equal or lower;
 - `npm run test:grass-performance`.
 
-## F5 - species + atlas + biome art
+## F5: species + atlas + biome art
 
 Change:
 
@@ -2585,13 +2133,13 @@ Change:
 Pass:
 
 - exactly eight species;
-- bounds do not grow;
-- atlas dimensions unchanged;
-- structural verifier green;
-- atlas debug route visually approved;
-- world fixed-pose visuals materially improved.
+- analytical bounds unchanged;
+- atlas unchanged in dimensions/settings;
+- structural tests green;
+- atlas debug visually approved;
+- fixed-pose world visuals improved.
 
-## F6 - diagnostics tuning
+## F6: diagnostics tuning
 
 Change:
 
@@ -2603,21 +2151,21 @@ Change:
 Pass:
 
 - diagnostics-only panel;
-- input does not rebuild;
-- change commits once;
+- `input` does not rebuild;
+- `change` applies once;
 - equal tuning does not invalidate;
 - rebuild remains one tile/frame;
 - Reset to YAML works;
-- YAML export is valid.
+- YAML export valid.
 
 Tune in the documented order.
 
-After final visual tuning:
+After visual acceptance:
 
-- update `world.yaml`;
-- freeze both golden SHA-256 values.
+- commit final YAML values;
+- freeze both deterministic SHA-256 goldens.
 
-## F7 - final gates + documentation
+## F7: final gates + docs
 
 Change:
 
@@ -2637,11 +2185,11 @@ npm run test:grass-placement
 npm run build
 ```
 
-Then run fixed-pose manual visual/performance comparison on desktop and compact hardware.
+Then fixed-pose manual visual/performance comparison on desktop and compact hardware.
 
 No GitHub Actions.
 
-Deploy manually using the existing GitHub Pages command only after acceptance.
+Deploy manually only after acceptance.
 
 ---
 
@@ -2651,10 +2199,10 @@ Deploy manually using the existing GitHub Pages command only after acceptance.
 [ ] visible colonies replace uniform sprinkle
 [ ] meaningful quiet grass regions exist
 [ ] local flower tint is coherent
-[ ] low shrub reads as a real small leafy mass
+[ ] low shrub reads as a small leafy mass
 [ ] broadleaf rosette reads as a low/wide plant
 [ ] ecology explains local family distribution
-[ ] path/stone hard clearances are unchanged
+[ ] hard path/stone clearances unchanged
 [ ] no visible 16 m tile rhythm
 [ ] no obvious macro lattice squares
 
@@ -2671,27 +2219,30 @@ Deploy manually using the existing GitHub Pages command only after acceptance.
 
 [ ] production density <= 0.35/m²
 [ ] candidates <= 90/tile
-[ ] only two new continuous noise fields
+[ ] only two continuous noise fields
 [ ] eight lattice hashes/sample
 [ ] one candidate identity hash
-[ ] candidate position RNG consumes exactly two draws/candidate
+[ ] position RNG consumes exactly two draws/candidate
 [ ] appearance/acceptance do not consume position RNG
 [ ] distribution sampler allocates nothing
 [ ] affinity selection allocates nothing
 [ ] no new terrain/hydrology/ecology samples
-[ ] distribution/composition runs only during tile build
+[ ] composition runs only during tile build
 [ ] height correlation stays within declared species bands
+[ ] colonyStrength=0 fully disables all new spatial correlation
 
 [ ] source/resolved biome profile split implemented
 [ ] speciesIndex/tintRow pre-resolved
 [ ] candidate loop has no species/tint catalogue lookup
 
-[ ] distribution golden digest passes
-[ ] selection golden digest passes
+[ ] repeatability tests pass before goldens are frozen
+[ ] distribution golden passes after visual acceptance
+[ ] selection golden passes after visual acceptance
 [ ] tile continuity passes
 [ ] negative-space gates pass
 [ ] family correlation passes
 [ ] tint correlation passes
+[ ] master off-switch test passes
 [ ] ecology direction passes
 [ ] tuning normalization passes
 [ ] config rejection tests pass
@@ -2720,9 +2271,9 @@ Implement in this order:
 7  shrub/broadleaf silhouettes
 8  diagnostics tuning
 9  density reduction only if visually safe
-10 freeze deterministic goldens
+10 freeze deterministic goldens after visual acceptance
 ```
 
 The intended result is:
 
-> Fewer unrelated decorations. Larger quiet spaces. Small, coherent plant communities that look authored while costing the same or less to render.
+> Fewer unrelated decorations. Larger quiet spaces. Small coherent plant communities that look authored while costing the same or less to render.
