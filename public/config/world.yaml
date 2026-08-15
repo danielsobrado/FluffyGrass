@@ -63,6 +63,17 @@ grassClumpRadialExponent: 0.58
 grassClumpDominantDirectionWeight: 0.55
 grassClumpRadialDirectionWeight: 0.2
 
+# Macro grass habitat. These modulate ecology rather than inventing a second field.
+grassMacroPatchWorldSize: 42
+grassMacroPatchStrength: 0.28
+grassWetDensityBoost: 0.18
+grassDryDensityReduction: 0.32
+grassRockDensityReduction: 0.58
+grassDisturbanceDensityReduction: 0.72
+grassWetHeightBoost: 0.12
+grassDryHeightReduction: 0.22
+grassDryColorStrength: 0.34
+
 # Mid blades use cheaper single triangles but retain every source blade.
 grassMidBladeFraction: 1
 grassUnderlayerFraction: 0.35

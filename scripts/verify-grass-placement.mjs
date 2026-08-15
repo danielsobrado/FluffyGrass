@@ -434,9 +434,12 @@ assert(
   `Vertical floor ${verticalScaleMin} clamps the understory tier away.`,
 );
 assert(
-  factorySource.includes("const bladeTier = job.random.next()") &&
-    /clumpHeightScale\s*\*\s*tierScale\s*\*/.test(factorySource),
-  "Blade tiers must be drawn per blade and applied to the vertical scale.",
+  factorySource.includes("sampleGrassHabitat") &&
+    factorySource.includes("resolveGrassClusterArchetype") &&
+    factorySource.includes("CLUMP_LEAN_SALT") &&
+    factorySource.includes("habitatSample.dryness") &&
+    factorySource.includes("GRASS_CLUSTER_TALL_WET"),
+  "Near blades must derive habitat, cluster archetypes, and correlated lean from shared clump identity.",
 );
 
 console.log(

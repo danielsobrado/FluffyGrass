@@ -144,7 +144,8 @@ try {
       terrain.sampleHydrology(x, z, height, hydrology);
       terrain.sampleNormal(x, z, normal);
       const suitability = terrain.sampleGrassSuitability(x, z, height, normal);
-      surface.sample(x, z, height, suitability, hydrology, targets);
+      const ecology = terrain.sampleEcologyAt(x, z, height);
+      surface.sample(x, z, height, suitability, hydrology, ecology, targets);
       for (const value of [
         ...targets.ecology.toArray(),
         ...targets.environment.toArray(),
@@ -184,7 +185,8 @@ try {
     terrain.sampleHydrology(x, z, height, hydrology);
     terrain.sampleNormal(x, z, normal);
     const suitability = terrain.sampleGrassSuitability(x, z, height, normal);
-    surface.sample(x, z, height, suitability, hydrology, targets);
+    const ecology = terrain.sampleEcologyAt(x, z, height);
+    surface.sample(x, z, height, suitability, hydrology, ecology, targets);
     assert(
       Math.abs(targets.environment.w - 0.37) < 1e-12,
       "Terrain surface must carry the same stone clearance used by grass placement.",

@@ -62,9 +62,11 @@ export class TerrainStreamer {
   ) {
     this.materialController = new TerrainMaterialController(config, shadows);
     this.waterMaterialController =
-      config.waterEnabled >= 1 ? new WaterMaterialController(config) : undefined;
+      config.waterEnabled >= 1
+        ? new WaterMaterialController(config, compact)
+        : undefined;
     this.waterBedMaterialController = config.waterEnabled >= 1
-      ? new WaterBedMaterialController(config)
+      ? new WaterBedMaterialController(config, compact)
       : undefined;
     this.surfaceField = new TerrainSurfaceField(config);
     this.waterInteractionField = new WaterInteractionField(config);

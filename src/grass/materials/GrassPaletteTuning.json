@@ -6,11 +6,11 @@
   "shadeDrynessPivot": 0.18,
   "shadeDrynessScale": 0.2,
   "shadeDrynessMaximum": 0.035,
-  "instanceDrynessBase": 0.18,
-  "instanceDrynessTip": 0.02,
-  "drynessMaximum": 0.12,
+  "instanceDrynessBase": 0.28,
+  "instanceDrynessTip": 0.08,
+  "drynessMaximum": 0.28,
   "rootFadeEnd": 0.55,
-  "shadeLightMinimum": 0.82,
-  "shadeLightMaximum": 1.15,
+  "shadeLightMinimum": 0.9,
+  "shadeLightMaximum": 1.08,
   "shadowDesaturation": 0.55
 }

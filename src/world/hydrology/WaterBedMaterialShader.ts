@@ -20,7 +20,7 @@ uniform float uWaterBedScale;
 uniform float uWaterBedStrength;
 uniform float uWaterBedRefraction;
 uniform float uWaterAlgaeStrength;
-uniform float uWaterDepthFade;
+uniform float uWaterCausticStrength;
 uniform vec3 uWaterPebbleDark;
 uniform vec3 uWaterPebbleLight;
 uniform vec3 uWaterSand;
@@ -33,6 +33,7 @@ ${WATER_BED_FRAGMENT_FUNCTIONS}
 export const WATER_BED_COLOR_FRAGMENT = `
 float waterBedCoverageRaw = saturate(vWaterBedData.x);
 if (waterBedCoverageRaw < ${WATER_VISIBLE_COVERAGE_THRESHOLD}) discard;
+if (uWaterBedStrength < 0.001) discard;
 
 float waterBedDepth = max(0.0, vWaterBedData.y);
 vec2 waterBedPackedFlow = vWaterBedData.zw;
@@ -66,12 +67,22 @@ vec3 waterBedColor = waterSampleRiverBed(
 );
 waterBedColor *= 0.96 + waterBedRelief * 0.06;
 
+float waterBedShallow = 1.0 - smoothstep(0.18, 2.4, waterBedDepth);
+float waterBedCausticA = texture2D(
+  uWaterBedNoise,
+  waterBedPosition * uWaterBedScale * 2.35 + vec2(uWaterTime * 0.031, -uWaterTime * 0.019)
+).r;
+float waterBedCausticB = texture2D(
+  uWaterBedNoise,
+  waterBedPosition * uWaterBedScale * 1.62 - vec2(uWaterTime * 0.022, uWaterTime * 0.027)
+).g;
+float waterBedCaustic = waterBedCausticA * waterBedCausticB * waterBedShallow *
+  uWaterCausticStrength;
+waterBedColor *= 1.0 + waterBedCaustic * 0.28;
+
 float waterBedCoverage = smoothstep(0.025, 0.34, waterBedCoverageRaw);
-float waterBedDepthVisibility = 1.0 - smoothstep(
-  0.0,
-  max(0.01, uWaterDepthFade) * 2.6,
-  waterBedDepth
-);
+float waterBedDither = fract(dot(floor(mod(gl_FragCoord.xy, 4.0)), vec2(0.17, 0.37)));
+if (waterBedCoverage * uWaterBedStrength < 0.14 + waterBedDither * 0.52) discard;
 diffuseColor.rgb = waterBedColor;
-diffuseColor.a *= uWaterBedStrength * waterBedCoverage * waterBedDepthVisibility;
+diffuseColor.a = 1.0;
 `;

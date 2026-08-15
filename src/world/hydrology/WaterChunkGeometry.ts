@@ -90,7 +90,17 @@ export class WaterChunkGeometryBuilder {
     );
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
+    const box = geometry.boundingBox;
+    if (box) {
+      let maxDepth = 0;
+      for (let offset = 1; offset < this.data.length; offset += 4) {
+        if (this.data[offset] > maxDepth) maxDepth = this.data[offset];
+      }
+      box.min.y -= maxDepth;
+      const sphere = new THREE.Sphere();
+      box.getBoundingSphere(sphere);
+      geometry.boundingSphere = sphere;
+    }
     return geometry;
   }
 

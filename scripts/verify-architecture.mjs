@@ -212,7 +212,8 @@ assert(
     waterChunkGeometry.includes("createIndices") &&
     waterChunkGeometry.includes("WATER_VISIBLE_COVERAGE_THRESHOLD") &&
     waterChunkGeometry.includes('"waterData"') &&
-    waterChunkGeometry.includes('"waterInteraction"'),
+    waterChunkGeometry.includes('"waterInteraction"') &&
+    waterChunkGeometry.includes("box.min.y -= maxDepth"),
   "Water chunk geometry must own packed attributes and sparse wet-cell topology.",
 );
 assert(
@@ -282,11 +283,14 @@ assert(
     !waterBedShader.includes("THREE.") &&
     waterBedMaterial.includes("class WaterBedMaterialController") &&
     waterBedMaterial.includes("MeshLambertMaterial") &&
+    waterBedMaterial.includes("depthWrite: true") &&
+    waterBedMaterial.includes("transparent: false") &&
     waterBedMaterial.includes("createWaterBedTexture") &&
     waterBedMaterial.includes("bedTexture.dispose()") &&
     waterBedMaterialShader.includes('from "./WaterBedShader"') &&
     waterBedMaterialShader.includes("transformed.y -= max(0.0, waterData.y)") &&
     waterBedMaterialShader.includes("waterSampleRiverBed") &&
+    waterBedMaterialShader.includes("waterBedCaustic") &&
     !waterShader.includes('from "./WaterBedShader"') &&
     !waterShader.includes("waterSampleRiverBed"),
   "Riverbed shading must be a separate depth-tested pass instead of being composited onto transparent water.",
@@ -307,9 +311,12 @@ assert(
     waterShader.includes('from "./WaterFlowShader"') &&
     waterShader.includes("WATER_SURFACE_FRAGMENT") &&
     waterShader.includes("waterSampleAdvectedNoise") &&
+    waterShader.includes("waterTransmittance") &&
+    waterShader.includes("uWaterSunDirection") &&
     waterShader.includes("waterStoneFoam") &&
     waterShader.includes("waterLightingNormal") &&
     waterShader.includes("gl_FrontFacing") &&
+    !waterShader.includes("waterCaustic") &&
     !waterMaterial.includes("waterRiverPhaseA"),
   "Physical water lifecycle, flow helpers, and surface GLSL must stay split and free of riverbed compositing.",
 );

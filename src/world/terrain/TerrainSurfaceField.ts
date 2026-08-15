@@ -1,10 +1,6 @@
 import * as THREE from "three";
-import {
-  GRASS_MACRO_DRYNESS_STRENGTH,
-  sampleGrassMacroDryness,
-  sampleGrassMacroVigor,
-} from "../../grass/GrassFieldVariation";
 import { GRASS_BIOME_PROFILES } from "../../grass/biome/GrassBiomeProfile";
+import type { WorldEcologySample } from "../ecology/WorldEcologyField";
 import type { HydrologySample } from "../hydrology/HydrologyField";
 import type { WorldConfig } from "../WorldConfig";
 import {
@@ -13,7 +9,13 @@ import {
   sampleGrassBiome,
   type GrassBiomeSample,
 } from "../grass/WorldBiomeField";
+import {
+  createGrassHabitatSample,
+  sampleGrassHabitat,
+  type GrassHabitatSample,
+} from "../grass/GrassHabitatField";
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
+import { sampleGrassMacroVigor } from "../../grass/GrassFieldVariation";
 
 /** Packed semantic channels consumed by the terrain shader. */
 export interface TerrainSurfaceTargets {
@@ -32,6 +34,7 @@ function clamp01(value: number): number {
 /** Converts shared grass and hydrology semantics into stable terrain inputs. */
 export class TerrainSurfaceField {
   private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
+  private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
 
   constructor(private readonly config: WorldConfig) {}
 
@@ -41,10 +44,10 @@ export class TerrainSurfaceField {
     height: number,
     suitability: number,
     hydrology: HydrologySample,
+    ecology: WorldEcologySample,
     targets: TerrainSurfaceTargets,
   ): void {
     const vigor = sampleGrassMacroVigor(x, z);
-    const macroDryness = sampleGrassMacroDryness(x, z);
     const biome = sampleGrassBiome(x, z, this.biomeSample);
     const profileA = GRASS_BIOME_PROFILES[biome.indexA];
     const profileB = GRASS_BIOME_PROFILES[biome.indexB];
@@ -53,25 +56,48 @@ export class TerrainSurfaceField {
       profileB?.drynessBias ?? profileA?.drynessBias ?? 0,
       biome.blend,
     );
-    const dryness = clamp01(
-      (1 - suitability) * 0.34 +
-        macroDryness * GRASS_MACRO_DRYNESS_STRENGTH +
-        drynessBias -
-        hydrology.humidityBoost * 0.38,
+    const heightMin = THREE.MathUtils.lerp(
+      profileA?.heightBand[0] ?? 1,
+      profileB?.heightBand[0] ?? profileA?.heightBand[0] ?? 1,
+      biome.blend,
+    );
+    const heightMax = THREE.MathUtils.lerp(
+      profileA?.heightBand[1] ?? 1,
+      profileB?.heightBand[1] ?? profileA?.heightBand[1] ?? 1,
+      biome.blend,
+    );
+    const accentDensity = THREE.MathUtils.lerp(
+      profileA?.accentDensity ?? 0,
+      profileB?.accentDensity ?? profileA?.accentDensity ?? 0,
+      biome.blend,
+    );
+    sampleGrassHabitat(
+      x,
+      z,
+      ecology,
+      resolveGrassBiomeDensity(biome),
+      heightMin,
+      heightMax,
+      drynessBias,
+      accentDensity,
+      this.config,
+      this.habitatSample,
     );
     const altitude = clamp01(
       (height - this.config.grassMinAltitude) /
         (this.config.grassMaxAltitude - this.config.grassMinAltitude),
     );
     const humidity = clamp01(
-      (1 - dryness) * 0.68 + vigor * 0.32 + hydrology.humidityBoost,
+      (1 - this.habitatSample.dryness) * 0.68 +
+        vigor * 0.32 +
+        hydrology.humidityBoost,
     );
 
     targets.ecology.set(
       clamp01(suitability),
       vigor,
-      dryness,
-      resolveGrassBiomeDensity(biome),
+      this.habitatSample.dryness,
+      this.habitatSample.density,
     );
     targets.environment.set(
       altitude,

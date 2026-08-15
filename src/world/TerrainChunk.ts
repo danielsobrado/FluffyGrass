@@ -218,6 +218,7 @@ export class TerrainChunkBuilder {
         height,
         suitability,
         this.hydrology,
+        this.ecologySample,
         this.surfaceTargets,
       );
 

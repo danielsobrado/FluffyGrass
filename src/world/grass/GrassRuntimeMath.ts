@@ -17,15 +17,10 @@ export interface GrassBladeArcPoint {
 }
 
 /**
- * A blade's rest curve, as a circular arc of `bladeCurve` total turn in radians
- * parametrized by normalized arc length.
- *
- * The blade's configured height is spent as *arc length*, not as vertical reach,
- * so a more strongly curved blade stands lower and leans further out — which is
- * what a real leaf does, and what makes a field read as grass rather than as
- * spikes. Adding the curve as a plain sideways offset instead would leave every
- * tip at full height and quietly make the blade longer than its configuration
- * says it is, which the reserved bounds would then under-charge.
+ * A blade's rest curve, biased toward the upper half so the base stays planted.
+ * `amount` is still the normalized vertex parameter; curvature accumulates
+ * faster toward the tip. The tip at `amount = 1` matches the previous circular
+ * arc, so reserved bounds do not change.
  */
 export function resolveGrassBladeArcPoint(
   height: number,
@@ -35,7 +30,8 @@ export function resolveGrassBladeArcPoint(
   if (!(bladeCurve > GRASS_BLADE_ARC_EPSILON)) {
     return { y: height * amount, z: 0 };
   }
-  const angle = bladeCurve * amount;
+  const biased = amount * amount;
+  const angle = bladeCurve * biased;
   return {
     y: (height * Math.sin(angle)) / bladeCurve,
     z: (height * (1 - Math.cos(angle))) / bladeCurve,

@@ -6,9 +6,7 @@ import {
 } from "../grass/GrassArtDirection";
 import type { GrassConfig, GrassLodConfig } from "../grass/GrassConfig";
 import {
-  GRASS_MACRO_DRYNESS_STRENGTH,
   resolveGrassCanopyAo,
-  sampleGrassMacroDryness,
   sampleGrassMacroVigor,
 } from "../grass/GrassFieldVariation";
 import { GrassGeometryFactory } from "../grass/GrassGeometryFactory";
@@ -36,6 +34,11 @@ import {
   resolveGrassBiomeDensity,
   sampleGrassBiome,
 } from "./grass/WorldBiomeField";
+import {
+  createGrassHabitatSample,
+  sampleGrassHabitat,
+  type GrassHabitatSample,
+} from "./grass/GrassHabitatField";
 import {
   GRASS_BIOME_PROFILES,
   resolveGrassBiomeHeightRatio,
@@ -251,6 +254,7 @@ export class WorldGrassSystem {
   private readonly retiring = new Set<string>();
   private readonly cameraPosition = new THREE.Vector3();
   private readonly previousReconcilePosition = new THREE.Vector2();
+  private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
   private readonly nearField: WorldNearGrassField;
   private readonly farGroups = new Set<WorldGrassFarGroup>();
   private readonly fadingChunks = new Set<WorldGrassChunk>();
@@ -284,7 +288,7 @@ export class WorldGrassSystem {
   ) {
     this.material = new GrassNearMaterial({
       name: "world-grass-mid-material",
-      cacheKey: `grass-near-material-v20-mid-vertex-palette-no-sheen-${
+      cacheKey: `grass-near-material-v23-mid-vertex-palette-no-sheen-${
         profile.compact ? "sine" : "noise"
       }`,
       // The mid layer draws exactly the blades the near layer drops.
@@ -1073,6 +1077,23 @@ export class WorldGrassSystem {
       }
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
+      const ecology = this.field.sampleEcologyAt(x, z, height);
+      sampleGrassHabitat(
+        x,
+        z,
+        ecology,
+        resolveGrassBiomeDensity(biomeSample),
+        biomeProfile.heightBand[0],
+        biomeProfile.heightBand[1],
+        biomeProfile.drynessBias,
+        biomeProfile.accentDensity,
+        this.worldConfig,
+        this.habitatSample,
+      );
+      const habitatCoverage = preBiomeCoverage * this.habitatSample.density;
+      if (habitatCoverage <= FIELD_COVERAGE_REJECT) {
+        continue;
+      }
 
       job.position.set(
         x,
@@ -1088,12 +1109,19 @@ export class WorldGrassSystem {
       // limits are enforced by the profile loader.
       const biomeHeight = resolveGrassBiomeHeightRatio(biomeProfile);
       const biomeWidth = resolveGrassBiomeWidthRatio(biomeProfile);
+      const heightVariation = job.grassConfig.distribution.heightVariation;
+      const habitatBias = THREE.MathUtils.clamp(
+        (this.habitatSample.height - 1) * 0.12,
+        -heightVariation,
+        heightVariation,
+      );
       const horizontalScale = job.random.range(0.96, 1.04) * biomeWidth;
       const heightScale =
         (1 +
-          job.random.range(
-            -job.grassConfig.distribution.heightVariation,
-            job.grassConfig.distribution.heightVariation,
+          THREE.MathUtils.clamp(
+            job.random.range(-heightVariation, heightVariation) + habitatBias,
+            -heightVariation,
+            heightVariation,
           )) *
         biomeHeight;
       job.scale.set(horizontalScale, heightScale, horizontalScale);
@@ -1137,14 +1165,11 @@ export class WorldGrassSystem {
         resolveGrassCanopyAo(sampleGrassMacroVigor(x, z), suitability) *
         job.random.range(0.97, 1.03);
       batch.variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        (1 - suitability) * 0.34 +
-          sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
-          biomeProfile.drynessBias +
-          job.random.range(0, 0.09),
+        this.habitatSample.dryness + job.random.range(-0.02, 0.02),
         0,
         1,
       );
-      batch.coverages[instanceIndex] = coverage;
+      batch.coverages[instanceIndex] = habitatCoverage;
       batch.biomes[instanceIndex] = biomeIndex;
       batch.instanceCount += 1;
     }

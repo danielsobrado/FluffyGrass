@@ -49,6 +49,11 @@ try {
   const { createHydrologySample } = await server.ssrLoadModule(
     "/src/world/hydrology/HydrologyField.ts",
   );
+  const {
+    createGrassHabitatSample,
+    resolveGrassClusterArchetype,
+    sampleGrassHabitat,
+  } = await server.ssrLoadModule("/src/world/grass/GrassHabitatField.ts");
 
   const configSource = readFileSync(
     resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
@@ -211,6 +216,83 @@ try {
   assert(
     worstCurvature <= 1e-12,
     `Curvature depends on cache state; worst disagreement ${worstCurvature}.`,
+  );
+
+  const habitat = createGrassHabitatSample();
+  const healthy = {
+    moisture: 0.82,
+    fertility: 0.74,
+    exposure: 0.4,
+    disturbance: 0.05,
+    rockiness: 0.04,
+  };
+  sampleGrassHabitat(12, -8, healthy, 1, 0.9, 1.12, 0, 0.2, config, habitat);
+  const healthyDensity = habitat.density;
+  const healthyHeight = habitat.height;
+  for (const name of Object.keys(habitat)) {
+    assert(
+      Number.isFinite(habitat[name]) && habitat[name] >= 0,
+      `Habitat ${name} must be finite and non-negative.`,
+    );
+  }
+  sampleGrassHabitat(
+    12,
+    -8,
+    { ...healthy, moisture: 0.12, fertility: 0.28 },
+    1,
+    0.9,
+    1.12,
+    0.2,
+    0.2,
+    config,
+    habitat,
+  );
+  assert(
+    habitat.density <= healthyDensity + 1e-9 &&
+      habitat.height <= healthyHeight + 1e-9 &&
+      habitat.dryness > 0.2,
+    "Dry ground must not grow denser or taller than the equivalent healthy sample.",
+  );
+  sampleGrassHabitat(
+    12,
+    -8,
+    { ...healthy, rockiness: 0.86 },
+    1,
+    0.9,
+    1.12,
+    0,
+    0.2,
+    config,
+    habitat,
+  );
+  assert(
+    habitat.density <= healthyDensity + 1e-9,
+    "Rocky ground must not grow denser than the equivalent healthy sample.",
+  );
+  sampleGrassHabitat(
+    12,
+    -8,
+    { ...healthy, disturbance: 0.92 },
+    1,
+    0.9,
+    1.12,
+    0,
+    0.2,
+    config,
+    habitat,
+  );
+  assert(
+    habitat.density <= healthyDensity + 1e-9,
+    "Disturbed ground must not grow denser than the equivalent healthy sample.",
+  );
+  sampleGrassHabitat(12, -8, healthy, 1, 0.9, 1.12, 0, 0.2, config, habitat);
+  const firstArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config.seed);
+  const secondArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config.seed);
+  assert(
+    firstArchetype === secondArchetype &&
+      firstArchetype >= 0 &&
+      firstArchetype <= 5,
+    "Cluster archetypes must be stable for the same clump cell.",
   );
 
   console.log(

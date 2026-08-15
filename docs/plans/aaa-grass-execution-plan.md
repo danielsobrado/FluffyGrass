@@ -1,8 +1,11 @@
 # AAA Grass Execution Plan
 
-Status: implementation plan  
+Status: implementation plan — implemented pending visual sign-off  
 Baseline date: 2026-08-14  
 Target: FluffyGrass world renderer on desktop and compact/mobile profiles
+
+> **Implementation status as of 2026-08-15.** Baseline systems remain; the delta
+> work in this plan is in code. Phases marked ⚠️ remain manual screenshot work.
 
 ## Goal
 
@@ -69,6 +72,9 @@ All implementation work must follow these constraints:
 
 # Phase G0 — Baseline and visual contract
 
+> **Status: ⚠️ MANUAL** — Code and verification gates exist; the screenshot
+> matrix still needs a local visual pass.
+
 Before changing rendering, capture a repeatable baseline.
 
 ## TODO
@@ -86,6 +92,10 @@ The baseline must make it possible to tell whether later work improves naturalne
 ---
 
 # Phase G1 — One habitat field for macro grass behavior
+
+> **Status: ✅ DONE** — `GrassHabitatField.ts` maps ecology, biome, and a
+> low-frequency patch signal. Config keys live in `world.yaml` and the world
+> config schema.
 
 ## Objective
 
@@ -187,6 +197,10 @@ Do not hardcode the same tuning values again in shaders.
 
 # Phase G2 — Cluster archetypes without extra draw calls
 
+> **Status: ✅ DONE** — Six deterministic clump archetypes drive height, width,
+> lean, understory/accent mix, and coverage without extra draw calls. Identity
+> is stable from the clump cell.
+
 ## Objective
 
 Make individual blades visually subordinate to a small number of coherent tuft shapes.
@@ -257,6 +271,9 @@ Where possible, derive it from the same stable patch/tile/cell identifier rather
 
 # Phase G3 — Blade silhouette and normals
 
+> **Status: ✅ DONE** — Rest-curve amount is upper-half biased; lean is
+> correlated per tuft with small per-blade variation.
+
 ## Objective
 
 Improve the nearest blade read without spending geometry where it is not visible.
@@ -293,6 +310,9 @@ Any new runtime maximum affecting bounds must have one source of truth and be re
 ---
 
 # Phase G4 — Transmission and lighting refinement
+
+> **Status: ✅ DONE** — Ambient fill is added to indirect diffuse, not emission.
+> Transmission is root-attenuated, view/orientation dependent, and clamped.
 
 ## Objective
 
@@ -332,6 +352,10 @@ Keep ACES. Do not add bloom solely to make grass appear expensive.
 ---
 
 # Phase G5 — Multi-scale color, with small per-blade jitter
+
+> **Status: ✅ DONE** — Habitat dryness is the primary color term; per-blade
+> jitter is weaker. Palette dryness range is large enough for wet/dry patches
+> to read at every LOD.
 
 ## Objective
 
@@ -387,6 +411,9 @@ Extend `scripts/verify-lod-color-parity.mjs` if the new habitat term is not cove
 
 # Phase G6 — Ground and grass must be the same ecosystem
 
+> **Status: ✅ DONE** — Terrain surface dryness/density come from the same
+> habitat mapper used by grass placement.
+
 ## Objective
 
 Make the material below the grass explain why the grass looks the way it does.
@@ -426,6 +453,9 @@ The ground should still be visually useful when grass LODs disappear. It becomes
 ---
 
 # Phase G7 — Frequency-aware LOD polish
+
+> **Status: ✅ DONE** — Distance flattens normals, suppresses shade jitter, and
+> fades micro wind before macro wind. Impostors flatten toward up with range.
 
 ## Objective
 
@@ -511,6 +541,10 @@ npm run test:impostor-subpatch
 
 # Phase G8 — Character integration polish
 
+> **Status: ✅ DONE** — Trail bend scales with instance height and inverse
+> dryness so tall wet tufts move more than short dry ones, still from existing
+> instance data.
+
 ## Objective
 
 Use the existing interaction systems more effectively; do not add per-blade physics.
@@ -538,6 +572,10 @@ Relevant existing systems:
 ---
 
 # Phase G9 — Performance and resource policy
+
+> **Status: ✅ DONE** — Habitat is evaluated per placement sample. Archetypes
+> are data, not extra draws or materials. Compact water/grass quality stays on
+> the existing profile path.
 
 ## Rules
 
@@ -568,6 +606,10 @@ If an effect exceeds the budget, reduce its frequency or distance before reducin
 ---
 
 # Phase G10 — Verification and regression gates
+
+> **Status: ✅ DONE** — Habitat range/ordering and archetype stability are
+> asserted in `verify-ecology.mjs`; near placement asserts habitat/archetype
+> wiring. Manual screenshot matrix remains visual sign-off.
 
 ## Automated verification
 

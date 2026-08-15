@@ -1,8 +1,12 @@
 # AAA Water Execution Plan
 
-Status: implementation plan  
+Status: implementation plan — implemented pending visual sign-off  
 Baseline date: 2026-08-14  
 Target: FluffyGrass world renderer on desktop and compact/mobile profiles
+
+> **Implementation status as of 2026-08-15.** Phases marked ✅ are complete in
+> code; ⚠️ remain manual screenshot/capture work. See per-phase annotations
+> below.
 
 ## Goal
 
@@ -83,6 +87,9 @@ The bed must be a real depth-tested layer below the water surface. It must not b
 
 # Phase W0 — Baseline and visual contract
 
+> **Status: ⚠️ MANUAL** — Code gates exist; repeatable screenshot/benchmark
+> captures still need a local visual pass.
+
 Capture repeatable water views before changing the render pipeline.
 
 ## TODO
@@ -103,6 +110,11 @@ The character/bed occlusion views are mandatory regression references.
 ---
 
 # Phase W1 — Finish the surface/bed render ownership split
+
+> **Status: ✅ DONE** — Bed material is opaque (`transparent: false`,
+> `depthWrite: true`, `depthTest: true`) with dithered coverage discard.
+> Caustics live on the bed. Shared geometry bounds expand by max water depth.
+> Surface shader still has no riverbed sampling.
 
 ## Objective
 
@@ -208,6 +220,10 @@ Test all of these:
 
 # Phase W2 — Physically plausible depth absorption
 
+> **Status: ✅ DONE** — Beer-Lambert transmittance uses `exp(-absorption * depth)`
+> with `waterDepthFade` as the absorption distance and `WATER_ABSORPTION_COLOR`
+> as the in-scatter hue. Surface alpha follows optical depth, not a flat mix.
+
 ## Objective
 
 Make shallow water clear and deeper water progressively absorb light rather than just become a more opaque flat color.
@@ -274,6 +290,9 @@ Alpha should control how the transparent surface composites. Optical depth shoul
 
 # Phase W3 — Fresnel and reflection hierarchy
 
+> **Status: ✅ DONE** — F0 is derived from water IOR. Fresnel mixes reflection
+> into color only and no longer scales surface alpha.
+
 ## Objective
 
 Make the water surface strongly communicate reflection at grazing angles while staying clear enough to see through from above.
@@ -321,6 +340,8 @@ If implemented:
 ---
 
 # Phase W4 — Multi-scale surface normals and directional flow
+
+> **Status: ✅ DONE** — Three-band wave logic plus compact detail scaling.
 
 ## Objective
 
@@ -385,6 +406,10 @@ Do not add several sampled normal textures when the current procedural slope/noi
 
 # Phase W5 — Wet shoreline and terrain transition
 
+> **Status: ✅ MOSTLY DONE** — `TerrainSurfaceField.ts` passes
+> `waterProximity` via `terrainEnvironment.z`. `TerrainMaterialShader.ts`
+> darkens soil and adds `TERRAIN_WET_SHEEN` specular lobe for the wet margin.
+
 ## Objective
 
 Remove the hard visual boundary between water and normal dry grass/terrain.
@@ -447,6 +472,10 @@ Do not duplicate `riverBankWidth`, `lakeShoreWidth`, and `waterHumidityRadius` w
 
 # Phase W6 — Contextual foam and obstacle response
 
+> **Status: ✅ MOSTLY DONE** — Shore band, riffle pattern, and CPU
+> time-budgeted stone wakes (`WaterChunkInteractionResolver.ts`) are
+> implemented. Foam increases roughness and modulates albedo.
+
 ## Objective
 
 Keep foam as evidence of energy in the water, not as a decorative white border.
@@ -498,6 +527,9 @@ The wake should:
 
 # Phase W7 — Refraction: correctness first, extra pass second
 
+> **Status: ✅ DONE** — Stage 1 view-ray + flow wobble offset remains the
+> default. Stage 2 scene refraction is an explicit non-goal for this pass.
+
 ## Objective
 
 Distort what is seen through the water enough to communicate refraction without forcing an expensive render architecture onto mobile.
@@ -546,6 +578,9 @@ Stage 2 ships only if its visual improvement is obvious in side-by-side captures
 
 # Phase W8 — Caustics belong on the bed
 
+> **Status: ✅ DONE** — Caustics moved to `WaterBedMaterialShader.ts` and gated
+> to shallow water. Lambert lighting keeps them off the character.
+
 ## Objective
 
 Move the impression of focused sunlight to the surface receiving it instead of tinting everything seen through the water.
@@ -571,6 +606,10 @@ Do not add a real caustic simulation or light-space render pass.
 ---
 
 # Phase W9 — Sun glint and material response
+
+> **Status: ✅ DONE** — Glints come from the sun half-vector on the perturbed
+> normal; flow noise only breaks up the highlight. Micro glints still fade with
+> `waterDetailWeight`.
 
 ## Objective
 
@@ -603,6 +642,10 @@ Relevant files:
 
 # Phase W10 — Surface geometry policy
 
+> **Status: ✅ DONE** — `WaterChunkGeometry.ts` creates smooth hydrology-driven
+> water sheets with per-vertex gradient normals (`resolveWaterSurfaceGradient`)
+> and no high-frequency vertex displacement.
+
 ## Objective
 
 Keep water geometry responsible for body shape and shoreline coverage, not small waves.
@@ -626,6 +669,9 @@ If a future ocean system is added, it can have a different geometry policy. Do n
 ---
 
 # Phase W11 — Compact/mobile quality policy
+
+> **Status: ✅ DONE** — Compact profile scales detail distance, flow noise,
+> glints, caustics, and stone wakes through the streamer, not user-agent checks.
 
 ## Objective
 
@@ -658,6 +704,11 @@ If profile-specific values are needed, expose them through the existing runtime/
 
 # Phase W12 — Performance and resource policy
 
+> **Status: ✅ DONE** — `TerrainStreamer.ts` shares single material controllers
+> and generated textures. No per-frame texture generation or per-chunk material
+> cloning. `WaterChunkInteractionResolver` uses frame-budgeted processing.
+> Shader detail falls with distance as `waterDetailWeight` reaches zero.
+
 ## Rules
 
 - One shared `WaterMaterialController` per world/streamer.
@@ -687,6 +738,11 @@ If an optional reflection/refraction pass costs enough to threaten the frame tie
 ---
 
 # Phase W13 — Verification and regression gates
+
+> **Status: ✅ DONE** — `verify-water-render-contract.mjs` and `test:water-render`
+> enforce opaque bed depth, surface/bed ownership, absorption, and compact
+> quality. Hydrology assertions match the W1 depth contract. Manual screenshot
+> matrix remains a visual sign-off step.
 
 ## Extend existing verification first
 

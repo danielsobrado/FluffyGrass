@@ -730,9 +730,9 @@ for (const [label, source] of [
 ]) {
   assert(
     source.includes("resolveGrassCanopyAo(") &&
-      source.includes("sampleGrassMacroDryness(x, z)") &&
-      source.includes("GRASS_MACRO_DRYNESS_STRENGTH"),
-    `Grass ${label} must resolve canopy occlusion and macro dryness from the shared field.`,
+      source.includes("sampleGrassHabitat(") &&
+      source.includes("habitatSample.dryness"),
+    `Grass ${label} must resolve canopy occlusion and habitat dryness from the shared field.`,
   );
 }
 // The lattice margin must follow the configured tuft reach rather than a

@@ -1,9 +1,7 @@
 import * as THREE from "three";
 import type { GrassConfig } from "../../grass/GrassConfig";
 import {
-  GRASS_MACRO_DRYNESS_STRENGTH,
   resolveGrassCanopyAo,
-  sampleGrassMacroDryness,
   sampleGrassMacroVigor,
 } from "../../grass/GrassFieldVariation";
 import { GrassGeometryFactory } from "../../grass/GrassGeometryFactory";
@@ -18,6 +16,17 @@ import { sampleStoneGrassClearance } from "../stones/StoneClearance";
 import { TERRAIN_NORMAL_STEP, type TerrainField } from "../TerrainField";
 import { TerrainHeightLattice } from "../TerrainHeightLattice";
 import type { WorldConfig } from "../WorldConfig";
+import {
+  createGrassHabitatSample,
+  resolveGrassClusterArchetype,
+  sampleGrassHabitat,
+  GRASS_CLUSTER_ACCENT,
+  GRASS_CLUSTER_FLATTENED,
+  GRASS_CLUSTER_SHORT_DRY,
+  GRASS_CLUSTER_SPARSE_OPEN,
+  GRASS_CLUSTER_TALL_WET,
+  type GrassHabitatSample,
+} from "./GrassHabitatField";
 import {
   calculateGrassBladeCurveReach,
   calculateGrassSingleBladeRootBoundsRadius,
@@ -136,6 +145,7 @@ const CLUMP_RADIUS_SALT = 0x5b;
 const CLUMP_ASPECT_SALT = 0x6d;
 const CLUMP_ELLIPSE_ANGLE_SALT = 0x7f;
 const CLUMP_DIRECTION_SALT = 0x91;
+const CLUMP_LEAN_SALT = 0xa5;
 /**
  * Per-blade height jitter within a tuft. Composed with the tuft's own scale
  * above, the product stays inside {@link INSTANCE_VERTICAL_SCALE_MAX}, which
@@ -241,7 +251,7 @@ const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
  * against the previous rule would otherwise survive in the LRU and draw beside
  * freshly built neighbours.
  */
-const GRASS_PLACEMENT_VERSION = 3;
+const GRASS_PLACEMENT_VERSION = 4;
 /** Bound negative-placement memory while retaining far more than one view. */
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
@@ -294,6 +304,7 @@ export class WorldSingleBladeTileFactory {
   private readonly scale = new THREE.Vector3();
   private readonly matrix = new THREE.Matrix4();
   private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
+  private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
   private readonly placementCache = new Map<string, WorldSingleBladePlacement>();
   private readonly placementLru = new Map<string, WorldSingleBladePlacement>();
   private readonly emptyPlacementCache = new Map<string, true>();
@@ -603,6 +614,25 @@ export class WorldSingleBladeTileFactory {
       const biomeSample = sampleGrassBiome(x, z, this.biomeSample);
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
+      const ecology = this.field.sampleEcologyAt(x, z, height);
+      sampleGrassHabitat(
+        x,
+        z,
+        ecology,
+        resolveGrassBiomeDensity(biomeSample),
+        biomeProfile.heightBand[0],
+        biomeProfile.heightBand[1],
+        biomeProfile.drynessBias,
+        biomeProfile.accentDensity,
+        this.worldConfig,
+        this.habitatSample,
+      );
+      const archetype = resolveGrassClusterArchetype(
+        this.habitatSample,
+        clumpColumn,
+        clumpRow,
+        this.worldConfig.seed,
+      );
 
       this.position.set(
         x,
@@ -655,9 +685,21 @@ export class WorldSingleBladeTileFactory {
       // scale` the reserved bounds already charge: displacement is
       // `height * verticalScale * sin(angle)`, which this keeps at or below
       // `leanDistance * INSTANCE_HORIZONTAL_SCALE_MAX` for every instance.
-      const leanDistance = job.random.range(
-        this.grassConfig.geometry.bladeLeanMin,
-        this.grassConfig.geometry.bladeLeanMax,
+      const leanMin = this.grassConfig.geometry.bladeLeanMin;
+      const leanMax = this.grassConfig.geometry.bladeLeanMax;
+      const sharedLean =
+        leanMin +
+        (leanMax - leanMin) *
+          (this.clumpValue(clumpColumn, clumpRow, CLUMP_LEAN_SALT) * 0.62 +
+            this.habitatSample.directionalLean * 0.38);
+      const flattenedLean =
+        archetype === GRASS_CLUSTER_FLATTENED
+          ? THREE.MathUtils.lerp(sharedLean, leanMax, 0.55)
+          : sharedLean;
+      const leanDistance = THREE.MathUtils.clamp(
+        flattenedLean * job.random.range(0.88, 1.12),
+        leanMin,
+        leanMax,
       );
       const leanRotation = Math.atan2(
         (leanDistance * INSTANCE_HORIZONTAL_SCALE_MAX) /
@@ -672,24 +714,37 @@ export class WorldSingleBladeTileFactory {
       // is free of the lean direction.
       this.align.multiply(this.lean).multiply(this.yaw);
       const vigor = sampleGrassMacroVigor(x, z);
-      // Blades in a tuft grew together and match each other in height far more
-      // closely than two blades a metre apart do. Folding the vigour band into
-      // the tuft's own scale, rather than multiplying on top of it, keeps the
-      // product inside the scale ceilings the reserved bounds are built from.
-      const clumpHeightScale =
-        biomeProfile.heightBand[0] +
-        (biomeProfile.heightBand[1] - biomeProfile.heightBand[0]) *
-          (this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.45 + vigor * 0.55);
-      // Drawn per blade rather than per tuft: a tuft whose blades were all
-      // understory would read as a bald patch, and one that was all accent as a
-      // shrub. The tiers have to interleave inside a tuft for the short blades
-      // to fill the gaps between the tall ones, which is the whole point of
-      // having them.
+      let clumpHeightScale =
+        this.habitatSample.height *
+        (0.94 + this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.12);
+      if (archetype === GRASS_CLUSTER_TALL_WET) clumpHeightScale *= 1.05;
+      if (archetype === GRASS_CLUSTER_SHORT_DRY) clumpHeightScale *= 0.88;
+      if (archetype === GRASS_CLUSTER_FLATTENED) clumpHeightScale *= 0.84;
+      if (archetype === GRASS_CLUSTER_ACCENT) clumpHeightScale *= 1.08;
+      let understoryShare = BLADE_TIER_UNDERSTORY_SHARE;
+      let accentShare = BLADE_TIER_ACCENT_SHARE;
+      if (archetype === GRASS_CLUSTER_SHORT_DRY || archetype === GRASS_CLUSTER_FLATTENED) {
+        understoryShare = 0.46;
+        accentShare = 0.03;
+      } else if (archetype === GRASS_CLUSTER_TALL_WET) {
+        understoryShare = 0.18;
+        accentShare = 0.16;
+      } else if (archetype === GRASS_CLUSTER_ACCENT) {
+        accentShare = 0.22;
+      } else if (archetype === GRASS_CLUSTER_SPARSE_OPEN) {
+        understoryShare = 0.22;
+        accentShare = 0.04;
+      }
+      understoryShare = THREE.MathUtils.lerp(
+        understoryShare,
+        this.habitatSample.underlayer,
+        0.4,
+      );
       const bladeTier = job.random.next();
       const tierScale =
-        bladeTier < BLADE_TIER_UNDERSTORY_SHARE
+        bladeTier < understoryShare
           ? BLADE_TIER_UNDERSTORY_SCALE
-          : bladeTier < 1 - BLADE_TIER_ACCENT_SHARE
+          : bladeTier < 1 - accentShare
             ? BLADE_TIER_MAIN_SCALE
             : BLADE_TIER_ACCENT_SCALE;
       const verticalScale = THREE.MathUtils.clamp(
@@ -699,8 +754,10 @@ export class WorldSingleBladeTileFactory {
         INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
       );
+      const clumpWidth = this.habitatSample.clumpScale *
+        (archetype === GRASS_CLUSTER_SPARSE_OPEN ? 1.1 : 1);
       const horizontalScale = THREE.MathUtils.clamp(
-        clumpHeightScale * job.random.range(...biomeProfile.widthBand),
+        clumpHeightScale * job.random.range(...biomeProfile.widthBand) * clumpWidth,
         0.76,
         INSTANCE_HORIZONTAL_SCALE_MAX,
       );
@@ -708,7 +765,7 @@ export class WorldSingleBladeTileFactory {
         horizontalScale,
         verticalScale,
         THREE.MathUtils.clamp(
-          clumpHeightScale * job.random.range(...biomeProfile.widthBand),
+          clumpHeightScale * job.random.range(...biomeProfile.widthBand) * clumpWidth,
           0.76,
           INSTANCE_HORIZONTAL_SCALE_MAX,
         ),
@@ -734,10 +791,7 @@ export class WorldSingleBladeTileFactory {
         resolveGrassCanopyAo(vigor, suitability) *
         job.random.range(0.985, 1.015);
       job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        (1 - suitability) * 0.25 +
-          sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
-          biomeProfile.drynessBias +
-          job.random.range(0, 0.06),
+        this.habitatSample.dryness + job.random.range(-0.015, 0.015),
         0,
         1,
       );
@@ -745,8 +799,10 @@ export class WorldSingleBladeTileFactory {
       // it only as a placement gate. Otherwise every surviving verge blade
       // becomes fully dense when the near LOD arrives and the path edge grows
       // visibly around the moving camera.
+      const sparseCoverage =
+        archetype === GRASS_CLUSTER_SPARSE_OPEN ? 0.72 : 1;
       job.coverages[job.bladeCount] =
-        resolveGrassBiomeDensity(biomeSample) * pathMask * stoneMask;
+        this.habitatSample.density * pathMask * stoneMask * sparseCoverage;
       job.biomes[job.bladeCount] = biomeIndex;
       job.bladeCount += 1;
     }

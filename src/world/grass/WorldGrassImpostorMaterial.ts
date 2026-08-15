@@ -228,7 +228,11 @@ void main() {
   // Source blades lie in local XY, so their geometric normal is local Z.
   // Blend that same axis toward the terrain normal just like the real-blade
   // material does before evaluating the scene lights.
-  vec3 grassWorldNormal = normalize(mix(basisZ, basisY, uNormalUp));
+  vec3 grassWorldNormal = normalize(mix(
+    basisZ,
+    basisY,
+    mix(uNormalUp, 1.0, saturate((cameraDistance - 80.0) / 140.0))
+  ));
   vec3 grassViewNormal = normalize(mat3(viewMatrix) * grassWorldNormal);
   vec3 grassIrradiance = ambientLightColor;
   #if NUM_HEMI_LIGHTS > 0
@@ -252,7 +256,7 @@ void main() {
     vGrassBackLight = pow(
       saturate(dot(normalize(mvPosition.xyz), directionalLights[0].direction)),
       2.0
-    );
+    ) * mix(0.22, 1.0, shearProgress);
   #else
     vGrassBackLight = 0.0;
   #endif

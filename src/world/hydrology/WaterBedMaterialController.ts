@@ -5,6 +5,7 @@ import {
   WATER_ALGAE_COLOR,
   WATER_BED_MATERIAL_CACHE_KEY,
   WATER_BED_NOISE_SEED_SALT,
+  WATER_COMPACT_DETAIL_SCALE,
   WATER_PEBBLE_DARK_COLOR,
   WATER_PEBBLE_LIGHT_COLOR,
   WATER_SAND_COLOR,
@@ -21,20 +22,22 @@ export class WaterBedMaterialController {
   private readonly bedTexture: THREE.DataTexture;
   private readonly uniforms: Record<string, THREE.IUniform>;
 
-  constructor(config: WorldConfig) {
+  constructor(config: WorldConfig, compact = false) {
     this.bedTexture = createWaterBedTexture(
       (config.seed ^ WATER_BED_NOISE_SEED_SALT) >>> 0,
     );
     this.material = new THREE.MeshLambertMaterial({
       color: 0xffffff,
-      transparent: true,
+      transparent: false,
       opacity: 1,
-      depthWrite: false,
+      depthTest: true,
+      depthWrite: true,
       side: THREE.FrontSide,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
+    const detailScale = compact ? WATER_COMPACT_DETAIL_SCALE : 1;
     this.uniforms = {
       uWaterTime: { value: 0 },
       uWaterBedNoise: { value: this.bedTexture },
@@ -42,7 +45,9 @@ export class WaterBedMaterialController {
       uWaterBedStrength: { value: config.waterBedStrength },
       uWaterBedRefraction: { value: config.waterBedRefraction },
       uWaterAlgaeStrength: { value: config.waterAlgaeStrength },
-      uWaterDepthFade: { value: config.waterDepthFade },
+      uWaterCausticStrength: {
+        value: config.waterCausticStrength * detailScale,
+      },
       uWaterPebbleDark: { value: WATER_PEBBLE_DARK_COLOR },
       uWaterPebbleLight: { value: WATER_PEBBLE_LIGHT_COLOR },
       uWaterSand: { value: WATER_SAND_COLOR },

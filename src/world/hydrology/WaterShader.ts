@@ -31,13 +31,15 @@ uniform float uWaterLakeWaveStrength;
 uniform sampler2D uWaterFlowNoise;
 uniform float uWaterFlowNoiseScale;
 uniform float uWaterFlowNoiseStrength;
-uniform float uWaterCausticStrength;
 uniform float uWaterGlintStrength;
 uniform float uWaterStoneWakeStrength;
 uniform vec3 uWaterShallow;
 uniform vec3 uWaterDeep;
 uniform vec3 uWaterReflection;
 uniform vec3 uWaterFoam;
+uniform vec3 uWaterAbsorption;
+uniform vec3 uWaterSunDirection;
+uniform float uWaterFresnelF0;
 varying vec4 vWaterData;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
@@ -167,18 +169,10 @@ vec3 waterWorldNormal = normalize(
 vec3 waterLightingNormal = gl_FrontFacing ? waterWorldNormal : -waterWorldNormal;
 normal = normalize((viewMatrix * vec4(waterLightingNormal, 0.0)).xyz);
 
-float waterDepthFactor = 1.0 - exp(-waterDepth / max(0.01, uWaterDepthFade));
-vec3 waterSurfaceColor = mix(
-  uWaterShallow,
-  uWaterDeep,
-  saturate(waterDepthFactor * 0.82 + waterCoverage * 0.18)
-);
-
-float waterShallowLight =
-  (1.0 - smoothstep(0.18, 2.4, waterDepth)) * waterDetailWeight;
-float waterCaustic = smoothstep(0.56, 0.9, waterFlowNoise.b) *
-  waterShallowLight * uWaterCausticStrength;
-waterSurfaceColor = mix(waterSurfaceColor, uWaterShallow * 1.08, waterCaustic * 0.2);
+vec3 waterAbsorption = (vec3(1.0) - uWaterAbsorption) / max(0.01, uWaterDepthFade);
+vec3 waterTransmittance = exp(-waterAbsorption * waterDepth);
+vec3 waterSurfaceColor = uWaterShallow * waterTransmittance +
+  uWaterDeep * (1.0 - waterTransmittance);
 
 if (waterRiverAmount > 0.02) {
   float waterFlowSheen = 0.5 + 0.5 * sin(
@@ -190,12 +184,19 @@ if (waterRiverAmount > 0.02) {
 
 vec3 waterViewDirection = normalize(cameraPosition - vWaterWorldPosition);
 float waterFacing = saturate(dot(waterLightingNormal, waterViewDirection));
-float waterFresnel = 0.0204 + 0.9796 * pow(1.0 - waterFacing, 5.0);
+float waterFresnel = uWaterFresnelF0 +
+  (1.0 - uWaterFresnelF0) * pow(1.0 - waterFacing, 5.0);
 float waterFresnelVisual = saturate(waterFresnel * uWaterFresnelStrength);
-waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterFresnelVisual * 0.34);
-float waterGlint = smoothstep(0.91, 0.995, waterFlowNoise.a) *
-  waterDetailWeight * uWaterGlintStrength * (0.55 + waterFresnelVisual * 0.45);
-waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterGlint * 0.12);
+waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterFresnelVisual * 0.42);
+vec3 waterHalfVector = normalize(uWaterSunDirection + waterViewDirection);
+float waterSunSpecular = pow(
+  saturate(dot(waterLightingNormal, waterHalfVector)),
+  96.0
+);
+float waterGlintBreakup = mix(0.62, 1.0, waterFlowNoise.a);
+float waterGlint = waterSunSpecular * waterGlintBreakup *
+  waterDetailWeight * uWaterGlintStrength;
+waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterGlint * 0.16);
 
 float waterShoreBand =
   (1.0 - smoothstep(0.16, 0.66, waterCoverageRaw)) *
@@ -224,9 +225,12 @@ roughnessFactor = clamp(
 );
 
 diffuseColor.rgb = waterSurfaceColor;
-float waterDepthOpacity = mix(0.58, 1.0, waterDepthFactor);
-float waterFresnelOpacity = mix(0.78, 1.0, waterFresnelVisual);
-float waterAlpha = uWaterOpacity * waterCoverage * waterDepthOpacity * waterFresnelOpacity;
+float waterTransmittanceLuma = dot(
+  waterTransmittance,
+  vec3(0.2126, 0.7152, 0.0722)
+);
+float waterAlpha = uWaterOpacity * waterCoverage *
+  mix(0.16, 0.88, 1.0 - waterTransmittanceLuma);
 waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.22), waterFoamAmount);
 diffuseColor.a *= waterAlpha;
 `;

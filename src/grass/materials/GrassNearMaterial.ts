@@ -295,6 +295,11 @@ float grassFieldDither = fract(
 // per-instance term, so LOD selection and motion have to stay independent.
 float grassMotionPhase = fract(grassPhase + instanceVariation.x);
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
+float grassMicroFade = 1.0 - smoothstep(
+  uGrassNearDistance * 0.45,
+  uGrassMidDistance,
+  grassCameraDistance
+);
 float grassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
   uGrassNearDistance + uGrassTransitionDistance,
@@ -377,7 +382,7 @@ if (grassKeepBlade && grassProgress > 0.001) {
   );
   float grassBend = (
     grassGust * uGrassWindStrength +
-    grassFlutter * uGrassFlutterStrength
+    grassFlutter * uGrassFlutterStrength * grassMicroFade
   ) * instanceVariation.y * grassStiffness * pow(grassProgress, 1.65) *
     uGrassWindLodScale * grassGustEnvelope;
   vec3 grassWorldWind = vec3(grassWindDirection.x, 0.0, grassWindDirection.y);
@@ -412,6 +417,14 @@ if (grassKeepBlade && grassProgress > 0.001) {
     ));
   }
 GRASS_TRAIL_BEND
+}
+
+if (grassKeepBlade) {
+vNormal = normalize(mix(
+  vNormal,
+  normalize(mat3(modelViewMatrix) * vec3(0.0, 1.0, 0.0)),
+  (1.0 - grassMicroFade) * 0.58
+));
 }
 
 `;
@@ -560,8 +573,14 @@ const VERTEX_TRAIL_BEND = `
         // and dies away over the second or so after it lifts.
         float grassTrailWobble = 1.0 + uGrassTrailWobbleAmplitude * grassTrailSample.a *
           sin(uGrassTime * uGrassTrailWobbleFrequency + grassTrailSeed * 6.28318530718);
+        float grassHabitatBend = mix(
+          0.78,
+          1.16,
+          saturate((grassVerticalScale - 0.7) * 1.8)
+        ) * (1.0 - instanceVariation.w * 0.32);
         float grassTrailAngle = clamp(
-          uGrassTrailMaxAngle * uGrassTrailStrength * grassTrailResponse * grassTrailWobble,
+          uGrassTrailMaxAngle * uGrassTrailStrength * grassTrailResponse *
+            grassTrailWobble * grassHabitatBend,
           0.0,
           1.48
         );
@@ -614,7 +633,7 @@ const VERTEX_TRAIL_BEND = `
 // burn interpolators the fragment shader no longer reads.
 const VERTEX_SHADING = `
 vGrassProgress = grassProgress;
-vGrassShade = grassBladeShade;
+vGrassShade = mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.7);
 vGrassDryness = instanceVariation.w;
 vGrassRootAo = instanceVariation.z;
 vGrassBiome = instanceBiome;
@@ -639,7 +658,7 @@ vec3 grassPaletteColor = grassResolvePalette(
   uGrassBiomeTip[grassBiomeRow],
   uGrassBiomeDry[grassBiomeRow],
   grassProgress,
-  grassBladeShade,
+  mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.7),
   instanceVariation.w,
   instanceVariation.z,
   uGrassBiomeShade[grassBiomeRow].y,
@@ -701,7 +720,7 @@ const VERTEX_PALETTE_FRAGMENT_COLOR = `
 #include <color_fragment>
 diffuseColor.rgb = vGrassColor;
 GRASS_GROUND_SHADE_APPLY
-totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
+reflectedLight.indirectDiffuse += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
 // No discard here. Every input to the keep test is constant across a blade
@@ -730,7 +749,7 @@ diffuseColor.rgb = mix(
   vGrassGust * uGrassGustTipBoost * vGrassProgress
 );
 GRASS_GROUND_SHADE_APPLY
-totalEmissiveRadiance += diffuseColor.rgb * uGrassAmbientBoost;
+reflectedLight.indirectDiffuse += diffuseColor.rgb * uGrassAmbientBoost;
 `;
 
 const FRAGMENT_OUTPUT = `
@@ -746,7 +765,13 @@ vec3 grassSheen = vec3(0.0);
   // the camera equally, which reads as a plastic outline rather than a leaf.
   float grassIntoSun = saturate(dot(-grassViewDirection, grassSunDirection));
   float grassThinness = 1.0 - abs(dot(normal, grassSunDirection));
-  grassBackLight = grassIntoSun * grassIntoSun * grassThinness * vGrassSheen.y;
+  float grassRootAttenuation = smoothstep(0.12, 0.72, vGrassProgress);
+  float grassViewFacing = saturate(dot(normal, grassViewDirection));
+  grassBackLight = min(
+    grassIntoSun * grassIntoSun * grassThinness * grassRootAttenuation *
+      (0.35 + 0.65 * grassViewFacing) * vGrassSheen.y,
+    0.82
+  );
 GRASS_SHEEN_OUTPUT
 #endif
 vec3 grassLambertLight =

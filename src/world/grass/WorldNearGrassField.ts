@@ -93,7 +93,7 @@ export class WorldNearGrassField {
     const windMode = profile.compact ? "sine" : "noise";
     this.baseMaterial = new GrassNearMaterial({
       name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v22-base-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v23-base-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
@@ -103,7 +103,7 @@ export class WorldNearGrassField {
     });
     this.bridgeMaterial = new GrassNearMaterial({
       name: "world-grass-near-bridge-material",
-      cacheKey: `grass-near-material-v22-bridge-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v23-bridge-vertex-palette-${windMode}`,
       // Outside the bridge-entry radius, using the same dither as LOD0. This
       // makes LOD0 -> bridge a strict partition of one placement set.
       detailMode: 1,
@@ -118,7 +118,7 @@ export class WorldNearGrassField {
     });
     this.baseDetailMaterial = new GrassNearMaterial({
       name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v22-detail-${windMode}`,
+      cacheKey: `grass-near-material-v23-detail-${windMode}`,
       detailMode: 2,
       ditherSeed: BASE_SEED_SALT,
       interactive: true,
@@ -126,7 +126,7 @@ export class WorldNearGrassField {
     });
     this.ultraNearMaterial = new GrassNearMaterial({
       name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v22-ultra-${windMode}`,
+      cacheKey: `grass-near-material-v23-ultra-${windMode}`,
       detailMode: 0,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       interactive: true,

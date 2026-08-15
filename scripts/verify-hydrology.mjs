@@ -209,7 +209,8 @@ try {
 
       if (hydrology.waterProximity > 0.5 && hydrology.waterCoverage < 0.2) {
         const suitability = terrain.sampleGrassSuitabilityWithoutSlope(x, z, height);
-        surface.sample(x, z, height, suitability, hydrology, targets);
+        const ecology = terrain.sampleEcologyAt(x, z, height);
+        surface.sample(x, z, height, suitability, hydrology, ecology, targets);
         assert(
           targets.environment.z > 0.49 && targets.environment.y > 0,
           "Wet banks must carry water proximity and humidity semantics.",
@@ -451,7 +452,7 @@ try {
   for (const token of [
     "waterFlowDirection",
     "vWaterWorldNormal",
-    "waterDepthFactor",
+    "waterTransmittance",
     "waterFresnel",
     "waterShoreBand",
     "waterRiverFoam",
@@ -459,7 +460,7 @@ try {
     "waterLightingNormal",
     "gl_FrontFacing",
     "waterSampleAdvectedNoise",
-    "waterCaustic",
+    "uWaterSunDirection",
     "waterGlint",
     "waterStoneFoam",
   ]) {
@@ -517,9 +518,10 @@ try {
   );
   assert(
     bedShader.fragmentShader.includes("waterSampleRiverBed") &&
-      bedShader.fragmentShader.includes("waterBedDepthVisibility") &&
-      bedShader.fragmentShader.includes("uWaterBedRefraction"),
-    "The riverbed pass must own its cobble, depth fade, and apparent refraction shading.",
+      bedShader.fragmentShader.includes("waterBedCaustic") &&
+      bedShader.fragmentShader.includes("uWaterBedRefraction") &&
+      bedShader.fragmentShader.includes("discard"),
+    "The riverbed pass must own cobble, caustic, refraction, and opaque coverage shading.",
   );
   assert(
     bedShader.uniforms.uWaterBedNoise?.value?.isDataTexture === true &&
@@ -528,17 +530,18 @@ try {
     "Riverbed shading must bind its deterministic repeating bed texture.",
   );
   assert(
-    waterBedController.material.transparent === true &&
-      waterBedController.material.depthWrite === false &&
+    waterBedController.material.transparent === false &&
+      waterBedController.material.depthWrite === true &&
+      waterBedController.material.depthTest === true &&
       waterBedController.material.polygonOffset === true,
-    "Riverbed shading must depth-test without replacing terrain depth.",
+    "Riverbed shading must depth-test and depth-write as opaque world geometry.",
   );
 
   waterBedController.dispose();
   waterController.dispose();
 
   console.log(
-    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow noise, caustics, glints, stone wakes, depth-tested riverbed, and physical water verified.`,
+    `[hydrology] Rivers ${riverSamples}, lakes ${lakeSamples}, carved ${carvedSamples}; flow noise, absorption, glints, stone wakes, opaque depth-tested riverbed, and physical water verified.`,
   );
 } finally {
   await server.close();

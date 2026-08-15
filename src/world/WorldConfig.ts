@@ -43,6 +43,15 @@ export interface WorldConfig {
   grassClumpRadialExponent: number;
   grassClumpDominantDirectionWeight: number;
   grassClumpRadialDirectionWeight: number;
+  grassMacroPatchWorldSize: number;
+  grassMacroPatchStrength: number;
+  grassWetDensityBoost: number;
+  grassDryDensityReduction: number;
+  grassRockDensityReduction: number;
+  grassDisturbanceDensityReduction: number;
+  grassWetHeightBoost: number;
+  grassDryHeightReduction: number;
+  grassDryColorStrength: number;
   grassMidBladeFraction: number;
   grassUnderlayerFraction: number;
   grassPatchJitter: number;

@@ -33,7 +33,8 @@ function resolveGrassBladeArcPoint(
   if (!(bladeCurve > MIN_BLADE_CURVE)) {
     return { y: bladeLength * amount, z: 0 };
   }
-  const angle = bladeCurve * amount;
+  const biased = amount * amount;
+  const angle = bladeCurve * biased;
   const radius = bladeLength / bladeCurve;
   return {
     y: radius * Math.sin(angle),
