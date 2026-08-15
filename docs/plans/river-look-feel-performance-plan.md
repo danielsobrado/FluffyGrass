@@ -1,7 +1,7 @@
 # River Look and Feel Performance Plan
 
-Status: implementation specification  
-Revision: 3  
+Status: **final implementation specification**  
+Revision: **4 — pre-implementation review complete**  
 Baseline date: 2026-08-15  
 Target: FluffyGrass procedural rivers on desktop and compact/mobile profiles
 
@@ -9,203 +9,282 @@ Target: FluffyGrass procedural rivers on desktop and compact/mobile profiles
 
 Improve river realism and game feel without materially increasing runtime rendering cost.
 
-The water renderer is already strong enough to reveal a better river channel: depth absorption, Fresnel, flow-aligned multi-scale motion, contextual foam, stone wakes, bed caustics, a real depth-tested bed, wet terrain response, and compact/mobile detail scaling already exist.
+The renderer already has the expensive fundamentals: depth absorption, Fresnel, flow-aligned surface motion, contextual foam, stone wakes, shallow caustics, a depth-correct bed, wet terrain response, distance detail fading, and compact/mobile scaling.
 
-The remaining weakness is mainly structural. `RiverField.ts` builds a centreline from two sine components and gives a lane a mostly fixed width. `HydrologyField.ts` then reconstructs a mostly symmetric incision from coverage. A sophisticated water shader over a regular channel still reads as procedural.
+The remaining weakness is structural. The river channel is still more regular than the water material rendered over it.
 
-The governing rule for this work is:
+The governing rule is:
 
-> one deterministic river morphology drives width, depth, bend asymmetry, apparent flow, riffles, sediment, and bank character.
+> one continuous deterministic river morphology drives width, depth, bend asymmetry, apparent flow, riffles, sediment, and bank character.
 
-Do not solve each visible effect with an unrelated noise field.
+Do not create unrelated noise fields for each visible effect.
 
 ---
 
-# 1. Hard performance contract
+# 1. Final review decisions
 
-These are release constraints, not suggestions.
+These decisions supersede earlier revisions of this document.
 
-## Rendering
+1. **Do not add a hydraulic simulation.** Keep the existing analytic river field and water-sheet architecture.
+2. **Do not add another river noise octave.** Reuse the sine/cosine values already required by the two existing centreline phases.
+3. **Normalize the morphology signal.** The previous weighted product had a theoretical amplitude of only `0.72`, so an art value such as `riverWidthVariation: 0.08` could never actually produce an 8% morphology contribution. Revision 4 fixes that.
+4. **Leave width-safety headroom.** The previous defaults landed at approximately `1.17936` against the existing `1.18` maximum. That is needlessly tight. Revision 4 narrows the per-lane base range and defaults to a safer combined envelope.
+5. **Preserve existing downhill-flow resolution.** `RiverField.flowSign` is only a provisional tangent orientation. `WaterChunkInteractionResolver` already calls `resolveDownhillWaterFlow()` after the water sheet exists and rewrites packed flow/wake direction downhill. Do not replace or duplicate that mechanism.
+6. **Do not solve river-surface hydraulics in this pass.** The current surface level follows the existing terrain/hydrology model. The new cross-section changes depth beneath that surface. Add a regression measurement for cross-channel surface tilt; if the baseline itself proves unacceptable, solve water-surface elevation as a separate hydrology task rather than hiding it inside this visual pass.
+7. **Reduce new YAML knobs.** Structural implementation coefficients stay in tuning modules. YAML contains only values an artist should reasonably tune.
+8. **Use the existing native tuning-menu pattern.** Do not add lil-gui/dat.gui runtime dependencies.
+9. **Static performance contracts are deterministic; browser timing is not.** Build gates prevent architectural regressions. Production browser measurements use fixed scenes and repeated medians/p95.
 
-For R1-R12:
+---
+
+# 2. Existing architecture that must remain authoritative
+
+Do not rebuild systems that already solve the problem correctly.
+
+## Downhill flow
+
+Current path:
+
+```text
+RiverField
+  -> provisional normalized tangent
+  -> WaterChunkGeometry waterData.zw
+  -> WaterChunkInteractionResolver
+  -> resolveDownhillWaterFlow()
+  -> packed tangent is flipped if it points uphill
+  -> stone wakes use the same settled downhill direction
+```
+
+`WaterFlowDirection.ts` also ignores dry-bank heights when resolving the water-sheet gradient. Preserve this contract.
+
+## Water ownership
+
+```text
+terrain/character: opaque depth ownership
+riverbed: opaque/depth-writing bed layer
+water surface: transparent/depth-tested surface
+```
+
+No bed colour, pebbles, or caustics may be reintroduced as a foreground surface overlay.
+
+## Shared resources
+
+Keep:
+
+- one `WaterMaterialController` per `TerrainStreamer`;
+- one `WaterBedMaterialController` per `TerrainStreamer`;
+- one flow texture;
+- one bed texture;
+- shared materials across chunks;
+- `waterData` as four floats;
+- `waterInteraction` as two floats.
+
+---
+
+# 3. Hard performance contract
+
+These are release constraints.
+
+## R1-R12 rendering budget
 
 - 0 new mandatory render passes;
 - 0 SSR;
-- 0 planar reflection cameras;
+- 0 planar reflection camera;
 - 0 scene-colour refraction pass;
 - 0 dynamic tessellation;
-- 0 new river normal textures;
-- 0 new per-chunk materials;
+- 0 new river normal texture;
+- 0 new per-chunk water/bed materials;
 - 0 new water draw calls;
-- 0 new water-bed draw calls;
-- 0 new water vertex attributes or varyings in the first implementation;
+- 0 new bed draw calls;
+- 0 new water vertex attributes or varyings;
 - 0 additional surface-water sampler uniforms;
-- 0 additional riverbed sampler uniforms;
-- compact/mobile keeps the same macro hydrology as desktop.
+- 0 additional bed sampler uniforms;
+- same macro hydrology on desktop and compact/mobile.
 
-The optional character-ripple phase is the only phase allowed to add one small instanced draw.
+Optional character ripples are the only later phase allowed one small instanced draw.
 
-## CPU river generation
+## CPU generation budget
 
-`RiverField.sample()` and helpers are hot chunk-build paths.
+`RiverField.sample()` is a hot chunk-build path.
 
 Requirements:
 
-- no arrays, objects, closures, vectors, or temporary collections allocated per sample;
-- keep the existing reusable lane/sample objects;
-- exactly two `Math.sin()` evaluations per candidate lane, as required by the two existing centreline phases;
-- calculate `Math.cos()` only for the selected/winning lane;
-- do not add Perlin/simplex/value-noise calls to the river sampler;
-- do not add a third trigonometric river octave;
-- do not raise `WAKE_SAMPLE_COUNT` above 3;
-- do not increase terrain streaming frame budgets to hide slower generation.
+- no allocations per sample;
+- no arrays/objects/closures/vectors created per sample;
+- reuse lane/sample scratch objects;
+- two centreline `Math.sin()` calls per candidate lane, no third octave;
+- calculate `Math.cos()` only for the selected lane;
+- no Perlin/simplex/value-noise call added to river morphology;
+- `WAKE_SAMPLE_COUNT` remains `3`;
+- do not increase streaming frame budgets to hide slower generation.
 
-## Memory/resource ownership
+## Production frame budget
 
-- one shared `WaterMaterialController` per `TerrainStreamer`;
-- one shared `WaterBedMaterialController` per `TerrainStreamer`;
-- one flow texture and one bed texture remain shared;
-- no procedural texture generation during traversal;
-- no material/texture/render-target growth while crossing chunks;
-- `waterData` remains a `vec4`/4-float attribute;
-- `waterInteraction` remains a 2-float attribute;
-- extra morphology values remain CPU semantic fields unless visual sign-off proves GPU packing is necessary.
+Compare the same production build scene/profile/viewport before and after.
 
-## Performance budgets
-
-Measure against the commit immediately before river implementation on the same machine/browser/build/profile.
-
-For R1-R12:
+For the completed R1-R12 pass:
 
 ```text
-terrain chunk build median   <= baseline + 5%
-terrain chunk build p95      <= baseline + 10%
-river-view GPU/frame median  <= baseline + 3%
-river-view GPU/frame p95     <= baseline + 5%
-draw calls                   exactly unchanged for equivalent view
-water sampler uniforms       exactly unchanged
-bed sampler uniforms         exactly unchanged
-persistent resources         exactly unchanged
+visual-matrix frame p50        <= baseline + 3%
+visual-matrix frame p95        <= baseline + 5%
+renderer draw calls            unchanged for equivalent pose
+surface water sampler count    unchanged
+riverbed sampler count         unchanged
+persistent material/texture count unchanged
 ```
 
-Water-covered triangle count may move slightly because the real river width changes wet-cell coverage. Do not require identical triangle counts. Treat a sustained increase above 5% in equivalent river views as a reason to inspect coverage/topology before accepting it.
+Water triangle count can change because local width changes wet-cell topology. Investigate a sustained increase above 5% at the same river pose.
 
-Performance timing in a browser is repeatable, not mathematically deterministic. Logic/geometry tests must be deterministic; timing gates use repeated runs and medians as described later.
+Do not compensate for a regression by lowering grass quality, terrain radius, water detail distance, resolution, or another unrelated system.
 
-Do not compensate for a regression by reducing grass quality, terrain radius, water detail distance, resolution, or another unrelated feature.
+## CPU microbenchmark
+
+Add a **manual**, non-build-gating benchmark:
+
+`scripts/benchmark-river-generation.mjs`
+
+It should:
+
+- use seed `42017`;
+- warm up twice;
+- sample a fixed 250,000-point workload;
+- run 7 measured iterations;
+- report median and p95 iteration time;
+- perform no console output inside the measured loop.
+
+Add:
+
+```json
+"bench:river": "node scripts/benchmark-river-generation.mjs"
+```
+
+Do not put a stopwatch threshold in `npm run build`; machine scheduling is not deterministic. Use the benchmark for before/after engineering review.
 
 ---
 
-# 2. Exact implementation map
+# 4. Exact file map
 
-## Core river structure
+## River structure
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `src/world/hydrology/RiverTuning.ts` | **new** | Structural constants, safe width envelope, morphology weights, cross-section constants. No runtime state. |
-| `src/world/hydrology/RiverField.ts` | modify | Compute cached phase values, morphology, analytic bend curvature, local width, lateral coordinate, bed depth, incision depth. |
-| `src/world/hydrology/HydrologyField.ts` | modify | Use explicit river incision, reconstruct river water level from the same depth, expose CPU-only river semantic fields. |
-| `src/world/TerrainField.ts` | verify/minimal change only | Continue exposing hydrology through the existing sampling path. Do not duplicate river math here. |
+| File | Change |
+| --- | --- |
+| `src/world/hydrology/RiverTuning.ts` | **new** — structural constants and safe envelopes only. |
+| `src/world/hydrology/RiverField.ts` | morphology, bend driver, local width, lateral coordinate, cross-section depth. |
+| `src/world/hydrology/HydrologyField.ts` | carve using explicit incision; expose CPU-only morphology semantics. |
+| `src/world/TerrainField.ts` | normally no algorithm change; only expose a helper if deterministic QA genuinely requires it. Do not duplicate hydrology math. |
 
 ## Water surface
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `src/world/hydrology/WaterMaterialTuning.ts` | modify | Non-artist shader constants only; no hidden duplicate YAML values. |
-| `src/world/hydrology/WaterMaterialController.ts` | modify | Add uniforms/setter for live river visual tuning. |
-| `src/world/hydrology/WaterShader.ts` | modify | Derive local flow energy from existing depth/coverage/normal data; tune river phases/foam/colour without new samples. |
+| File | Change |
+| --- | --- |
+| `src/world/hydrology/WaterMaterialTuning.ts` | fixed shader coefficients/frequency endpoints. |
+| `src/world/hydrology/WaterMaterialController.ts` | new uniform values and live visual setters. |
+| `src/world/hydrology/WaterShader.ts` | depth/coverage-driven energy, local river speed, riffle gating, foam balance, subtle tint. |
+| `src/world/hydrology/WaterFlowDirection.ts` | **verify only** unless a regression is found. Preserve downhill resolver. |
+| `src/world/hydrology/WaterChunkInteractionResolver.ts` | **verify only** for downhill packing/order. |
 
 ## Riverbed
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `src/world/hydrology/WaterBedMaterialController.ts` | modify | Live bed tuning and reference depth uniform. |
-| `src/world/hydrology/WaterBedMaterialShader.ts` | modify | Derive pool/riffle/bank masks from existing data. |
-| `src/world/hydrology/WaterBedShader.ts` | modify | Reinterpret existing bed noise as coarse/fine/algae material according to hydrology masks. |
+| File | Change |
+| --- | --- |
+| `src/world/hydrology/WaterBedMaterialController.ts` | reference depth and live bed setters. |
+| `src/world/hydrology/WaterBedMaterialShader.ts` | derive channel/riffle/pool/bank masks. |
+| `src/world/hydrology/WaterBedShader.ts` | reinterpret existing sampled channels; no additional samples. |
 
 ## Shore and stones
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `src/world/TerrainMaterialShader.ts` | modify | Mud/gravel shoreline breakup using already sampled terrain noise. |
-| `src/world/TerrainMaterialController.ts` | minimal modify | Add a focused shore gravel colour/uniform only if existing palette cannot express it. |
-| `src/world/hydrology/WaterInteractionField.ts` | modify | Broaden existing 3-sample wake downstream; do not add samples. |
+| File | Change |
+| --- | --- |
+| `src/world/TerrainMaterialShader.ts` | irregular mud/gravel shore composition using existing terrain samples. |
+| `src/world/TerrainMaterialController.ts` | only add a dedicated shore-gravel colour if existing palette is insufficient. |
+| `src/world/hydrology/WaterInteractionField.ts` | broaden/weaken the existing three-sample wake downstream. |
 
 ## Configuration
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `public/config/world.yaml` | modify | Persistent artist-approved river parameters. This remains the source of truth. |
-| `src/world/WorldConfig.ts` | modify | Typed fields. |
-| `src/world/WorldConfigSchema.ts` | modify | Parse/default fields using existing config architecture. |
-| `src/world/WorldConfigValidator.ts` | modify | Range checks plus combined width-envelope checks. |
-| `scripts/verify-config-contracts.mjs` | modify | Assert every YAML field is typed, parsed, validated, and consumed. |
+| File | Change |
+| --- | --- |
+| `public/config/world.yaml` | persistent approved art values; source of truth. |
+| `src/world/WorldConfig.ts` | typed fields. |
+| `src/world/WorldConfigSchema.ts` | parser/default contract. |
+| `src/world/WorldConfigValidator.ts` | ranges and combined width-envelope validation. |
+| `scripts/verify-config-contracts.mjs` | every YAML value parsed, validated, and consumed. |
 
-## Development tuning UI
+## Development tuning
 
-The repository already uses a native `GrassArtMenu` with range controls and YAML export. Follow that pattern instead of introducing lil-gui/dat.gui as another dependency.
+| File | Change |
+| --- | --- |
+| `src/app/RiverArtMenu.ts` | **new** native tuning panel, YAML export, deterministic QA shortcuts. |
+| `src/dev/RiverDevelopmentConfig.ts` | **new** allowlisted session overrides and immutable merged config. |
+| `src/app/WorldApp.ts` | dynamically load/apply tuning only under `?riverTuning=1`; create/dispose menu. |
+| `src/world/TerrainStreamer.ts` | forward live visual values to the two shared water controllers. |
+| `src/style.css` | reuse the existing GrassArtMenu visual pattern. |
+| `package.json` | focused river test/benchmark aliases. No GUI dependency. |
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `src/app/RiverArtMenu.ts` | **new** | Native river tuning panel, YAML export/copy, structural reload controls, QA camera shortcuts. |
-| `src/dev/RiverDevelopmentConfig.ts` | **new** | Allowlisted session-only tuning overrides used only under `?riverTuning=1`. |
-| `src/app/WorldApp.ts` | modify | Apply dev override before construction; create/dispose RiverArtMenu; forward live visual tuning to TerrainStreamer. |
-| `src/world/TerrainStreamer.ts` | modify | `setRiverVisualTuning(...)` forwarding to shared water/bed controllers only. No chunk material cloning. |
-| `src/style.css` | modify | Styling matching `GrassArtMenu`; reuse existing tuning-menu patterns where practical. |
-| `src/main.ts` | minimal or no change | Only change if the chosen menu activation cannot remain inside `WorldApp`; prefer `WorldApp` ownership. |
-| `package.json` | modify | Add `test:river` and `test:river-perf-contract` aliases. **Do not add lil-gui/dat.gui runtime dependencies.** |
+## QA
 
-## Deterministic QA
-
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `scripts/verify-hydrology.mjs` | modify | Numeric morphology/width/bend/cross-section/determinism invariants. |
-| `scripts/verify-water-flow.mjs` | modify | Local-flow equations and river/lake separation. |
-| `scripts/verify-water-render-contract.mjs` | modify | Depth ownership, sampler/varying/material invariants. |
-| `scripts/verify-terrain-surface.mjs` | modify | Shore wet/mud/gravel semantic contract. |
-| `scripts/verify-stones.mjs` | modify | Wake remains 3-sample and downstream. |
-| `scripts/verify-river-performance-contract.mjs` | **new** | Static deterministic checks preventing accidental expensive architecture. |
-| `src/qa/WorldVisualMatrixLocations.ts` | modify | Find pool/riffle/inside-bend/outside-bend river landmarks from semantic fields. |
-| `src/qa/WorldVisualMatrixPoses.ts` | modify | Add repeatable river camera poses. |
-| `src/qa/WorldVisualMatrixRunner.ts` | small modify | Include new poses; optionally allow fixed warmup/sample query values while retaining deterministic defaults. |
-
-Optional later gameplay files:
-
-- `src/world/hydrology/CharacterWaterRipples.ts`;
-- `src/world/hydrology/CharacterWaterRippleMaterial.ts`.
-
-Do not create these until R1-R12 has been visually and performance signed off.
+| File | Change |
+| --- | --- |
+| `scripts/verify-hydrology.mjs` | numeric morphology/width/bend/depth/determinism tests. |
+| `scripts/verify-water-flow.mjs` | preserve downhill flow and add local visual-flow equations where appropriate. |
+| `scripts/verify-water-render-contract.mjs` | sampler/varying/material ownership contracts. |
+| `scripts/verify-terrain-surface.mjs` | shore-material contract. |
+| `scripts/verify-stones.mjs` | three-sample downstream wake contract. |
+| `scripts/verify-river-performance-contract.mjs` | **new** static performance architecture guard. |
+| `scripts/benchmark-river-generation.mjs` | **new** manual fixed-workload CPU benchmark. |
+| `src/qa/WorldVisualMatrixLocations.ts` | deterministic pool/riffle/bend landmarks. |
+| `src/qa/WorldVisualMatrixPoses.ts` | repeatable river cameras. |
+| `src/qa/WorldVisualMatrixRunner.ts` | use the added poses; keep existing frame-stat collection. |
 
 ---
 
-# 3. YAML configuration: exact artist controls
+# 5. YAML: final new artist controls
 
-Add these values under the current hydrology/water section of `public/config/world.yaml`.
+Add only these new persistent values:
 
 ```yaml
-# River morphology. These change generated channel geometry and require a
-# rebuild/reload when tuned.
+# Channel morphology — reload required while tuning.
 riverWidthVariation: 0.08
-riverBendBankAsymmetry: 0.05
-riverDepthVariation: 0.18
-riverBendChannelShift: 0.22
-riverBankIncisionScale: 0.10
+riverBendBankAsymmetry: 0.04
+riverDepthVariation: 0.16
+riverBendChannelShift: 0.20
 
-# River surface timing. These are visual multipliers and can update live.
-waterRiverPoolFlowScale: 0.78
-waterRiverRiffleFlowScale: 1.22
-waterRiverPoolFrequencyScale: 0.88
-waterRiverRiffleFrequencyScale: 1.16
+# River visual velocity — live uniform tuning.
+waterRiverPoolFlowScale: 0.80
+waterRiverRiffleFlowScale: 1.20
 
-# Foam cause weights. Total foam is still controlled by waterFoamStrength.
-waterShoreFoamWeight: 0.18
-waterRiffleFoamWeight: 0.42
+# Foam cause balance. Overall amount remains waterFoamStrength.
+waterShoreFoamWeight: 0.14
+waterRiffleFoamWeight: 0.40
 waterStoneFoamWeight: 0.56
 ```
 
-Keep existing controls and expose them in the tuning panel where useful:
+Do **not** add YAML fields for:
 
-```yaml
+- bank shoulder incision coefficient;
+- morphology weights/normalization;
+- shelf/channel cross-section coefficients;
+- pool/riffle frequency endpoints;
+- shader energy mix constants.
+
+Those describe the algorithm rather than art direction and belong in tuning modules.
+
+## Validation ranges
+
+```text
+riverWidthVariation          0.00 .. 0.12
+riverBendBankAsymmetry       0.00 .. 0.07
+riverDepthVariation          0.00 .. 0.25
+riverBendChannelShift        0.00 .. 0.30
+waterRiverPoolFlowScale      0.65 .. 1.00
+waterRiverRiffleFlowScale    1.00 .. 1.35
+waterShoreFoamWeight         0.00 .. 0.35
+waterRiffleFoamWeight        0.00 .. 0.75
+waterStoneFoamWeight         0.00 .. 1.00
+```
+
+Existing water controls remain available for tuning where useful:
+
+```text
 waterOpacity
 waterRippleStrength
 waterRippleScale
@@ -227,244 +306,84 @@ waterBedRefraction
 waterAlgaeStrength
 ```
 
-Do not add YAML controls for every coefficient in the equations. Parameters that describe implementation rather than art direction stay in `RiverTuning.ts` or `WaterMaterialTuning.ts`.
-
-## Validation ranges
-
-```text
-riverWidthVariation              0.00 .. 0.12
-riverBendBankAsymmetry           0.00 .. 0.08
-riverDepthVariation              0.00 .. 0.25
-riverBendChannelShift            0.00 .. 0.30
-riverBankIncisionScale           0.00 .. 0.20
-waterRiverPoolFlowScale          0.60 .. 1.00
-waterRiverRiffleFlowScale        1.00 .. 1.40
-waterRiverPoolFrequencyScale     0.75 .. 1.00
-waterRiverRiffleFrequencyScale   1.00 .. 1.30
-waterShoreFoamWeight             0.00 .. 0.40
-waterRiffleFoamWeight            0.00 .. 0.80
-waterStoneFoamWeight             0.00 .. 1.00
-```
-
-Also validate the combined width contract:
-
-```text
-maxWidthScale = 1.04 * (1 + riverWidthVariation) *
-                (1 + riverBendBankAsymmetry)
-
-minWidthScale = 0.94 * (1 - riverWidthVariation) *
-                (1 - riverBendBankAsymmetry)
-
-require maxWidthScale <= 1.18
-require minWidthScale >= 0.82
-```
-
-Defaults satisfy the old envelope:
-
-```text
-max = 1.04 * 1.08 * 1.05 = 1.17936
-min = 0.94 * 0.92 * 0.95 = 0.82156
-```
-
 ---
 
-# 4. River tuning menu: exact behavior
+# 6. Structural constants
 
-## UI architecture
-
-Create `src/app/RiverArtMenu.ts` following `GrassArtMenu.ts`:
-
-- native `<details>` root;
-- native range/number inputs;
-- no external UI dependency;
-- accessible labels;
-- `Export YAML` and clipboard copy;
-- proper `dispose()`;
-- only present when explicitly requested.
-
-Activation:
+Create `src/world/hydrology/RiverTuning.ts`:
 
 ```text
-?riverTuning=1
-```
-
-Require `profile.showGui` as well. Normal production visits must create zero tuning UI objects.
-
-## Menu sections
-
-### A. Channel geometry — reload required
-
-Expose:
-
-```text
-Width variation        riverWidthVariation
-Bend bank asymmetry    riverBendBankAsymmetry
-Depth variation        riverDepthVariation
-Channel shift          riverBendChannelShift
-Bank incision          riverBankIncisionScale
-```
-
-These values affect terrain/water geometry. Do **not** attempt to mutate already-built chunks in place.
-
-When edited:
-
-1. validate the individual value;
-2. validate the combined width envelope;
-3. mark the panel `Geometry changes pending`;
-4. do not partially update existing chunks;
-5. user presses `Apply geometry + reload`;
-6. serialize only allowlisted river overrides to `sessionStorage`;
-7. reload the page;
-8. `WorldApp.create()` loads `world.yaml`, then `RiverDevelopmentConfig` applies the session override only when `?riverTuning=1`;
-9. run normal `WorldConfigValidator` after merging;
-10. create a fresh field/streamer from one coherent config.
-
-Use a versioned session key:
-
-```text
-fluffygrass:river-tuning:v1
-```
-
-Use `sessionStorage`, not `localStorage`, so temporary art experiments cannot silently survive future browsing sessions.
-
-Provide `Clear preview override + reload`.
-
-## B. River motion — live
-
-Expose:
-
-```text
-Base flow             waterFlowSpeed
-Pool flow             waterRiverPoolFlowScale
-Riffle flow           waterRiverRiffleFlowScale
-Pool wavelength       waterRiverPoolFrequencyScale
-Riffle wavelength     waterRiverRiffleFrequencyScale
-Ripple strength       waterRippleStrength
-Ripple scale          waterRippleScale
-Flow breakup          waterFlowNoiseStrength
-```
-
-On `input`, call:
-
-```text
-WorldApp
- -> TerrainStreamer.setRiverVisualTuning(...)
- -> WaterMaterialController.setRiverVisualTuning(...)
- -> update existing uniforms only
-```
-
-No material recompilation for numeric uniform changes.
-
-## C. Foam/wakes — live
-
-Expose:
-
-```text
-Foam strength         waterFoamStrength
-Shore foam            waterShoreFoamWeight
-Riffle foam           waterRiffleFoamWeight
-Stone foam            waterStoneFoamWeight
-Wake strength         waterStoneWakeStrength
-Wake length           waterStoneWakeLength
-```
-
-`waterStoneWakeLength` changes CPU interaction geometry for newly built chunks. Treat it as reload-required unless a focused interaction-buffer rebuild already exists. Do not invent such a rebuild solely for the menu.
-
-## D. Bed — live where uniform-backed
-
-Expose:
-
-```text
-Bed visibility        waterBedStrength
-Bed scale             waterBedScale
-Bed refraction        waterBedRefraction
-Algae                  waterAlgaeStrength
-Caustics               waterCausticStrength
-```
-
-`WaterBedMaterialController` updates uniform values in place.
-
-## E. Optics — live
-
-Expose:
-
-```text
-Opacity                waterOpacity
-Depth absorption       waterDepthFade
-Fresnel                waterFresnelStrength
-Roughness              waterRoughness
-Glint                   waterGlintStrength
-```
-
-`waterRoughness` updates `MeshPhysicalMaterial.roughness` and sets no shader define, so it should not force a program rebuild.
-
-## F. QA shortcuts
-
-Add buttons:
-
-```text
-Go: Pool
-Go: Riffle
-Go: Inside bend
-Go: Outside bend
-Go: Wet bank
-Go: Stone wake
-```
-
-Do not hardcode coordinates in the menu. Use the same deterministic location resolver as `WorldVisualMatrixLocations.ts` so manual tuning and automated captures observe the same landmarks.
-
-## YAML export workflow
-
-`Export YAML` should output only the relevant keys, in the same order as `world.yaml`, for easy paste/review.
-
-Example:
-
-```yaml
-riverWidthVariation: 0.08
-riverBendBankAsymmetry: 0.05
-riverDepthVariation: 0.18
-riverBendChannelShift: 0.22
-riverBankIncisionScale: 0.10
-waterRiverPoolFlowScale: 0.78
-waterRiverRiffleFlowScale: 1.22
-waterRiverPoolFrequencyScale: 0.88
-waterRiverRiffleFrequencyScale: 1.16
-waterShoreFoamWeight: 0.18
-waterRiffleFoamWeight: 0.42
-waterStoneFoamWeight: 0.56
-```
-
-Accepted art values must ultimately be committed to `public/config/world.yaml`. The session override is never the production source of truth.
-
----
-
-# 5. Structural constants
-
-Create `src/world/hydrology/RiverTuning.ts`.
-
-```text
-RIVER_BASE_MIN_WIDTH_SCALE = 0.94
-RIVER_BASE_MAX_WIDTH_SCALE = 1.04
-RIVER_SECONDARY_AMPLITUDE = 0.30
-RIVER_SHELF_DEPTH_SHARE = 0.22
-RIVER_CHANNEL_DEPTH_SHARE = 0.78
-RIVER_SHELF_START = 0.72
-RIVER_CHANNEL_INNER = 0.12
-RIVER_CHANNEL_OUTER = 0.78
-RIVER_DEPTH_EDGE_START = 0.88
-RIVER_MORPH_PRIMARY_WEIGHT = 0.72
-RIVER_MORPH_SECONDARY_WEIGHT = 0.28
+RIVER_BASE_MIN_WIDTH_SCALE = 0.95
+RIVER_BASE_MAX_WIDTH_SCALE = 1.03
 RIVER_GLOBAL_MIN_WIDTH_SCALE = 0.82
 RIVER_GLOBAL_MAX_WIDTH_SCALE = 1.18
+
+RIVER_SECONDARY_AMPLITUDE = 0.30
+
+RIVER_MORPH_PRIMARY_WEIGHT = 0.72
+RIVER_MORPH_SECONDARY_WEIGHT = 0.28
+RIVER_MORPH_MAX_ABS = 0.72
+
+RIVER_SHELF_DEPTH_SHARE = 0.20
+RIVER_CHANNEL_DEPTH_SHARE = 0.80
+RIVER_SHELF_START = 0.68
+RIVER_CHANNEL_INNER = 0.10
+RIVER_CHANNEL_OUTER = 0.72
+RIVER_DEPTH_EDGE_START = 0.90
+RIVER_BANK_INCISION_SCALE = 0.08
 ```
 
-Only move constants touched by this work. Do not perform a general hydrology refactor.
+`WaterMaterialTuning.ts` owns fixed visual endpoints:
+
+```text
+WATER_RIVER_POOL_FREQUENCY_SCALE = 0.90
+WATER_RIVER_RIFFLE_FREQUENCY_SCALE = 1.14
+WATER_RIVER_SHALLOW_ENERGY_WEIGHT = 0.86
+WATER_RIVER_SLOPE_ENERGY_WEIGHT = 0.14
+WATER_RIVER_BANK_FLOW_SCALE = 0.75
+```
+
+Do not expose these until visual review proves a real need.
 
 ---
 
-# 6. R1 — richer river sample with no additional trig octave
+# 7. Width safety contract
 
-Extend the reused `RiverLane` object:
+With the new base range:
+
+```text
+maxWidthScale =
+  RIVER_BASE_MAX_WIDTH_SCALE *
+  (1 + riverWidthVariation) *
+  (1 + riverBendBankAsymmetry)
+
+minWidthScale =
+  RIVER_BASE_MIN_WIDTH_SCALE *
+  (1 - riverWidthVariation) *
+  (1 - riverBendBankAsymmetry)
+```
+
+Require:
+
+```text
+maxWidthScale <= 1.18
+minWidthScale >= 0.82
+```
+
+Defaults now leave meaningful headroom:
+
+```text
+max = 1.03 * 1.08 * 1.04 = 1.156896
+min = 0.95 * 0.92 * 0.96 = 0.83904
+```
+
+Update existing minimum-visible/wet-width safety helpers only if their constants are no longer conservative. Prefer keeping the existing global `0.82/1.18` envelope as the shared bound.
+
+---
+
+# 8. R1 — richer lane sample without extra octave
+
+Extend the reused lane scratch object:
 
 ```ts
 signedDistance: number;
@@ -491,9 +410,7 @@ target.primarySin = primarySin;
 target.secondarySin = secondarySin;
 ```
 
-Do not calculate cosine for both candidates. Pick the nearest lane first.
-
-Rename `halfWidth` to `baseHalfWidth` and reserve the existing width envelope for local morphology:
+Rename lane `halfWidth` to `baseHalfWidth`:
 
 ```ts
 const baseWidthScale = lerp(
@@ -505,23 +422,79 @@ const baseWidthScale = lerp(
 shape.baseHalfWidth = config.riverWidth * baseWidthScale * 0.5;
 ```
 
+Pick the nearest lane before calculating cosines.
+
 ---
 
-# 7. R2 — exact longitudinal morphology
+# 9. R2 — normalized longitudinal morphology
 
-After selecting the winning lane, calculate the same two cosines needed by flow:
+For the selected lane, calculate the cosines already needed by the tangent:
 
 ```ts
 const primaryCos = Math.cos(lane.primaryPhase);
 const secondaryCos = Math.cos(lane.secondaryPhase);
 ```
 
-Derive one continuous morphology signal:
+One morphology signal:
 
 ```ts
-const morphology = clamp(
+const morphologyRaw =
   lane.primarySin * lane.secondarySin * RIVER_MORPH_PRIMARY_WEIGHT +
-  primaryCos * secondaryCos * RIVER_MORPH_SECONDARY_WEIGHT,
+  primaryCos * secondaryCos * RIVER_MORPH_SECONDARY_WEIGHT;
+
+const morphology = clamp(
+  morphologyRaw / RIVER_MORPH_MAX_ABS,
+  -1,
+  1,
+);
+```
+
+The weighted expression is equivalent to a dominant long beat plus a weaker shorter beat generated from the existing phases; no new noise/trig is required.
+
+Interpretation:
+
+```text
++1 = pool tendency: wider, deeper, calmer
+ 0 = run
+-1 = riffle tendency: narrower, shallower, more energetic
+```
+
+QA classification only:
+
+```text
+pool candidate    morphology >= +0.50
+riffle candidate  morphology <= -0.50
+run               otherwise
+```
+
+Never quantize carving or rendering to these classes.
+
+---
+
+# 10. R3 — bend driver and provisional tangent
+
+Use the existing analytic centreline.
+
+```ts
+const firstDerivative =
+  primaryCos * amplitude * primaryFrequency +
+  secondaryCos * amplitude * RIVER_SECONDARY_AMPLITUDE * secondaryFrequency;
+
+const secondDerivative =
+  -lane.primarySin * amplitude * primaryFrequency * primaryFrequency -
+  lane.secondarySin * amplitude * RIVER_SECONDARY_AMPLITUDE *
+    secondaryFrequency * secondaryFrequency;
+
+const secondDerivativeReference = Math.max(
+  1e-9,
+  amplitude * (
+    primaryFrequency * primaryFrequency +
+    RIVER_SECONDARY_AMPLITUDE * secondaryFrequency * secondaryFrequency
+  ),
+);
+
+const bend = clamp(
+  secondDerivative / secondDerivativeReference,
   -1,
   1,
 );
@@ -530,97 +503,26 @@ const morphology = clamp(
 Interpretation:
 
 ```text
-+1 = broad/deep/calm pool tendency
- 0 = normal run
--1 = narrow/shallow/energetic riffle tendency
+bend > 0: inside bank toward +z
+bend < 0: inside bank toward -z
 ```
 
-For QA classification only:
-
-```text
-pool candidate   morphology >= +0.35
-run              -0.35 < morphology < +0.35
-riffle candidate morphology <= -0.35
-```
-
-Never quantize geometry using those thresholds.
-
----
-
-# 8. R3 — exact analytic bend curvature
-
-Current centreline:
-
-```text
-z(x) = offset
-     + A sin(p)
-     + A * secondaryAmplitude * sin(q)
-```
-
-First derivative:
-
-```ts
-const firstDerivative =
-  primaryCos * amplitude * primaryFrequency +
-  secondaryCos * amplitude * RIVER_SECONDARY_AMPLITUDE * secondaryFrequency;
-```
-
-Second derivative:
-
-```ts
-const secondDerivative =
-  -lane.primarySin * amplitude * primaryFrequency * primaryFrequency -
-  lane.secondarySin * amplitude * RIVER_SECONDARY_AMPLITUDE *
-    secondaryFrequency * secondaryFrequency;
-```
-
-Tangent length:
+Keep the provisional normalized tangent:
 
 ```ts
 const tangentLength = Math.sqrt(1 + firstDerivative * firstDerivative);
-```
 
-Signed curvature:
-
-```ts
-const curvature =
-  secondDerivative /
-  (tangentLength * tangentLength * tangentLength);
-```
-
-Normalize:
-
-```ts
-const curvatureReference = Math.max(
-  1e-9,
-  amplitude * (
-    primaryFrequency * primaryFrequency +
-    RIVER_SECONDARY_AMPLITUDE * secondaryFrequency * secondaryFrequency
-  ),
-);
-
-const bend = clamp(curvature / curvatureReference, -1, 1);
-```
-
-Interpretation:
-
-```text
-bend > 0 : inside bend is toward +z
-bend < 0 : inside bend is toward -z
-```
-
-Do not multiply bend by `flowSign`.
-
-Flow remains:
-
-```ts
 target.flowX = flowSign / tangentLength;
 target.flowZ = flowSign * firstDerivative / tangentLength;
 ```
 
+**Important:** do not describe this as final downstream orientation. The existing water-chunk interaction stage settles it downhill after water surface heights are known.
+
+Do not multiply `bend` by `flowSign`; geometric inside/outside does not change when downstream orientation flips.
+
 ---
 
-# 9. R4 — exact local width and side asymmetry
+# 11. R4 — local width and bank asymmetry
 
 ```ts
 const side =
@@ -631,7 +533,7 @@ const morphologyWidth =
   1 + config.riverWidthVariation * morphology;
 
 const bendSide = bend * side;
-// bendSide > 0 = inside bank.
+// bendSide > 0 is the inside bank.
 const bendWidth =
   1 + config.riverBendBankAsymmetry * bendSide;
 
@@ -639,18 +541,18 @@ const localHalfWidth =
   lane.shape.baseHalfWidth * morphologyWidth * bendWidth;
 ```
 
-Use this same `localHalfWidth` for:
+Use this exact local half-width for:
 
-- river coverage;
+- coverage;
 - bank mask;
-- proximity mask;
+- water proximity;
 - normalized lateral coordinate.
 
-Do not let terrain ecology and visible water use different width equations.
+No separate ecology width equation.
 
 ---
 
-# 10. R5 — exact asymmetric cross-section
+# 12. R5 — asymmetric cross-section
 
 ```ts
 const lateral = clamp(
@@ -688,27 +590,28 @@ const bedDepth =
   config.riverDepth * section * depthScale * altitudeMask;
 ```
 
-Expected physical result:
+Expected result:
 
 ```text
-pool     = wider + deeper
-riffle   = narrower + shallower
-outside  = deep channel shifted toward cut bank
-inside   = broader shallow depositional shelf
-edge     = depth smoothly approaches zero
+pool       wider + deeper
+riffle     narrower + shallower
+inside     wider shallow shelf
+outside    active channel shifted toward cut bank
+bank edge  depth approaches zero continuously
 ```
 
-Extend reused `RiverSample`:
+Extend reused `RiverSample` with:
 
 ```ts
 morphology: number;
 bend: number;
 lateral: number;
+localHalfWidth: number;
 bedDepth: number;
 incisionDepth: number;
 ```
 
-Also expose CPU-only semantics from `HydrologySample`:
+Expose CPU-only semantic values from `HydrologySample`:
 
 ```ts
 riverMorphology: number;
@@ -716,82 +619,95 @@ riverBend: number;
 riverLateral: number;
 ```
 
-These fields are for QA, ecology/debugging, and tuning-camera selection. Do not automatically pack them into water geometry.
+Do not pack them into GPU attributes in this pass.
 
 ---
 
-# 11. R6 — terrain carving owns one real depth
+# 13. R6 — carve one explicit depth; preserve current surface model
 
-Replace the old river-depth reconstruction in `HydrologyField.carveHeight()`.
+Replace arbitrary coverage-weighted river incision.
 
 ```ts
 const shoulderIncision =
   config.riverDepth *
-  config.riverBankIncisionScale *
+  RIVER_BANK_INCISION_SCALE *
   river.bank *
   (1 - river.coverage);
 
 river.incisionDepth = river.bedDepth + shoulderIncision;
 
-let carved = height - river.incisionDepth;
+let carved = sourceHeight - river.incisionDepth;
 ```
 
 Lake carving remains unchanged.
 
-For river surface level:
+For the river surface, preserve the current architecture:
 
 ```ts
 const riverWaterLevel =
   carvedHeight + river.incisionDepth + config.waterSurfaceOffset;
 ```
 
-Then the existing geometry calculation:
+Equivalent conceptual form:
 
 ```text
-waterData.y = waterLevel - terrainHeight
+riverWaterLevel = sourceHeight + waterSurfaceOffset
 ```
 
-becomes the real local channel depth.
+This means:
 
-Do not recompute river depth in `WaterChunkGeometry.ts`.
+- the **new bed depth is explicit and coherent**;
+- `waterData.y` becomes the generated incision depth plus the existing small surface offset;
+- this pass does **not** pretend to solve hydraulic water-surface elevation.
+
+Do not add an extra raw-terrain centreline sample per terrain sample just to flatten the sheet; that would be expensive and mixes a separate hydrology problem into this pass.
+
+### Surface-slope guard
+
+Before implementation, record the existing fixed-seed cross-flow surface-slope distribution at deterministic river points. After R1-R6:
+
+- it must remain finite;
+- it must remain continuous across chunks;
+- p95 absolute cross-flow slope must not regress by more than 5% plus a small numeric tolerance;
+- visual-matrix bend/straight views must not show a new obvious bank-to-bank water ramp.
+
+If the **baseline** itself fails visual review, create a separate river-surface-elevation plan after this pass. Do not patch it with arbitrary local flattening constants here.
 
 ---
 
-# 12. R7 — visual flow energy from data already on the GPU
+# 14. R7 — local visual flow energy, no new GPU data
 
-Add controller uniforms:
+Add controller uniforms only for artist values:
 
 ```text
 uWaterRiverReferenceDepth
 uWaterRiverPoolFlowScale
 uWaterRiverRiffleFlowScale
-uWaterRiverPoolFrequencyScale
-uWaterRiverRiffleFrequencyScale
 uWaterShoreFoamWeight
 uWaterRiffleFoamWeight
 uWaterStoneFoamWeight
 ```
 
-Reference depth:
+Use:
 
 ```text
-riverDepth + waterSurfaceOffset
+uWaterRiverReferenceDepth = riverDepth + waterSurfaceOffset
 ```
 
-In `WaterShader.ts`, after depth/coverage/normal are available:
+In `WaterShader.ts`:
 
 ```glsl
 float waterRiverDepthRatio =
   waterDepth / max(0.1, uWaterRiverReferenceDepth);
 
 float waterChannelCore = smoothstep(
-  0.40,
-  0.92,
+  0.35,
+  0.88,
   waterCoverageRaw
 );
 
 float waterShallowEnergy = 1.0 - smoothstep(
-  0.72,
+  0.68,
   1.02,
   waterRiverDepthRatio
 );
@@ -801,8 +717,10 @@ float waterSurfaceSlopeEnergy = saturate(
 );
 
 float waterEnergy01 = saturate(
-  waterShallowEnergy * 0.82 +
-  waterSurfaceSlopeEnergy * 0.18
+  (
+    waterShallowEnergy * WATER_RIVER_SHALLOW_ENERGY_WEIGHT +
+    waterSurfaceSlopeEnergy * WATER_RIVER_SLOPE_ENERGY_WEIGHT
+  ) * waterChannelCore
 );
 
 float waterLocalFlowScale = mix(
@@ -812,7 +730,7 @@ float waterLocalFlowScale = mix(
 );
 
 waterLocalFlowScale *= mix(
-  0.82,
+  WATER_RIVER_BANK_FLOW_SCALE,
   1.0,
   waterChannelCore
 );
@@ -821,38 +739,41 @@ float waterLocalFlowSpeed =
   uWaterFlowSpeed * waterLocalFlowScale;
 
 float waterRiverFrequencyScale = mix(
-  uWaterRiverPoolFrequencyScale,
-  uWaterRiverRiffleFrequencyScale,
+  WATER_RIVER_POOL_FREQUENCY_SCALE,
+  WATER_RIVER_RIFFLE_FREQUENCY_SCALE,
   waterEnergy01
 );
 ```
 
-Use local speed/frequency only in river motion:
+In practice the TypeScript tuning constants are interpolated into shader source or exposed as compile-time literals using the existing material-tuning pattern. Do not create uniforms for fixed implementation coefficients.
 
-- advected river noise;
+Use `waterLocalFlowSpeed` and `waterRiverFrequencyScale` only for river components:
+
+- advected river noise timing;
 - river phases A/B/C;
-- flow sheen;
+- river flow sheen;
 - riffle motion.
 
-Do not speed up lake timing.
-
-No new texture sample, varying, draw, or render target.
+Lake timing stays unchanged.
 
 ---
 
-# 13. R8 — riffle and foam hierarchy
+# 15. R8 — riffle/foam hierarchy
+
+Prevent shallow banks from being mistaken for riffles:
 
 ```glsl
 float waterRiffleEnergy =
   waterRiverAmount *
+  waterChannelCore *
   waterDetailWeight *
   waterShallowEnergy *
-  smoothstep(0.52, 0.88, waterEnergy01);
+  smoothstep(0.50, 0.86, waterEnergy01);
 ```
 
-Gate the existing riffle pattern with this signal.
+Gate the existing procedural riffle pattern with this value.
 
-Final foam combination:
+Final foam cause balance:
 
 ```glsl
 float waterFoamAmount = saturate(
@@ -864,17 +785,17 @@ float waterFoamAmount = saturate(
 );
 ```
 
-Hierarchy:
+Required hierarchy:
 
 ```text
-stone/obstacle foam > energetic riffle foam > generic shoreline foam
+stone/obstacle > energetic riffle > quiet shoreline
 ```
 
-A calm freshwater bank must not become a continuous white outline.
+A calm bank must not become a white outline.
 
 ---
 
-# 14. R9 — riverbed composition with zero extra texture samples
+# 16. R9 — bed composition with unchanged samples
 
 Add only the reference-depth uniform to the bed controller.
 
@@ -883,67 +804,63 @@ float bedDepthRatio =
   waterBedDepth / max(0.1, uWaterRiverReferenceDepth);
 
 float bedChannelCore = smoothstep(
-  0.42,
-  0.90,
+  0.40,
+  0.88,
   waterBedCoverageRaw
 );
 
 float bedRiffle =
   waterBedRiverAmount *
-  (1.0 - smoothstep(0.72, 1.02, bedDepthRatio));
+  bedChannelCore *
+  (1.0 - smoothstep(0.68, 1.02, bedDepthRatio));
 
 float bedPool =
   waterBedRiverAmount *
-  smoothstep(1.04, 1.28, bedDepthRatio);
+  bedChannelCore *
+  smoothstep(1.05, 1.24, bedDepthRatio);
 
 float bedBank =
   waterBedRiverAmount *
-  (1.0 - smoothstep(0.45, 0.88, waterBedCoverageRaw));
+  (1.0 - smoothstep(0.42, 0.86, waterBedCoverageRaw));
 ```
 
-Reinterpret the already sampled `pebble` channel:
+Reinterpret the already sampled bed channels:
 
 ```glsl
 float coarseBias =
-  bedRiffle * 0.26 +
-  bedChannelCore * 0.05 -
-  bedPool * 0.18;
+  bedRiffle * 0.24 +
+  bedChannelCore * 0.04 -
+  bedPool * 0.16;
 
 pebble = saturate(pebble + coarseBias);
 
 float fineDeposition = saturate(
-  bedPool * 0.22 +
+  bedPool * 0.20 +
   bedBank * 0.12
 );
 
 pebble *= 1.0 - fineDeposition;
-```
 
-Algae:
-
-```glsl
 algae *= clamp(
-  1.0 + bedBank * 0.25 - bedRiffle * 0.30,
-  0.55,
-  1.25
+  1.0 + bedBank * 0.24 - bedRiffle * 0.28,
+  0.58,
+  1.24
 );
 ```
 
-Pool darkening:
+Deep-pool darkening remains subtle:
 
 ```glsl
-waterBedColor *= 1.0 - bedPool * 0.06;
+waterBedColor *= 1.0 - bedPool * 0.05;
 ```
 
-Texture sample count remains exactly as before.
-
-Do not add explicit bend/lateral GPU attributes in this pass. The geometry itself already makes inside shelves shallower and outside channels deeper.
+No new bed sample.
 
 ---
 
-# 15. R10 — shoreline composition using existing terrain samples
+# 17. R10 — shoreline composition from existing terrain samples
 
-Reuse:
+Reuse values already present in `TerrainMaterialShader.ts`:
 
 ```text
 terrainWaterProximity
@@ -953,7 +870,7 @@ terrainMesoNoise
 terrainMicroNoise
 ```
 
-No new shoreline texture.
+No shoreline mesh/texture.
 
 ```glsl
 float shoreBand = smoothstep(
@@ -982,29 +899,21 @@ float shoreGravel =
   smoothstep(0.68, 0.84, shorePatch);
 ```
 
-Use the existing rich wet-soil colour for mud. Add one focused shore-gravel colour only if the existing terrain palette cannot express it.
+Keep wet sheen on exposed ground, not grass.
 
 Expected sequence:
 
 ```text
-water
- -> submerged gravel/sediment
- -> irregular exposed mud/gravel
- -> short damp vegetation
- -> normal grass
+water -> submerged sediment/gravel -> irregular mud/gravel -> damp short vegetation -> normal grass
 ```
 
 ---
 
-# 16. R11 — stone wake refinement, still three samples
+# 18. R11 — stone wakes, still three samples
 
-Keep:
+Keep `WAKE_SAMPLE_COUNT = 3`.
 
-```text
-WAKE_SAMPLE_COUNT = 3
-```
-
-Change radius with downstream progress:
+Broaden radius downstream:
 
 ```ts
 for (let index = 1; index <= WAKE_SAMPLE_COUNT; index += 1) {
@@ -1027,207 +936,313 @@ for (let index = 1; index <= WAKE_SAMPLE_COUNT; index += 1) {
 }
 ```
 
-Result: narrow/strong near obstacle, wider/weaker downstream, same number of stone-field queries.
+The **input `flowX/flowZ` here is already the settled downhill flow** from `WaterChunkInteractionResolver`. Preserve that call order.
 
 ---
 
-# 17. R12 — subtle water-colour reinforcement
+# 19. R12 — restrained context tint
 
-Depth stays dominant.
+Depth remains dominant.
 
 ```glsl
 float waterPoolTint =
   waterRiverAmount *
-  smoothstep(1.05, 1.30, waterRiverDepthRatio);
+  waterChannelCore *
+  smoothstep(1.05, 1.26, waterRiverDepthRatio);
 
 float waterRiffleTint =
   waterRiverAmount *
+  waterChannelCore *
   waterShallowEnergy *
   waterEnergy01;
 
 waterSurfaceColor *=
-  1.0 - waterPoolTint * 0.035 +
-  waterRiffleTint * 0.025;
+  1.0 - waterPoolTint * 0.03 +
+  waterRiffleTint * 0.02;
 ```
 
-Do not add another colour texture or palette unless visual testing proves the existing shallow/deep colours cannot express the result.
+Do not add another palette/texture unless final screenshots prove the current shallow/deep colours cannot express the result.
 
 ---
 
-# 18. Optional R13 — character-water interaction
+# 20. River tuning menu
 
-Only after R1-R12 passes visual/performance review.
+Use a native `RiverArtMenu.ts`, patterned after `GrassArtMenu.ts`.
 
-Architecture:
-
-```text
-CharacterWaterRipples
-  one shared geometry
-  one small ShaderMaterial
-  one InstancedMesh
-  max 4 desktop
-  max 2 compact
-```
-
-Spawn only on dry->wet transition or a real submerged footfall.
-
-Suggested thresholds:
+Activation:
 
 ```text
-minimum visible depth  0.08 m
-minimum foot speed     0.35 m/s
-full run strength      4.5 m/s
+?riverTuning=1
 ```
 
-Ripple:
+Only create it when `profile.showGui` is true. Normal production visits create no menu objects.
 
-```ts
-radius = 0.18 + age * 1.15;
-width = 0.055 + age * 0.018;
-opacity = strength * Math.exp(-age * 2.8);
-center += flowDirection * age * 0.22 * config.waterFlowSpeed;
+## Geometry section — reload required
+
+```text
+Width variation      riverWidthVariation
+Bend asymmetry       riverBendBankAsymmetry
+Depth variation      riverDepthVariation
+Channel shift        riverBendChannelShift
 ```
 
-Expire at `age >= 1.6 s` or `opacity < 0.02`.
+When changed:
 
-No ripple texture is required.
+1. validate the value;
+2. validate combined width envelope;
+3. show `Geometry changes pending`;
+4. do not mutate existing chunks;
+5. `Apply geometry + reload` stores an allowlisted override in `sessionStorage`;
+6. reload;
+7. load frozen `world.yaml` config normally;
+8. clone it with only allowlisted development overrides;
+9. call `validateWorldConfig()` on the clone;
+10. `Object.freeze()` the merged config;
+11. construct a fresh `TerrainField`/`TerrainStreamer` from that one config.
+
+Use:
+
+```text
+fluffygrass:river-tuning:v2
+```
+
+Use `sessionStorage`, not `localStorage`.
+
+`RiverDevelopmentConfig.ts` must never mutate the frozen object returned by `WorldConfigLoader`.
+
+Prefer a dynamic import from `WorldApp.create()` under the tuning query so normal startup does not load development code.
+
+## Motion section — live
+
+```text
+Base flow          waterFlowSpeed
+Pool flow          waterRiverPoolFlowScale
+Riffle flow        waterRiverRiffleFlowScale
+Ripple strength    waterRippleStrength
+Ripple scale       waterRippleScale
+Flow breakup       waterFlowNoiseStrength
+```
+
+## Foam/wake section
+
+Live:
+
+```text
+Foam strength      waterFoamStrength
+Shore foam         waterShoreFoamWeight
+Riffle foam        waterRiffleFoamWeight
+Stone foam         waterStoneFoamWeight
+Wake strength      waterStoneWakeStrength
+```
+
+Reload required:
+
+```text
+Wake length        waterStoneWakeLength
+```
+
+Wake length affects the already generated interaction buffer. Do not create a special rebuild system solely for tuning.
+
+## Bed section — live
+
+```text
+Bed visibility     waterBedStrength
+Bed scale          waterBedScale
+Bed refraction     waterBedRefraction
+Algae              waterAlgaeStrength
+Caustics           waterCausticStrength
+```
+
+## Optics section — live
+
+```text
+Opacity            waterOpacity
+Depth absorption   waterDepthFade
+Fresnel            waterFresnelStrength
+Roughness          waterRoughness
+Glint              waterGlintStrength
+```
+
+## QA buttons
+
+```text
+Go: Pool
+Go: Riffle
+Go: Straight
+Go: Inside bend
+Go: Outside bend
+Go: Wet bank
+Go: Stone wake
+```
+
+Use the same deterministic landmark resolver as automated QA. No coordinates hardcoded in the menu.
+
+## Export
+
+`Export YAML` outputs only persistent world-config keys, in the same order as `world.yaml`.
+
+Approved values must be copied into `public/config/world.yaml`; the session override is never production state.
 
 ---
 
-# 19. Deterministic automated testing
+# 21. Deterministic tests
 
-## Important distinction
-
-River **logic** can and must be deterministic.
-
-GPU/frame timing cannot be perfectly deterministic because the browser, OS scheduler, driver, thermal state, and GPU frequency vary. Performance testing is therefore controlled/repeatable, using repeated runs and medians.
-
-## Fixed baseline config
-
-All deterministic river tests use the committed world config unless a test explicitly constructs a boundary config.
-
-Current canonical seed:
+Canonical seed:
 
 ```text
-seed = 42017
+42017
 ```
 
-Never use `Math.random()` in tests or river generation.
+No `Math.random()` in river code or tests.
 
-## `verify-hydrology.mjs`
-
-Sample a fixed grid covering several river lanes and fixed edge/boundary coordinates.
+## Hydrology fixed grid
 
 At minimum:
 
 ```text
-x: -768 .. +768 in 8 m steps
-z: -768 .. +768 in 8 m steps
+x = -768 .. +768, step 8 m
+z = -768 .. +768, step 8 m
 ```
 
-Use fixed source heights covering lowland and altitude fade cases.
+Also test exact chunk edges and altitude-fade source heights.
 
-Assertions:
-
-### Exact repeatability
-
-Call the same sample twice and compare:
+Assert repeated identical inputs produce identical:
 
 ```text
 coverage
 bank
 proximity
-flowX
-flowZ
+provisional flowX/flowZ
 morphology
 bend
 lateral
+localHalfWidth
 bedDepth
 incisionDepth
 ```
 
-Use exact equality where the same function/path is repeated in one runtime. Use the existing float tolerance only when comparing values produced through different construction paths.
+## Morphology range
 
-### Finite values
-
-Every scalar above must be finite.
-
-### Width envelope
+Require:
 
 ```text
-0.82 - 1e-9 <= localWidthScale <= 1.18 + 1e-9
+-1 <= morphology <= 1
 ```
 
-### Flow normalization
-
-For active river samples:
+Across the fixed grid, require samples to populate both:
 
 ```text
-abs(sqrt(flowX^2 + flowZ^2) - 1) <= 1e-6
+morphology >= +0.50
+morphology <= -0.50
 ```
 
-### Straight-section symmetry
+This catches accidental loss of normalization/dynamic range.
 
-For `abs(bend) < 0.05`, mirrored lateral positions:
+## Width envelope
 
 ```text
-abs(depth(+u) - depth(-u)) <= tolerance
+0.82 - epsilon <= localWidthScale <= 1.18 + epsilon
 ```
 
-Use `u = 0.45` and `u = 0.70`.
+Also test boundary configs near validator limits.
 
-### Bend asymmetry
+## Bend geometry
 
-For `bend >= 0.45`:
+For near-straight samples:
 
 ```text
+abs(bend) < 0.05
+```
+
+mirrored cross-section depth at `|lateral| = 0.45` and `0.70` should be nearly equal.
+
+For strong positive bend:
+
+```text
+bend >= 0.45
 outside = negative lateral
 inside  = positive lateral
-
-depth(outside, |u|=0.45) > depth(inside, |u|=0.45)
 ```
 
-Reverse sides for negative bend.
+At equal absolute lateral distance, outside-channel depth should exceed inside-channel depth where the active-channel mask applies. Reverse sides for negative bend.
 
-### Statistical pool/riffle relation
+## Pool/riffle statistics
 
-Across the fixed grid:
+Across the deterministic set:
 
 ```text
-mean width(morphology >= +0.35)
-  > mean width(morphology <= -0.35)
-
-mean center depth(morphology >= +0.35)
-  > mean center depth(morphology <= -0.35)
+mean local width(pool candidates) > mean local width(riffle candidates)
+mean centre depth(pool candidates) > mean centre depth(riffle candidates)
 ```
 
-### Continuity
+Use aggregate assertions rather than demanding every bend sample obey an oversimplified local rule.
 
-Along each selected lane, sample `x` every 1 m across at least 512 m and assert no discontinuous width/depth step. Do not test for zero derivative; test bounded neighboring deltas derived from maximum configured variation.
+## Continuity
 
-### Chunk seam
+Sample selected lanes every `1 m` for at least `512 m`.
 
-For positions exactly on chunk boundaries and +/- `1e-6` around them, compare values from neighboring chunk-generation paths. River identity cannot depend on chunk index.
-
-## `verify-river-performance-contract.mjs`
-
-This is a static deterministic guard, not a stopwatch benchmark.
-
-Assert source contracts such as:
+Require finite bounded neighboring changes in:
 
 ```text
-RiverField.ts has only the expected two centreline Math.sin calls
-cosine remains selected-lane logic
-WAKE_SAMPLE_COUNT === 3
-WaterShader declares only uWaterFlowNoise as its water sampler
-WaterBedMaterialShader declares only uWaterBedNoise as its bed sampler
-waterData BufferAttribute itemSize === 4
-waterInteraction BufferAttribute itemSize === 2
-no riverMorphology/riverBend/riverLateral GPU attribute or varying exists
-TerrainStreamer still owns one shared surface and one shared bed controller
+morphology
+localHalfWidth
+bedDepth
 ```
 
-If shader helper files own texture calls, inspect the complete water shader source set rather than only one file.
+No hard pool/run/riffle classification may feed carving.
+
+## Chunk seam
+
+Sample exact chunk boundaries and `±1e-6` around them. River identity must not depend on chunk index/build order.
+
+## Final downhill flow
+
+Extend the existing `verify-water-flow.mjs` contract rather than creating another flow implementation.
+
+For generated/synthetic water sheets:
+
+```text
+dot(surfaceGradient, settledFlow) <= epsilon
+```
+
+Require normalized direction where river coverage is active.
+
+## Cross-channel surface regression
+
+Add a deterministic measurement helper to `verify-hydrology.mjs` or a focused helper script only if the existing verifier becomes unwieldy.
+
+At fixed active river points:
+
+1. sample water levels at small offsets along the flow-perpendicular direction;
+2. use only points that remain visibly wet;
+3. calculate absolute cross-flow slope;
+4. record baseline p50/p95 before R1 implementation;
+5. after R1-R6, require p95 not to increase by more than 5% plus numeric tolerance.
+
+This is a regression guard, not a claim that the current surface model is physically perfect.
+
+---
+
+# 22. Static performance contract
+
+Create `scripts/verify-river-performance-contract.mjs` and include it in `npm run build`.
+
+It should statically assert:
+
+- no third river centreline sine octave in `sampleLane()`;
+- cosine work remains selected-lane work;
+- no river noise texture/sampler was introduced;
+- `WAKE_SAMPLE_COUNT === 3`;
+- `waterData` item size remains `4`;
+- `waterInteraction` item size remains `2`;
+- no `riverMorphology`, `riverBend`, or `riverLateral` GPU attribute/varying exists;
+- surface-water sampler set is unchanged;
+- bed sampler set is unchanged;
+- water surface remains `forceSinglePass`;
+- `TerrainStreamer` owns shared water/bed controllers rather than per-chunk materials;
+- downhill resolution still occurs before stone interaction sampling.
+
+Keep this verifier structural. Do not encode fragile formatting or line-count limits unrelated to performance.
 
 Add:
 
@@ -1235,11 +1250,7 @@ Add:
 "test:river-perf-contract": "node scripts/verify-river-performance-contract.mjs"
 ```
 
-and include it in `npm run build` near the existing water verification scripts.
-
-## `test:river`
-
-Add a convenience script:
+and:
 
 ```json
 "test:river": "npm run test:config && npm run test:hydrology && npm run test:water-flow && npm run test:water-render && npm run test:terrain-surface && npm run test:stones && npm run test:river-perf-contract"
@@ -1247,57 +1258,34 @@ Add a convenience script:
 
 ---
 
-# 20. Deterministic visual landmarks
+# 23. Deterministic visual landmarks
 
-Extend `HydrologySample` with the CPU-only river morphology/bend/lateral values and feed those to `WorldVisualMatrixLocations.ts`.
-
-Add landmarks:
+Extend `WorldVisualMatrixLocations.ts` with:
 
 ```text
 riverPool
 riverRiffle
+riverStraight
 riverInsideBend
 riverOutsideBend
-riverStraight
 ```
 
-Suggested scoring rules:
+Suggested candidate rules:
 
 ## Pool
 
 ```text
 riverCoverage >= 0.35
-riverMorphology >= 0.45
-waterDepth >= 0.7
+riverMorphology >= +0.50
+waterDepth >= 0.70
 ```
-
-Score higher morphology and depth.
 
 ## Riffle
 
 ```text
 riverCoverage >= 0.35
-riverMorphology <= -0.45
-waterDepth between 0.08 and 1.0
-```
-
-Score lower morphology and shallower valid depth.
-
-## Inside bend
-
-```text
-riverCoverage >= 0.20
-abs(riverBend) >= 0.45
-abs(riverLateral) between 0.40 and 0.80
-sign(riverLateral) == sign(riverBend)
-```
-
-## Outside bend
-
-Same, but:
-
-```text
-sign(riverLateral) != sign(riverBend)
+riverMorphology <= -0.50
+0.08 <= waterDepth <= 1.00
 ```
 
 ## Straight
@@ -1308,100 +1296,113 @@ abs(riverBend) <= 0.08
 abs(riverMorphology) <= 0.25
 ```
 
-Use deterministic fallback ordering if a perfect candidate is not found.
+## Inside bend
 
-Add camera poses in `WorldVisualMatrixPoses.ts` for top-down and grazing views of these points. Use the resolved flow vector to orient at least one upstream/downstream camera rather than arbitrary world axes.
+```text
+riverCoverage >= 0.20
+abs(riverBend) >= 0.45
+0.40 <= abs(riverLateral) <= 0.80
+sign(riverLateral) == sign(riverBend)
+```
 
-The tuning menu's QA buttons must reuse these resolved landmarks.
+## Outside bend
+
+Same, except:
+
+```text
+sign(riverLateral) != sign(riverBend)
+```
+
+Use deterministic fallback ordering.
+
+`WorldVisualMatrixPoses.ts` should add:
+
+- top-down pool;
+- grazing pool;
+- top-down riffle;
+- grazing/upstream riffle;
+- inside bend;
+- outside bend;
+- straight cross-channel view.
+
+Orient river cameras from the resolved flow vector rather than fixed world axes.
 
 ---
 
-# 21. Repeatable browser performance procedure
+# 24. Repeatable production performance test
 
-Use a production build, not Vite development mode.
+Use production output:
 
 ```bash
 npm run build
 npm run preview
 ```
 
-Use the same machine, browser version, viewport, device pixel ratio, power mode, and profile for before/after captures.
-
-Recommended URLs:
+Recommended query:
 
 ```text
-Desktop:
 ?qa=visual-matrix&profile=desktop&gpuTiming=1
-
-Compact:
 ?qa=visual-matrix&profile=compact&gpuTiming=1
 ```
 
-Do not add `stats=1` when GPU timing is being measured because the current diagnostics controller intentionally disables its GPU timer while the stats panel is enabled.
+Do not combine `stats=1` with GPU timing; the current diagnostics controller intentionally disables GPU timing when the stats panel is active.
 
-For a controlled comparison:
+Controlled run:
 
-1. close unrelated GPU-heavy apps/tabs;
-2. use the production bundle;
-3. fix viewport to 1920x1080 desktop and one documented compact viewport, e.g. 412x915;
-4. keep browser zoom at 100%;
-5. keep DPR identical between compared runs;
-6. visit the same visual-matrix pose;
-7. warm up at least 4 seconds after the pose is stable;
-8. sample at least 3 seconds for performance review, even if quick visual captures use a shorter default;
-9. run the complete river pose set 5 times;
-10. discard the first full run as shader/cache warm-up if it is an obvious outlier;
-11. compare the median of the remaining runs;
-12. record p95 where the metrics system exposes it;
-13. record draw calls and triangles alongside timing.
+1. same machine/browser/browser version;
+2. same power mode;
+3. close unrelated GPU-heavy applications/tabs;
+4. browser zoom 100%;
+5. fixed desktop viewport `1920x1080`;
+6. fixed compact viewport documented for the run, recommended `412x915`;
+7. same DPR between compared runs;
+8. same deterministic visual-matrix pose;
+9. warm up 4 seconds after camera/streaming stabilizes;
+10. collect at least 3 seconds of frames;
+11. run the complete river pose set 5 times;
+12. discard first complete run only if it is an obvious shader/cache warm-up outlier;
+13. compare median p50 and median p95 of the remaining runs;
+14. record draw calls and triangles beside timing.
 
-Performance pass criteria are the budgets from section 1.
+Use the existing visual-matrix frame statistics (`p50Ms`, `p95Ms`, etc.) rather than inventing a second browser timing format.
 
-If timing regresses but draw calls/samplers do not, profile fragment coverage first: wider rivers may increase transparent pixels even when shader architecture is unchanged.
+If timing regresses with unchanged shader architecture, inspect transparent pixel coverage first: wider water can increase fragment cost without changing draw/sampler counts.
 
 ---
 
-# 22. Manual tuning procedure
+# 25. Manual tuning order
 
-Use this order so one parameter does not hide another problem.
+Do not tune everything simultaneously.
 
-## Step 1 — channel shape only
+## A. Geometry
 
-Set visual effects close to neutral and tune:
+Tune only:
 
 ```text
 riverWidthVariation
 riverBendBankAsymmetry
 riverDepthVariation
 riverBendChannelShift
-riverBankIncisionScale
 ```
 
-Inspect Pool, Riffle, Inside bend, Outside bend, Straight.
+Inspect Pool, Riffle, Straight, Inside bend, Outside bend.
 
-Do not tune foam yet.
-
-## Step 2 — flow motion
+## B. Motion
 
 Tune:
 
 ```text
+waterFlowSpeed
 waterRiverPoolFlowScale
 waterRiverRiffleFlowScale
-waterRiverPoolFrequencyScale
-waterRiverRiffleFrequencyScale
 waterRippleStrength
 waterRippleScale
+waterFlowNoiseStrength
 ```
 
-Acceptance:
+Acceptance: downstream direction is obvious without foam; pool is calmer; riffle is tighter without aliasing.
 
-- direction is obvious without foam;
-- pool noticeably calmer than riffle;
-- riffle motion is tighter but not noisy;
-- no aliasing at distance.
-
-## Step 3 — depth/optics
+## C. Optics
 
 Tune:
 
@@ -1413,9 +1414,9 @@ waterRoughness
 waterGlintStrength
 ```
 
-Do not make deeper water believable by simply increasing opacity.
+Do not fake depth by simply increasing opacity.
 
-## Step 4 — bed
+## D. Bed
 
 Tune:
 
@@ -1427,9 +1428,7 @@ waterAlgaeStrength
 waterCausticStrength
 ```
 
-Riffle gravel should be readable; pool bed should be subtler.
-
-## Step 5 — foam/wakes last
+## E. Foam/wakes last
 
 Tune:
 
@@ -1442,17 +1441,135 @@ waterStoneWakeStrength
 waterStoneWakeLength
 ```
 
-If the river only reads as flowing after increasing foam, go back to motion/depth instead.
+If flow only becomes readable after increasing foam, return to motion/depth.
 
-## Step 6 — export
+## F. Commit values
 
-Export YAML from the menu, paste approved values into `public/config/world.yaml`, clear session overrides, reload without overrides, then run all tests from the committed YAML.
+Export YAML, paste approved values into `public/config/world.yaml`, clear session overrides, reload without `riverTuning`, and run deterministic tests from committed YAML.
 
 ---
 
-# 23. Required verification commands
+# 26. Implementation sequence
 
-During implementation, run focused checks after every logical commit:
+## Commit 0 — measurement/contract scaffolding
+
+Before changing river algorithms:
+
+- add `benchmark-river-generation.mjs`;
+- add static river performance-contract skeleton;
+- record fixed-seed cross-flow surface baseline;
+- capture baseline visual-matrix river locations available in the current system;
+- record desktop/compact production frame stats.
+
+Do not change visuals in this commit.
+
+## Commit 1 — config + morphology + width
+
+Files:
+
+- YAML/config/schema/validator;
+- `RiverTuning.ts`;
+- `RiverField.ts`;
+- config/hydrology verification.
+
+Implement R1-R4.
+
+Gate before continuing:
+
+- morphology reaches both QA bands;
+- width envelope passes;
+- continuity passes;
+- benchmark within review budget.
+
+## Commit 2 — cross-section/depth
+
+Files:
+
+- `RiverField.ts`;
+- `HydrologyField.ts`;
+- hydrology tests;
+- CPU semantics for QA.
+
+Implement R5-R6.
+
+Gate:
+
+- outside/inside depth relation passes;
+- pool/riffle statistics pass;
+- no chunk seam;
+- cross-flow surface regression guard passes.
+
+## Commit 3 — visual flow + foam + tint
+
+Files:
+
+- `WaterMaterialController.ts`;
+- `WaterMaterialTuning.ts`;
+- `WaterShader.ts`;
+- flow/render verifiers.
+
+Implement R7, R8, R12.
+
+Gate:
+
+- no sampler/varying/draw increase;
+- downhill resolver still authoritative;
+- quiet bank does not foam continuously.
+
+## Commit 4 — bed
+
+Files:
+
+- bed controller/shaders;
+- water render verifier.
+
+Implement R9.
+
+## Commit 5 — shore + wakes
+
+Files:
+
+- terrain material shader/controller only as needed;
+- `WaterInteractionField.ts`;
+- terrain/stones verification.
+
+Implement R10-R11.
+
+## Commit 6 — tuning and deterministic visual QA
+
+Files:
+
+- `RiverArtMenu.ts`;
+- `RiverDevelopmentConfig.ts`;
+- `WorldApp.ts`;
+- `TerrainStreamer.ts`;
+- style;
+- visual locations/poses/runner;
+- package aliases.
+
+The menu is tooling, not a prerequisite for the core algorithm. Keep it out of earlier commits so geometry/render regressions remain easy to isolate.
+
+## Optional Commit 7 — character-water feedback
+
+Only after R1-R12 is signed off.
+
+Maximum:
+
+```text
+1 InstancedMesh
+4 active ripples desktop
+2 compact
+analytic ring shader
+no ripple texture
+```
+
+Audio remains a separate optional task when suitable assets exist.
+
+---
+
+# 27. Required commands
+
+Focused during implementation:
 
 ```bash
 npm run test:config
@@ -1462,158 +1579,78 @@ npm run test:water-render
 npm run test:terrain-surface
 npm run test:stones
 npm run test:river-perf-contract
+npm run bench:river
 ```
 
-After the phase is integrated:
+Integrated:
 
 ```bash
 npm run test:river
 npm run build
 ```
 
-Before manual GitHub Pages deployment:
+Manual deployment only after visual/performance sign-off:
 
 ```bash
 npm run build
 npm run deploy:pages
 ```
 
-No GitHub Actions are used.
+No GitHub Actions.
 
 ---
 
-# 24. Commit sequence
-
-## Commit 1 — config + morphology
-
-Files:
-
-- `public/config/world.yaml`
-- `WorldConfig.ts`
-- `WorldConfigSchema.ts`
-- `WorldConfigValidator.ts`
-- `RiverTuning.ts`
-- `RiverField.ts`
-- `verify-config-contracts.mjs`
-- `verify-hydrology.mjs`
-
-Implement R1-R4.
-
-## Commit 2 — cross-section/depth
-
-Files:
-
-- `RiverField.ts`
-- `HydrologyField.ts`
-- `verify-hydrology.mjs`
-- visual-location semantic fields if needed for testing
-
-Implement R5-R6.
-
-## Commit 3 — surface flow/foam
-
-Files:
-
-- `WaterMaterialController.ts`
-- `WaterMaterialTuning.ts`
-- `WaterShader.ts`
-- `verify-water-flow.mjs`
-- `verify-water-render-contract.mjs`
-
-Implement R7-R8 and R12.
-
-## Commit 4 — bed
-
-Files:
-
-- `WaterBedMaterialController.ts`
-- `WaterBedMaterialShader.ts`
-- `WaterBedShader.ts`
-- `verify-water-render-contract.mjs`
-
-Implement R9.
-
-## Commit 5 — shore/wakes
-
-Files:
-
-- `TerrainMaterialShader.ts`
-- `TerrainMaterialController.ts` only if required
-- `WaterInteractionField.ts`
-- `verify-terrain-surface.mjs`
-- `verify-stones.mjs`
-
-Implement R10-R11.
-
-## Commit 6 — tuning/QA tooling
-
-Files:
-
-- `RiverArtMenu.ts`
-- `RiverDevelopmentConfig.ts`
-- `WorldApp.ts`
-- `TerrainStreamer.ts`
-- material-controller live setters
-- `style.css`
-- `WorldVisualMatrixLocations.ts`
-- `WorldVisualMatrixPoses.ts`
-- `WorldVisualMatrixRunner.ts`
-- `verify-river-performance-contract.mjs`
-- `package.json`
-
-## Commit 7 — optional gameplay feel
-
-Character ripples only after the structural pass is signed off.
-
----
-
-# 25. What not to implement
+# 28. Explicit non-goals
 
 Do not add in this pass:
 
 - SSR;
-- planar reflection cameras;
-- scene-colour refraction pass;
-- fluid simulation grid;
-- compute water simulation;
+- planar reflections;
+- scene-colour refraction;
+- fluid/compute simulation;
 - Gerstner geometry waves for rivers;
 - tessellated water;
-- foam particles along banks;
 - shoreline decals;
 - shoreline distance textures;
 - pool/riffle textures;
-- extra sand/gravel bed textures;
+- extra bed textures;
 - extra river normal maps;
-- a third river sine octave;
-- explicit morphology/bend GPU attributes before depth-driven rendering is visually tested;
-- lil-gui/dat.gui simply for river tuning when the project already has a native tuning-menu pattern.
+- a third centreline sine octave;
+- explicit morphology/bend GPU attributes;
+- new per-chunk material state;
+- lil-gui/dat.gui runtime dependency;
+- a centreline terrain-resampling system for hydraulic surface leveling.
 
 ---
 
-# 26. Definition of done
+# 29. Definition of done
 
-The pass is complete when:
+The river pass is complete when:
 
-- [ ] width varies smoothly and always stays inside the 0.82-1.18 safety envelope;
-- [ ] pools/runs/riffles come from one continuous deterministic morphology signal;
-- [ ] strong bends have broader inside shelves and deeper outside channels;
-- [ ] carving uses explicit cross-section depth rather than arbitrary coverage weighting;
-- [ ] water depth reaching the shader is the actual generated channel depth;
-- [ ] pool flow is calmer/longer and riffle flow faster/tighter without new simulation;
+- [ ] one normalized continuous morphology signal drives pool/run/riffle structure;
+- [ ] morphology provides real `-1..1` tuning semantics and reaches both QA bands;
+- [ ] local width always remains inside the `0.82..1.18` global safety envelope;
+- [ ] default width tuning leaves safety headroom rather than sitting on the limit;
+- [ ] strong bends have a broader inside shelf and deeper outside active channel;
+- [ ] carving uses explicit cross-section depth rather than arbitrary coverage weights;
+- [ ] current water-surface model does not regress in cross-channel slope or seams;
+- [ ] the existing downhill flow resolver remains authoritative for final flow and wakes;
+- [ ] pools look calmer/longer and riffles faster/tighter without a simulation;
 - [ ] quiet banks are nearly foam-free;
 - [ ] riffles read from depth + bed + motion before foam;
-- [ ] bed composition responds to depth/energy with unchanged texture samples;
-- [ ] shore mud/gravel breakup uses existing terrain samples;
-- [ ] stone wake quality improves without exceeding 3 stone samples;
-- [ ] no bed/pebble/caustic overlays the character;
-- [ ] no extra mandatory water draw call, texture, render pass, or GPU attribute was introduced in R1-R12;
-- [ ] desktop and compact/mobile share identical macro hydrology;
-- [ ] deterministic river tests pass from committed YAML;
+- [ ] riverbed composition changes with depth/energy with no new texture samples;
+- [ ] shoreline mud/gravel uses existing terrain samples;
+- [ ] stone wakes improve while retaining exactly three stone-field samples;
+- [ ] bed/pebbles/caustics never overlay the character;
+- [ ] R1-R12 adds no mandatory draw, texture, render pass, sampler, vertex attribute, or varying;
+- [ ] desktop and compact/mobile share identical macro river geometry;
+- [ ] deterministic tests pass from committed YAML;
 - [ ] static performance-contract test passes;
-- [ ] repeated production-build browser measurements remain within the performance budgets;
-- [ ] tuning menu can export the exact approved YAML subset;
-- [ ] clearing tuning overrides reproduces the committed `world.yaml` result;
+- [ ] manual CPU benchmark does not show a material regression;
+- [ ] production visual-matrix p50/p95 remain within the stated budgets;
+- [ ] RiverArtMenu can preview safely, export YAML, and clear all session overrides;
+- [ ] running without `?riverTuning=1` reproduces committed `world.yaml` behavior;
 - [ ] `npm run build` passes;
-- [ ] manual visual matrix is reviewed.
+- [ ] final desktop and compact/mobile visual matrix is reviewed.
 
-The highest-value stopping point is R1-R12. Character ripples and audio are secondary to getting the river structure, depth, motion, bed, and banks coherent first.
+The highest-value stopping point remains R1-R12. Character ripples and audio are secondary to coherent structure, depth, downstream motion, bed, and banks.
