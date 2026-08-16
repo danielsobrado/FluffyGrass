@@ -4,7 +4,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -14,6 +14,9 @@ const PUBLIC_DIRECTORY = resolve(REPOSITORY_ROOT, "public");
 const INDEX_FILE = resolve(DIST_DIRECTORY, "index.html");
 const LOCAL_REFERENCE_PATTERN = /\b(?:src|href)=["']([^"']+)["']/g;
 const ABSOLUTE_LOCAL_REFERENCE_PATTERN = /\b(?:src|href)=["']\/(?!\/)/;
+const ABSOLUTE_CSS_URL_PATTERN = /url\(\s*["']?\/(?!\/)/i;
+const ABSOLUTE_RUNTIME_ASSET_PATTERN =
+  /(["'`])\/(?!\/)[^"'`]*\.(?:glb|gltf|png|jpe?g|webp|svg|ya?ml|json)(?:\?[^"'`]*)?\1/i;
 
 function fail(message) {
   throw new Error(`[built-site] ${message}`);
@@ -90,6 +93,27 @@ for (const reference of references) {
 assert(localScriptCount > 0, "Generated index.html does not reference a local JavaScript bundle.");
 assert(localStyleCount > 0, "Generated index.html does not reference a local stylesheet.");
 
+const builtFiles = listFiles(DIST_DIRECTORY);
+for (const path of builtFiles) {
+  const extension = extname(path).toLowerCase();
+  if (extension !== ".css" && extension !== ".js") {
+    continue;
+  }
+  const source = readFileSync(path, "utf8");
+  const builtPath = relative(DIST_DIRECTORY, path);
+  if (extension === ".css") {
+    assert(
+      !ABSOLUTE_CSS_URL_PATTERN.test(source),
+      `Generated stylesheet contains a root-absolute url(...): ${builtPath}.`,
+    );
+  } else {
+    assert(
+      !ABSOLUTE_RUNTIME_ASSET_PATTERN.test(source),
+      `Generated JavaScript contains a root-absolute runtime asset path: ${builtPath}.`,
+    );
+  }
+}
+
 for (const sourcePath of listFiles(PUBLIC_DIRECTORY)) {
   const publicPath = relative(PUBLIC_DIRECTORY, sourcePath);
   const builtPath = resolve(DIST_DIRECTORY, publicPath);
@@ -112,5 +136,5 @@ for (const legalFile of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
 }
 
 console.log(
-  `[built-site] Pages-relative index, ${references.length} HTML references, copied public assets, and legal files verified.`,
+  `[built-site] Pages-relative index/bundles, ${references.length} HTML references, copied public assets, and legal files verified.`,
 );
