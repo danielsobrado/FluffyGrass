@@ -16,6 +16,9 @@ import {
 
 const HERD_SEED_SALT = 0x5eed_fa11;
 const HASH_UNIT = 1 / 4294967296;
+const HERD_MEMBER_MIN_REACH = 2;
+const HERD_MEMBER_REACH_VARIATION = 9;
+const HERD_MEMBER_MAX_REACH = HERD_MEMBER_MIN_REACH + HERD_MEMBER_REACH_VARIATION;
 const normal = new THREE.Vector3();
 const hydrology = createHydrologySample();
 
@@ -52,16 +55,16 @@ export interface WorldFaunaHerd {
 export class WorldFaunaField {
   private readonly seed: number;
   private readonly maxCollectionRadius: number;
+  private readonly herdAnchorHalfExtent: number;
 
   constructor(
     private readonly field: TerrainField,
     config: WorldConfig,
   ) {
     this.seed = (config.seed ^ HERD_SEED_SALT) >>> 0;
-    this.maxCollectionRadius = Math.min(
-      config.worldSize * 0.5,
-      MAX_FAUNA_STREAM_RADIUS,
-    );
+    const halfWorld = config.worldSize * 0.5;
+    this.maxCollectionRadius = Math.min(halfWorld, MAX_FAUNA_STREAM_RADIUS);
+    this.herdAnchorHalfExtent = Math.max(0, halfWorld - HERD_MEMBER_MAX_REACH);
   }
 
   collect(centerX: number, centerZ: number, radius: number): WorldFaunaHerd[] {
@@ -106,6 +109,12 @@ export class WorldFaunaField {
       0.6;
     const anchorX = (cellX + 0.5) * HERD_CELL_SIZE + jitterX;
     const anchorZ = (cellZ + 0.5) * HERD_CELL_SIZE + jitterZ;
+    if (
+      Math.abs(anchorX) > this.herdAnchorHalfExtent ||
+      Math.abs(anchorZ) > this.herdAnchorHalfExtent
+    ) {
+      return undefined;
+    }
 
     const height = this.field.sampleHeight(anchorX, anchorZ);
     this.field.sampleNormal(anchorX, anchorZ, normal);
@@ -162,7 +171,10 @@ export class WorldFaunaField {
       const salt = this.seed ^ Math.imul(index + 1, 0x9e3779b9);
       const angle = hash(cellX, cellZ, salt) * HASH_UNIT * Math.PI * 2;
       const reach =
-        2 + hash(cellX, cellZ, salt ^ 0x1b873593) * HASH_UNIT * 9;
+        HERD_MEMBER_MIN_REACH +
+        hash(cellX, cellZ, salt ^ 0x1b873593) *
+          HASH_UNIT *
+          HERD_MEMBER_REACH_VARIATION;
       members.push({
         x: anchorX + Math.cos(angle) * reach,
         z: anchorZ + Math.sin(angle) * reach,
