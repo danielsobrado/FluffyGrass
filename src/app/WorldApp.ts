@@ -313,25 +313,24 @@ export class WorldApp {
     this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
     window.clearInterval(this.watchdogHandle);
-    this.runtimeGuard.dispose();
-    this.reveal.dispose();
-    this.scenic.dispose();
-    this.minimap.dispose();
-    this.controls.dispose();
-    this.terrain.dispose();
-    this.stones.dispose();
-    this.grass.dispose();
-    grassTrailField.dispose();
-    this.stats?.dom.remove();
+    this.disposeSafely("Runtime guard", () => this.runtimeGuard.dispose());
+    this.disposeSafely("World reveal", () => this.reveal.dispose());
+    this.disposeSafely("Scenic layer", () => this.scenic.dispose());
+    this.disposeSafely("Minimap", () => this.minimap.dispose());
+    this.disposeSafely("World controls", () => this.controls.dispose());
+    this.disposeSafely("Terrain streamer", () => this.terrain.dispose());
+    this.disposeSafely("Stone system", () => this.stones.dispose());
+    this.disposeGrassResources();
+    this.disposeSafely("Stats panel", () => this.stats?.dom.remove());
     this.stats = undefined;
-    this.artMenu?.dispose();
-    this.detailFoliageMenu?.dispose();
-    this.riverArtMenu?.dispose();
+    this.disposeSafely("Grass art menu", () => this.artMenu?.dispose());
+    this.disposeSafely("Detail foliage menu", () => this.detailFoliageMenu?.dispose());
+    this.disposeSafely("River art menu", () => this.riverArtMenu?.dispose());
     this.artMenu = undefined;
     this.detailFoliageMenu = undefined;
     this.riverArtMenu = undefined;
-    this.environment.dispose();
-    this.renderer.dispose();
+    this.disposeSafely("Environment", () => this.environment.dispose());
+    this.disposeSafely("Renderer", () => this.renderer.dispose());
   }
 
   private readonly applyGrassArtDirection = (
@@ -369,8 +368,7 @@ export class WorldApp {
       console.error("[Drusniel World] Grass initialization failed.", error);
       this.grassInitializationError = this.runtimeGuard.formatError(error);
       this.grassEnabled = false;
-      this.grass.dispose();
-      grassTrailField.dispose();
+      this.disposeGrassResources();
     } finally {
       if (!this.disposed) {
         this.grassInitializing = false;
@@ -523,16 +521,28 @@ export class WorldApp {
         this.terrainEnabled = false;
       } else if (subsystem === "stones") {
         this.stonesEnabled = false;
-        this.stones.dispose();
+        this.disposeSafely("Stone system", () => this.stones.dispose());
       } else if (subsystem === "grass") {
         this.grassEnabled = false;
-        this.grass.dispose();
-        grassTrailField.dispose();
+        this.disposeGrassResources();
       } else if (subsystem === "renderer") {
         this.rendererEnabled = false;
       } else {
         this.hudEnabled = false;
       }
+    }
+  }
+
+  private disposeGrassResources(): void {
+    this.disposeSafely("Grass system", () => this.grass.dispose());
+    this.disposeSafely("Grass trail field", () => grassTrailField.dispose());
+  }
+
+  private disposeSafely(label: string, dispose: () => void): void {
+    try {
+      dispose();
+    } catch (error) {
+      console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
     }
   }
 
