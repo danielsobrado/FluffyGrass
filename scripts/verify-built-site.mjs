@@ -117,6 +117,10 @@ assert(localScriptCount > 0, "Generated index.html does not reference a local Ja
 assert(localStyleCount > 0, "Generated index.html does not reference a local stylesheet.");
 
 const builtFiles = listFiles(DIST_DIRECTORY);
+assert(
+  !builtFiles.some((path) => extname(path).toLowerCase() === ".map"),
+  "Generated site must not publish source-map artifacts.",
+);
 for (const path of builtFiles) {
   const extension = extname(path).toLowerCase();
   if (extension !== ".css" && extension !== ".js") {
@@ -164,5 +168,5 @@ for (const legalFile of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
 }
 
 console.log(
-  `[built-site] Pages-relative index/bundles, security policy, ${references.length} HTML references, byte-identical public/legal assets verified.`,
+  `[built-site] Pages-relative index/bundles, security policy, no source maps, ${references.length} HTML references, byte-identical public/legal assets verified.`,
 );
