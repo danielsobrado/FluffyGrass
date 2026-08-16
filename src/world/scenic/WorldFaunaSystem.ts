@@ -121,7 +121,9 @@ export class WorldFaunaSystem {
 
     try {
       for (let index = 0; index < count; index += 1) {
-        this.slots.push(this.createSlot(scene, index, spawn, sampleHeight, contact));
+        this.slots.push(
+          this.createSlot(scene, index, count, spawn, sampleHeight, contact),
+        );
       }
 
       // Villagers stay near the player's own spawn rather than streaming: people
@@ -302,6 +304,7 @@ export class WorldFaunaSystem {
   private createSlot(
     scene: THREE.Scene,
     index: number,
+    count: number,
     spawn: THREE.Vector3,
     sampleHeight: (x: number, z: number) => number,
     contact: WorldTerrainContactSampler,
@@ -332,9 +335,9 @@ export class WorldFaunaSystem {
         walkSpeed: this.walkSpeed,
         seed: member?.seed ?? index + 1,
         decisionIntervalSeconds: this.behaviorInterval,
-        // Staggered across the pool so a herd never decides on one frame.
-        decisionPhaseSeconds: (index / Math.max(this.slots.length + 1, 1)) *
-          this.behaviorInterval,
+        // Staggered across the complete pool so decisions stay evenly spread.
+        decisionPhaseSeconds:
+          (index / Math.max(count, 1)) * this.behaviorInterval,
         alertRadius: FAUNA_ALERT_RADIUS,
         fleeRadius: FAUNA_FLEE_RADIUS,
       });
