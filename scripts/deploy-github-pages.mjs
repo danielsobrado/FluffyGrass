@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { assertSecureNodeRuntime } from "./node-runtime.mjs";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
@@ -124,6 +125,7 @@ function installAndBuild() {
 }
 
 function deploy() {
+  assertSecureNodeRuntime();
   const sourceHead = assertRepositoryState();
   installAndBuild();
   assertSourceStillCurrent(sourceHead);
