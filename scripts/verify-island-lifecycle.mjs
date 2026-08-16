@@ -18,6 +18,7 @@ function assert(condition, message) {
 const island = read("src/app/IslandApp.ts");
 const development = read("src/dev/GrassDevelopmentController.ts");
 const qaRunner = read("src/qa/GrassQaRunner.ts");
+const qaDownloads = read("src/qa/GrassQaDownloads.ts");
 
 assert(
   island.includes("createIslandRuntimeResources(") &&
@@ -63,15 +64,20 @@ assert(
 
 assert(
   development.includes("private readonly abortController = new AbortController()") &&
+    development.includes("private qaRunner?: GrassQaRunner") &&
     development.includes("this.abortController.abort()") &&
+    development.includes("this.qaRunner?.dispose()") &&
     development.includes("this.abortController.signal") &&
     development.includes("this.bakePanel?.remove()") &&
     development.includes("delete windowWithResults.__FLUFFY_GRASS_IMPOSTOR_BAKE__") &&
     development.includes("delete windowWithResults.__FLUFFY_GRASS_QA__") &&
     /const result = await baker\.bake\([\s\S]*?if \(this\.disposed\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?createDownloadLinks/.test(
       development,
+    ) &&
+    /finally \{[\s\S]*?if \(!this\.disposed\) \{[\s\S]*?setLodBakeOverride\(false\)/.test(
+      development,
     ),
-  "Island development tools must abort QA, clean published debug state, and suppress late bake publication after disposal.",
+  "Island development tools must own/abort QA, clean published debug state, suppress late bake publication, and avoid touching disposed bake dependencies.",
 );
 
 assert(
@@ -82,12 +88,24 @@ assert(
     /sampleFrames\([\s\S]*?options\.sampleSeconds,[\s\S]*?true,[\s\S]*?signal/.test(
       qaRunner,
     ) &&
-    qaRunner.includes("throwIfAborted(signal)") &&
-    qaRunner.includes("if (!signal?.aborted) {") &&
+    qaRunner.includes("this.throwIfUnavailable(signal)") &&
+    qaRunner.includes("this.downloads.dispose()") &&
+    qaRunner.includes("signal?.aborted &&") === false &&
     qaRunner.includes('new DOMException("Grass QA aborted.", "AbortError")'),
-  "Island grass QA must honor cancellation before rendering/publishing and avoid updating disposed controls.",
+  "Island grass QA must honor cancellation/disposal before rendering or publishing and own its download resources.",
+);
+
+assert(
+  qaDownloads.includes("private readonly objectUrls = new Set<string>()") &&
+    qaDownloads.includes("private readonly timeoutHandles = new Set<number>()") &&
+    qaDownloads.includes("URL.revokeObjectURL(objectUrl)") &&
+    qaDownloads.includes("window.clearTimeout(handle)") &&
+    qaDownloads.includes("this.panel?.remove()") &&
+    qaDownloads.includes("signal?: AbortSignal") &&
+    qaDownloads.includes("this.disposed || signal?.aborted"),
+  "Grass QA downloads must revoke blob URLs, cancel scheduled clicks, remove their panel, and reject captures after teardown.",
 );
 
 console.log(
-  "[island-lifecycle] Transactional island construction, frame containment, and disposable development QA verified.",
+  "[island-lifecycle] Transactional island construction, frame containment, and disposable QA/download ownership verified.",
 );
