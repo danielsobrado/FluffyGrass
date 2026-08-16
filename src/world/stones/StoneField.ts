@@ -145,6 +145,8 @@ interface AcceptedMember {
 const CLEAR_SCALE_CUTOFF = 0.5;
 /** Slope gates on the terrain normal's Y component. */
 const SLOPE_REJECT_NY = 0.62;
+/** Source displacement plus one cell of verified base clearance reach. */
+const CLEARANCE_SOURCE_CELL_MARGIN = STONE_CELL_SOURCE_MARGIN + 1;
 const VERGE_BAND = 1.6;
 const VERGE_STEP_PASSES = 4;
 const VERGE_MAX_PER_CELL = 7;
@@ -285,12 +287,21 @@ export class StoneField {
     if (!this.enabled) {
       return 1;
     }
+    let sourceMargin = CLEARANCE_SOURCE_CELL_MARGIN;
+    if (extraRadius !== 0) {
+      if (!Number.isFinite(extraRadius) || extraRadius < 0) {
+        throw new Error(
+          "Stone clearance extraRadius must be a non-negative finite number.",
+        );
+      }
+      sourceMargin += Math.ceil(extraRadius / this.cellSize);
+    }
     const feather = this.config.stoneGrassClearanceFeather;
     const centerCellX = Math.floor(x / this.cellSize);
     const centerCellZ = Math.floor(z / this.cellSize);
     let mask = 1;
-    for (let dz = -1; dz <= 1; dz += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dz = -sourceMargin; dz <= sourceMargin; dz += 1) {
+      for (let dx = -sourceMargin; dx <= sourceMargin; dx += 1) {
         const instances = this.getCellInstances(
           centerCellX + dx,
           centerCellZ + dz,
