@@ -305,8 +305,11 @@ float waterTransmittanceLuma = dot(
   waterTransmittance,
   vec3(0.2126, 0.7152, 0.0722)
 );
+// The shallow floor decides how much sheet sits over a gravel bar. At 0.16 a
+// riffle was 89% raw bed and the water itself became invisible; the bed still
+// reads through at 0.26, but as something under water.
 float waterAlpha = uWaterOpacity * waterCoverage *
-  mix(0.16, 0.88, 1.0 - waterTransmittanceLuma);
+  mix(0.26, 0.88, 1.0 - waterTransmittanceLuma);
 waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.22), waterFoamAmount);
 diffuseColor.a *= waterAlpha;
 `;

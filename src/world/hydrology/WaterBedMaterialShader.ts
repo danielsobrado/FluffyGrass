@@ -22,6 +22,7 @@ uniform float uWaterBedRefraction;
 uniform float uWaterAlgaeStrength;
 uniform float uWaterCausticStrength;
 uniform float uWaterRiverReferenceDepth;
+uniform vec3 uWaterBedExtinction;
 uniform vec3 uWaterPebbleDark;
 uniform vec3 uWaterPebbleLight;
 uniform vec3 uWaterSand;
@@ -89,6 +90,13 @@ vec3 waterBedColor = waterSampleRiverBed(
 );
 waterBedColor *= 0.96 + waterBedRelief * 0.06;
 waterBedColor *= 1.0 - bedPool * 0.05;
+
+// Depth attenuation. Without this the bed keeps full dry-lit radiance at any
+// depth, so a deep channel core renders as bright as a gravel bar and the
+// river reads as a snow ribbon from the air. Reuses the depth already carried
+// in vWaterBedData and the surface's own absorption vector — no new sample.
+vec3 waterBedTransmittance = exp(-uWaterBedExtinction * waterBedDepth);
+waterBedColor *= waterBedTransmittance;
 
 float waterBedShallow = 1.0 - smoothstep(0.18, 2.4, waterBedDepth);
 float waterBedCausticA = texture2D(

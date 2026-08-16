@@ -5,7 +5,13 @@ import {
   waterPeriodicValueNoise,
 } from "./WaterFlowNoiseTexture";
 
-export const WATER_BED_NOISE_SIZE = 128;
+/**
+ * 256 rather than 128: the tile covers ~2.6 m of bed, so at 128 a wading-depth
+ * close-up magnified every texel roughly eightfold and the cobbles dissolved
+ * into blur. Doubling keeps the same cobble count and world size — only the
+ * silhouettes sharpen — for one extra build pass and 256 KB.
+ */
+export const WATER_BED_NOISE_SIZE = 256;
 const BYTE_MAX = 255;
 const PEBBLE_CELLS = 9;
 const GRAVEL_CELLS = 19;

@@ -2,9 +2,12 @@ import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
 import { createWaterBedTexture } from "./WaterBedTexture";
 import {
+  WATER_ABSORPTION_COLOR,
   WATER_ALGAE_COLOR,
+  WATER_BED_EXTINCTION_SCALE,
   WATER_BED_MATERIAL_CACHE_KEY,
   WATER_BED_NOISE_SEED_SALT,
+  WATER_BED_PATH_LENGTH_SCALE,
   WATER_COMPACT_DETAIL_SCALE,
   WATER_PEBBLE_DARK_COLOR,
   WATER_PEBBLE_LIGHT_COLOR,
@@ -25,6 +28,23 @@ export type WaterBedLiveVisuals = Pick<
   | "waterAlgaeStrength"
   | "waterCausticStrength"
 >;
+
+/**
+ * Per-metre extinction applied to the bed, built from the same absorption hue
+ * and depth fade the surface uses so the two layers cannot disagree about how
+ * far light travels. Red is absorbed hardest, so a deepening channel loses its
+ * warm gravel first and settles towards the water's own colour.
+ */
+function bedExtinction(config: WorldConfig): THREE.Vector3 {
+  const fade = Math.max(0.01, config.waterDepthFade);
+  const gain =
+    (WATER_BED_PATH_LENGTH_SCALE * WATER_BED_EXTINCTION_SCALE) / fade;
+  return new THREE.Vector3(
+    (1 - WATER_ABSORPTION_COLOR.r) * gain,
+    (1 - WATER_ABSORPTION_COLOR.g) * gain,
+    (1 - WATER_ABSORPTION_COLOR.b) * gain,
+  );
+}
 
 export class WaterBedMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -63,6 +83,7 @@ export class WaterBedMaterialController {
       uWaterRiverReferenceDepth: {
         value: config.riverDepth + config.waterSurfaceOffset,
       },
+      uWaterBedExtinction: { value: bedExtinction(config) },
       uWaterPebbleDark: { value: WATER_PEBBLE_DARK_COLOR },
       uWaterPebbleLight: { value: WATER_PEBBLE_LIGHT_COLOR },
       uWaterSand: { value: WATER_SAND_COLOR },

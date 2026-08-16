@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
 
 export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v10";
-export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v3";
+export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v4";
 export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
 export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_BED_NOISE_SEED_SALT = 0x3b1f7a2d;
@@ -11,12 +11,31 @@ export const WATER_DEEP_COLOR = new THREE.Color("#244f63");
 export const WATER_REFLECTION_COLOR = new THREE.Color("#a8cad5");
 export const WATER_FOAM_COLOR = new THREE.Color("#d8e7df");
 export const WATER_SPECULAR_COLOR = new THREE.Color("#e4f4f5");
-export const WATER_PEBBLE_DARK_COLOR = new THREE.Color("#5d5647");
-export const WATER_PEBBLE_LIGHT_COLOR = new THREE.Color("#cdc5b0");
-export const WATER_SAND_COLOR = new THREE.Color("#6a6150");
-export const WATER_ALGAE_COLOR = new THREE.Color("#41682c");
+/**
+ * Bed cobbles are permanently submerged, so they carry wet-rock reflectance —
+ * roughly six tenths of the same stone dry. Dry values here read as snow from
+ * any distance, because the sheet above is nearly transparent where a river is
+ * shallow and the bed is what the eye actually sees.
+ */
+export const WATER_PEBBLE_DARK_COLOR = new THREE.Color("#38332a");
+export const WATER_PEBBLE_LIGHT_COLOR = new THREE.Color("#7b7466");
+export const WATER_SAND_COLOR = new THREE.Color("#433d31");
+export const WATER_ALGAE_COLOR = new THREE.Color("#33531f");
 /** In-scatter hue for the Beer-Lambert optical-depth model. */
 export const WATER_ABSORPTION_COLOR = new THREE.Color("#6c9c8e");
+/**
+ * Sunlight crosses the water column twice before the bed is seen — down to the
+ * cobbles and back to the eye — so the bed is attenuated over twice its depth
+ * by the same absorption the surface already uses. This is what separates a
+ * dark pool from a bright riffle without a second depth model.
+ */
+export const WATER_BED_PATH_LENGTH_SCALE = 2;
+/**
+ * Held below 1 because the surface sheet already applies its own transmittance
+ * on top; the full physical extinction on both layers closes shallow water
+ * completely.
+ */
+export const WATER_BED_EXTINCTION_SCALE = 0.62;
 export const WATER_IOR = 1.333;
 export const WATER_F0 = ((WATER_IOR - 1) / (WATER_IOR + 1)) ** 2;
 export const WATER_SUN_DIRECTION = new THREE.Vector3(

@@ -27,7 +27,9 @@ vec3 waterSampleRiverBed(
   vec3 stone = mix(uWaterPebbleDark, uWaterPebbleLight, bed.g);
   vec3 sand = mix(uWaterPebbleLight, uWaterSand, 0.62) * (0.9 + bed.g * 0.2);
   vec3 color = mix(sand, stone, pebble);
-  color *= 0.52 + shade * 0.78;
+  // Baked cobble shading may only take light away. The old 1.30 ceiling let a
+  // lit cobble top exceed its own albedo, which is where the snow read began.
+  color *= 0.42 + shade * 0.58;
 
   float sway = sin(time * 0.9 + bedPosition.x * 0.4 + bedPosition.y * 0.27);
   vec2 algaeDrift = flowDirection * sway * (0.06 + 0.22 * riverAmount);
