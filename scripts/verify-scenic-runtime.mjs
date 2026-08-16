@@ -22,6 +22,7 @@ const treeField = read("src/world/scenic/WorldTreeField.ts");
 const villagerBody = read("src/character/npc/VillagerBody.ts");
 const scriptedHumanoid = read("src/character/npc/ScriptedHumanoidActor.ts");
 const deerBody = read("src/creatures/deer/DeerBody.ts");
+const deerBehavior = read("src/creatures/deer/DeerBehavior.ts");
 const quadrupedActor = read("src/creatures/quadruped/QuadrupedActor.ts");
 
 assert(
@@ -73,6 +74,24 @@ assert(
     faunaSystem.includes("slot.active = false") &&
     faunaSystem.includes("slot.actor.object.visible = false"),
   "Unassigned deer pool slots must stay inactive and hidden until a real herd member is available.",
+);
+assert(
+  faunaSystem.includes("readonly variant: DeerVariant") &&
+    faunaSystem.includes("member.variant !== variant") &&
+    faunaSystem.includes("this.takeMember(focus, focus, slot.variant)") &&
+    faunaSystem.includes("this.applyMemberCoat(slot, member)") &&
+    faunaSystem.includes("member.seed,") &&
+    !faunaSystem.includes("let canReactivate"),
+  "Recycled deer must preserve their built body variant, refresh coat identity, and let every inactive variant search the rebuilt roster.",
+);
+assert(
+  deerBehavior.includes("this.random = normalizeSeed(seed)") &&
+    deerBehavior.includes(
+      "this.decisionClock = this.options.decisionPhaseSeconds",
+    ) &&
+    faunaSystem.includes("slot.behavior.reset(") &&
+    faunaSystem.includes("member.seed,"),
+  "Recycled deer behavior must restart from the assigned member seed and staggered decision phase.",
 );
 assert(
   faunaField.includes("const HASH_UNIT = 1 / 4294967296;") &&
