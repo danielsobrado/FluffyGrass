@@ -75,6 +75,12 @@ assert(
   "Bend strength must use geometric curvature rather than raw second derivative.",
 );
 assert(
+  riverField.includes("maximumInfluenceHalfWidth") &&
+    riverField.includes("lane.distance > this.maximumInfluenceHalfWidth") &&
+    riverField.includes("return clearRiverSample(target)"),
+  "Dry samples outside every possible river influence must skip selected-lane morphology work.",
+);
+assert(
   !riverField.includes("simplex") &&
     !riverField.includes("perlin") &&
     !riverField.includes("valueNoise") &&
