@@ -50,6 +50,7 @@ import {
   SCALE_BANDS,
   stoneMossBase,
 } from "./StonePlacementProfile";
+import { resolveSplitHalfDistance } from "./StoneSplitPlacement";
 
 /**
  * Deterministic world-space stone placement.
@@ -645,11 +646,23 @@ export class StoneField {
     const memberRng = StoneRandom.fromSeed(descriptor.seed).fork(
       stoneClusterMemberLabel(spec.index),
     );
-    const desiredGap =
-      memberRng.fork("split-gap").range(SPLIT_GAP_MIN, SPLIT_GAP_MAX) +
-      anchor.footprintRadius * 1.05;
+    const scale =
+      anchor.instance.scale * memberRng.fork("scale-jitter").range(0.62, 0.92);
+    const variant = this.getVariant(
+      anchor.instance.archetype,
+      anchor.instance.variantIndex,
+    );
+    const footprint = variant.metrics.footprintRadius * scale;
+    const crackGap = memberRng
+      .fork("split-gap")
+      .range(SPLIT_GAP_MIN, SPLIT_GAP_MAX);
+    const desiredDistance = resolveSplitHalfDistance(
+      anchor.footprintRadius,
+      footprint,
+      crackGap,
+    );
     if (
-      desiredGap >
+      desiredDistance >
       descriptor.majorRadius *
         this.config.stoneClusterCoreRatio *
         SPLIT_CORE_OFFSET_FACTOR
@@ -659,8 +672,8 @@ export class StoneField {
     const splitAngle = memberRng.fork("split-angle");
     const breakAngle =
       descriptor.strike + Math.PI * 0.5 + splitAngle.signed(0.35);
-    const x = anchor.instance.x + Math.cos(breakAngle) * desiredGap;
-    const z = anchor.instance.z + Math.sin(breakAngle) * desiredGap;
+    const x = anchor.instance.x + Math.cos(breakAngle) * desiredDistance;
+    const z = anchor.instance.z + Math.sin(breakAngle) * desiredDistance;
     if (!this.insideWorld(x, z)) {
       return undefined;
     }
@@ -678,13 +691,6 @@ export class StoneField {
     if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }
-    const scale =
-      anchor.instance.scale * memberRng.fork("scale-jitter").range(0.62, 0.92);
-    const variant = this.getVariant(
-      anchor.instance.archetype,
-      anchor.instance.variantIndex,
-    );
-    const footprint = variant.metrics.footprintRadius * scale;
     if (
       this.pathBlocks(x, z, height, scale, anchor.instance.archetype, footprint)
     ) {
@@ -842,6 +848,10 @@ export class StoneField {
     centerZ: number,
     instances: StoneInstance[],
   ): boolean {
+    const activationRoll = random.next();
+    if (activationRoll >= this.config.stoneSingletonChance) {
+      return false;
+    }
     const height = this.field.sampleHeight(centerX, centerZ);
     const ecology = this.field.sampleEcologyAt(centerX, centerZ, height);
     const geologyPotential = this.clusterField.sampleGeologyPotential(
@@ -853,7 +863,7 @@ export class StoneField {
       ecology.rockiness,
       this.config.stoneSingletonChance,
     );
-    if (!random.chance(probability)) {
+    if (activationRoll >= probability) {
       return false;
     }
     const x = originX + random.fork("x").range(0.2, 0.8) * this.cellSize;
