@@ -42,18 +42,24 @@ export class WorldTreeSystem {
       roughness: 0.92,
       metalness: 0,
     });
-    const leaves = new THREE.MeshStandardMaterial({
-      color: FOLIAGE,
-      roughness: 0.78,
-      metalness: 0,
-    });
-    leaves.emissive.copy(FOLIAGE_TIP).multiplyScalar(0.04);
+    let leaves: THREE.MeshStandardMaterial;
+    try {
+      leaves = new THREE.MeshStandardMaterial({
+        color: FOLIAGE,
+        roughness: 0.78,
+        metalness: 0,
+      });
+    } catch (error) {
+      bark.dispose();
+      throw error;
+    }
 
     let trunk: THREE.CylinderGeometry | undefined;
     let canopy: THREE.IcosahedronGeometry | undefined;
     let trunkMesh: THREE.InstancedMesh | undefined;
     let canopyMesh: THREE.InstancedMesh | undefined;
     try {
+      leaves.emissive.copy(FOLIAGE_TIP).multiplyScalar(0.04);
       trunk = new THREE.CylinderGeometry(0.07, 0.13, 1, 8, 1, false);
       trunk.translate(0, 0.5, 0);
       canopy = new THREE.IcosahedronGeometry(1, 1);
