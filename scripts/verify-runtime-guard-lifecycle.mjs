@@ -29,6 +29,17 @@ assert(
   "Runtime guard disposal must converge on the same listener cleanup path.",
 );
 
+assert(
+  source.includes("private rendererFaulted = false") &&
+    /recordSubsystemFailure\([\s\S]*?if \(subsystem === "renderer"\) \{[\s\S]*?this\.rendererFaulted = true;/.test(
+      source,
+    ) &&
+    /handleContextRestored[\s\S]*?if \(!this\.rendererFaulted\) \{[\s\S]*?this\.onRendererEnabledChange\(true\);/.test(
+      source,
+    ),
+  "A WebGL context restore must not resurrect a renderer that was permanently disabled by a real frame failure.",
+);
+
 for (const listener of [
   'window.removeEventListener("resize", this.handleResize)',
   'window.removeEventListener("error", this.handleWindowError)',
@@ -40,5 +51,5 @@ for (const listener of [
 }
 
 console.log(
-  "[runtime-guard-lifecycle] Transactional listener publication and teardown verified.",
+  "[runtime-guard-lifecycle] Transactional listeners and persistent renderer-fault state verified.",
 );
