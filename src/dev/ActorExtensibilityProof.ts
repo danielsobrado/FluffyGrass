@@ -10,12 +10,23 @@ import { createDeerAssets, type DeerAssets } from "../creatures/deer/DeerAssets"
 import { createDeerBodyBuilder } from "../creatures/deer/DeerBody";
 import { setDeerCoatTint } from "../creatures/deer/DeerPalette";
 import { QuadrupedActor } from "../creatures/quadruped/QuadrupedActor";
+import { disposeResources } from "../render/ResourceDisposal";
 import { WorldTerrainContactSampler } from "../world/WorldTerrainContactSampler";
 
 interface AttachableWorld {
   attachActorProof(
     observer: (deltaSeconds: number) => void,
   ): WorldActorProofContext;
+}
+
+interface ActorProofResources {
+  context: WorldActorProofContext;
+  npc: ScriptedHumanoidActor;
+  quadruped: QuadrupedActor;
+  deerAssets: DeerAssets;
+  villagerAssets: VillagerAssets;
+  sampleHeight: (x: number, z: number) => number;
+  contact: WorldTerrainContactSampler;
 }
 
 const NPC_PATH = {
@@ -72,8 +83,8 @@ export class ActorExtensibilityProof {
   private readonly npc: ScriptedHumanoidActor;
   private readonly quadruped: QuadrupedActor;
   /** The proof owns its own libraries so it can be disposed independently. */
-  private readonly deerAssets: DeerAssets = createDeerAssets();
-  private readonly villagerAssets: VillagerAssets = createVillagerAssets();
+  private readonly deerAssets: DeerAssets;
+  private readonly villagerAssets: VillagerAssets;
   private readonly npcSteering = {
     targetX: NPC_PATH.radius,
     targetZ: QUADRUPED_PATROL_HALF_LENGTH,
@@ -98,40 +109,17 @@ export class ActorExtensibilityProof {
   }
 
   private constructor(world: AttachableWorld) {
-    this.context = world.attachActorProof(this.update);
-    const field = this.context.field;
-    const sampleHeight = (x: number, z: number): number =>
-      field.sampleHeight(x, z);
-    const contact = new WorldTerrainContactSampler(field);
-    // Both proof actors circle the origin, where the player spawns, so all
-    // three are visible together.
-    this.npc = new ScriptedHumanoidActor(
-      this.context.scene,
-      1,
-      NPC_PATH.radius,
-      0,
-      this.villagerAssets,
-      0,
-      true,
-      sampleHeight,
-      contact,
-    );
-    this.npc.setReferenceSpeed(NPC_PATH.speed);
-    const tint = new THREE.Color();
-    setDeerCoatTint(tint, 0.5, 0.5);
-    this.quadruped = new QuadrupedActor(
-      this.context.scene,
-      1,
-      QUADRUPED_PATH.radius,
-      0,
-      createDeerBodyBuilder(this.deerAssets, "stag", tint, true),
-      sampleHeight,
-      contact,
-    );
+    const resources = createActorProofResources(world, this.update);
+    this.context = resources.context;
+    this.npc = resources.npc;
+    this.quadruped = resources.quadruped;
+    this.deerAssets = resources.deerAssets;
+    this.villagerAssets = resources.villagerAssets;
+
     // Imported characters stream in. A missing or malformed asset must leave
     // the procedural proofs and the player running, so the load is fire and
     // forget and reports rather than throws.
-    void this.spawnImported(sampleHeight, contact);
+    void this.spawnImported(resources.sampleHeight, resources.contact);
   }
 
   private async spawnImported(
@@ -154,7 +142,6 @@ export class ActorExtensibilityProof {
               centerX: 0,
               centerZ: 0,
               ...SKELETON_PATROL,
-              // Spread them evenly around the ring.
               phase: (index / SKELETON_MODELS.length) * Math.PI * 2,
             },
           },
@@ -177,15 +164,18 @@ export class ActorExtensibilityProof {
       return;
     }
     this.disposed = true;
-    this.context.detach();
-    this.npc.dispose();
-    this.quadruped.dispose();
-    this.deerAssets.dispose();
-    this.villagerAssets.dispose();
-    for (const actor of this.imported) {
-      actor.dispose();
-    }
-    this.imported.length = 0;
+    const imported = this.imported.splice(0);
+    disposeActorProofResources(
+      {
+        context: this.context,
+        npc: this.npc,
+        quadruped: this.quadruped,
+        deerAssets: this.deerAssets,
+        villagerAssets: this.villagerAssets,
+      },
+      imported,
+      "cleanup",
+    );
   }
 
   private readonly update = (deltaSeconds: number): void => {
@@ -198,9 +188,6 @@ export class ActorExtensibilityProof {
         ? -QUADRUPED_PATROL_HALF_LENGTH
         : QUADRUPED_PATROL_HALF_LENGTH;
     this.npc.update(deltaSeconds, this.npcSteering);
-    // A square wave between two ends of a line: the animal walks, arrives,
-    // stops, turns and walks back, which is exactly the set of transitions this
-    // proof exists to demonstrate.
     const outbound =
       this.patrolSeconds % (QUADRUPED_PATROL_SECONDS * 2) < QUADRUPED_PATROL_SECONDS;
     this.quadrupedSteering.targetZ = outbound
@@ -211,4 +198,94 @@ export class ActorExtensibilityProof {
       this.imported[index].update(deltaSeconds);
     }
   };
+}
+
+function createActorProofResources(
+  world: AttachableWorld,
+  observer: (deltaSeconds: number) => void,
+): ActorProofResources {
+  let context: WorldActorProofContext | undefined;
+  let npc: ScriptedHumanoidActor | undefined;
+  let quadruped: QuadrupedActor | undefined;
+  let deerAssets: DeerAssets | undefined;
+  let villagerAssets: VillagerAssets | undefined;
+
+  try {
+    context = world.attachActorProof(observer);
+    deerAssets = createDeerAssets();
+    villagerAssets = createVillagerAssets();
+    const field = context.field;
+    const sampleHeight = (x: number, z: number): number =>
+      field.sampleHeight(x, z);
+    const contact = new WorldTerrainContactSampler(field);
+
+    npc = new ScriptedHumanoidActor(
+      context.scene,
+      1,
+      NPC_PATH.radius,
+      0,
+      villagerAssets,
+      0,
+      true,
+      sampleHeight,
+      contact,
+    );
+    npc.setReferenceSpeed(NPC_PATH.speed);
+
+    const tint = new THREE.Color();
+    setDeerCoatTint(tint, 0.5, 0.5);
+    quadruped = new QuadrupedActor(
+      context.scene,
+      1,
+      QUADRUPED_PATH.radius,
+      0,
+      createDeerBodyBuilder(deerAssets, "stag", tint, true),
+      sampleHeight,
+      contact,
+    );
+
+    return {
+      context,
+      npc,
+      quadruped,
+      deerAssets,
+      villagerAssets,
+      sampleHeight,
+      contact,
+    };
+  } catch (error) {
+    disposeActorProofResources(
+      { context, npc, quadruped, deerAssets, villagerAssets },
+      [],
+      "construction rollback",
+    );
+    throw error;
+  }
+}
+
+function disposeActorProofResources(
+  resources: {
+    context?: WorldActorProofContext;
+    npc?: ScriptedHumanoidActor;
+    quadruped?: QuadrupedActor;
+    deerAssets?: DeerAssets;
+    villagerAssets?: VillagerAssets;
+  },
+  imported: readonly GltfHumanoidActor[],
+  label: string,
+): void {
+  try {
+    disposeResources([
+      resources.context
+        ? { dispose: () => resources.context?.detach() }
+        : undefined,
+      resources.npc,
+      resources.quadruped,
+      ...imported,
+      resources.deerAssets,
+      resources.villagerAssets,
+    ]);
+  } catch (cleanupError) {
+    console.warn(`[Drusniel World] Actor proof ${label} failed.`, cleanupError);
+  }
 }
