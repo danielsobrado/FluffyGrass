@@ -64,6 +64,13 @@ interface DisposableActor {
   dispose(): void;
 }
 
+interface FaunaResources {
+  readonly assets: DeerAssets;
+  readonly villagerAssets: VillagerAssets;
+  readonly habitat: WorldFaunaHabitat;
+  readonly herds: WorldFaunaField;
+}
+
 /**
  * The deer population, streamed around the player.
  *
@@ -105,25 +112,27 @@ export class WorldFaunaSystem {
     spawn: THREE.Vector3,
     shadows: boolean,
   ) {
-    this.assets = createDeerAssets();
-    this.villagerAssets = createVillagerAssets();
-    this.habitat = new WorldFaunaHabitat(field);
-    this.herds = new WorldFaunaField(field, config);
+    const resources = createFaunaResources(field, config);
+    this.assets = resources.assets;
+    this.villagerAssets = resources.villagerAssets;
+    this.habitat = resources.habitat;
+    this.herds = resources.herds;
     this.streamRadius = config.faunaStreamRadius;
     this.walkSpeed = config.faunaDeerWalkSpeed;
     this.behaviorInterval = 1 / config.faunaBehaviorHz;
     this.shadows = shadows;
 
-    const count =
-      config.faunaEnabled < 1
-        ? 0
-        : profile.compact
-          ? config.faunaDeerCompactCount
-          : config.faunaDeerDesktopCount;
-    const sampleHeight = (x: number, z: number): number => field.sampleHeight(x, z);
-    const contact = new WorldTerrainContactSampler(field);
-
     try {
+      const count =
+        config.faunaEnabled < 1
+          ? 0
+          : profile.compact
+            ? config.faunaDeerCompactCount
+            : config.faunaDeerDesktopCount;
+      const sampleHeight = (x: number, z: number): number =>
+        field.sampleHeight(x, z);
+      const contact = new WorldTerrainContactSampler(field);
+
       if (count > 0) {
         this.rebuildRoster(spawn);
       }
@@ -528,6 +537,27 @@ export class WorldFaunaSystem {
     for (const mesh of slot.meshes) {
       mesh.castShadow = casts;
     }
+  }
+}
+
+function createFaunaResources(
+  field: TerrainField,
+  config: WorldConfig,
+): FaunaResources {
+  const assets = createDeerAssets();
+  let villagerAssets: VillagerAssets | undefined;
+  try {
+    villagerAssets = createVillagerAssets();
+    return {
+      assets,
+      villagerAssets,
+      habitat: new WorldFaunaHabitat(field),
+      herds: new WorldFaunaField(field, config),
+    };
+  } catch (error) {
+    disposeResource(() => villagerAssets?.dispose(), "Villager assets");
+    disposeResource(() => assets.dispose(), "Deer assets");
+    throw error;
   }
 }
 
