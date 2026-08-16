@@ -54,13 +54,19 @@ const DEFAULT_SAMPLE_SECONDS = 0.7;
 
 export class WorldVisualMatrixRunner {
   private readonly metrics = new GrassQaMetrics();
+  private readonly abortController = new AbortController();
   private poses: WorldVisualPose[] = [];
   private readonly captures: WorldVisualCapture[] = [];
   private locationsRecord: WorldVisualReport["locations"] = {};
+  private api?: WorldVisualQaApi;
+  private disposed = false;
 
   constructor(private readonly context: WorldVisualMatrixContext) {}
 
   async start(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
     const api = this.publish({
       status: "loading",
       compact: this.context.profile.compact,
@@ -73,12 +79,14 @@ export class WorldVisualMatrixRunner {
 
     try {
       await this.waitUntilReady();
+      this.assertActive();
       const origin = this.context.controls.getStreamingPosition();
       const locations = await findWorldVisualLocations(
         this.context.field,
         origin.x,
         origin.z,
       );
+      this.assertActive();
       this.locationsRecord = Object.fromEntries(
         Object.entries(locations).map(([key, point]) => [
           key,
@@ -93,21 +101,47 @@ export class WorldVisualMatrixRunner {
         this.locationsRecord,
       );
     } catch (error) {
+      if (this.disposed || isAbortError(error)) {
+        return;
+      }
       api.status = "error";
       api.error = error instanceof Error ? error.message : String(error);
       console.error("[Drusniel World] Visual matrix failed to start.", error);
     }
   }
 
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.abortController.abort();
+    const windowWithQa = window as WindowWithVisualQa;
+    if (windowWithQa.__FLUFFY_WORLD_VISUAL_QA__ === this.api) {
+      delete windowWithQa.__FLUFFY_WORLD_VISUAL_QA__;
+    }
+    this.api = undefined;
+  }
+
   private async apply(index: number): Promise<WorldVisualCapture> {
+    this.assertActive();
     const pose = this.poses[index];
     if (!pose) {
       throw new Error(`Visual matrix pose ${index} does not exist.`);
     }
     const api = this.ensureApi();
     this.context.controls.captureLookAt(pose.camera, pose.target);
-    await this.metrics.sampleFrames(DEFAULT_WARMUP_SECONDS, false);
-    const frames = await this.metrics.sampleFrames(DEFAULT_SAMPLE_SECONDS, true);
+    await this.metrics.sampleFrames(
+      DEFAULT_WARMUP_SECONDS,
+      false,
+      this.abortController.signal,
+    );
+    const frames = await this.metrics.sampleFrames(
+      DEFAULT_SAMPLE_SECONDS,
+      true,
+      this.abortController.signal,
+    );
+    this.assertActive();
     const capture: WorldVisualCapture = {
       name: pose.name,
       camera: {
@@ -147,24 +181,45 @@ export class WorldVisualMatrixRunner {
   private async waitUntilReady(): Promise<void> {
     const deadline = performance.now() + 120_000;
     while (!this.context.isReady()) {
+      this.assertActive();
       if (performance.now() > deadline) {
         throw new Error("Timed out waiting for grass initialization.");
       }
-      await this.metrics.sampleFrames(0.25, false);
+      await this.metrics.sampleFrames(
+        0.25,
+        false,
+        this.abortController.signal,
+      );
     }
-    await this.metrics.sampleFrames(2.5, false);
+    await this.metrics.sampleFrames(
+      2.5,
+      false,
+      this.abortController.signal,
+    );
   }
 
   private publish(api: WorldVisualQaApi): WorldVisualQaApi {
+    this.api = api;
     (window as WindowWithVisualQa).__FLUFFY_WORLD_VISUAL_QA__ = api;
     return api;
   }
 
   private ensureApi(): WorldVisualQaApi {
+    this.assertActive();
     const api = (window as WindowWithVisualQa).__FLUFFY_WORLD_VISUAL_QA__;
-    if (!api) {
+    if (!api || api !== this.api) {
       throw new Error("Visual matrix API was not published.");
     }
     return api;
   }
+
+  private assertActive(): void {
+    if (this.disposed || this.abortController.signal.aborted) {
+      throw new DOMException("Visual matrix runner was disposed.", "AbortError");
+    }
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
