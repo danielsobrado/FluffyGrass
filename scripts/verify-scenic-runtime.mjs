@@ -69,6 +69,21 @@ assert(
   "Tree construction and normal teardown must attempt every mesh, geometry, and material cleanup without masking the original setup fault.",
 );
 assert(
+  faunaSystem.includes("interface FaunaResources") &&
+    faunaSystem.includes("const resources = createFaunaResources(field, config)") &&
+    faunaSystem.includes("function createFaunaResources(") &&
+    faunaSystem.includes("const assets = createDeerAssets()") &&
+    faunaSystem.includes("villagerAssets = createVillagerAssets()") &&
+    faunaSystem.includes('disposeResource(() => villagerAssets?.dispose(), "Villager assets")') &&
+    faunaSystem.includes('disposeResource(() => assets.dispose(), "Deer assets")') &&
+    faunaSystem.indexOf("const contact = new WorldTerrainContactSampler(field)") >
+      faunaSystem.indexOf("    try {") &&
+    /catch \(error\) \{[\s\S]*?this\.dispose\(\);[\s\S]*?throw error;/.test(
+      faunaSystem,
+    ),
+  "Fauna shared assets and actor-pool setup must roll back transactionally before an optional startup failure is isolated by the scenic layer.",
+);
+assert(
   faunaConfigValidator.includes("MAX_FAUNA_STREAM_RADIUS = 512") &&
     faunaConfigValidator.includes("config.faunaStreamRadius > MAX_FAUNA_STREAM_RADIUS") &&
     faunaConfigValidator.includes("config.faunaStreamRadius > config.worldSize * 0.5") &&
