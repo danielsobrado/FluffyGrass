@@ -17,6 +17,8 @@ function assert(condition, message) {
 
 const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
 const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
+const faunaField = read("src/world/scenic/WorldFaunaField.ts");
+const treeField = read("src/world/scenic/WorldTreeField.ts");
 const villagerBody = read("src/character/npc/VillagerBody.ts");
 const scriptedHumanoid = read("src/character/npc/ScriptedHumanoidActor.ts");
 
@@ -50,9 +52,17 @@ assert(
     "(this.slots.length === 0 && this.villagers.length === 0)",
   ) &&
     faunaSystem.includes("this.slots.length > 0 ? this.rebuildRoster(focus) : false") &&
+    faunaSystem.includes("this.createSlot(scene, index, count") &&
     faunaSystem.includes("villagerCount,") &&
     faunaSystem.includes("index / Math.max(count, 1)"),
-  "Villagers must update without deer and use the active profile count for spacing.",
+  "Deer decisions and villager routes must use the complete active profile counts for spacing.",
+);
+assert(
+  faunaField.includes("const HASH_UNIT = 1 / 4294967296;") &&
+    treeField.includes("const HASH_UNIT = 1 / 4294967296;") &&
+    !faunaField.includes("4294967295") &&
+    !treeField.includes("4294967295"),
+  "Scenic uint32 hashes must map to [0, 1) so counts and variation channels never hit the upper endpoint.",
 );
 assert(
   villagerBody.includes("const geometries = placements.map") &&
