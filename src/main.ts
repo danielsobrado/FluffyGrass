@@ -45,10 +45,10 @@ async function bootstrap(): Promise<void> {
   const flyMode =
     sceneMode === "world" &&
     (params.get("control") === "fly" || params.get("view") === "aerial");
+  const animationHudEnabled = params.get("diagnostics") === "1";
   document.body.dataset.scene = sceneMode;
   document.body.dataset.control = flyMode ? "fly" : "third-person";
   const uiController = new UiVisibilityController();
-  uiController.initialize();
 
   const versionElement = document.querySelector<HTMLElement>("#build-version");
   const titleElement = document.querySelector<HTMLElement>(".app-title strong");
@@ -77,6 +77,7 @@ async function bootstrap(): Promise<void> {
   let animationHud: Disposable | undefined;
   let visualMatrix: Disposable | undefined;
   try {
+    uiController.initialize();
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
       const island = new IslandApp(canvas, profile);
@@ -87,21 +88,22 @@ async function bootstrap(): Promise<void> {
       const world = await WorldApp.create(canvas, profile);
       app = world;
       const character = world.getThirdPersonCharacter();
-      if (character) {
+      if (character && animationHudEnabled) {
         const { AnimationBlendingHud } = await import(
           "./runtime/AnimationBlendingHud"
         );
         const hud = new AnimationBlendingHud();
-        hud.attachCharacter(character);
-        const detachObserver = world.addFrameObserver((delta) => {
-          hud.update(delta);
-        });
+        let detachObserver: (() => void) | undefined;
         animationHud = {
           dispose: () => {
-            detachObserver();
+            detachObserver?.();
             hud.dispose();
           },
         };
+        hud.attachCharacter(character);
+        detachObserver = world.addFrameObserver((delta) => {
+          hud.update(delta);
+        });
       }
       const diagnosticsEnabled =
         params.get("diagnostics") === "1" ||
