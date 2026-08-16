@@ -17,6 +17,15 @@ const ABSOLUTE_LOCAL_REFERENCE_PATTERN = /\b(?:src|href)=["']\/(?!\/)/;
 const ABSOLUTE_CSS_URL_PATTERN = /url\(\s*["']?\/(?!\/)/i;
 const ABSOLUTE_RUNTIME_ASSET_PATTERN =
   /(["'`])\/(?!\/)[^"'`]*\.(?:glb|gltf|png|jpe?g|webp|svg|ya?ml|json)(?:\?[^"'`]*)?\1/i;
+const REQUIRED_CSP_DIRECTIVES = Object.freeze([
+  "default-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "script-src 'self'",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "form-action 'none'",
+]);
 
 function fail(message) {
   throw new Error(`[built-site] ${message}`);
@@ -66,6 +75,20 @@ const html = readFileSync(INDEX_FILE, "utf8");
 assert(
   !ABSOLUTE_LOCAL_REFERENCE_PATTERN.test(html),
   "Generated index.html contains a root-absolute local asset reference that will break repository-subpath GitHub Pages deployment.",
+);
+assert(
+  html.includes('http-equiv="Content-Security-Policy"'),
+  "Generated index.html is missing its Content Security Policy.",
+);
+for (const directive of REQUIRED_CSP_DIRECTIVES) {
+  assert(
+    html.includes(directive),
+    `Generated index.html CSP is missing required directive: ${directive}.`,
+  );
+}
+assert(
+  html.includes('name="referrer" content="strict-origin-when-cross-origin"'),
+  "Generated index.html is missing the strict referrer policy.",
 );
 
 const references = Array.from(
@@ -122,8 +145,8 @@ for (const sourcePath of listFiles(PUBLIC_DIRECTORY)) {
     `Public runtime asset was not copied to dist/: ${publicPath}.`,
   );
   assert(
-    statSync(builtPath).size === statSync(sourcePath).size,
-    `Public runtime asset changed size during copy: ${publicPath}.`,
+    readFileSync(builtPath).equals(readFileSync(sourcePath)),
+    `Public runtime asset content changed during copy: ${publicPath}.`,
   );
 }
 
@@ -136,5 +159,5 @@ for (const legalFile of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
 }
 
 console.log(
-  `[built-site] Pages-relative index/bundles, ${references.length} HTML references, copied public assets, and legal files verified.`,
+  `[built-site] Pages-relative index/bundles, security policy, ${references.length} HTML references, byte-identical public assets, and legal files verified.`,
 );
