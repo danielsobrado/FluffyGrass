@@ -201,6 +201,21 @@ try {
     "The minimap must stay lazy but build before publishing modal state, and a failed first update must close it again.",
   );
   assert(
+    /update\(\): void \{[\s\S]*?try \{[\s\S]*?raster\.advance\(BUILD_BUDGET_MS\)[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.disableAfterFailure\(error\);/.test(
+      minimap,
+    ) &&
+      /private disableAfterFailure\(error: unknown\): void \{[\s\S]*?this\.open = false;[\s\S]*?this\.dispose\(\);/.test(
+        minimap,
+      ) &&
+      /private travelTo\([\s\S]*?try \{[\s\S]*?this\.controls\.teleport[\s\S]*?\} finally \{[\s\S]*?this\.setOpen\(false\);/.test(
+        minimap,
+      ) &&
+      /dispose\(\): void \{[\s\S]*?this\.disposed = true;[\s\S]*?this\.open = false;/.test(
+        minimap,
+      ),
+    "Minimap paint/raster and teleport faults must fail closed so optional UI cannot leave gameplay controls permanently paused.",
+  );
+  assert(
     minimap.includes('event.code === "KeyM"') &&
       minimap.includes("isTypingTarget"),
     "The map toggle must bind to M and ignore keys typed into controls.",
@@ -234,7 +249,7 @@ try {
   );
 
   console.log(
-    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded · fly capture aligned · pointer release isolated · map publication transactional`,
+    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded · fly capture aligned · pointer release isolated · map publication transactional · map faults fail closed`,
   );
 } catch (error) {
   console.error(`[navigation] ${error?.message ?? error}`);
