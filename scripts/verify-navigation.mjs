@@ -188,9 +188,17 @@ try {
     "The minimap raster must build under a frame budget.",
   );
   const minimap = read("src/app/WorldMinimap.ts");
+  const rasterConstruction = minimap.indexOf(
+    "const raster = this.raster ?? new WorldMinimapRaster",
+  );
+  const openPublication = minimap.indexOf("this.open = true", rasterConstruction);
   assert(
-    minimap.includes("this.raster ??= new WorldMinimapRaster"),
-    "The minimap must not build its raster until it is first opened.",
+    rasterConstruction >= 0 &&
+      openPublication > rasterConstruction &&
+      /this\.open = true;[\s\S]*?try \{[\s\S]*?this\.update\(\);[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.open = false;[\s\S]*?this\.root\.hidden = true;[\s\S]*?throw error;/.test(
+        minimap,
+      ),
+    "The minimap must stay lazy but build before publishing modal state, and a failed first update must close it again.",
   );
   assert(
     minimap.includes('event.code === "KeyM"') &&
@@ -226,7 +234,7 @@ try {
   );
 
   console.log(
-    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded · fly capture aligned · pointer release isolated · raster budgeted and lazy`,
+    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded · fly capture aligned · pointer release isolated · map publication transactional`,
   );
 } catch (error) {
   console.error(`[navigation] ${error?.message ?? error}`);
