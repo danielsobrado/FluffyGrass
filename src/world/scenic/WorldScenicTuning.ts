@@ -53,10 +53,10 @@ export const FAUNA_FAWN_SCALE = 0.62;
  */
 export const FAUNA_POOL_FALLBACK_VARIANTS = [
   "doe",
-  "doe",
   "fawn",
   "doe",
   "stag",
+  "doe",
   "doe",
   "fawn",
   "doe",
