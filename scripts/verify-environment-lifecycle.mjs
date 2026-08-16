@@ -16,6 +16,7 @@ function assert(condition, message) {
 }
 
 const sky = read("src/world/sky/WorldSky.ts");
+const environment = read("src/app/WorldEnvironmentController.ts");
 
 assert(
   sky.includes("private environmentTarget?: THREE.WebGLRenderTarget") &&
@@ -34,5 +35,21 @@ assert(
     sky.includes("bakeMaterial?.dispose()"),
   "A failed desktop sky bake must roll back the dome, PMREM resources, and temporary bake material.",
 );
+assert(
+  environment.includes("private disposed = false") &&
+    /sky = new WorldSky\([\s\S]*?this\.sky = sky;[\s\S]*?this\.scene\.add\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
+      environment,
+    ) &&
+    /catch \(error\) \{[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
+      environment,
+    ),
+  "Environment lights must publish only after sky construction succeeds and roll back on initialization failure.",
+);
+assert(
+  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
+    environment,
+  ),
+  "Environment teardown must be idempotent and remove lights even if sky cleanup fails.",
+);
 
-console.log("[environment-lifecycle] Sky PMREM ownership and rollback verified.");
+console.log("[environment-lifecycle] Sky and environment ownership rollback verified.");
