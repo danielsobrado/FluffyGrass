@@ -130,6 +130,17 @@ assert(
   "Roll start must remain an edge trigger and must not be republished for every frame of an active roll.",
 );
 assert(
+  controller.includes("private readonly rollDirection = new THREE.Vector3") &&
+    controller.includes("let rolling = this.character.isRolling()") &&
+    controller.includes("this.rollDirection.copy(this.movement)") &&
+    controller.includes("this.desiredVelocity") &&
+    controller.includes(".copy(this.rollDirection)") &&
+    controller.includes("this.config.characterRollInitialSpeedMultiplier") &&
+    controller.includes("this.config.characterRollSustainSpeedMultiplier") &&
+    controller.includes("rolling || hasMovement"),
+  "A dodge roll must lock its launch direction and sustain configured velocity independently of later movement input.",
+);
+assert(
   input.includes("try {") &&
     input.includes("this.bindEvents()") &&
     input.includes("this.createMobileControls()") &&
@@ -180,7 +191,7 @@ verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSi
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Roll edges, controller and Snowflow ownership, spring recovery, explicit reset, analogue mobile input, cape inputs, shared geometry, and deformation bounds verified.",
+  "[character-motion] Roll edges and sustained direction, controller and Snowflow ownership, spring recovery, explicit reset, analogue mobile input, cape inputs, shared geometry, and deformation bounds verified.",
 );
 
 function verifyBounds(
