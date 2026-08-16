@@ -332,13 +332,14 @@ export class TerrainStreamer {
       this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true);
       this.chunks.set(chunk.key, chunk);
     } catch (error) {
-      chunk.mesh.removeFromParent();
-      chunk.waterBedMesh?.removeFromParent();
-      chunk.waterMesh?.removeFromParent();
-      if (!existing) {
-        this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
+      try {
+        this.removeChunk(chunk, !existing);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Unpublished terrain chunk rollback failed.",
+          cleanupError,
+        );
       }
-      disposeTerrainResource(chunk, "Unpublished terrain chunk");
       throw error;
     }
 
@@ -353,17 +354,34 @@ export class TerrainStreamer {
   }
 
   private removeChunk(chunk: TerrainChunk, updateCoverage = true): void {
+    let firstError: unknown;
+    let failed = false;
+    const attempt = (cleanup: () => void): void => {
+      try {
+        cleanup();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    };
+
     if (updateCoverage) {
-      this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
+      attempt(() => this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false));
     }
-    this.scene.remove(chunk.mesh);
+    attempt(() => this.scene.remove(chunk.mesh));
     if (chunk.waterBedMesh) {
-      this.scene.remove(chunk.waterBedMesh);
+      attempt(() => this.scene.remove(chunk.waterBedMesh!));
     }
     if (chunk.waterMesh) {
-      this.scene.remove(chunk.waterMesh);
+      attempt(() => this.scene.remove(chunk.waterMesh!));
     }
-    chunk.dispose();
+    attempt(() => chunk.dispose());
+
+    if (failed) {
+      throw firstError;
+    }
   }
 }
 
