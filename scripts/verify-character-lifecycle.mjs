@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 const materials = read("src/character/SnowflowCharacterMaterials.ts");
 const geometry = read("src/character/SnowflowCharacterGeometry.ts");
+const features = read("src/character/DrowCharacterFeatures.ts");
 const character = read("src/character/SnowflowCharacter.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 
@@ -47,6 +48,13 @@ assert(
 );
 
 assert(
+  /function addMesh\([\s\S]*?rig\.geometries\.push\(geometry\);[\s\S]*?const mesh = new THREE\.Mesh\(geometry, material\)/.test(
+    features,
+  ),
+  "Drow feature geometry must enter rig ownership before mesh creation or attachment can fail.",
+);
+
+assert(
   character.includes("const resources = createSnowflowCharacterResources(") &&
     character.includes("function createSnowflowCharacterResources(") &&
     character.includes("const rig = buildSnowflowCharacter(scene, scale)") &&
@@ -69,5 +77,5 @@ assert(
 );
 
 console.log(
-  "[character-lifecycle] Materials, rig publication, character resources, and controller ownership verified.",
+  "[character-lifecycle] Materials, rig/feature publication, character resources, and controller ownership verified.",
 );
