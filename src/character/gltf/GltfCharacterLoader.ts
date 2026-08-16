@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { disposeResources } from "../../render/ResourceDisposal";
 
 export interface LoadedGltfCharacter {
   /** The imported scene graph. Whoever loaded it owns disposal. */
@@ -30,12 +31,18 @@ function loader(): GLTFLoader {
 function sharedTexture(url: string): Promise<THREE.Texture> {
   let pending = sharedTextures.get(url);
   if (pending === undefined) {
-    pending = new THREE.TextureLoader().loadAsync(url).then((texture) => {
+    const request = new THREE.TextureLoader().loadAsync(url).then((texture) => {
       // glTF samples with the origin at the top left and stores colour in sRGB.
       texture.flipY = false;
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.needsUpdate = true;
       return texture;
+    });
+    pending = request.catch((error) => {
+      if (sharedTextures.get(url) === pending) {
+        sharedTextures.delete(url);
+      }
+      throw error;
     });
     sharedTextures.set(url, pending);
   }
@@ -58,60 +65,78 @@ export async function loadGltfCharacter(
   textureUrl?: string,
 ): Promise<LoadedGltfCharacter> {
   const gltf = await loader().loadAsync(url);
-  const skinnedMeshes: THREE.SkinnedMesh[] = [];
-  gltf.scene.traverse((object) => {
-    if ((object as THREE.SkinnedMesh).isSkinnedMesh === true) {
-      skinnedMeshes.push(object as THREE.SkinnedMesh);
+  try {
+    const skinnedMeshes: THREE.SkinnedMesh[] = [];
+    gltf.scene.traverse((object) => {
+      if ((object as THREE.SkinnedMesh).isSkinnedMesh === true) {
+        skinnedMeshes.push(object as THREE.SkinnedMesh);
+      }
+    });
+    if (skinnedMeshes.length === 0) {
+      throw new Error(`${url} contains no skinned mesh.`);
     }
-  });
-  if (skinnedMeshes.length === 0) {
-    throw new Error(`${url} contains no skinned mesh.`);
-  }
 
-  const skeleton = skinnedMeshes[0].skeleton;
-  for (const mesh of skinnedMeshes) {
-    if (mesh.skeleton !== skeleton) {
-      throw new Error(
-        `${url} has more than one skeleton; the actor rig expects a single skin per character.`,
-      );
-    }
-    // Imported characters are lit by the same sun and sky as everything else.
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.frustumCulled = false;
-  }
-
-  if (textureUrl !== undefined) {
-    const atlas = await sharedTexture(textureUrl);
+    const skeleton = skinnedMeshes[0].skeleton;
     for (const mesh of skinnedMeshes) {
-      const materials = Array.isArray(mesh.material)
-        ? mesh.material
-        : [mesh.material];
-      for (const material of materials) {
-        const standard = material as THREE.MeshStandardMaterial;
-        standard.map = atlas;
-        standard.needsUpdate = true;
+      if (mesh.skeleton !== skeleton) {
+        throw new Error(
+          `${url} has more than one skeleton; the actor rig expects a single skin per character.`,
+        );
+      }
+      // Imported characters are lit by the same sun and sky as everything else.
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+    }
+
+    if (textureUrl !== undefined) {
+      const atlas = await sharedTexture(textureUrl);
+      for (const mesh of skinnedMeshes) {
+        const materials = Array.isArray(mesh.material)
+          ? mesh.material
+          : [mesh.material];
+        for (const material of materials) {
+          const standard = material as THREE.MeshStandardMaterial;
+          standard.map = atlas;
+          standard.needsUpdate = true;
+        }
       }
     }
-  }
 
-  return {
-    scene: gltf.scene,
-    skinBones: skeleton.bones.slice(),
-    skeleton,
-    skinnedMeshes,
-  };
+    return {
+      scene: gltf.scene,
+      skinBones: skeleton.bones.slice(),
+      skeleton,
+      skinnedMeshes,
+    };
+  } catch (error) {
+    try {
+      disposeGltfScene(gltf.scene);
+    } catch (cleanupError) {
+      console.warn(
+        `[Drusniel World] Failed GLTF character cleanup for ${url}.`,
+        cleanupError,
+      );
+    }
+    throw error;
+  }
 }
 
-/** Releases the geometry and materials of a loaded character. */
+/** Releases every resource owned by a loaded character scene. */
 export function disposeGltfCharacter(character: LoadedGltfCharacter): void {
+  disposeGltfScene(character.scene);
+}
+
+function disposeGltfScene(scene: THREE.Group): void {
+  const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
-  character.scene.traverse((object) => {
+  const skeletons = new Set<THREE.Skeleton>();
+  scene.traverse((object) => {
     const mesh = object as THREE.Mesh;
     if (mesh.isMesh !== true) {
       return;
     }
-    mesh.geometry.dispose();
+    geometries.add(mesh.geometry);
     if (Array.isArray(mesh.material)) {
       for (const material of mesh.material) {
         materials.add(material);
@@ -119,12 +144,18 @@ export function disposeGltfCharacter(character: LoadedGltfCharacter): void {
     } else if (mesh.material) {
       materials.add(mesh.material);
     }
+    const skinned = object as THREE.SkinnedMesh;
+    if (skinned.isSkinnedMesh === true) {
+      skeletons.add(skinned.skeleton);
+    }
   });
-  for (const material of materials) {
-    // The colour atlas is deliberately not disposed: it is shared by every
-    // character in the pack, so freeing it here would blank the ones still on
-    // screen. It lives as long as the page does.
-    material.dispose();
-  }
-  character.scene.removeFromParent();
+
+  // The shared colour atlas is deliberately not disposed: Three.js material
+  // disposal does not own referenced textures, and other characters still use it.
+  disposeResources([
+    ...geometries,
+    ...materials,
+    ...skeletons,
+    { dispose: () => scene.removeFromParent() },
+  ]);
 }
