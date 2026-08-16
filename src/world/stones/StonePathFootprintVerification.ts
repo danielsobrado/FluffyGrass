@@ -4,6 +4,7 @@ import { WorldConfigLoader } from "../WorldConfigLoader";
 import { StoneField, type StoneInstance } from "./StoneField";
 
 const MIN_PATH_MARGIN = 0.045;
+const NEAR_PATH_MARGIN = 2.5;
 
 function fail(message: string): never {
   throw new Error(`[stone-path-footprints] ${message}`);
@@ -54,7 +55,7 @@ export function verifyStonePathFootprints(configSource: string): string {
           `Stone at ${instance.x.toFixed(2)},${instance.z.toFixed(2)} intrudes into a walking way by ${(-margin).toFixed(3)} m.`,
         );
         checked += 1;
-        if (margin < 2.5) {
+        if (margin < NEAR_PATH_MARGIN) {
           nearPath += 1;
         }
       }
@@ -62,5 +63,9 @@ export function verifyStonePathFootprints(configSource: string): string {
   }
 
   assert(checked > 0, "No path-visible stones were available for verification.");
+  assert(
+    nearPath > 0,
+    "No stones exercised the near-path footprint contract; verge placement may be inactive.",
+  );
   return `${checked} physical path clearances · ${nearPath} near path`;
 }
