@@ -204,6 +204,12 @@ try {
       minimap.includes("!this.open ||"),
     "The open minimap must capture keyboard events before world input while preserving its own activation keys.",
   );
+  assert(
+    /try \{[\s\S]*?document\.body\.appendChild\(this\.root\);[\s\S]*?window\.addEventListener\("keydown", this\.handleKeyDown, true\);[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.canvas\.removeEventListener\("pointerdown", this\.handlePointerDown\);[\s\S]*?window\.removeEventListener\("keydown", this\.handleKeyDown, true\);[\s\S]*?this\.root\.remove\(\);[\s\S]*?throw error;/.test(
+      minimap,
+    ),
+    "A failed minimap publication must remove any partially bound listeners and its orphaned dialog before construction rethrows.",
+  );
 
   console.log(
     `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded in both control modes · raster budgeted and lazy`,
