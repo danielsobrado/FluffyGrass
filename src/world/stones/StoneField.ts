@@ -53,6 +53,7 @@ import {
 import {
   selectPathDistance,
   selectStoneVergePath,
+  stoneVergeInsideSourceNeighborhood,
   STONE_PATH_DISTANCE_PLATEAU,
   type StoneVergePathChannel,
 } from "./StonePathPlacement";
@@ -1051,6 +1052,13 @@ export class StoneField {
       if (
         !(landed >= bandMin && landed <= bandMax) ||
         Math.abs(otherDistance) - otherClearance - footprint < 0.05 ||
+        !stoneVergeInsideSourceNeighborhood(
+          centerX,
+          centerZ,
+          x,
+          z,
+          this.cellSize,
+        ) ||
         !this.insideWorld(x, z)
       ) {
         continue;
