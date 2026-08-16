@@ -63,6 +63,20 @@ assert(
   "Rolls must take precedence over same-frame or active-roll jump requests so action triggers cannot remain queued across landing.",
 );
 
+assert(
+  controller.includes("private coyoteJumpAvailable = true") &&
+    /if \(wasGrounded\) \{[\s\S]*?this\.coyoteJumpAvailable = true;/.test(
+      controller,
+    ) &&
+    /const canUseCoyoteTime =[\s\S]*?this\.coyoteJumpAvailable[\s\S]*?characterCoyoteTime/.test(
+      controller,
+    ) &&
+    /this\.jumpBufferRemaining > 0[\s\S]*?this\.coyoteJumpAvailable = false;[\s\S]*?this\.grounded = false;/.test(
+      controller,
+    ),
+  "Coyote time must be consumed by a real jump so a second takeoff press cannot reset vertical velocity.",
+);
+
 const pointerDownStart = joystick.indexOf("private readonly handlePointerDown");
 const pointerMoveStart = joystick.indexOf("private readonly handlePointerMove", pointerDownStart);
 const pointerDownSource = joystick.slice(pointerDownStart, pointerMoveStart);
@@ -108,5 +122,5 @@ assert(
 );
 
 console.log(
-  "[runtime-ui-input] Diagnostics ownership, action precedence, and transactional compact/fly input verified.",
+  "[runtime-ui-input] Diagnostics ownership, action/coyote precedence, and transactional compact/fly input verified.",
 );
