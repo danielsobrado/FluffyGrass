@@ -87,7 +87,7 @@ if (
 }
 
 const probeChunkRadius = Math.max(
-  0,
+  1,
   Math.floor(span / (loadedConfig.chunkSize * 2)) - 1,
 );
 
