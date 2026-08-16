@@ -114,6 +114,8 @@ try {
   // drops the player outside the streamed world, where terrain never arrives.
   const thirdPerson = read("src/controls/ThirdPersonController.ts");
   const fly = read("src/controls/FlyWorldController.ts");
+  const flyController = read("src/controls/FlyController.ts");
+  const inputTarget = read("src/controls/InputTarget.ts");
   for (const [name, source] of [
     ["ThirdPersonController", thirdPerson],
     ["FlyWorldController", fly],
@@ -165,6 +167,17 @@ try {
       ),
     "Disposed fly-world controls must stop terrain sampling and camera mutations through stale references.",
   );
+  assert(
+    flyController.includes("this.yaw = Math.atan2(-dx, -dz)") &&
+      flyController.includes("exitPointerLockSafely()"),
+    "Fly capture must use the camera -Z yaw convention and cleanup must release pointer lock without aborting teardown.",
+  );
+  assert(
+    /export function exitPointerLockSafely\(\): void \{[\s\S]*?document\.exitPointerLock\(\)[\s\S]*?catch/.test(
+      inputTarget,
+    ),
+    "Pointer-lock release must remain an isolated optional browser operation.",
+  );
 
   // The raster must stay incremental. A single-shot build of a 256² map runs
   // long enough to trip the app's own frame-stall watchdog.
@@ -186,8 +199,9 @@ try {
   );
   assert(
     minimap.includes("document.pointerLockElement !== null") &&
-      minimap.includes("document.exitPointerLock()"),
-    "Opening the map must release pointer lock so the map can receive pointer travel input.",
+      minimap.includes("exitPointerLockSafely()") &&
+      !minimap.includes("document.exitPointerLock()"),
+    "Opening the map must safely release pointer lock so browser denial cannot leave a half-open map.",
   );
   assert(
     minimap.includes("event.stopPropagation()"),
@@ -212,7 +226,7 @@ try {
   );
 
   console.log(
-    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded in both control modes · raster budgeted and lazy`,
+    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded · fly capture aligned · pointer release isolated · raster budgeted and lazy`,
   );
 } catch (error) {
   console.error(`[navigation] ${error?.message ?? error}`);
