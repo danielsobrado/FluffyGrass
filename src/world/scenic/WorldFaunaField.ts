@@ -50,21 +50,26 @@ export interface WorldFaunaHerd {
  */
 export class WorldFaunaField {
   private readonly seed: number;
+  private readonly maxCollectionRadius: number;
 
   constructor(
     private readonly field: TerrainField,
     config: WorldConfig,
   ) {
     this.seed = (config.seed ^ HERD_SEED_SALT) >>> 0;
+    this.maxCollectionRadius = config.worldSize * 0.5;
   }
 
   collect(centerX: number, centerZ: number, radius: number): WorldFaunaHerd[] {
+    const boundedRadius = Number.isFinite(radius)
+      ? Math.min(Math.max(radius, 0), this.maxCollectionRadius)
+      : this.maxCollectionRadius;
     const herds: WorldFaunaHerd[] = [];
-    const minX = Math.floor((centerX - radius) / HERD_CELL_SIZE);
-    const maxX = Math.floor((centerX + radius) / HERD_CELL_SIZE);
-    const minZ = Math.floor((centerZ - radius) / HERD_CELL_SIZE);
-    const maxZ = Math.floor((centerZ + radius) / HERD_CELL_SIZE);
-    const radiusSquared = radius * radius;
+    const minX = Math.floor((centerX - boundedRadius) / HERD_CELL_SIZE);
+    const maxX = Math.floor((centerX + boundedRadius) / HERD_CELL_SIZE);
+    const minZ = Math.floor((centerZ - boundedRadius) / HERD_CELL_SIZE);
+    const maxZ = Math.floor((centerZ + boundedRadius) / HERD_CELL_SIZE);
+    const radiusSquared = boundedRadius * boundedRadius;
 
     for (let cellZ = minZ; cellZ <= maxZ; cellZ += 1) {
       for (let cellX = minX; cellX <= maxX; cellX += 1) {
