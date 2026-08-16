@@ -236,8 +236,19 @@ export class StoneClusterField {
     const centerZ =
       (gridZ + 0.5 + rng.fork("center-z").signed(jitter)) * spacing;
     const geologyPotential = this.sampleGeologyPotential(centerX, centerZ);
-    if (!(geologyPotential > 0)) {
-      return quietCandidate(gridX, gridZ, seed, centerX, centerZ, 0);
+    if (
+      !(geologyPotential > 0) ||
+      this.config.stoneDensity <= 0 ||
+      this.config.stoneClusterChance <= 0
+    ) {
+      return quietCandidate(
+        gridX,
+        gridZ,
+        seed,
+        centerX,
+        centerZ,
+        geologyPotential,
+      );
     }
 
     this.fullTerrainSamples += 1;
@@ -280,8 +291,6 @@ export class StoneClusterField {
     const exposure = ecology.exposure;
     const disturbance = ecology.disturbance;
     const surfaceRockiness = ecology.rockiness;
-    const biome = sampleGrassBiome(centerX, centerZ, this.biomeScratch);
-    const biomeIndex = pickGrassBiomeIndex(centerX, centerZ, biome);
     const suitability = clamp01(
       geologyPotential *
         (0.18 + 0.82 * surfaceRockiness) *
@@ -326,19 +335,11 @@ export class StoneClusterField {
         landformGradientZ: landformSnapshot.gradientZ,
         suitability,
         process,
-        biomeIndex,
-        paletteKey: BIOME_PALETTE[biomeIndex] ?? BIOME_PALETTE[0],
-        mossBase: clusterEnvironmentMossBase(
-          height,
-          moisture,
-          exposure,
-          surfaceRockiness,
-          this.config.grassMinAltitude,
-          this.config.grassMaxAltitude,
-        ),
       };
     }
 
+    const biome = sampleGrassBiome(centerX, centerZ, this.biomeScratch);
+    const biomeIndex = pickGrassBiomeIndex(centerX, centerZ, biome);
     const priority =
       suitability * (1 - CLUSTER_PRIORITY_RANDOM_SHARE) +
       rng.fork("priority").next() * CLUSTER_PRIORITY_RANDOM_SHARE;
