@@ -85,6 +85,15 @@ assert(
   "Sky teardown must be idempotent, clear only the environment texture it still owns, and attempt every dome/IBL cleanup.",
 );
 assert(
+  environment.includes("private readonly shadowMapSize: number") &&
+    /this\.shadowMapSize = Math\.max\([\s\S]*?Math\.min\([\s\S]*?this\.profile\.shadowMapSize,[\s\S]*?this\.renderer\.capabilities\.maxTextureSize/.test(
+      environment,
+    ) &&
+    environment.includes("(2 * WORLD_SUN_SHADOW_HALF_EXTENT) / this.shadowMapSize") &&
+    environment.includes("this.sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize)"),
+  "Shadow-map allocation and texel snapping must use a size clamped to the active GPU texture limit.",
+);
+assert(
   environment.includes("private disposed = false") &&
     /sky = new WorldSky\([\s\S]*?this\.sky = sky;[\s\S]*?this\.scene\.add\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
       environment,
@@ -102,5 +111,5 @@ assert(
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, shadow, context-restored PMREM, and fail-soft IBL ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, GPU-bounded shadow maps, context-restored PMREM, and fail-soft IBL ownership verified.",
 );
