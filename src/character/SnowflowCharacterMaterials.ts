@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { applyActorEnvironmentResponse } from "../render/ActorEnvironmentResponse";
+import { disposeResources } from "../render/ResourceDisposal";
 
 /**
  * The costume is deliberately near-black — a violet so dark it is almost
@@ -43,32 +44,53 @@ export interface SnowflowCharacterMaterialSet {
 }
 
 export function createSnowflowCharacterMaterials(): SnowflowCharacterMaterialSet {
-  const skin = createMaterial(PALETTE.skin, 0.74, THREE.FrontSide);
-  skin.emissive.setHex(SKIN_SHEEN);
-  skin.emissiveIntensity = 0.4;
-
-  const eye = createMaterial(PALETTE.eye, 0.22, THREE.FrontSide);
-  eye.emissive.setHex(EYE_GLOW);
-  eye.emissiveIntensity = 1.2;
-
-  return {
-    cloak: createMaterial(PALETTE.cloak, 0.92, THREE.DoubleSide),
-    robe: createMaterial(PALETTE.robe, 0.9, THREE.DoubleSide),
-    mantle: createMaterial(PALETTE.mantle, 0.88, THREE.DoubleSide),
-    tunic: createMaterial(PALETTE.tunic, 0.86, THREE.DoubleSide),
-    leather: createMaterial(PALETTE.leather, 0.62, THREE.FrontSide),
-    skin,
-    trim: createMaterial(PALETTE.trim, 0.7, THREE.DoubleSide),
-    fur: createMaterial(PALETTE.fur, 0.94, THREE.DoubleSide),
-    // The scene now has a sky IBL, so a little metalness actually reads.
-    metal: createMaterial(PALETTE.metal, 0.34, THREE.FrontSide, 0.55),
-    hair: createMaterial(PALETTE.hair, 0.82, THREE.DoubleSide),
-    eye,
-    // The cloak panels are drawn twice off one geometry: the outer shell takes
-    // the faces pointing away from the body, the lining takes the rest.
-    cloakShell: createMaterial(PALETTE.cloakShell, 0.94, THREE.FrontSide),
-    cloakLining: createMaterial(PALETTE.cloakLining, 0.88, THREE.BackSide),
+  const owned: THREE.MeshStandardMaterial[] = [];
+  const create = (
+    color: number,
+    roughness: number,
+    side: THREE.Side,
+    metalness = 0,
+  ): THREE.MeshStandardMaterial => {
+    const material = createMaterial(color, roughness, side, metalness);
+    owned.push(material);
+    return material;
   };
+
+  try {
+    const skin = create(PALETTE.skin, 0.74, THREE.FrontSide);
+    skin.emissive.setHex(SKIN_SHEEN);
+    skin.emissiveIntensity = 0.4;
+
+    const eye = create(PALETTE.eye, 0.22, THREE.FrontSide);
+    eye.emissive.setHex(EYE_GLOW);
+    eye.emissiveIntensity = 1.2;
+
+    return {
+      cloak: create(PALETTE.cloak, 0.92, THREE.DoubleSide),
+      robe: create(PALETTE.robe, 0.9, THREE.DoubleSide),
+      mantle: create(PALETTE.mantle, 0.88, THREE.DoubleSide),
+      tunic: create(PALETTE.tunic, 0.86, THREE.DoubleSide),
+      leather: create(PALETTE.leather, 0.62, THREE.FrontSide),
+      skin,
+      trim: create(PALETTE.trim, 0.7, THREE.DoubleSide),
+      fur: create(PALETTE.fur, 0.94, THREE.DoubleSide),
+      metal: create(PALETTE.metal, 0.34, THREE.FrontSide, 0.55),
+      hair: create(PALETTE.hair, 0.82, THREE.DoubleSide),
+      eye,
+      cloakShell: create(PALETTE.cloakShell, 0.94, THREE.FrontSide),
+      cloakLining: create(PALETTE.cloakLining, 0.88, THREE.BackSide),
+    };
+  } catch (error) {
+    try {
+      disposeResources(owned);
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Character material construction cleanup failed.",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
 }
 
 function createMaterial(
@@ -83,6 +105,18 @@ function createMaterial(
     metalness,
     side,
   });
-  applyActorEnvironmentResponse(material);
-  return material;
+  try {
+    applyActorEnvironmentResponse(material);
+    return material;
+  } catch (error) {
+    try {
+      disposeResources([material]);
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Character material cleanup failed.",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
 }
