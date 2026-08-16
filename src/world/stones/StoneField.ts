@@ -531,17 +531,19 @@ export class StoneField {
     }
     this.cellSingletons.set(cellKey, singletons);
 
-    const geologyPotential = this.clusterField.sampleGeologyPotential(
-      centerX,
-      centerZ,
-    );
-    this.addVergeStones(
-      random.fork("verge"),
-      originX,
-      originZ,
-      geologyPotential,
-      instances,
-    );
+    if (this.config.stoneVergeChance > 0) {
+      const geologyPotential = this.clusterField.sampleGeologyPotential(
+        centerX,
+        centerZ,
+      );
+      this.addVergeStones(
+        random.fork("verge"),
+        originX,
+        originZ,
+        geologyPotential,
+        instances,
+      );
+    }
     return instances;
   }
 
