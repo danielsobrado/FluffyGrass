@@ -203,7 +203,11 @@ export class WorldApp {
         : loaded;
     const app = new WorldApp(canvas, profile, config);
     if (profile.showGui && params.get("riverTuning") === "1") {
-      await app.attachRiverArtMenu();
+      try {
+        await app.attachRiverArtMenu();
+      } catch (error) {
+        console.warn("[Drusniel World] Optional river tuning unavailable.", error);
+      }
     }
     if (
       !profile.compact &&
@@ -398,9 +402,7 @@ export class WorldApp {
       this.runFrameSubsystem("controls", this.updateControls, deltaSeconds);
     }
 
-    for (const observer of this.frameObservers) {
-      observer(deltaSeconds);
-    }
+    this.notifyFrameObservers(deltaSeconds);
 
     if (this.terrainEnabled) {
       this.runFrameSubsystem("terrain", this.updateTerrain, deltaSeconds);
@@ -422,6 +424,17 @@ export class WorldApp {
       this.runFrameSubsystem("hud", this.updateHud, deltaSeconds);
     }
   };
+
+  private notifyFrameObservers(deltaSeconds: number): void {
+    for (const observer of this.frameObservers) {
+      try {
+        observer(deltaSeconds);
+      } catch (error) {
+        this.frameObservers.delete(observer);
+        this.runtimeGuard.recordSubsystemFailure("frame-observer", error);
+      }
+    }
+  }
 
   private readonly updateControls = (deltaSeconds: number): void => {
     this.controls.update(deltaSeconds);
