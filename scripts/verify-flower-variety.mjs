@@ -16,6 +16,8 @@ function assert(condition, message) {
 }
 
 const species = read("src/grass/biome/GrassAccentSpecies.ts");
+const biomeProfile = read("src/grass/biome/GrassBiomeProfile.ts");
+const affinity = read("src/world/grass/DetailFoliageAffinity.ts");
 const atlas = read("src/world/grass/WorldDetailFoliageAtlasFactory.ts");
 const material = read("src/world/grass/WorldDetailFoliageMaterial.ts");
 
@@ -39,6 +41,25 @@ assert(
     species.includes('| "shrub"') &&
     species.includes('| "broadleaf"'),
   "The accent catalogue must stay at eight species and include shrub and broadleaf.",
+);
+assert(
+  biomeProfile.includes("GRASS_MAX_ACCENT_PROFILE_ENTRIES = 16") &&
+    biomeProfile.includes("source.length > GRASS_MAX_ACCENT_PROFILE_ENTRIES"),
+  "Biome accent lists must keep the bounded 16-entry candidate-scan contract.",
+);
+assert(
+  affinity.includes(
+    "return smoothstep(0, 0.75, clamp01(tuning.colonyStrength));",
+  ),
+  "Colony strength must use the saturated spatial-correlation response.",
+);
+const tintPicker = affinity.slice(
+  affinity.indexOf("function pickTintRow("),
+  affinity.indexOf("export function detailFoliageCorrelation("),
+);
+assert(
+  tintPicker.length > 0 && !tintPicker.includes("adjustedWeight("),
+  "Tint picking must reuse same-species profile weights instead of rescoring ecology and edges.",
 );
 const heightBands = [
   ...species.matchAll(/canopyHeightBand: \[([0-9.]+), ([0-9.]+)\]/g),
@@ -129,5 +150,5 @@ assert(
 );
 
 console.log(
-  "[flower-variety] Height, silhouette, petal shading, and phenotype checks passed.",
+  "[flower-variety] Height, silhouette, composition, shading, and phenotype checks passed.",
 );
