@@ -11,9 +11,8 @@ import { WorldTreeSystem } from "./WorldTreeSystem";
  */
 export class WorldScenicLayer {
   private readonly trees: WorldTreeSystem;
-  private readonly life: WorldFaunaSystem;
+  private life?: WorldFaunaSystem;
   private treesEnabled = true;
-  private faunaEnabled = true;
   private disposed = false;
 
   constructor(
@@ -25,6 +24,13 @@ export class WorldScenicLayer {
     shadows: boolean,
   ) {
     this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
+    const faunaCount = profile.compact
+      ? config.faunaDeerCompactCount + config.faunaVillagerCompactCount
+      : config.faunaDeerDesktopCount + config.faunaVillagerDesktopCount;
+    if (config.faunaEnabled < 1 || faunaCount === 0) {
+      return;
+    }
+
     try {
       this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
     } catch (error) {
@@ -48,16 +54,16 @@ export class WorldScenicLayer {
       }
     }
 
-    if (!this.faunaEnabled) {
+    const life = this.life;
+    if (!life) {
       return;
     }
     // Scenic systems are ticked inside the controls subsystem, so faults here
     // must release only the failing scenic owner and keep player input alive.
     try {
-      this.life.update(deltaSeconds, focus);
+      life.update(deltaSeconds, focus);
     } catch (error) {
       console.warn("[Drusniel World] Fauna disabled after a fault.", error);
-      this.faunaEnabled = false;
       this.disposeFauna();
     }
   }
@@ -68,7 +74,6 @@ export class WorldScenicLayer {
     }
     this.disposed = true;
     this.treesEnabled = false;
-    this.faunaEnabled = false;
     this.disposeTrees();
     this.disposeFauna();
   }
@@ -82,8 +87,13 @@ export class WorldScenicLayer {
   }
 
   private disposeFauna(): void {
+    const life = this.life;
+    this.life = undefined;
+    if (!life) {
+      return;
+    }
     try {
-      this.life.dispose();
+      life.dispose();
     } catch (error) {
       console.warn("[Drusniel World] Fauna cleanup failed.", error);
     }
