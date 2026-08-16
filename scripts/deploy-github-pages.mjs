@@ -93,10 +93,10 @@ function assertRepositoryState() {
 }
 
 function assertSourceStillCurrent(expectedHead) {
-  const remoteHead = remoteBranchHead(CONFIG.sourceBranch);
-  if (remoteHead !== expectedHead) {
+  const currentHead = assertRepositoryState();
+  if (currentHead !== expectedHead) {
     throw new Error(
-      `${CONFIG.remote}/${CONFIG.sourceBranch} changed during deployment; rebuild from the new source head.`,
+      `${CONFIG.sourceBranch} changed during deployment; rebuild from the new source head.`,
     );
   }
 }
