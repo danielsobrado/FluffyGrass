@@ -88,11 +88,14 @@ if (deployScript.includes("ALLOW_DIRTY_DEPLOY")) {
   fail("Manual production deployment must never allow a dirty working tree.");
 }
 if (
+  deployScript.includes("process.env.GITHUB_PAGES_") ||
+  !deployScript.includes('branch: "gh-pages"') ||
+  !deployScript.includes('sourceBranch: "main"') ||
+  !deployScript.includes('remote: "origin"') ||
   !deployScript.includes('import { assertSecureNodeRuntime } from "./node-runtime.mjs"') ||
   !/function deploy\(\) \{[\s\S]*?assertSecureNodeRuntime\(\);[\s\S]*?const sourceHead = assertRepositoryState\(\);/.test(
     deployScript,
   ) ||
-  !deployScript.includes('sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main"') ||
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
   !deployScript.includes(lockedDependencyAudit) ||
@@ -114,7 +117,7 @@ if (
   )
 ) {
   fail(
-    "Manual deployment must require a patched Node runtime, a clean synchronized source branch, audit the committed dependency graph before installation, install the exact lockfile, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
+    "Manual deployment must be fixed to main -> origin/gh-pages, require a patched Node runtime and clean synchronized source, audit the lockfile before installation, install the exact dependency graph, run the full production build, revalidate source state, and reject stale/no-op publish races.",
   );
 }
 
@@ -217,4 +220,4 @@ if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
   fail("npm must enforce package.json engine constraints during install.");
 }
 
-console.log("[production-policy] Deployment, Pages artifact, reproducible cache/environment metadata, legal notices, dependency, and runtime policies verified.");
+console.log("[production-policy] Fixed-target deployment, single-entry Pages artifact, reproducible cache/environment metadata, legal notices, dependency, and runtime policies verified.");
