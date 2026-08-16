@@ -18,6 +18,9 @@ function assert(condition, message) {
 const main = read("src/main.ts");
 const visualMatrix = read("src/qa/WorldVisualMatrixRunner.ts");
 const metrics = read("src/qa/GrassQaMetrics.ts");
+const diagnostics = read("src/runtime/WorldDiagnosticsController.ts");
+const deerAssets = read("src/creatures/deer/DeerAssets.ts");
+const villagerAssets = read("src/character/npc/VillagerAssets.ts");
 
 assert(
   main.includes("let visualMatrix: Disposable | undefined") &&
@@ -46,4 +49,37 @@ assert(
   "QA frame sampling must cancel its RAF and listeners immediately when its owner is disposed.",
 );
 
-console.log("[session-lifecycle] Bootstrap and visual QA ownership verified.");
+assert(
+  diagnostics.includes("let probe: GrassWorkloadProbe | undefined") &&
+    diagnostics.includes("let gpuTimer: GpuFrameTimer | undefined") &&
+    diagnostics.includes("let hud: WorldDiagnosticsHud | undefined") &&
+    /catch \(error\) \{[\s\S]*?disposeSafely\(hud, "Diagnostics HUD"\);[\s\S]*?disposeSafely\(gpuTimer, "GPU frame timer"\);[\s\S]*?disposeSafely\(probe, "Grass workload probe"\)/.test(
+      diagnostics,
+    ) &&
+    /dispose\(\): void \{[\s\S]*?this\.restoreRenderer\(\);[\s\S]*?disposeSafely\(this\.probe[\s\S]*?disposeSafely\(this\.hud[\s\S]*?disposeSafely\(this\.gpuTimer/.test(
+      diagnostics,
+    ),
+  "Optional diagnostics must roll back partial attachment and isolate teardown failures.",
+);
+
+for (const [name, source] of [
+  ["Deer assets", deerAssets],
+  ["Villager assets", villagerAssets],
+]) {
+  assert(
+    /try \{[\s\S]*?applyActorEnvironmentResponse\(material\);[\s\S]*?return material;[\s\S]*?\} catch \(error\) \{[\s\S]*?material\.dispose\(\);[\s\S]*?throw error;/.test(
+      source,
+    ) &&
+      /try \{[\s\S]*?slots\.set\(slot, mergeActorParts\(list\)\);[\s\S]*?\} finally \{[\s\S]*?part\.geometry\.dispose\(\)/.test(
+        source,
+      ) &&
+      /catch \(error\) \{[\s\S]*?disposeGeometries\(slots\.values\(\)\);[\s\S]*?slots\.clear\(\);[\s\S]*?throw error;/.test(
+        source,
+      ),
+    `${name} must release failed materials, primitive scaffolding, and partially merged geometry.`,
+  );
+}
+
+console.log(
+  "[session-lifecycle] Bootstrap, QA, diagnostics, and actor asset ownership verified.",
+);
