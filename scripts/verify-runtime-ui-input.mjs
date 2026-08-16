@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 const main = read("src/main.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
+const controller = read("src/controls/ThirdPersonController.ts");
 const joystick = read("src/controls/MobileJoystick.ts");
 const fly = read("src/controls/FlyController.ts");
 
@@ -50,6 +51,16 @@ assert(
     sprintSource.indexOf("button.setPointerCapture(event.pointerId)") <
       sprintSource.indexOf("this.mobileSprint = active"),
   "Mobile JUMP/RUN held state must not publish before pointer capture succeeds.",
+);
+
+assert(
+  controller.includes(
+    "if (this.input.consumeJump() && !this.character.isRolling())",
+  ) &&
+    /this\.jumpBufferRemaining = 0;[\s\S]*?this\.jumpHoldRemaining = 0;[\s\S]*?this\.character\.triggerRoll\(\)/.test(
+      controller,
+    ),
+  "Rolls must take precedence over same-frame or active-roll jump requests so action triggers cannot remain queued across landing.",
 );
 
 const pointerDownStart = joystick.indexOf("private readonly handlePointerDown");
@@ -89,6 +100,13 @@ assert(
   "Fly input construction must roll back partially-bound listeners and canvas state, using the same unbind path as normal disposal.",
 );
 
+assert(
+  fly.includes("button.setPointerCapture(event.pointerId)") &&
+    fly.includes('button.addEventListener("lostpointercapture"') &&
+    !fly.includes('button.addEventListener("pointerleave", deactivate)'),
+  "Compact flight vertical controls must capture their pointer and clear thrust after release, cancellation, or spontaneous capture loss.",
+);
+
 console.log(
-  "[runtime-ui-input] Diagnostics UI ownership and transactional mobile/fly input publication verified.",
+  "[runtime-ui-input] Diagnostics ownership, action precedence, and transactional compact/fly input verified.",
 );
