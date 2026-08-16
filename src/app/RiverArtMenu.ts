@@ -22,6 +22,7 @@ import { validateWorldConfig } from "../world/WorldConfigValidator";
 import { validateRiverWidthEnvelope } from "../world/hydrology/RiverTuning";
 import type { WaterBedLiveVisuals } from "../world/hydrology/WaterBedMaterialController";
 import type { WaterSurfaceLiveVisuals } from "../world/hydrology/WaterMaterialController";
+import { downloadTextFile } from "./TextDownload";
 
 type LiveVisuals = WaterSurfaceLiveVisuals & WaterBedLiveVisuals;
 
@@ -274,19 +275,11 @@ export class RiverArtMenu {
         .then(() => this.showExportStatus(button, "YAML copied + downloaded"))
         .catch(() => undefined);
     }
-    const url = URL.createObjectURL(
-      new Blob([yaml], { type: "application/yaml;charset=utf-8" }),
+    downloadTextFile(
+      "world-river-tuning.yaml",
+      yaml,
+      "application/yaml;charset=utf-8",
     );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "world-river-tuning.yaml";
-    anchor.hidden = true;
-    document.body.appendChild(anchor);
-    anchor.click();
-    requestAnimationFrame(() => {
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    });
   };
 
   private async goToLandmark(landmark: RiverTuningLandmark): Promise<void> {
