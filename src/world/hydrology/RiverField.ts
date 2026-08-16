@@ -55,6 +55,21 @@ export function createRiverSample(): RiverSample {
   };
 }
 
+function clearRiverSample(target: RiverSample): RiverSample {
+  target.coverage = 0;
+  target.bank = 0;
+  target.proximity = 0;
+  target.flowX = 0;
+  target.flowZ = 0;
+  target.morphology = 0;
+  target.bend = 0;
+  target.lateral = 0;
+  target.localHalfWidth = 0;
+  target.bedDepth = 0;
+  target.incisionDepth = 0;
+  return target;
+}
+
 export function resolveHydrologyRiverMinimumSeparation(
   config: WorldConfig,
 ): number {
@@ -158,6 +173,7 @@ function createLane(): RiverLane {
 export class RiverField {
   private readonly primaryFrequency: number;
   private readonly secondaryFrequency: number;
+  private readonly maximumInfluenceHalfWidth: number;
   /**
    * Direct-mapped on the low index bits. A sample only ever needs the two
    * adjacent lanes around z, which always land in different slots, so a row
@@ -173,6 +189,13 @@ export class RiverField {
   constructor(private readonly config: WorldConfig) {
     this.primaryFrequency = TWO_PI / (config.riverSpacing * 1.7);
     this.secondaryFrequency = TWO_PI / (config.riverSpacing * 0.63);
+    this.maximumInfluenceHalfWidth =
+      config.riverWidth * RIVER_GLOBAL_MAX_WIDTH_SCALE * 0.5 +
+      Math.max(
+        RIVER_EDGE_FEATHER,
+        config.riverBankWidth,
+        config.waterHumidityRadius,
+      );
   }
 
   sample(
@@ -186,6 +209,12 @@ export class RiverField {
     this.sampleLane(lowerIndex + 1, x, z, this.laneB);
     const lane =
       this.laneA.distance <= this.laneB.distance ? this.laneA : this.laneB;
+    if (
+      height >= this.config.riverMaxAltitude ||
+      lane.distance > this.maximumInfluenceHalfWidth
+    ) {
+      return clearRiverSample(target);
+    }
     this.resolveSelectedLane(lane, height, target);
     return target;
   }
