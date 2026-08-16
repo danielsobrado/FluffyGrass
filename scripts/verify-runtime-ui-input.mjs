@@ -18,6 +18,7 @@ function assert(condition, message) {
 const main = read("src/main.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
 const joystick = read("src/controls/MobileJoystick.ts");
+const fly = read("src/controls/FlyController.ts");
 
 assert(
   main.includes('const animationHudEnabled = params.get("diagnostics") === "1"') &&
@@ -79,6 +80,15 @@ assert(
   "Joystick release and spontaneous capture loss must always clear movement and notify the input owner.",
 );
 
+assert(
+  /constructor\([\s\S]*?try \{[\s\S]*?this\.bindEvents\(\);[\s\S]*?this\.createMobileControls\(\);[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.unbindEvents\(\);[\s\S]*?this\.canvas\.style\.touchAction = this\.previousTouchAction;[\s\S]*?throw error;/.test(
+    fly,
+  ) &&
+    /dispose\(\): void \{[\s\S]*?this\.unbindEvents\(\);/.test(fly) &&
+    fly.includes("private unbindEvents(): void"),
+  "Fly input construction must roll back partially-bound listeners and canvas state, using the same unbind path as normal disposal.",
+);
+
 console.log(
-  "[runtime-ui-input] Diagnostics UI ownership and transactional mobile pointer capture verified.",
+  "[runtime-ui-input] Diagnostics UI ownership and transactional mobile/fly input publication verified.",
 );
