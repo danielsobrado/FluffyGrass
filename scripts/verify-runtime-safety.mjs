@@ -23,6 +23,7 @@ const islandGrass = read("src/grass/GrassSystem.ts");
 const seededRandom = read("src/grass/internal/SeededRandom.ts");
 const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
+const windNoise = read("src/grass/wind/WindNoiseTexture.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
 const workloadProbe = read("src/runtime/GrassWorkloadProbe.ts");
@@ -224,14 +225,28 @@ assert(
   "Grass interaction state must reject invalid configuration and runtime input.",
 );
 assert(
-  trailField.includes("validateConfig(next)") &&
+  trailField.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
+    trailField.includes("validateConfig(next)") &&
     trailField.includes("areFinite(") &&
     trailField.includes("Number.isFinite(deltaSeconds)") &&
     trailField.includes("renderer.setRenderTarget(previousRenderTarget)") &&
     trailField.includes("this.resetPendingFrame()") &&
     trailField.includes("const pendingTargets: THREE.WebGLRenderTarget[] = []") &&
-    trailField.includes("for (const target of pendingTargets)"),
-  "Grass trail feedback must reject invalid inputs, restore renderer state, and release partially allocated render targets after failures.",
+    trailField.includes("let pendingGeometry: THREE.PlaneGeometry | undefined") &&
+    trailField.includes("Pending grass trail target cleanup failed.") &&
+    trailField.includes("Grass trail attach cleanup failed.") &&
+    /private releaseTargets\(\): void \{[\s\S]*?const quad = this\.quad;[\s\S]*?this\.quad = undefined;[\s\S]*?this\.material = undefined;[\s\S]*?this\.targets = undefined;[\s\S]*?disposeResources\(\[/.test(
+      trailField,
+    ),
+  "Grass trail feedback must reject invalid inputs, restore renderer state, roll back partial attachment, and clear singleton ownership before complete resource disposal.",
+);
+const windOwnershipClear = windNoise.indexOf("sharedTexture = undefined;");
+const windDispose = windNoise.indexOf("texture?.dispose();", windOwnershipClear);
+assert(
+  windNoise.includes("const texture = sharedTexture;") &&
+    windOwnershipClear >= 0 &&
+    windDispose > windOwnershipClear,
+  "Shared grass wind ownership must clear before texture disposal so cleanup failure cannot poison recreation.",
 );
 assert(
   qualityGovernor.includes("Number.isFinite(deltaSeconds)") &&
