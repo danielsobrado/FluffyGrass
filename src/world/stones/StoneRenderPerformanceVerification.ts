@@ -197,6 +197,19 @@ function verifyExpandedClearanceNeighborhood(
     rejectedInvalidRadius = true;
   }
   assert(rejectedInvalidRadius, "Negative stone clearance radius was accepted.");
+
+  for (const invalidCoordinate of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    let rejectedInvalidCoordinate = false;
+    try {
+      cache.sample(invalidCoordinate, sampleZ);
+    } catch {
+      rejectedInvalidCoordinate = true;
+    }
+    assert(
+      rejectedInvalidCoordinate,
+      "Non-finite stone clearance coordinate was accepted.",
+    );
+  }
 }
 
 /** Production contracts for draw count, detail footprint, and vertex bandwidth. */
