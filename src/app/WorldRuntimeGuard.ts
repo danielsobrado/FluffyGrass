@@ -6,6 +6,7 @@ import {
 export class WorldRuntimeGuard {
   private runtimeError?: string;
   private runtimeErrorBeforeContextLoss?: string;
+  private rendererFaulted = false;
   private disposed = false;
 
   constructor(
@@ -37,6 +38,9 @@ export class WorldRuntimeGuard {
   }
 
   recordSubsystemFailure(subsystem: string, error: unknown): void {
+    if (subsystem === "renderer") {
+      this.rendererFaulted = true;
+    }
     const message = `${subsystem}: ${this.formatError(error)}`;
     if (this.runtimeError === message) {
       return;
@@ -99,7 +103,9 @@ export class WorldRuntimeGuard {
     if (this.disposed) {
       return;
     }
-    this.onRendererEnabledChange(true);
+    if (!this.rendererFaulted) {
+      this.onRendererEnabledChange(true);
+    }
     if (this.runtimeError === WORLD_CONTEXT_LOST_ERROR) {
       this.runtimeError = this.runtimeErrorBeforeContextLoss;
     }
