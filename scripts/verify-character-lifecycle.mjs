@@ -20,6 +20,7 @@ const geometry = read("src/character/SnowflowCharacterGeometry.ts");
 const features = read("src/character/DrowCharacterFeatures.ts");
 const character = read("src/character/SnowflowCharacter.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
+const actorProof = read("src/dev/ActorExtensibilityProof.ts");
 
 assert(
   materials.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
@@ -76,6 +77,21 @@ assert(
   "Third-person controller construction and teardown must release character/input ownership independently.",
 );
 
+assert(
+  actorProof.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
+    actorProof.includes("const resources = createActorProofResources(world, this.update)") &&
+    /function createActorProofResources\([\s\S]*?context = world\.attachActorProof\(observer\)[\s\S]*?npc = new ScriptedHumanoidActor\([\s\S]*?quadruped = new QuadrupedActor\([\s\S]*?catch \(error\) \{[\s\S]*?disposeActorProofResources\([\s\S]*?construction rollback[\s\S]*?throw error;/.test(
+      actorProof,
+    ) &&
+    /dispose\(\): void \{[\s\S]*?this\.disposed = true;[\s\S]*?this\.imported\.splice\(0\)[\s\S]*?disposeActorProofResources\(/.test(
+      actorProof,
+    ) &&
+    /disposeResources\(\[[\s\S]*?detach\(\)[\s\S]*?resources\.npc,[\s\S]*?resources\.quadruped,[\s\S]*?\.\.\.imported,[\s\S]*?resources\.deerAssets,[\s\S]*?resources\.villagerAssets/.test(
+      actorProof,
+    ),
+  "The opt-in actor proof must detach its observer and release partial or completed proof actors/libraries without contaminating the running world.",
+);
+
 console.log(
-  "[character-lifecycle] Materials, rig/feature publication, character resources, and controller ownership verified.",
+  "[character-lifecycle] Materials, rig/feature publication, character/controller resources, and actor-proof ownership verified.",
 );
