@@ -46,6 +46,22 @@ assert(
 );
 
 assert(
+  /private render = \(\): void => \{[\s\S]*?try \{[\s\S]*?this\.renderer\.render\(this\.scene, this\.camera\);[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.running = false;[\s\S]*?this\.clock\.stop\(\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?this\.frameHandle = requestAnimationFrame\(this\.render\);/.test(
+    island,
+  ),
+  "Island rendering must schedule the next RAF only after a successful frame so one fault cannot become a permanent exception loop.",
+);
+
+assert(
+  island.includes("let materialAttached = false") &&
+    island.includes("let originalsDisposed = false") &&
+    island.includes("if (!originalsDisposed) {") &&
+    island.includes("if (!materialAttached) {") &&
+    island.includes("disposeObjectMaterials(root)"),
+  "Decorative model rollback must release both replaced originals and unpublished replacement material without depending on repeated disposal.",
+);
+
+assert(
   development.includes("private readonly abortController = new AbortController()") &&
     development.includes("this.abortController.abort()") &&
     development.includes("this.abortController.signal") &&
@@ -73,5 +89,5 @@ assert(
 );
 
 console.log(
-  "[island-lifecycle] Transactional island construction and disposable development QA verified.",
+  "[island-lifecycle] Transactional island construction, frame containment, and disposable development QA verified.",
 );
