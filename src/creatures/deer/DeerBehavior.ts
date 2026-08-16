@@ -76,13 +76,21 @@ export class DeerBehavior {
   private desiredSpeed = 0;
 
   constructor(private readonly options: DeerBehaviorOptions) {
-    this.random = (options.seed >>> 0) || 1;
+    this.random = normalizeSeed(options.seed);
     this.decisionClock = options.decisionPhaseSeconds;
     this.stateDuration = this.spanPick(GRAZE_SECONDS);
   }
 
   /** Re-homes the animal, for a recycled actor arriving somewhere new. */
-  reset(anchorX: number, anchorZ: number, positionX: number, positionZ: number): void {
+  reset(
+    anchorX: number,
+    anchorZ: number,
+    positionX: number,
+    positionZ: number,
+    seed = this.options.seed,
+  ): void {
+    this.random = normalizeSeed(seed);
+    this.decisionClock = this.options.decisionPhaseSeconds;
     this.anchorX = anchorX;
     this.anchorZ = anchorZ;
     this.targetX = positionX;
@@ -283,6 +291,10 @@ export class DeerBehavior {
   private spanPick(span: readonly [number, number]): number {
     return span[0] + this.unitPick() * (span[1] - span[0]);
   }
+}
+
+function normalizeSeed(seed: number): number {
+  return (seed >>> 0) || 1;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
