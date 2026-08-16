@@ -17,7 +17,10 @@ varying vec3 vSkyDirection;
 
 void main() {
   vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-  vSkyDirection = worldPosition.xyz;
+  // The sky is infinitely far away. Measuring from the world origin gives the
+  // dome parallax as the camera crosses the map and visibly shifts both the
+  // horizon gradient and sun. Camera-relative direction stays celestial.
+  vSkyDirection = worldPosition.xyz - cameraPosition;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
