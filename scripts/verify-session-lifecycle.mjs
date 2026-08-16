@@ -22,6 +22,7 @@ const visualMatrix = read("src/qa/WorldVisualMatrixRunner.ts");
 const metrics = read("src/qa/GrassQaMetrics.ts");
 const diagnostics = read("src/runtime/WorldDiagnosticsController.ts");
 const terrainStreamer = read("src/world/TerrainStreamer.ts");
+const terrainChunk = read("src/world/TerrainChunk.ts");
 const terrainMaterial = read("src/world/TerrainMaterialController.ts");
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const waterBedMaterial = read("src/world/hydrology/WaterBedMaterialController.ts");
@@ -61,6 +62,13 @@ assert(
     terrainStreamer.includes('disposeTerrainResource(materialController, "Terrain material")') &&
     terrainStreamer.includes("Terrain chunk cleanup failed."),
   "Terrain streaming must roll back partially constructed render owners and isolate normal teardown failures.",
+);
+
+assert(
+  /private finalize\(\): TerrainChunk \{[\s\S]*?const geometry = new THREE\.BufferGeometry\(\);[\s\S]*?let waterGeometry: THREE\.BufferGeometry \| undefined;[\s\S]*?try \{[\s\S]*?const chunk = new TerrainChunk\([\s\S]*?return chunk;[\s\S]*?\} catch \(error\) \{[\s\S]*?waterGeometry\?\.dispose\(\);[\s\S]*?geometry\.dispose\(\)/.test(
+    terrainChunk,
+  ),
+  "Failed terrain chunk finalization must release unpublished terrain and water geometry.",
 );
 
 assert(
