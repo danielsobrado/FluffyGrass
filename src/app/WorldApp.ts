@@ -445,7 +445,22 @@ export class WorldApp {
       return;
     }
 
-    this.frameHandle = requestAnimationFrame(this.render);
+    try {
+      this.renderFrame();
+    } catch (error) {
+      this.running = false;
+      this.clock.stop();
+      window.clearInterval(this.watchdogHandle);
+      this.runtimeGuard.recordSubsystemFailure("frame", error);
+      return;
+    }
+
+    if (this.running && !this.disposed) {
+      this.frameHandle = requestAnimationFrame(this.render);
+    }
+  };
+
+  private renderFrame(): void {
     this.lastFrameTimestamp = performance.now();
     const rawDeltaSeconds = this.clock.getDelta();
     const deltaSeconds = THREE.MathUtils.clamp(
@@ -484,7 +499,7 @@ export class WorldApp {
     if (this.hudEnabled) {
       this.runFrameSubsystem("hud", this.updateHud, deltaSeconds);
     }
-  };
+  }
 
   private notifyFrameObservers(deltaSeconds: number): void {
     for (const observer of this.frameObservers) {
