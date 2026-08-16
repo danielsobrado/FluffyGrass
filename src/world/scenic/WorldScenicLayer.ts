@@ -10,9 +10,9 @@ import { WorldTreeSystem } from "./WorldTreeSystem";
  * failure state. Ground rock is the stone field, not a second quad layer.
  */
 export class WorldScenicLayer {
-  private readonly trees: WorldTreeSystem;
+  private trees?: WorldTreeSystem;
   private life?: WorldFaunaSystem;
-  private treesEnabled = true;
+  private treesEnabled = false;
   private disposed = false;
 
   constructor(
@@ -23,7 +23,13 @@ export class WorldScenicLayer {
     spawn: THREE.Vector3,
     shadows: boolean,
   ) {
-    this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
+    try {
+      this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
+      this.treesEnabled = true;
+    } catch (error) {
+      console.warn("[Drusniel World] Trees unavailable during initialization.", error);
+    }
+
     const faunaCount = profile.compact
       ? config.faunaDeerCompactCount + config.faunaVillagerCompactCount
       : config.faunaDeerDesktopCount + config.faunaVillagerDesktopCount;
@@ -34,8 +40,7 @@ export class WorldScenicLayer {
     try {
       this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
     } catch (error) {
-      this.disposeTrees();
-      throw error;
+      console.warn("[Drusniel World] Fauna unavailable during initialization.", error);
     }
   }
 
@@ -44,7 +49,7 @@ export class WorldScenicLayer {
       return;
     }
 
-    if (this.treesEnabled) {
+    if (this.treesEnabled && this.trees) {
       try {
         this.trees.update(focus);
       } catch (error) {
@@ -79,8 +84,13 @@ export class WorldScenicLayer {
   }
 
   private disposeTrees(): void {
+    const trees = this.trees;
+    this.trees = undefined;
+    if (!trees) {
+      return;
+    }
     try {
-      this.trees.dispose();
+      trees.dispose();
     } catch (error) {
       console.warn("[Drusniel World] Tree cleanup failed.", error);
     }
