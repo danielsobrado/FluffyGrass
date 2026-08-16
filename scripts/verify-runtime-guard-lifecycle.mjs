@@ -23,10 +23,10 @@ assert(
 );
 
 assert(
-  /dispose\(\): void \{[\s\S]*?this\.disposed = true;[\s\S]*?this\.unbindEvents\(\);/.test(
+  /dispose\(\): void \{[\s\S]*?this\.disposed = true;[\s\S]*?this\.unbindEvents\(\);[\s\S]*?this\.fatalErrorElement\?\.remove\(\);[\s\S]*?this\.fatalErrorElement = undefined;/.test(
     source,
   ),
-  "Runtime guard disposal must converge on the same listener cleanup path.",
+  "Runtime guard disposal must converge on listener cleanup and remove fatal-error UI ownership.",
 );
 
 assert(
@@ -40,6 +40,16 @@ assert(
   "A WebGL context restore must not resurrect a renderer that was permanently disabled by a real frame failure.",
 );
 
+assert(
+  source.includes('if (subsystem === "frame")') &&
+    source.includes("this.publishFatalFrameError(message)") &&
+    source.includes('output.className = "startup-error"') &&
+    source.includes('output.setAttribute("role", "alert")') &&
+    source.includes("Reload the page to restart.") &&
+    source.includes("private fatalErrorElement?: HTMLPreElement"),
+  "A fatal whole-frame failure must surface a single owned alert instead of leaving a silently frozen canvas.",
+);
+
 for (const listener of [
   'window.removeEventListener("resize", this.handleResize)',
   'window.removeEventListener("error", this.handleWindowError)',
@@ -51,5 +61,5 @@ for (const listener of [
 }
 
 console.log(
-  "[runtime-guard-lifecycle] Transactional listeners and persistent renderer-fault state verified.",
+  "[runtime-guard-lifecycle] Transactional listeners, fatal-error presentation, and persistent renderer-fault state verified.",
 );
