@@ -96,7 +96,12 @@ export class TerrainStreamer {
     position: THREE.Vector3,
     buildDeadline = Number.POSITIVE_INFINITY,
   ): void {
-    if (this.disposed) {
+    if (
+      this.disposed ||
+      !Number.isFinite(position.x) ||
+      !Number.isFinite(position.y) ||
+      !Number.isFinite(position.z)
+    ) {
       return;
     }
     const waterTime = performance.now() * 0.001;
