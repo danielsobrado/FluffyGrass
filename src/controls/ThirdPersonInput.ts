@@ -29,6 +29,8 @@ export class ThirdPersonInput {
   private lookPointer?: PointerState;
   private mobileControls?: HTMLElement;
   private mobileJoystick?: MobileJoystick;
+  private mobileJumpButton?: HTMLButtonElement;
+  private mobileRunButton?: HTMLButtonElement;
   private mobileSprint = false;
   private mobileJumpHeld = false;
   private jumpRequested = false;
@@ -179,6 +181,8 @@ export class ThirdPersonInput {
     this.mobileJoystick = undefined;
     this.mobileControls?.remove();
     this.mobileControls = undefined;
+    this.mobileJumpButton = undefined;
+    this.mobileRunButton = undefined;
     this.canvas.style.touchAction = this.previousTouchAction;
   }
 
@@ -233,6 +237,7 @@ export class ThirdPersonInput {
     const jumpButton = controls.querySelector<HTMLButtonElement>(
       "[data-character-jump]",
     );
+    this.mobileJumpButton = jumpButton ?? undefined;
     const setJump = (
       active: boolean,
       event: PointerEvent,
@@ -249,8 +254,7 @@ export class ThirdPersonInput {
         this.lastInputType = "jump";
       }
       this.mobileJumpHeld = active;
-      button.dataset.active = String(active);
-      button.setAttribute("aria-pressed", String(active));
+      this.setMobileButtonState(button, active);
     };
     if (jumpButton) {
       jumpButton.addEventListener("pointerdown", (event) =>
@@ -264,14 +268,14 @@ export class ThirdPersonInput {
       );
       jumpButton.addEventListener("lostpointercapture", () => {
         this.mobileJumpHeld = false;
-        jumpButton.dataset.active = "false";
-        jumpButton.setAttribute("aria-pressed", "false");
+        this.setMobileButtonState(jumpButton, false);
       });
     }
 
     const runButton = controls.querySelector<HTMLButtonElement>(
       "[data-character-run]",
     );
+    this.mobileRunButton = runButton ?? undefined;
     const setSprint = (
       active: boolean,
       event: PointerEvent,
@@ -283,8 +287,7 @@ export class ThirdPersonInput {
         button.setPointerCapture(event.pointerId);
       }
       this.mobileSprint = active;
-      button.dataset.active = String(active);
-      button.setAttribute("aria-pressed", String(active));
+      this.setMobileButtonState(button, active);
       if (active) {
         this.inputEventCount += 1;
         this.lastInputType = "run";
@@ -302,13 +305,23 @@ export class ThirdPersonInput {
       );
       runButton.addEventListener("lostpointercapture", () => {
         this.mobileSprint = false;
-        runButton.dataset.active = "false";
-        runButton.setAttribute("aria-pressed", "false");
+        this.setMobileButtonState(runButton, false);
       });
     }
 
     document.body.appendChild(controls);
     this.mobileControls = controls;
+  }
+
+  private setMobileButtonState(
+    button: HTMLButtonElement | undefined,
+    active: boolean,
+  ): void {
+    if (!button) {
+      return;
+    }
+    button.dataset.active = String(active);
+    button.setAttribute("aria-pressed", String(active));
   }
 
   private resolveTouchMovement(): THREE.Vector2 {
@@ -391,6 +404,8 @@ export class ThirdPersonInput {
     this.mobileJoystick?.reset();
     this.mobileSprint = false;
     this.mobileJumpHeld = false;
+    this.setMobileButtonState(this.mobileRunButton, false);
+    this.setMobileButtonState(this.mobileJumpButton, false);
     this.jumpRequested = false;
     this.resetRequested = false;
     this.rollRequested = false;
