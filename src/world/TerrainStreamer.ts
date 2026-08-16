@@ -60,19 +60,36 @@ export class TerrainStreamer {
     private readonly compact: boolean,
     shadows: boolean,
   ) {
-    this.materialController = new TerrainMaterialController(config, shadows);
-    this.waterMaterialController =
-      config.waterEnabled >= 1
-        ? new WaterMaterialController(config, compact)
+    let materialController: TerrainMaterialController | undefined;
+    let waterMaterialController: WaterMaterialController | undefined;
+    let waterBedMaterialController: WaterBedMaterialController | undefined;
+    let horizon: WorldHorizonShell | undefined;
+
+    try {
+      materialController = new TerrainMaterialController(config, shadows);
+      this.materialController = materialController;
+      waterMaterialController =
+        config.waterEnabled >= 1
+          ? new WaterMaterialController(config, compact)
+          : undefined;
+      this.waterMaterialController = waterMaterialController;
+      waterBedMaterialController = config.waterEnabled >= 1
+        ? new WaterBedMaterialController(config, compact)
         : undefined;
-    this.waterBedMaterialController = config.waterEnabled >= 1
-      ? new WaterBedMaterialController(config, compact)
-      : undefined;
-    this.surfaceField = new TerrainSurfaceField(config);
-    this.waterInteractionField = new WaterInteractionField(config);
-    this.horizon = config.horizonEnabled >= 1
-      ? new WorldHorizonShell(scene, field, config, compact)
-      : undefined;
+      this.waterBedMaterialController = waterBedMaterialController;
+      this.surfaceField = new TerrainSurfaceField(config);
+      this.waterInteractionField = new WaterInteractionField(config);
+      horizon = config.horizonEnabled >= 1
+        ? new WorldHorizonShell(scene, field, config, compact)
+        : undefined;
+      this.horizon = horizon;
+    } catch (error) {
+      disposeTerrainResource(horizon, "Horizon shell");
+      disposeTerrainResource(waterBedMaterialController, "Water bed material");
+      disposeTerrainResource(waterMaterialController, "Water material");
+      disposeTerrainResource(materialController, "Terrain material");
+      throw error;
+    }
   }
 
   update(
@@ -120,16 +137,20 @@ export class TerrainStreamer {
     }
     this.disposed = true;
     for (const chunk of this.chunks.values()) {
-      this.removeChunk(chunk);
+      try {
+        this.removeChunk(chunk);
+      } catch (error) {
+        console.warn("[Drusniel World] Terrain chunk cleanup failed.", error);
+      }
     }
     this.chunks.clear();
     this.queue.length = 0;
     this.activeBuild = undefined;
     this.desired.clear();
-    this.materialController.dispose();
-    this.waterMaterialController?.dispose();
-    this.waterBedMaterialController?.dispose();
-    this.horizon?.dispose();
+    disposeTerrainResource(this.horizon, "Horizon shell");
+    disposeTerrainResource(this.waterBedMaterialController, "Water bed material");
+    disposeTerrainResource(this.waterMaterialController, "Water material");
+    disposeTerrainResource(this.materialController, "Terrain material");
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {
@@ -320,5 +341,19 @@ export class TerrainStreamer {
       this.scene.remove(chunk.waterMesh);
     }
     chunk.dispose();
+  }
+}
+
+function disposeTerrainResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
