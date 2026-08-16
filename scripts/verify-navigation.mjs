@@ -162,6 +162,15 @@ try {
       minimap.includes("isTypingTarget"),
     "The map toggle must bind to M and ignore keys typed into controls.",
   );
+  assert(
+    minimap.includes("document.pointerLockElement !== null") &&
+      minimap.includes("document.exitPointerLock()"),
+    "Opening the map must release pointer lock so the map can receive pointer travel input.",
+  );
+  assert(
+    minimap.includes("event.stopPropagation()"),
+    "Keyboard map activation must not bubble into character movement actions.",
+  );
 
   console.log(
     `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded in both control modes · raster budgeted and lazy`,
