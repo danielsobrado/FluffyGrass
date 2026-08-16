@@ -72,28 +72,40 @@ export class ScriptedHumanoidActor {
       variant,
       shadows,
     );
-    this.profile = createHumanoidAnimationProfile({
-      definition: humanoid.definition,
-      bones: humanoid.bones,
-      landingRecoverySeconds: 0.25,
-      ikStages:
-        terrainContact === undefined
-          ? undefined
-          : [
-              createHumanoidContactIk(
-                humanoid.definition,
-                humanoid.bones,
-                terrainContact,
-                this.heading,
-              ),
-            ],
-    });
-    this.runtime = new ActorAnimationRuntime(this.profile, this.rigInstance);
-    this.input.referenceSpeed = 1;
-    this.placeAt(spawnX, spawnZ);
-    this.previousPosition.copy(this.worldPosition);
-    this.runtime.reset(this.input);
-    scene.add(this.root);
+
+    let runtime: ActorAnimationRuntime | undefined;
+    try {
+      const profile = createHumanoidAnimationProfile({
+        definition: humanoid.definition,
+        bones: humanoid.bones,
+        landingRecoverySeconds: 0.25,
+        ikStages:
+          terrainContact === undefined
+            ? undefined
+            : [
+                createHumanoidContactIk(
+                  humanoid.definition,
+                  humanoid.bones,
+                  terrainContact,
+                  this.heading,
+                ),
+              ],
+      });
+      runtime = new ActorAnimationRuntime(profile, this.rigInstance);
+      this.input.referenceSpeed = 1;
+      this.placeAt(spawnX, spawnZ);
+      this.previousPosition.copy(this.worldPosition);
+      runtime.reset(this.input);
+      this.profile = profile;
+      this.runtime = runtime;
+      scene.add(this.root);
+    } catch (error) {
+      runtime?.dispose();
+      this.rigInstance.dispose();
+      this.body.dispose();
+      this.root.removeFromParent();
+      throw error;
+    }
   }
 
   get position(): THREE.Vector3 {
