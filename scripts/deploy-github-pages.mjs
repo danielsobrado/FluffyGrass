@@ -152,6 +152,7 @@ function deploy() {
     });
 
     if (diff.status === 0) {
+      assertSourceStillCurrent(sourceHead);
       log("No deployment changes were detected.");
       return;
     }
