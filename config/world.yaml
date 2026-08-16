@@ -76,9 +76,27 @@ grassWetHeightBoost: 0.32
 grassDryHeightReduction: 0.42
 grassDryColorStrength: 0.64
 
+# Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
+detailFoliageDensity: 0.35
+detailFoliageColonyWorldSize: 11
+detailFoliageClumpWorldSize: 2.25
+detailFoliageColonyStrength: 0.94
+detailFoliageDominantFamilyShare: 0.90
+detailFoliageTintCoherence: 1
+detailFoliageQuietZoneThreshold: 0.34
+detailFoliageBackgroundSuppression: 0.58
+detailFoliageCoreHeightBias: 0.12
+detailFoliageMaturePhenotypeBias: 0.62
+detailFoliageEcologyStrength: 0.72
+detailFoliageEdgeCompanionStrength: 0.30
+detailFoliageStoneFringeStrength: 0.38
+detailFoliagePathFringeStrength: 0.18
+
 # Mid blades use cheaper single triangles but retain every source blade.
+# Underlayer is the tuft body: raising it (and thinning the mid-height band in
+# placement) is what makes 5-15 m grass read as masses instead of needles.
 grassMidBladeFraction: 1
-grassUnderlayerFraction: 0.35
+grassUnderlayerFraction: 0.46
 grassPatchJitter: 0.3
 
 # Character footfalls and landing pulse.
@@ -88,18 +106,19 @@ grassLandingPulseRadius: 2.4
 grassLandingPulseStrength: 1.05
 grassLandingPulseDecay: 5.2
 
-# Persistent crush map.
+# Persistent crush map. Recovery is slower than contact so a running wake
+# lingers, then springs back, instead of snapping the moment a foot lifts.
 grassTrailResolution: 256
 grassTrailCoverage: 24
-grassTrailRecoveryRate: 0.5
-grassTrailFreshnessRate: 1.4
+grassTrailRecoveryRate: 0.32
+grassTrailFreshnessRate: 0.92
 grassTrailMaxAngleDegrees: 74
 grassTrailWobbleFrequency: 12
 grassTrailWobbleAmplitude: 0.16
-grassFootContactRadius: 0.32
+grassFootContactRadius: 0.28
 grassFootContactStrength: 1
-grassBodyContactRadius: 0.4
-grassBodyContactStrength: 0.5
+grassBodyContactRadius: 0.55
+grassBodyContactStrength: 0.38
 
 spawnSearchRadius: 640
 spawnSearchStep: 24
@@ -122,6 +141,11 @@ riverDepth: 1.6
 riverSpacing: 520
 riverMeander: 105
 riverMaxAltitude: 72
+# Channel morphology — reload required while tuning.
+riverWidthVariation: 0.08
+riverBendBankAsymmetry: 0.04
+riverDepthVariation: 0.16
+riverBendChannelShift: 0.20
 waterHumidityRadius: 34
 lakeSpacing: 480
 lakeChance: 0.38
@@ -134,7 +158,14 @@ waterOpacity: 0.72
 waterRippleStrength: 0.14
 waterRippleScale: 0.085
 waterFlowSpeed: 0.85
+# River visual velocity — live uniform tuning.
+waterRiverPoolFlowScale: 0.80
+waterRiverRiffleFlowScale: 1.20
 waterFoamStrength: 0.9
+# Foam cause balance. Overall amount remains waterFoamStrength.
+waterShoreFoamWeight: 0.14
+waterRiffleFoamWeight: 0.40
+waterStoneFoamWeight: 0.56
 waterFresnelStrength: 1.65
 waterDepthFade: 1.35
 waterDetailDistance: 110
@@ -166,7 +197,7 @@ terrainGroundNoiseWorldSize: 64
 terrainGroundMesoStrength: 0.14
 terrainGroundMicroStrength: 0.09
 terrainGroundNormalStrength: 0.24
-terrainGroundCanopyDarkening: 0.1
+terrainGroundCanopyDarkening: 0.22
 terrainPathCoreDarkening: 0.13
 terrainPathVergeDryness: 0.32
 
@@ -180,6 +211,21 @@ stoneCellSize: 16
 stoneDensity: 0.17
 stoneVariantsPerArchetype: 10
 stoneClusterChance: 0.82
+# Macro stone geology. 56 m intentionally does not divide the 16 m stone cell
+# or 64 m terrain chunk, avoiding visible lattice lock.
+stoneClusterSpacing: 56
+stoneClusterCenterJitter: 0.26
+stoneClusterRadiusMin: 10
+stoneClusterRadiusMax: 22
+stoneClusterAspectMin: 0.58
+stoneClusterAspectMax: 0.92
+stoneClusterBudgetMin: 4
+stoneClusterBudgetMax: 8
+stoneClusterCoreRatio: 0.42
+stoneClusterShoulderRatio: 0.78
+stoneClusterHaloRatio: 1.12
+stoneClusterDensityResponse: 6
+stoneSingletonChance: 0.10
 stoneGrassClearanceFeather: 0.4
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
@@ -249,3 +295,31 @@ characterCameraGroundClearance: 0.7
 characterMouseLookSensitivity: 0.0022
 characterTouchLookSensitivity: 0.004
 characterZoomSensitivity: 0.004
+
+# Fauna. Deer herds streamed around the player from the same seed the trees and
+# stones use, so a herd is always in country that could feed one.
+faunaEnabled: 1
+faunaDeerDesktopCount: 10
+faunaDeerCompactCount: 4
+# Villagers stay near the player's spawn rather than streaming, so a person is
+# always somewhere findable rather than appearing out in open country.
+faunaVillagerDesktopCount: 3
+faunaVillagerCompactCount: 1
+faunaVillagerWalkSpeed: 1.35
+# Comfortably past the cull distance plus the retire margin, so there is always
+# a herd ahead to recycle a retired animal onto.
+faunaStreamRadius: 170
+faunaDeerWalkSpeed: 1.15
+# Animation quality bands. Contact IK and secondary motion stop at the reduced
+# boundary, where a foot sinking a few centimetres is under a pixel; the pose
+# rate drops before that, which is invisible because the gait phase is driven by
+# distance travelled rather than by time.
+faunaFullDistance: 18
+faunaReducedDistance: 45
+faunaMinimalDistance: 90
+faunaCullDistance: 130
+faunaReducedUpdateHz: 20
+faunaMinimalUpdateHz: 6
+# Deciding what to do next is far cheaper than animating, and stays running for
+# animals that are too far away to be drawn.
+faunaBehaviorHz: 5
