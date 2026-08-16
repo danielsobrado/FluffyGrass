@@ -4,9 +4,11 @@ const MINIMUM_NODE_BY_MAJOR = Object.freeze({
 });
 
 function parseNodeVersion(version) {
-  const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) {
-    throw new Error(`Unable to parse Node.js version: ${version}.`);
+    throw new Error(
+      `Unsupported Node.js version format ${version}. Production builds require a stable release.`,
+    );
   }
   return match.slice(1, 4).map(Number);
 }
