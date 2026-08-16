@@ -153,10 +153,23 @@ assert(
   "Island rendering must clamp resumed or invalid frame deltas before updating grass animation.",
 );
 assert(
-  /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.grass\.dispose\(\);[\s\S]*?grassTrailField\.dispose\(\);[\s\S]*?\}/.test(
+  /else if \(subsystem === "stones"\) \{[\s\S]*?this\.stonesEnabled = false;[\s\S]*?this\.disposeSafely\("Stone system"/.test(
     world,
-  ),
-  "A failed grass frame must disable and release both grass rendering and trail resources.",
+  ) &&
+    /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.disposeGrassResources\(\);[\s\S]*?\}/.test(
+      world,
+    ) &&
+    /private disposeGrassResources\(\): void \{[\s\S]*?this\.disposeSafely\("Grass system"[\s\S]*?this\.grass\.dispose\(\)[\s\S]*?this\.disposeSafely\("Grass trail field"[\s\S]*?grassTrailField\.dispose\(\)/.test(
+      world,
+    ),
+  "Failed stone and grass frames must isolate cleanup faults while releasing their owned resources.",
+);
+assert(
+  world.includes("private disposeSafely(label: string, dispose: () => void): void") &&
+    world.includes('this.disposeSafely("Runtime guard"') &&
+    world.includes('this.disposeSafely("Scenic layer"') &&
+    world.includes('this.disposeSafely("Renderer"'),
+  "World teardown must continue releasing later owners when an earlier cleanup fails.",
 );
 assert(
   /await import\(\s*"\.\.\/dev\/GrassDevelopmentController"\s*\)/.test(island) &&
