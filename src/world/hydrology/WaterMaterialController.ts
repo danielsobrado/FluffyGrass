@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { WorldConfig } from "../WorldConfig";
 import { createWaterFlowNoiseTexture } from "./WaterFlowNoiseTexture";
 import {
@@ -113,8 +114,14 @@ export class WaterMaterialController {
       };
       this.configureMaterial();
     } catch (error) {
-      material?.dispose();
-      flowNoiseTexture.dispose();
+      try {
+        disposeResources([material, flowNoiseTexture]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Water material construction cleanup failed.",
+          cleanupError,
+        );
+      }
       throw error;
     }
   }
@@ -157,8 +164,7 @@ export class WaterMaterialController {
       return;
     }
     this.disposed = true;
-    this.flowNoiseTexture.dispose();
-    this.material.dispose();
+    disposeResources([this.flowNoiseTexture, this.material]);
   }
 
   private configureMaterial(): void {
