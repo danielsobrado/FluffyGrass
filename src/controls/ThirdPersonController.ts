@@ -92,13 +92,6 @@ export class ThirdPersonController implements WorldController {
     profile: RuntimeProfile,
     spawn: DenseWorldSpawn,
   ) {
-    this.input = new ThirdPersonInput(canvas, profile, config);
-    this.character = new SnowflowCharacter(
-      scene,
-      config.characterScale,
-      config.characterLandingRecoveryTime,
-      new WorldTerrainContactSampler(field),
-    );
     grassInteractionField.configure({
       strength: config.grassInteractionStrength,
       speedForFullEffect: config.grassInteractionSpeedForFullEffect,
@@ -120,7 +113,32 @@ export class ThirdPersonController implements WorldController {
       spawn.position.z,
     );
     this.spawnFacing = normalizeAngle(spawn.yaw + Math.PI);
-    this.reset();
+
+    const character = new SnowflowCharacter(
+      scene,
+      config.characterScale,
+      config.characterLandingRecoveryTime,
+      new WorldTerrainContactSampler(field),
+    );
+    let input: ThirdPersonInput;
+    try {
+      input = new ThirdPersonInput(canvas, profile, config);
+    } catch (error) {
+      character.dispose();
+      grassInteractionField.deactivate();
+      throw error;
+    }
+
+    this.character = character;
+    this.input = input;
+    try {
+      this.reset();
+    } catch (error) {
+      disposeControllerResource("Third-person input", () => input.dispose());
+      disposeControllerResource("Third-person character", () => character.dispose());
+      grassInteractionField.deactivate();
+      throw error;
+    }
   }
 
   update(deltaSeconds: number): void {
@@ -192,8 +210,8 @@ export class ThirdPersonController implements WorldController {
     }
     this.disposed = true;
     grassInteractionField.deactivate();
-    this.input.dispose();
-    this.character.dispose();
+    disposeControllerResource("Third-person input", () => this.input.dispose());
+    disposeControllerResource("Third-person character", () => this.character.dispose());
   }
 
   getSpeed(): number {
@@ -310,7 +328,6 @@ export class ThirdPersonController implements WorldController {
     this.characterPose.landed = this.landed;
     this.characterPose.landingImpact = this.landingImpact;
     this.characterPose.crouched = this.input.isCrouched();
-    this.characterPose.rollStarted = this.character.isRolling();
     return this.characterPose;
   }
 
@@ -588,6 +605,14 @@ export class ThirdPersonController implements WorldController {
       this.desiredCameraPosition.y,
       cameraGround + clearance,
     );
+  }
+}
+
+function disposeControllerResource(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
 
