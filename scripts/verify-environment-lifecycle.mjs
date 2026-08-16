@@ -19,6 +19,11 @@ const sky = read("src/world/sky/WorldSky.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 
 assert(
+  sky.includes("vSkyDirection = worldPosition.xyz - cameraPosition;") &&
+    !sky.includes("vSkyDirection = worldPosition.xyz;"),
+  "The sky direction must be camera-relative so the horizon and sun do not parallax as the player crosses the world.",
+);
+assert(
   sky.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
     sky.includes("private environmentTarget?: THREE.WebGLRenderTarget") &&
     sky.includes("environmentTarget = pmrem.fromScene") &&
@@ -85,5 +90,5 @@ assert(
 );
 
 console.log(
-  "[environment-lifecycle] Sky, shadow, one-shot PMREM, and fail-soft IBL ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, shadow, one-shot PMREM, and fail-soft IBL ownership verified.",
 );
