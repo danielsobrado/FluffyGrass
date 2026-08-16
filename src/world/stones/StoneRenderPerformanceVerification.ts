@@ -210,6 +210,33 @@ function verifyExpandedClearanceNeighborhood(
       "Non-finite stone clearance coordinate was accepted.",
     );
   }
+
+  const halfChunks = config.worldSize / (config.chunkSize * 2);
+  const edgeField = {
+    collectChunkInstances(
+      chunkX: number,
+      chunkZ: number,
+      _includeSmall: boolean,
+      out: StoneInstance[],
+    ): StoneInstance[] {
+      assert(
+        chunkX >= -halfChunks &&
+          chunkX < halfChunks &&
+          chunkZ >= -halfChunks &&
+          chunkZ < halfChunks,
+        `Clearance cache queried out-of-world chunk ${chunkX}:${chunkZ}.`,
+      );
+      out.length = 0;
+      return out;
+    },
+  } as unknown as StoneField;
+  const edgeCache = new StoneClearanceCache(edgeField, config);
+  const halfWorld = config.worldSize * 0.5;
+  edgeCache.sample(
+    halfWorld - 0.1,
+    halfWorld - 0.1,
+    config.stoneCellSize * 4,
+  );
 }
 
 /** Production contracts for draw count, detail footprint, and vertex bandwidth. */
