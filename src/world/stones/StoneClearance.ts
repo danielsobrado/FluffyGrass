@@ -9,25 +9,35 @@ export interface StoneClearanceRegistration {
 interface StoneClearanceOwner {
   readonly owner: symbol;
   readonly field: StoneField | undefined;
-  readonly config: WorldConfig | undefined;
+  readonly cache: StoneClearanceCache | undefined;
 }
 
 const owners: StoneClearanceOwner[] = [];
 let activeField: StoneField | undefined;
 let activeCache: StoneClearanceCache | undefined;
 
-function applyStoneClearanceField(
+function createStoneClearanceCache(
   field: StoneField | undefined,
   config?: WorldConfig,
-): void {
-  activeCache?.clear();
-  activeField = field;
-  activeCache = field && config ? new StoneClearanceCache(field, config) : undefined;
+): StoneClearanceCache | undefined {
+  return field && config ? new StoneClearanceCache(field, config) : undefined;
 }
 
-function applyCurrentOwner(): void {
+function activateStoneClearance(
+  field: StoneField | undefined,
+  cache: StoneClearanceCache | undefined,
+): void {
+  const previousCache = activeCache;
+  activeField = field;
+  activeCache = cache;
+  if (previousCache && previousCache !== cache) {
+    previousCache.clear();
+  }
+}
+
+function activateCurrentOwner(): void {
   const active = owners[owners.length - 1];
-  applyStoneClearanceField(active?.field, active?.config);
+  activateStoneClearance(active?.field, active?.cache);
 }
 
 /** Register the deterministic stone field used by grass placement. */
@@ -38,10 +48,10 @@ export function registerStoneClearanceField(
   const registration: StoneClearanceOwner = {
     owner: Symbol("stone-clearance-owner"),
     field,
-    config,
+    cache: createStoneClearanceCache(field, config),
   };
   owners.push(registration);
-  applyStoneClearanceField(field, config);
+  activateStoneClearance(registration.field, registration.cache);
   let disposed = false;
 
   return {
@@ -59,7 +69,9 @@ export function registerStoneClearanceField(
       const wasActive = index === owners.length - 1;
       owners.splice(index, 1);
       if (wasActive) {
-        applyCurrentOwner();
+        activateCurrentOwner();
+      } else {
+        registration.cache?.clear();
       }
     },
   };
@@ -73,8 +85,12 @@ export function setStoneClearanceField(
   field: StoneField | undefined,
   config?: WorldConfig,
 ): void {
+  const cache = createStoneClearanceCache(field, config);
+  for (const owner of owners) {
+    owner.cache?.clear();
+  }
   owners.length = 0;
-  applyStoneClearanceField(field, config);
+  activateStoneClearance(field, cache);
 }
 
 /**
