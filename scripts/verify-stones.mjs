@@ -18,6 +18,35 @@ const baseline = JSON.parse(
   ),
 );
 
+function verifyZeroChanceVergeFastPath() {
+  const source = readFileSync(
+    resolve(REPOSITORY_ROOT, "src/world/stones/StoneField.ts"),
+    "utf8",
+  );
+  const start = source.indexOf("private generateCell(");
+  const end = source.indexOf("private resolveCluster(", start);
+  if (start < 0 || end <= start) {
+    throw new Error("[stones] Unable to inspect StoneField.generateCell().");
+  }
+  const generateCell = source.slice(start, end);
+  const guard = generateCell.indexOf("if (this.config.stoneVergeChance > 0)");
+  const geology = generateCell.indexOf(
+    "this.clusterField.sampleGeologyPotential(",
+  );
+  const placement = generateCell.indexOf("this.addVergeStones(");
+  if (
+    guard < 0 ||
+    geology <= guard ||
+    placement <= geology
+  ) {
+    throw new Error(
+      "[stones] stoneVergeChance=0 must reject before verge geology and placement work.",
+    );
+  }
+}
+
+verifyZeroChanceVergeFastPath();
+
 const server = await createServer({
   configFile: false,
   root: REPOSITORY_ROOT,
