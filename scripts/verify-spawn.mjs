@@ -42,6 +42,9 @@ try {
   const { TerrainField } = await server.ssrLoadModule(
     "/src/world/TerrainField.ts",
   );
+  const { StoneClearanceCache } = await server.ssrLoadModule(
+    "/src/world/stones/StoneClearanceCache.ts",
+  );
   const { StoneField } = await server.ssrLoadModule(
     "/src/world/stones/StoneField.ts",
   );
@@ -99,18 +102,17 @@ try {
     height,
     clearanceRadius,
   );
-  const stoneClearance = first.stones.sampleGrassClearance(
-    x,
-    z,
-    clearanceRadius,
-  );
+  const stoneClearance = new StoneClearanceCache(
+    first.stones,
+    config,
+  ).sample(x, z, clearanceRadius);
 
   assert(suitability > 0.25, "Spawn must remain on viable grass terrain.");
   assert(pathClearance > 0.5, "Spawn must clear the worn path corridor.");
   assert(stoneClearance > 0.5, "Spawn must clear procedural stone footprints.");
 
   console.log(
-    `[spawn] Deterministic clear spawn ${x.toFixed(1)}, ${z.toFixed(1)} verified.`,
+    `[spawn] Deterministic cached-clearance spawn ${x.toFixed(1)}, ${z.toFixed(1)} verified.`,
   );
 } finally {
   await server.close();
