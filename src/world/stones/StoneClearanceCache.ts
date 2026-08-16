@@ -58,16 +58,18 @@ export class StoneClearanceCache {
   }
 
   sample(x: number, z: number, extraRadius = 0): number {
-    if (!Number.isFinite(x) || !Number.isFinite(z)) {
-      throw new Error("Stone clearance coordinates must be finite numbers.");
-    }
-    if (!Number.isFinite(extraRadius) || extraRadius < 0) {
-      throw new Error("Stone clearance extraRadius must be a non-negative finite number.");
-    }
     const cellSize = this.config.stoneCellSize;
     const cellX = Math.floor(x / cellSize);
     const cellZ = Math.floor(z / cellSize);
-    const marginCells = 1 + Math.ceil(extraRadius / cellSize);
+    let marginCells = 1;
+    if (extraRadius !== 0) {
+      if (!Number.isFinite(extraRadius) || extraRadius < 0) {
+        throw new Error(
+          "Stone clearance extraRadius must be a non-negative finite number.",
+        );
+      }
+      marginCells += Math.ceil(extraRadius / cellSize);
+    }
     const candidates = this.getNeighborhood(cellX, cellZ, marginCells);
     let mask = 1;
 
