@@ -4,26 +4,34 @@ import { defineConfig, type Plugin } from "vite";
 import packageMetadata from "./package.json";
 
 const DEPLOYMENT_BASE_PATH = "./";
+const SOURCE_ARCHIVE_REVISION = "archive";
+const SOURCE_ARCHIVE_BUILD_LABEL = "source-archive";
 const PUBLIC_ASSET_PATH_PATTERN =
 	/(["'`])\/([^"'`]+\.(?:avif|basis|bin|exr|gif|glb|gltf|hdr|jpe?g|ktx2|mp3|ogg|png|svg|wav|webp))\1/g;
 const STONE_GRAIN_ASSET_PATTERN = /(["'`])\.\/perlinnoise\.webp\1/g;
 
-function resolveSourceRevision(): string {
+function runGit(args: string[]): string | undefined {
 	try {
-		const revision = execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
+		const output = execFileSync("git", args, {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
-		if (revision.length > 0) {
-			return revision;
-		}
+		return output.length > 0 ? output : undefined;
 	} catch {
-		// Source archives may not contain Git metadata.
+		return undefined;
 	}
-	return new Date().toISOString().replace(/\D/g, "");
+}
+
+function resolveSourceRevision(): string {
+	return runGit(["rev-parse", "--short=12", "HEAD"]) ?? SOURCE_ARCHIVE_REVISION;
+}
+
+function resolveBuildLabel(): string {
+	return runGit(["show", "-s", "--format=%cs", "HEAD"]) ?? SOURCE_ARCHIVE_BUILD_LABEL;
 }
 
 const SOURCE_REVISION = resolveSourceRevision();
+const BUILD_LABEL = resolveBuildLabel();
 
 function rewriteRootPublicAssetPaths(): Plugin {
 	return {
@@ -74,7 +82,7 @@ export default defineConfig({
 		__APP_VERSION__: JSON.stringify(
 			`v${packageMetadata.version}+${SOURCE_REVISION}`
 		),
-		__BUILD_LABEL__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+		__BUILD_LABEL__: JSON.stringify(BUILD_LABEL),
 	},
 	plugins: [rewriteRootPublicAssetPaths(), includeLegalFiles()],
 });
