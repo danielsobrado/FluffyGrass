@@ -83,6 +83,7 @@ export class QuadrupedActor {
   private distanceTravelled = 0;
   private facing = 0;
   private speed = 0;
+  private disposed = false;
 
   constructor(
     scene: THREE.Scene,
@@ -97,63 +98,73 @@ export class QuadrupedActor {
     this.root.name = "quadruped";
     this.root.scale.setScalar(scale);
     this.root.add(this.heading);
-    scene.add(this.root);
     this.rigInstance = new ActorRigInstance(rig.definition, this.heading);
-    this.body = buildBody(this.rigInstance, rig.bones);
-    this.locomotion = new QuadrupedLocomotionLayer(rig.bones, this.facts);
 
-    // Four effectors, one per limb, sharing the humanoid's contact solver.
-    const gait = new ActorGait({
-      // The gait phase advances on distance travelled in world metres, so a
-      // scaled-down animal covers its stride in fewer of them. Without this a
-      // fawn's legs cycle far too fast for its speed and it skates.
-      strideLengthMeters: QUADRUPED_STRIDE_LENGTH_METERS * scale,
-      effectors: QUADRUPED_CONTACT_CHAINS.map((chain) => ({
-        phaseOffset: rig.definition.effectors.get(chain)?.phaseOffset ?? 0,
-        dutyFactor: QUADRUPED_STANCE_DUTY_FACTOR,
-      })),
-    });
-    const paws = [
-      ...rig.bones.frontPaw,
-      ...rig.bones.hindPaw,
-    ];
-    const profile: ActorAnimationProfile = {
-      definition: rig.definition,
-      locomotion: this.locomotion,
-      gait,
-      enforceJointLimits: true,
-      preIkStages: [
-        new QuadrupedHeadAim(rig.definition, rig.bones, this.facts, this.heading),
-      ],
-      secondaryMotion: [
-        new QuadrupedSecondaryMotion(rig.definition, rig.bones, this.facts),
-      ],
-      ikStages:
-        terrainContact === undefined
-          ? undefined
-          : [
-              new ActorContactIk({
-                definition: rig.definition,
-                placement: this.heading,
-                sampler: terrainContact,
-                supportBone: rig.bones.bodyCenter,
-                maxSupportDrop: QUADRUPED_MAX_BODY_DROP,
-                maxAlignRadians: QUADRUPED_MAX_PAW_ALIGN,
-                smoothingRate: QUADRUPED_CONTACT_SMOOTHING_RATE,
-                effectors: QUADRUPED_CONTACT_CHAINS.map((chain, index) => ({
-                  chain: requireActorChain(rig.definition, chain),
-                  gaitEffector: index,
-                  soleOffset: QUADRUPED_PAW_DROP,
-                  alignBone: paws[index],
-                })),
-              }),
-            ],
-    };
-    this.runtime = new ActorAnimationRuntime(profile, this.rigInstance);
-    this.input.referenceSpeed = 1;
-    this.placeAt(spawnX, spawnZ);
-    this.previousPosition.copy(this.worldPosition);
-    this.runtime.reset(this.input);
+    let body: QuadrupedBodyHandle | undefined;
+    let runtime: ActorAnimationRuntime | undefined;
+    try {
+      body = buildBody(this.rigInstance, rig.bones);
+      this.body = body;
+      this.locomotion = new QuadrupedLocomotionLayer(rig.bones, this.facts);
+
+      // Four effectors, one per limb, sharing the humanoid's contact solver.
+      const gait = new ActorGait({
+        // The gait phase advances on distance travelled in world metres, so a
+        // scaled-down animal covers its stride in fewer of them. Without this a
+        // fawn's legs cycle far too fast for its speed and it skates.
+        strideLengthMeters: QUADRUPED_STRIDE_LENGTH_METERS * scale,
+        effectors: QUADRUPED_CONTACT_CHAINS.map((chain) => ({
+          phaseOffset: rig.definition.effectors.get(chain)?.phaseOffset ?? 0,
+          dutyFactor: QUADRUPED_STANCE_DUTY_FACTOR,
+        })),
+      });
+      const paws = [...rig.bones.frontPaw, ...rig.bones.hindPaw];
+      const profile: ActorAnimationProfile = {
+        definition: rig.definition,
+        locomotion: this.locomotion,
+        gait,
+        enforceJointLimits: true,
+        preIkStages: [
+          new QuadrupedHeadAim(rig.definition, rig.bones, this.facts, this.heading),
+        ],
+        secondaryMotion: [
+          new QuadrupedSecondaryMotion(rig.definition, rig.bones, this.facts),
+        ],
+        ikStages:
+          terrainContact === undefined
+            ? undefined
+            : [
+                new ActorContactIk({
+                  definition: rig.definition,
+                  placement: this.heading,
+                  sampler: terrainContact,
+                  supportBone: rig.bones.bodyCenter,
+                  maxSupportDrop: QUADRUPED_MAX_BODY_DROP,
+                  maxAlignRadians: QUADRUPED_MAX_PAW_ALIGN,
+                  smoothingRate: QUADRUPED_CONTACT_SMOOTHING_RATE,
+                  effectors: QUADRUPED_CONTACT_CHAINS.map((chain, index) => ({
+                    chain: requireActorChain(rig.definition, chain),
+                    gaitEffector: index,
+                    soleOffset: QUADRUPED_PAW_DROP,
+                    alignBone: paws[index],
+                  })),
+                }),
+              ],
+      };
+      runtime = new ActorAnimationRuntime(profile, this.rigInstance);
+      this.runtime = runtime;
+      this.input.referenceSpeed = 1;
+      this.placeAt(spawnX, spawnZ);
+      this.previousPosition.copy(this.worldPosition);
+      this.runtime.reset(this.input);
+      scene.add(this.root);
+    } catch (error) {
+      disposeResource(runtime, "Quadruped animation runtime");
+      disposeResource(this.rigInstance, "Quadruped rig instance");
+      disposeResource(body, "Quadruped body");
+      this.root.removeFromParent();
+      throw error;
+    }
   }
 
   /** Read-only world position, for distance and quality decisions. */
@@ -172,11 +183,17 @@ export class QuadrupedActor {
 
   /** Forwards an animation-quality decision made by the population owner. */
   setQuality(runIk: boolean, runSecondaryMotion: boolean): void {
+    if (this.disposed) {
+      return;
+    }
     this.runtime.setQuality(runIk, runSecondaryMotion);
   }
 
   /** Teleports a recycled actor and clears every solver's history. */
   respawn(x: number, z: number, referenceSpeed: number): void {
+    if (this.disposed) {
+      return;
+    }
     this.speed = 0;
     this.distanceTravelled = 0;
     this.input.referenceSpeed = Math.max(referenceSpeed, 0.001);
@@ -186,6 +203,9 @@ export class QuadrupedActor {
   }
 
   update(deltaSeconds: number, steering: QuadrupedSteering): void {
+    if (this.disposed) {
+      return;
+    }
     const delta = THREE.MathUtils.clamp(
       Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
       0,
@@ -215,12 +235,14 @@ export class QuadrupedActor {
   }
 
   dispose(): void {
-    this.runtime.dispose();
-    this.rigInstance.dispose();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.root.removeFromParent();
-    // The body releases what this one animal owns. Geometry shared with the
-    // rest of the herd outlives it and belongs to the library that built it.
-    this.body.dispose();
+    disposeResource(this.runtime, "Quadruped animation runtime");
+    disposeResource(this.rigInstance, "Quadruped rig instance");
+    disposeResource(this.body, "Quadruped body");
   }
 
   /**
@@ -280,5 +302,19 @@ export class QuadrupedActor {
     this.input.facing = this.facing;
     this.root.position.copy(this.worldPosition);
     this.heading.rotation.y = this.facing;
+  }
+}
+
+function disposeResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
