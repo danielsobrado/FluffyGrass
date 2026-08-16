@@ -164,10 +164,18 @@ export class ThirdPersonInput {
     this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
     this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
     if (document.pointerLockElement === this.canvas) {
-      document.exitPointerLock();
+      try {
+        document.exitPointerLock();
+      } catch (error) {
+        console.warn("[Drusniel World] Pointer lock cleanup failed.", error);
+      }
     }
     this.clearTransientInput();
-    this.mobileJoystick?.dispose();
+    try {
+      this.mobileJoystick?.dispose();
+    } catch (error) {
+      console.warn("[Drusniel World] Mobile joystick cleanup failed.", error);
+    }
     this.mobileJoystick = undefined;
     this.mobileControls?.remove();
     this.mobileControls = undefined;
@@ -232,6 +240,9 @@ export class ThirdPersonInput {
     ): void => {
       event.preventDefault();
       event.stopPropagation();
+      if (active && !button.hasPointerCapture(event.pointerId)) {
+        button.setPointerCapture(event.pointerId);
+      }
       if (active && !this.mobileJumpHeld) {
         this.jumpRequested = true;
         this.inputEventCount += 1;
@@ -240,9 +251,6 @@ export class ThirdPersonInput {
       this.mobileJumpHeld = active;
       button.dataset.active = String(active);
       button.setAttribute("aria-pressed", String(active));
-      if (active && !button.hasPointerCapture(event.pointerId)) {
-        button.setPointerCapture(event.pointerId);
-      }
     };
     if (jumpButton) {
       jumpButton.addEventListener("pointerdown", (event) =>
@@ -271,13 +279,13 @@ export class ThirdPersonInput {
     ): void => {
       event.preventDefault();
       event.stopPropagation();
+      if (active && !button.hasPointerCapture(event.pointerId)) {
+        button.setPointerCapture(event.pointerId);
+      }
       this.mobileSprint = active;
       button.dataset.active = String(active);
       button.setAttribute("aria-pressed", String(active));
       if (active) {
-        if (!button.hasPointerCapture(event.pointerId)) {
-          button.setPointerCapture(event.pointerId);
-        }
         this.inputEventCount += 1;
         this.lastInputType = "run";
       }
