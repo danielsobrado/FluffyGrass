@@ -19,6 +19,7 @@ const island = read("src/app/IslandApp.ts");
 const development = read("src/dev/GrassDevelopmentController.ts");
 const qaRunner = read("src/qa/GrassQaRunner.ts");
 const qaDownloads = read("src/qa/GrassQaDownloads.ts");
+const impostorBaker = read("src/grass/impostors/OctahedralImpostorBaker.ts");
 
 assert(
   island.includes("createIslandRuntimeResources(") &&
@@ -64,11 +65,12 @@ assert(
 
 assert(
   development.includes("private readonly abortController = new AbortController()") &&
+    development.includes("private bakePanel?: ImpostorDownloadPanel") &&
     development.includes("private qaRunner?: GrassQaRunner") &&
     development.includes("this.abortController.abort()") &&
     development.includes("this.qaRunner?.dispose()") &&
+    development.includes("this.bakePanel?.dispose()") &&
     development.includes("this.abortController.signal") &&
-    development.includes("this.bakePanel?.remove()") &&
     development.includes("delete windowWithResults.__FLUFFY_GRASS_IMPOSTOR_BAKE__") &&
     development.includes("delete windowWithResults.__FLUFFY_GRASS_QA__") &&
     /const result = await baker\.bake\([\s\S]*?if \(this\.disposed\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?createDownloadLinks/.test(
@@ -77,7 +79,7 @@ assert(
     /finally \{[\s\S]*?if \(!this\.disposed\) \{[\s\S]*?setLodBakeOverride\(false\)/.test(
       development,
     ),
-  "Island development tools must own/abort QA, clean published debug state, suppress late bake publication, and avoid touching disposed bake dependencies.",
+  "Island development tools must own/abort QA, dispose bake downloads, clean published debug state, suppress late publication, and avoid touching disposed dependencies.",
 );
 
 assert(
@@ -90,7 +92,7 @@ assert(
     ) &&
     qaRunner.includes("this.throwIfUnavailable(signal)") &&
     qaRunner.includes("this.downloads.dispose()") &&
-    qaRunner.includes("signal?.aborted &&") === false &&
+    qaRunner.includes("!signal?.aborted && !this.disposed") &&
     qaRunner.includes('new DOMException("Grass QA aborted.", "AbortError")'),
   "Island grass QA must honor cancellation/disposal before rendering or publishing and own its download resources.",
 );
@@ -106,6 +108,16 @@ assert(
   "Grass QA downloads must revoke blob URLs, cancel scheduled clicks, remove their panel, and reject captures after teardown.",
 );
 
+assert(
+  impostorBaker.includes("export interface ImpostorDownloadPanel") &&
+    impostorBaker.includes("const objectUrls = new Set<string>()") &&
+    impostorBaker.includes("const timeoutHandles = new Set<number>()") &&
+    impostorBaker.includes("URL.revokeObjectURL(objectUrl)") &&
+    impostorBaker.includes("window.clearTimeout(handle)") &&
+    /dispose: \(\): void => \{[\s\S]*?panel\.remove\(\);/.test(impostorBaker),
+  "Impostor bake download panels must own and revoke every blob URL and delayed revocation timer.",
+);
+
 console.log(
-  "[island-lifecycle] Transactional island construction, frame containment, and disposable QA/download ownership verified.",
+  "[island-lifecycle] Transactional island construction, frame containment, and disposable QA/impostor download ownership verified.",
 );
