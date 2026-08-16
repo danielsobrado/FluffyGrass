@@ -437,9 +437,12 @@ export class WorldApp {
   }
 
   private readonly updateControls = (deltaSeconds: number): void => {
-    this.controls.update(deltaSeconds);
-    this.environment.updateShadow(this.controls.getStreamingPosition());
-    this.scenic.update(deltaSeconds, this.controls.getStreamingPosition());
+    if (!this.minimap.isOpen()) {
+      this.controls.update(deltaSeconds);
+    }
+    const focus = this.controls.getStreamingPosition();
+    this.environment.updateShadow(focus);
+    this.scenic.update(deltaSeconds, focus);
     this.reveal.noteHeroRing(
       !this.grassInitializing && this.grassEnabled,
       this.grassEnabled && this.grass.isHeroRingReady() ? 4 : 0,
