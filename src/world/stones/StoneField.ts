@@ -658,9 +658,10 @@ export class StoneField {
     ) {
       return undefined;
     }
-    const splitAngle = memberRng.fork("split-angle");
     const breakAngle =
-      descriptor.strike + Math.PI * 0.5 + splitAngle.signed(0.35);
+      descriptor.strike +
+      Math.PI * 0.5 +
+      memberRng.fork("split-angle").signed(0.35);
     const x = anchor.instance.x + Math.cos(breakAngle) * desiredDistance;
     const z = anchor.instance.z + Math.sin(breakAngle) * desiredDistance;
     if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
@@ -691,10 +692,12 @@ export class StoneField {
       anchor.instance.archetype,
       anchor.instance.variantIndex,
       scale,
-      descriptor.strike + Math.PI + splitAngle.signed(0.4),
+      descriptor.strike +
+        Math.PI +
+        memberRng.fork("split-yaw").signed(0.4),
       descriptor.paletteKey,
-      spec.valueScale,
-      this.memberMoss(descriptor, spec),
+      anchor.instance.valueScale,
+      anchor.instance.moss,
       variant,
       "secondary",
     );
@@ -895,9 +898,10 @@ export class StoneField {
         archetype,
         variantIndex,
         scale,
-        this.clusterField.sampleStrike(x, z) + random.signed(0.42),
+        this.clusterField.sampleStrike(x, z) +
+          random.fork("yaw").signed(0.42),
         BIOME_PALETTE[biomeIndex],
-        random.range(0.92, 1.06),
+        random.fork("value").range(0.92, 1.06),
         moss,
         sampled.variant,
       ),
