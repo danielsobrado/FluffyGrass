@@ -3,10 +3,13 @@ import {
   WORLD_ERROR_MESSAGE_MAX_LENGTH,
 } from "./WorldAppTuning";
 
+const FATAL_FRAME_PREFIX = "Drusniel World stopped after an unexpected frame failure.";
+
 export class WorldRuntimeGuard {
   private runtimeError?: string;
   private runtimeErrorBeforeContextLoss?: string;
   private rendererFaulted = false;
+  private fatalErrorElement?: HTMLPreElement;
   private disposed = false;
 
   constructor(
@@ -42,6 +45,9 @@ export class WorldRuntimeGuard {
       this.rendererFaulted = true;
     }
     const message = `${subsystem}: ${this.formatError(error)}`;
+    if (subsystem === "frame") {
+      this.publishFatalFrameError(message);
+    }
     if (this.runtimeError === message) {
       return;
     }
@@ -59,6 +65,23 @@ export class WorldRuntimeGuard {
     }
     this.disposed = true;
     this.unbindEvents();
+    this.fatalErrorElement?.remove();
+    this.fatalErrorElement = undefined;
+  }
+
+  private publishFatalFrameError(message: string): void {
+    if (this.disposed) {
+      return;
+    }
+    let output = this.fatalErrorElement;
+    if (!output) {
+      output = document.createElement("pre");
+      output.className = "startup-error";
+      output.setAttribute("role", "alert");
+      document.body.appendChild(output);
+      this.fatalErrorElement = output;
+    }
+    output.textContent = `${FATAL_FRAME_PREFIX}\nReload the page to restart.\n\n${message}`;
   }
 
   private unbindEvents(): void {
