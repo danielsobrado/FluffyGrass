@@ -13,6 +13,7 @@ import {
 
 type GrowthMode = "natural" | "moss" | "lichen";
 
+const MAX_STONE_BUILD_PASSES = 512;
 const params = new URLSearchParams(window.location.search);
 
 function readNumberParam(
@@ -240,10 +241,15 @@ let stones = new WorldStoneSystem(scene, stoneField, config, false, false);
 const focus = new THREE.Vector3(focusX, 0, focusZ);
 
 function drainStoneBuild(system: WorldStoneSystem): void {
-  system.update(focus, Number.POSITIVE_INFINITY);
-  for (let pass = 0; pass < 400; pass += 1) {
+  for (let pass = 0; pass < MAX_STONE_BUILD_PASSES; pass += 1) {
     system.update(focus, Number.POSITIVE_INFINITY);
+    if (system.getDiagnostics().queuedChunks === 0) {
+      return;
+    }
   }
+  throw new Error(
+    `Stone build did not drain within ${MAX_STONE_BUILD_PASSES} passes.`,
+  );
 }
 
 function refreshDiagnostics(): void {
