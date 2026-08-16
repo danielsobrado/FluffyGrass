@@ -140,6 +140,12 @@ try {
     "Fly camera bounds must stay owned by FlyWorldController, not WorldApp.",
   );
   assert(
+    /if \(!this\.minimap\.isOpen\(\)\) \{[\s\S]*?this\.controls\.update\(deltaSeconds\);[\s\S]*?\}/.test(
+      app,
+    ),
+    "World controls must not advance while the minimap modal is open.",
+  );
+  assert(
     fly.includes("spawnEyeHeight") && fly.includes("mountainHeight"),
     "FlyWorldController must own its ground clearance and altitude ceiling.",
   );
