@@ -1,6 +1,7 @@
 import {
   selectPathDistance,
   selectStoneVergePath,
+  stoneVergeInsideSourceNeighborhood,
   STONE_PATH_DISTANCE_PLATEAU,
 } from "./StonePathPlacement";
 
@@ -64,5 +65,14 @@ export function verifyStonePathPlacement(): string {
     "Selected path channel read the wrong distance component.",
   );
 
-  return "main/branch verge selection";
+  assert(
+    stoneVergeInsideSourceNeighborhood(8, 8, 31.9, -15.9, 16),
+    "Immediate-neighbor verge root was rejected.",
+  );
+  assert(
+    !stoneVergeInsideSourceNeighborhood(8, 8, 32, 8, 16),
+    "Two-cells-away verge root was accepted.",
+  );
+
+  return "main/branch verge selection + source bounds";
 }
