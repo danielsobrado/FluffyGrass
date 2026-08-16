@@ -19,31 +19,49 @@ const sky = read("src/world/sky/WorldSky.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 
 assert(
-  sky.includes("private environmentTarget?: THREE.WebGLRenderTarget") &&
-    sky.includes("this.environmentTarget = this.pmrem.fromScene") &&
-    sky.includes("this.scene.environment = this.environmentTarget.texture") &&
-    sky.includes("this.environmentTarget?.dispose()") &&
+  sky.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
+    sky.includes("private environmentTarget?: THREE.WebGLRenderTarget") &&
+    sky.includes("environmentTarget = pmrem.fromScene") &&
+    sky.includes("this.environmentTarget = environmentTarget") &&
+    sky.includes("this.scene.environment = environmentTarget.texture") &&
     !sky.includes("environmentTexture?.dispose()"),
   "The PMREM output must stay owned as a WebGLRenderTarget and be disposed through the target lifecycle.",
 );
 assert(
-  sky.includes("let bakeMaterial: THREE.ShaderMaterial | undefined") &&
-    sky.includes("} catch (error) {") &&
+  sky.includes("this.mesh = createSkyMesh(this.scene)") &&
+    sky.includes("function createSkyMesh(") &&
+    sky.includes("let material: THREE.ShaderMaterial | undefined") &&
+    sky.includes("let geometry: THREE.SphereGeometry | undefined") &&
+    sky.includes("let mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> | undefined") &&
+    sky.includes("Sky construction cleanup failed.") &&
+    /catch \(error\) \{[\s\S]*?disposeResources\(\[[\s\S]*?mesh\?\.removeFromParent\(\)[\s\S]*?geometry,[\s\S]*?material,[\s\S]*?\]\);[\s\S]*?throw error;/.test(
+      sky,
+    ),
+  "Sky dome construction must roll back unpublished/published mesh, geometry, and material before rethrowing the original setup error.",
+);
+assert(
+  sky.includes("private initializeEnvironment(renderer: THREE.WebGLRenderer)") &&
+    sky.includes("let environmentTarget: THREE.WebGLRenderTarget | undefined") &&
+    sky.includes("let pmrem: THREE.PMREMGenerator | undefined") &&
     sky.includes("Sky environment bake unavailable; continuing without IBL.") &&
-    sky.includes("this.environmentTarget = undefined") &&
-    sky.includes("this.pmrem = undefined") &&
-    sky.includes("} finally {") &&
-    sky.includes("bakeMaterial?.dispose()"),
-  "A failed desktop PMREM bake must release optional GPU resources and keep the sky dome available.",
+    sky.includes("Sky environment cleanup failed.") &&
+    sky.includes("Sky bake material cleanup failed.") &&
+    sky.includes("disposeResources([environmentTarget, pmrem])") &&
+    sky.includes("bakeMaterial.dispose()"),
+  "A failed desktop PMREM bake must release optional GPU resources without cleanup failures escaping the fail-soft IBL boundary.",
 );
 assert(
   sky.includes("private disposed = false") &&
     /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true/.test(
       sky,
     ) &&
-    sky.includes("this.scene.environment === this.environmentTarget.texture") &&
-    sky.includes("this.pmrem = undefined"),
-  "Sky teardown must be idempotent and clear only the environment texture it still owns.",
+    sky.includes("this.scene.environment === environmentTarget.texture") &&
+    sky.includes("this.environmentTarget = undefined") &&
+    sky.includes("this.pmrem = undefined") &&
+    sky.includes("{ dispose: () => this.mesh.removeFromParent() }") &&
+    sky.includes("this.mesh.geometry") &&
+    sky.includes("this.mesh.material"),
+  "Sky teardown must be idempotent, clear only the environment texture it still owns, and attempt every dome/IBL cleanup.",
 );
 assert(
   environment.includes("private disposed = false") &&
