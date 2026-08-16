@@ -16,9 +16,9 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 const CONFIG = Object.freeze({
-  branch: process.env.GITHUB_PAGES_BRANCH ?? "gh-pages",
-  sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main",
-  remote: process.env.GITHUB_PAGES_REMOTE ?? "origin",
+  branch: "gh-pages",
+  sourceBranch: "main",
+  remote: "origin",
   distDirectory: resolve(REPOSITORY_ROOT, "dist"),
 });
 
