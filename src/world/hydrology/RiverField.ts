@@ -204,15 +204,15 @@ export class RiverField {
     height: number,
     target: RiverSample,
   ): RiverSample {
+    if (height >= this.config.riverMaxAltitude) {
+      return clearRiverSample(target);
+    }
     const lowerIndex = Math.floor(z / this.config.riverSpacing);
     this.sampleLane(lowerIndex, x, z, this.laneA);
     this.sampleLane(lowerIndex + 1, x, z, this.laneB);
     const lane =
       this.laneA.distance <= this.laneB.distance ? this.laneA : this.laneB;
-    if (
-      height >= this.config.riverMaxAltitude ||
-      lane.distance > this.maximumInfluenceHalfWidth
-    ) {
+    if (lane.distance > this.maximumInfluenceHalfWidth) {
       return clearRiverSample(target);
     }
     this.resolveSelectedLane(lane, height, target);
