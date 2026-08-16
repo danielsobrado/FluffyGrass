@@ -54,6 +54,19 @@ export function createWorldVisualPoses(
     look("g10-water-edge", locations.waterEdge, 6.5, 2.1, 0.7, 0.2),
     look("g10-path-edge", locations.pathEdge, 5.5, 2, 0.8, -0.15),
     look("g10-rocky", locations.rocky, 6, 2.2, 0.4, 0.75),
+    // Stone geology needs its own poses: `g10-rocky` follows ecology rockiness,
+    // which is not where the macro lattice actually puts formations, so it
+    // routinely frames empty meadow. Three ranges read composition, grounding,
+    // and silhouette against the sky respectively.
+    // Steep three-quarter angles on purpose. A formation sits on whatever slope
+    // the geology put it on, and an eye-height camera 9 m away simply looks over
+    // the crest into the distance — every shallow framing tried here missed the
+    // stones entirely. A camera above the formation cannot be occluded by the
+    // ground the formation stands on.
+    look("s0-formation", locations.stoneFormation, 8, 6, 0.72, 0.5),
+    look("s0-formation-close", locations.stoneFormation, 4.5, 3.4, 0.85, 0.3),
+    look("s0-formation-wide", locations.stoneFormation, 16, 12, 0.6, 0.7),
+    alongSun("s0-formation-backlight", locations.stoneFormation, true, 7.5, 5.5),
     look("g10-slope", locations.slope, 8, 2.6, -0.55, 0.7),
     look("g10-dry", locations.dry, 7, 2.3, -0.8, 0.25),
     look("g10-steppe", locations.steppe, 8, 2.4, 0.35, 0.8),

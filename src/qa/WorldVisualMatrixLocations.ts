@@ -28,6 +28,13 @@ export interface WorldVisualPoint {
   slope: number;
   pathMask: number;
   stoneClearance: number;
+  /**
+   * Clearance re-probed with a wide radius. Plain `stoneClearance` only reads
+   * below 1 directly under a footprint, and footprints are metres across while
+   * this search steps 16 m — so no pose could ever be aimed at a stone
+   * formation, and the stone plan's visual review had nothing to look at.
+   */
+  stoneVicinity: number;
   waterProximity: number;
   biomeIndex: number;
   riverMorphology: number;
@@ -40,6 +47,7 @@ export interface WorldVisualLocations {
   waterEdge: WorldVisualPoint;
   pathEdge: WorldVisualPoint;
   rocky: WorldVisualPoint;
+  stoneFormation: WorldVisualPoint;
   slope: WorldVisualPoint;
   dry: WorldVisualPoint;
   steppe: WorldVisualPoint;
@@ -60,6 +68,20 @@ export interface WorldVisualLocations {
 }
 
 const SEARCH_RADIUS = 480;
+/**
+ * Wide enough that a 16 m search step cannot step over a formation, and small
+ * enough that neighbouring clusters do not merge into one indistinct blob.
+ */
+const STONE_VICINITY_PROBE_RADIUS = 9;
+/**
+ * Covers the coarse grid's worst-case miss, stepped fine enough to hit a
+ * footprint. A clearing disc is only about a metre across for a mid-sized
+ * stone, so a 2 m step walks straight over most of them and the refinement
+ * finds nothing.
+ */
+const STONE_REFINE_SPAN = 14;
+const STONE_REFINE_STEP = 0.75;
+
 const SEARCH_STEP = 16;
 const SUN_HORIZONTAL = Math.hypot(WORLD_SUN_DIRECTION[0], WORLD_SUN_DIRECTION[2]);
 export const WORLD_SUN_XZ = {
@@ -87,6 +109,7 @@ export async function findWorldVisualLocations(
     waterEdge: undefined,
     pathEdge: undefined,
     rocky: undefined,
+    stoneFormation: undefined,
     slope: undefined,
     dry: undefined,
     steppe: undefined,
@@ -113,6 +136,7 @@ export async function findWorldVisualLocations(
       consider(best, "waterEdge", point, waterEdgeScore(point));
       consider(best, "pathEdge", point, pathScore(point));
       consider(best, "rocky", point, rockyScore(point));
+      consider(best, "stoneFormation", point, stoneFormationScore(point));
       consider(best, "slope", point, slopeScore(point));
       consider(best, "dry", point, dryScore(point));
       consider(best, "steppe", point, steppeScore(point));
@@ -135,12 +159,16 @@ export async function findWorldVisualLocations(
   }
 
   const origin = samplePoint(field, originX, originZ, hydrology);
+  const stoneFormation = best.stoneFormation
+    ? refineStoneFormation(field, best.stoneFormation.point, hydrology)
+    : undefined;
   return {
     meadow: best.meadow?.point ?? origin,
     waterEdge:
       best.waterEdge?.point ?? best.wetBank?.point ?? best.shore?.point ?? origin,
     pathEdge: best.pathEdge?.point ?? origin,
     rocky: best.rocky?.point ?? origin,
+    stoneFormation: stoneFormation ?? best.rocky?.point ?? origin,
     slope: best.slope?.point ?? origin,
     dry: best.dry?.point ?? best.steppe?.point ?? origin,
     steppe: best.steppe?.point ?? best.dry?.point ?? origin,
@@ -207,12 +235,57 @@ function samplePoint(
     slope: landform.slope,
     pathMask: field.samplePathGrassMask(x, z, y),
     stoneClearance: sampleStoneGrassClearance(x, z),
+    stoneVicinity: sampleStoneGrassClearance(x, z, STONE_VICINITY_PROBE_RADIUS),
     waterProximity: hydrology.waterProximity,
     biomeIndex: pickGrassBiomeIndex(x, z, biome),
     riverMorphology: hydrology.riverMorphology,
     riverBend: hydrology.riverBend,
     riverLateral: hydrology.riverLateral,
   };
+}
+
+/**
+ * The coarse pass can only say "a formation is within the probe radius", which
+ * on a 16 m grid leaves the winning point up to ~11 m off the stones — far
+ * enough that a 9 m pose frames the meadow beside them. Re-probe at 2 m with no
+ * extra radius, so the peak sits on a footprint and the pose lands on the rock.
+ */
+function refineStoneFormation(
+  field: TerrainField,
+  coarse: WorldVisualPoint,
+  hydrology: HydrologySample,
+): WorldVisualPoint {
+  let bestPoint = coarse;
+  let bestScore = 0;
+  let bestX = coarse.x;
+  let bestZ = coarse.z;
+  for (
+    let z = coarse.z - STONE_REFINE_SPAN;
+    z <= coarse.z + STONE_REFINE_SPAN;
+    z += STONE_REFINE_STEP
+  ) {
+    for (
+      let x = coarse.x - STONE_REFINE_SPAN;
+      x <= coarse.x + STONE_REFINE_SPAN;
+      x += STONE_REFINE_STEP
+    ) {
+      // Standing on a footprint decides it; how much other stone is nearby
+      // breaks ties, so the pose settles on a cluster's anchor rather than on
+      // whichever lone verge pebble the coarse pass happened to sit beside.
+      const score =
+        (1 - sampleStoneGrassClearance(x, z)) +
+        (1 - sampleStoneGrassClearance(x, z, STONE_VICINITY_PROBE_RADIUS)) * 0.5;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = x;
+        bestZ = z;
+      }
+    }
+  }
+  if (bestScore > 0) {
+    bestPoint = samplePoint(field, bestX, bestZ, hydrology);
+  }
+  return bestPoint;
 }
 
 function consider(
@@ -253,6 +326,18 @@ function pathScore(point: WorldVisualPoint): number {
 function rockyScore(point: WorldVisualPoint): number {
   if (point.waterCoverage > 0.2) return 0;
   return point.rockiness * 0.65 + (1 - point.stoneClearance) * 0.35;
+}
+
+/**
+ * Aims a pose at a real stone formation. Ranked by how much clearing stone is
+ * within the probe radius, so the anchor of a composed cluster wins over a lone
+ * verge pebble, and grass-free ground is preferred so the stones are not buried.
+ */
+function stoneFormationScore(point: WorldVisualPoint): number {
+  if (point.waterCoverage > 0.15 || point.stoneVicinity >= 1) {
+    return 0;
+  }
+  return (1 - point.stoneVicinity) * (0.7 + point.rockiness * 0.3);
 }
 
 function slopeScore(point: WorldVisualPoint): number {
