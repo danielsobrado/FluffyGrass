@@ -64,7 +64,6 @@ void main() {
 export class WorldSky {
   private readonly mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private environmentTarget?: THREE.WebGLRenderTarget;
-  private pmrem?: THREE.PMREMGenerator;
   private disposed = false;
 
   constructor(
@@ -87,9 +86,7 @@ export class WorldSky {
     }
     this.disposed = true;
     const environmentTarget = this.environmentTarget;
-    const pmrem = this.pmrem;
     this.environmentTarget = undefined;
-    this.pmrem = undefined;
     if (
       environmentTarget &&
       this.scene.environment === environmentTarget.texture
@@ -101,7 +98,6 @@ export class WorldSky {
       this.mesh.geometry,
       this.mesh.material,
       environmentTarget,
-      pmrem,
     ]);
   }
 
@@ -118,7 +114,6 @@ export class WorldSky {
       environmentTarget = pmrem.fromScene(bakeScene, 0, 0.1, SKY_RADIUS);
       this.scene.environment = environmentTarget.texture;
       this.environmentTarget = environmentTarget;
-      this.pmrem = pmrem;
     } catch (error) {
       if (
         environmentTarget &&
@@ -127,7 +122,7 @@ export class WorldSky {
         this.scene.environment = null;
       }
       try {
-        disposeResources([environmentTarget, pmrem]);
+        disposeResources([environmentTarget]);
       } catch (cleanupError) {
         console.warn(
           "[Drusniel World] Sky environment cleanup failed.",
@@ -145,6 +140,16 @@ export class WorldSky {
         } catch (cleanupError) {
           console.warn(
             "[Drusniel World] Sky bake material cleanup failed.",
+            cleanupError,
+          );
+        }
+      }
+      if (pmrem) {
+        try {
+          pmrem.dispose();
+        } catch (cleanupError) {
+          console.warn(
+            "[Drusniel World] Sky PMREM generator cleanup failed.",
             cleanupError,
           );
         }
