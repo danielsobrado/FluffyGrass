@@ -375,6 +375,10 @@ class GrassTrailField {
       this.resetPendingFrame();
       return;
     }
+    if (renderer.getContext().isContextLost()) {
+      this.resetPendingFrame();
+      return;
+    }
     if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
       this.resetPendingFrame();
       return;
