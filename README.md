@@ -304,7 +304,7 @@ When adding a world configuration value:
 
 Requirements:
 
-- Node.js 22.20+ LTS or Node.js 24 LTS with npm. `.nvmrc` pins Node.js 24 for local development and production builds.
+- Node.js 22.23.2+ on the 22.x LTS line, or Node.js 24.18.1+ on the 24.x LTS line, with npm. `.nvmrc` pins Node.js 24.18.1 for local development and production builds.
 - A browser with WebGL support.
 
 Install and start the development server:
@@ -322,21 +322,17 @@ npm run build
 
 The build command runs:
 
-1. Application TypeScript compilation.
-2. Stone-tool TypeScript compilation.
-3. Repository production-policy verification, including the no-GitHub-Actions rule.
-4. Runtime lifecycle and safety verification.
-5. Architecture responsibility-boundary verification.
-6. Shipped world, grass, and runtime configuration contract verification.
-7. Grass LOD continuity verification.
-8. Grass blade-shape continuity verification.
-9. Grass color-parity verification.
-10. Grass performance-envelope verification.
-11. Grass placement verification.
-12. Far-impostor subpatch verification.
-13. Character motion verification.
-14. Procedural stone verification.
-15. Vite production bundling.
+1. The patched-Node runtime security gate.
+2. Application TypeScript compilation.
+3. Stone-tool TypeScript compilation.
+4. Repository production-policy verification, including the no-GitHub-Actions rule.
+5. Runtime lifecycle and safety verification.
+6. Architecture responsibility-boundary verification.
+7. Shipped world, grass, and runtime configuration contract verification.
+8. Grass LOD, blade-shape, color, streaming, placement, and performance verification.
+9. Character, actor-rig, navigation, terrain, hydrology, water, ecology, scenic, and stone verification.
+10. Vite production bundling with source maps disabled.
+11. Generated GitHub Pages artifact verification, including relative paths, CSP/referrer policy, byte-identical public/legal assets, and source-map rejection.
 
 Preview the generated build:
 
@@ -355,14 +351,13 @@ Configure GitHub Pages:
 3. Select the `gh-pages` branch.
 4. Select the `/ (root)` folder.
 
-Publish from a clean, synchronized `main` checkout:
+Publish from a clean, synchronized `main` checkout using the single hardened deployment entry point:
 
 ```bash
-npm ci
 npm run deploy:pages
 ```
 
-The deployment script refuses to publish if the working tree is dirty, the current branch is not the configured source branch, or local source HEAD differs from the remote source branch. It then builds the application, copies `dist/` into a temporary Git worktree, commits the generated site, and pushes it to `gh-pages`.
+The deployment script first rejects unsupported or unpatched Node runtimes. It then requires a clean `main` checkout that exactly matches remote `main`, installs the committed dependency graph with `npm ci`, rejects high/critical npm audit findings, runs the complete production build and generated-site verification, rechecks source state, copies `dist/` into a temporary Git worktree, commits the generated site, rechecks source state again, and pushes it to `gh-pages` without force.
 
 Optional environment variables:
 
