@@ -95,6 +95,20 @@ function validateControlValue(spec: ControlSpec, raw: string): number {
   return value;
 }
 
+function downloadYaml(source: string): void {
+  const url = URL.createObjectURL(
+    new Blob([source], { type: "application/yaml;charset=utf-8" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "stone-cluster-tuning.yaml";
+  anchor.hidden = true;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function readStoneClusterQueryOverrides(
   params: URLSearchParams,
 ): Partial<Pick<WorldConfig, StoneClusterTuningKey>> {
@@ -315,19 +329,22 @@ export class StoneClusterTuningMenu {
   };
 
   private readonly exportYaml = async (): Promise<void> => {
-    const block = STONE_CLUSTER_QUERY_KEYS.map(
+    const yaml = `${STONE_CLUSTER_QUERY_KEYS.map(
       (key) => `${key}: ${this.current[key]}`,
-    ).join("\n");
+    ).join("\n")}\n`;
+    let copied = false;
     try {
-      await navigator.clipboard.writeText(`${block}\n`);
-      this.setStatus("YAML copied");
+      await navigator.clipboard.writeText(yaml);
+      copied = true;
     } catch {
-      this.setStatus(block);
+      copied = false;
     }
+    downloadYaml(yaml);
+    this.setStatus(copied ? "YAML copied + downloaded" : "YAML downloaded");
   };
 
   private readonly copyProbeUrl = async (): Promise<void> => {
-    const url = this.probeUrl(this.current);
+    const url = new URL(this.probeUrl(this.current), window.location.href).toString();
     try {
       await navigator.clipboard.writeText(url);
       this.setStatus("Probe URL copied");
