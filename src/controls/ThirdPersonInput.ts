@@ -47,9 +47,14 @@ export class ThirdPersonInput {
     private readonly config: WorldConfig,
   ) {
     this.previousTouchAction = canvas.style.touchAction;
-    this.bindEvents();
-    if (profile.compact) {
-      this.createMobileControls();
+    try {
+      this.bindEvents();
+      if (profile.compact) {
+        this.createMobileControls();
+      }
+    } catch (error) {
+      this.dispose();
+      throw error;
     }
   }
 
