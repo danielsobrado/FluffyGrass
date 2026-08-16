@@ -37,3 +37,4 @@ tools/trail-probe/
 
 # Local visual QA captures are generated artifacts, not source assets.
 .shots/
+.tmp-screenshots/
