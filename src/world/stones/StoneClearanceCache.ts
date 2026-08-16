@@ -142,6 +142,10 @@ export class StoneClearanceCache {
     cellZ: number,
     marginCells: number,
   ): StoneClearanceCandidate[] {
+    if (!Number.isFinite(cellX) || !Number.isFinite(cellZ)) {
+      throw new Error("Stone clearance coordinates must be finite numbers.");
+    }
+
     const cellSize = this.config.stoneCellSize;
     const chunkSize = this.config.chunkSize;
     const minimumX = (cellX - marginCells) * cellSize;
