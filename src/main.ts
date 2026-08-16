@@ -76,22 +76,59 @@ async function bootstrap(): Promise<void> {
   let actorProof: Disposable | undefined;
   let animationHud: Disposable | undefined;
   let visualMatrix: Disposable | undefined;
+  let disposed = false;
+
+  const disposeRuntime = (): void => {
+    disposeRuntimeSafely(
+      app,
+      uiController,
+      diagnostics,
+      actorProof,
+      animationHud,
+      visualMatrix,
+    );
+  };
+  const handlePageHide = (event: PageTransitionEvent): void => {
+    if (event.persisted || disposed) {
+      return;
+    }
+    disposed = true;
+    disposeRuntime();
+  };
+  window.addEventListener("pagehide", handlePageHide);
+
   try {
     uiController.initialize();
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
+      if (disposed) {
+        return;
+      }
       const island = new IslandApp(canvas, profile);
       app = island;
       await island.initialize();
+      if (disposed) {
+        return;
+      }
     } else {
       const { WorldApp } = await import("./app/WorldApp");
+      if (disposed) {
+        return;
+      }
       const world = await WorldApp.create(canvas, profile);
       app = world;
+      if (disposed) {
+        disposeRuntime();
+        return;
+      }
       const character = world.getThirdPersonCharacter();
       if (character && animationHudEnabled) {
         const { AnimationBlendingHud } = await import(
           "./runtime/AnimationBlendingHud"
         );
+        if (disposed) {
+          return;
+        }
         const hud = new AnimationBlendingHud();
         let detachObserver: (() => void) | undefined;
         animationHud = {
@@ -113,6 +150,9 @@ async function bootstrap(): Promise<void> {
         const { WorldDiagnosticsController } = await import(
           "./runtime/WorldDiagnosticsController"
         );
+        if (disposed) {
+          return;
+        }
         diagnostics = WorldDiagnosticsController.attach(world, {
           gpuTiming: params.get("gpuTiming") === "1",
           statsPanelEnabled: params.get("stats") === "1",
@@ -122,6 +162,9 @@ async function bootstrap(): Promise<void> {
         const { WorldVisualMatrixRunner } = await import(
           "./qa/WorldVisualMatrixRunner"
         );
+        if (disposed) {
+          return;
+        }
         const runner = new WorldVisualMatrixRunner(world.attachVisualMatrix());
         visualMatrix = runner;
         void runner.start();
@@ -130,35 +173,22 @@ async function bootstrap(): Promise<void> {
         const { ActorExtensibilityProof } = await import(
           "./dev/ActorExtensibilityProof"
         );
+        if (disposed) {
+          return;
+        }
         actorProof = ActorExtensibilityProof.attach(world);
       }
     }
 
+    if (disposed) {
+      disposeRuntime();
+      return;
+    }
     app.start();
-    let disposed = false;
-    window.addEventListener("pagehide", (event) => {
-      if (event.persisted || disposed) {
-        return;
-      }
-      disposed = true;
-      disposeRuntimeSafely(
-        app,
-        uiController,
-        diagnostics,
-        actorProof,
-        animationHud,
-        visualMatrix,
-      );
-    });
   } catch (error) {
-    disposeRuntimeSafely(
-      app,
-      uiController,
-      diagnostics,
-      actorProof,
-      animationHud,
-      visualMatrix,
-    );
+    disposed = true;
+    window.removeEventListener("pagehide", handlePageHide);
+    disposeRuntime();
     throw error;
   }
 }
