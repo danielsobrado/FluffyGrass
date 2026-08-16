@@ -17,12 +17,15 @@ interface WindowWithBakeResult extends Window {
 }
 
 export class GrassDevelopmentController {
+  private readonly abortController = new AbortController();
+  private bakePanel?: HTMLDivElement;
   private started = false;
+  private disposed = false;
 
   constructor(private readonly dependencies: GrassDevelopmentDependencies) {}
 
   async run(): Promise<void> {
-    if (this.started) {
+    if (this.started || this.disposed) {
       return;
     }
     this.started = true;
@@ -31,25 +34,42 @@ export class GrassDevelopmentController {
     if (params.get("grassImpostorBake") === "1") {
       await this.runImpostorBake();
     }
+    if (this.disposed) {
+      return;
+    }
 
     const qaMode = params.get("qa");
     if (qaMode === "grass" || qaMode === "grass-lod") {
       const qaConfig = this.dependencies.grassSystem.getQaConfig();
       const runner = new GrassQaRunner(this.dependencies);
-      await runner.run({
-        warmupSeconds: this.readNonNegativeNumber(
-          params,
-          "warmup",
-          qaConfig.warmupSeconds,
-        ),
-        sampleSeconds: this.readPositiveNumber(
-          params,
-          "duration",
-          qaConfig.sampleSeconds,
-        ),
-        download: params.get("download") === "1",
-      });
+      await runner.run(
+        {
+          warmupSeconds: this.readNonNegativeNumber(
+            params,
+            "warmup",
+            qaConfig.warmupSeconds,
+          ),
+          sampleSeconds: this.readPositiveNumber(
+            params,
+            "duration",
+            qaConfig.sampleSeconds,
+          ),
+          download: params.get("download") === "1",
+        },
+        this.abortController.signal,
+      );
     }
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.abortController.abort();
+    this.bakePanel?.remove();
+    this.bakePanel = undefined;
+    delete (window as WindowWithBakeResult).__FLUFFY_GRASS_IMPOSTOR_BAKE__;
   }
 
   private async runImpostorBake(): Promise<void> {
@@ -73,7 +93,14 @@ export class GrassDevelopmentController {
         bounds: target.bounds,
         config: this.dependencies.grassSystem.getImpostorConfig(),
       });
-      baker.createDownloadLinks(result, `grass-impostor-${target.patchId}`);
+      if (this.disposed) {
+        return;
+      }
+      this.bakePanel?.remove();
+      this.bakePanel = baker.createDownloadLinks(
+        result,
+        `grass-impostor-${target.patchId}`,
+      );
       (window as WindowWithBakeResult).__FLUFFY_GRASS_IMPOSTOR_BAKE__ =
         result.metadata;
       console.info("[FluffyGrass] Impostor bake complete", result.metadata);
