@@ -63,6 +63,7 @@ export class SnowflowCharacter {
     this.worldVelocity,
     this.groundNormal,
   );
+  private disposed = false;
 
   constructor(
     scene: THREE.Scene,
@@ -98,6 +99,9 @@ export class SnowflowCharacter {
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
+    if (this.disposed) {
+      return;
+    }
     const delta = THREE.MathUtils.clamp(
       Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
       0,
@@ -117,6 +121,9 @@ export class SnowflowCharacter {
   }
 
   reset(pose: SnowflowCharacterPose): void {
+    if (this.disposed) {
+      return;
+    }
     this.rig.root.position.copy(pose.position);
     this.rig.heading.rotation.y = pose.facing;
     this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true);
@@ -133,14 +140,18 @@ export class SnowflowCharacter {
   }
 
   dispose(): void {
-    this.runtime.dispose();
-    this.rig.rigInstance.dispose();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    disposeSafely("animation runtime", () => this.runtime.dispose());
+    disposeSafely("rig instance", () => this.rig.rigInstance.dispose());
     this.rig.root.removeFromParent();
     for (const geometry of this.rig.geometries) {
-      geometry.dispose();
+      disposeSafely("character geometry", () => geometry.dispose());
     }
     for (const material of this.rig.materials) {
-      material.dispose();
+      disposeSafely("character material", () => material.dispose());
     }
   }
 
@@ -157,7 +168,9 @@ export class SnowflowCharacter {
   }
 
   triggerRoll(): void {
-    this.profile.facts.rollStarted = true;
+    if (!this.disposed) {
+      this.profile.facts.rollStarted = true;
+    }
   }
 
   isRolling(): boolean {
@@ -165,6 +178,9 @@ export class SnowflowCharacter {
   }
 
   setLookTarget(target: THREE.Vector3 | null): void {
+    if (this.disposed) {
+      return;
+    }
     if (target === null) {
       this.profile.lookIk.clear();
     } else {
@@ -180,15 +196,21 @@ export class SnowflowCharacter {
   }
 
   setLookDirection(dirX: number, dirY: number, dirZ: number): void {
-    this.profile.lookIk.setLookDirection(dirX, dirY, dirZ);
+    if (!this.disposed) {
+      this.profile.lookIk.setLookDirection(dirX, dirY, dirZ);
+    }
   }
 
   clearLookTarget(): void {
-    this.profile.lookIk.clear();
+    if (!this.disposed) {
+      this.profile.lookIk.clear();
+    }
   }
 
   setAdditiveWeight(name: string, weight: number): void {
-    this.profile.additive.setWeight(name, weight);
+    if (!this.disposed) {
+      this.profile.additive.setWeight(name, weight);
+    }
   }
 
   getAdditiveWeight(name: string): number {
@@ -200,7 +222,9 @@ export class SnowflowCharacter {
     targetWeight: number,
     durationSeconds: number,
   ): void {
-    this.profile.additive.fadeTo(name, targetWeight, durationSeconds);
+    if (!this.disposed) {
+      this.profile.additive.fadeTo(name, targetWeight, durationSeconds);
+    }
   }
 
   getLocomotionBlendWeights() {
@@ -210,7 +234,9 @@ export class SnowflowCharacter {
   setExplicitLocomotionWeights(
     weights: { idle?: number; walk?: number; run?: number } | null,
   ): void {
-    this.profile.locomotion.setExplicitWeights(weights);
+    if (!this.disposed) {
+      this.profile.locomotion.setExplicitWeights(weights);
+    }
   }
 
   private syncAnimationInput(pose: SnowflowCharacterPose): void {
@@ -231,7 +257,9 @@ export class SnowflowCharacter {
     this.profile.facts.landed = pose.landed;
     this.profile.facts.landingImpact = pose.landingImpact;
     this.profile.facts.crouched = pose.crouched === true;
-    if (pose.rollStarted) {
+    if (this.profile.locomotion.isRolling()) {
+      this.profile.facts.rollStarted = false;
+    } else if (pose.rollStarted) {
       this.profile.facts.rollStarted = true;
     }
   }
@@ -257,5 +285,13 @@ export class SnowflowCharacter {
     }
     const blend = 1 - Math.exp(-9 * deltaSeconds);
     this.rig.slope.quaternion.slerp(this.desiredSlope, blend);
+  }
+}
+
+function disposeSafely(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] Snowflow ${label} cleanup failed.`, error);
   }
 }
