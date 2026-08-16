@@ -46,22 +46,32 @@ function verifyStoneSystemConstructionOwnership() {
     resolve(REPOSITORY_ROOT, "src/world/stones/WorldStoneSystem.ts"),
     "utf8",
   );
-  const setup = source.indexOf("applyStoneSurfaceShader(");
-  const registration = source.indexOf(
-    "this.clearanceRegistration = registerStoneClearanceField(",
+  const helper = source.indexOf("function createStoneRuntimeResources(");
+  const helperEnd = source.indexOf("function createGrainTexture()", helper);
+  if (helper < 0 || helperEnd <= helper) {
+    throw new Error(
+      "[stones] Unable to inspect transactional stone render-resource setup.",
+    );
+  }
+  const setup = source.slice(helper, helperEnd);
+  const shaderSetup = setup.indexOf("applyStoneSurfaceShader(");
+  const registration = setup.indexOf(
+    "clearanceRegistration = registerStoneClearanceField(",
   );
-  const rollback = source.indexOf("disposeResources([", registration);
+  const rollback = setup.indexOf("disposeResources([", registration);
   if (
-    setup < 0 ||
-    registration <= setup ||
+    !source.includes("const resources = createStoneRuntimeResources(") ||
+    shaderSetup < 0 ||
+    registration <= shaderSetup ||
     rollback <= registration ||
-    !source.includes("this.grainTexture,") ||
-    !source.includes("this.detailMaterial,") ||
-    !source.includes("this.coarseMaterial,") ||
-    !source.includes("Stone construction cleanup failed.")
+    !setup.includes("clearanceRegistration,") ||
+    !setup.includes("grainTexture,") ||
+    !setup.includes("detailMaterial,") ||
+    !setup.includes("coarseMaterial,") ||
+    !setup.includes("Stone construction cleanup failed.")
   ) {
     throw new Error(
-      "[stones] Stone clearance ownership must publish after local setup and failed setup must attempt every local render-resource cleanup.",
+      "[stones] Stone render resources and global clearance ownership must publish as one transaction and roll back every acquired resource on failure.",
     );
   }
 }
