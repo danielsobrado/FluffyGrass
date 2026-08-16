@@ -63,6 +63,9 @@ if (existsSync(WORKFLOW_DIRECTORY)) {
 const deployScript = readFileSync(DEPLOY_SCRIPT, "utf8");
 const lockedBuildInstall =
   'run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"])';
+const lockedDependencyAudit =
+  'run(npmCommand, ["audit", "--audit-level=high"])';
+const productionBuild = 'run(npmCommand, ["run", "build"])';
 if (deployScript.includes("ALLOW_DIRTY_DEPLOY")) {
   fail("Manual production deployment must never allow a dirty working tree.");
 }
@@ -75,9 +78,12 @@ if (
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
   !deployScript.includes(lockedBuildInstall) ||
-  !deployScript.includes('run(npmCommand, ["run", "build"])') ||
+  !deployScript.includes(lockedDependencyAudit) ||
+  !deployScript.includes(productionBuild) ||
   deployScript.indexOf(lockedBuildInstall) >
-    deployScript.indexOf('run(npmCommand, ["run", "build"])') ||
+    deployScript.indexOf(lockedDependencyAudit) ||
+  deployScript.indexOf(lockedDependencyAudit) >
+    deployScript.indexOf(productionBuild) ||
   !deployScript.includes('existsSync(join(CONFIG.distDirectory, "index.html"))') ||
   !/function assertSourceStillCurrent\(expectedHead\) \{[\s\S]*?const currentHead = assertRepositoryState\(\);[\s\S]*?currentHead !== expectedHead/.test(
     deployScript,
@@ -90,7 +96,7 @@ if (
   )
 ) {
   fail(
-    "Manual deployment must require a patched Node runtime, a clean synchronized source branch, reinstall the committed lockfile including build-time dev dependencies, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
+    "Manual deployment must require a patched Node runtime, a clean synchronized source branch, reinstall and audit the committed dependency graph, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
   );
 }
 
