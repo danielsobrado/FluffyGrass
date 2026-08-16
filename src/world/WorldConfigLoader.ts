@@ -1,5 +1,6 @@
 import { FlatConfig } from "../config/FlatConfig";
 import { FlatConfigValueReader } from "../config/FlatConfigValueReader";
+import { validateSpawnConfig } from "./SpawnConfigValidator";
 import type { WorldConfig } from "./WorldConfig";
 import { WORLD_CONFIG_SCHEMA } from "./WorldConfigSchema";
 import { validateWorldConfig } from "./WorldConfigValidator";
@@ -29,6 +30,7 @@ export class WorldConfigLoader {
 
     values.assertFullyConsumed();
     validateWorldConfig(config);
+    validateSpawnConfig(config);
     return Object.freeze(config);
   }
 }
