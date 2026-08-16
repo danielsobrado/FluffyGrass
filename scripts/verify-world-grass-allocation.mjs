@@ -29,6 +29,18 @@ const worldSource = readFileSync(
   resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
   "utf8",
 );
+const loaderSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/world/WorldConfigLoader.ts"),
+  "utf8",
+);
+assert(
+  loaderSource.includes(
+    'import { validateWorldGrassAllocationConfig } from "./WorldGrassAllocationValidator"',
+  ) &&
+    loaderSource.includes("validateWorldGrassAllocationConfig(config)"),
+  "Every production world config load must enforce the grass allocation ceilings.",
+);
+
 const server = await createServer({
   configFile: false,
   root: REPOSITORY_ROOT,
@@ -106,7 +118,7 @@ try {
   );
 
   console.log(
-    `[world-grass-allocation] Patch ${MAX_GRASS_SOURCE_BLADES_PER_PATCH}, batch ${MAX_GRASS_MID_TRIANGLES_PER_RENDER_BATCH}, near stack ${MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE} ceilings verified.`,
+    `[world-grass-allocation] Patch ${MAX_GRASS_SOURCE_BLADES_PER_PATCH}, batch ${MAX_GRASS_MID_TRIANGLES_PER_RENDER_BATCH}, near stack ${MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE} ceilings and loader integration verified.`,
   );
 } finally {
   await server.close();
