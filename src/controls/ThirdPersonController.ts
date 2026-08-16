@@ -35,6 +35,7 @@ export class ThirdPersonController implements WorldController {
   private readonly cameraForward = new THREE.Vector3();
   private readonly cameraRight = new THREE.Vector3();
   private readonly movement = new THREE.Vector3();
+  private readonly rollDirection = new THREE.Vector3(0, 0, 1);
   private readonly groundNormal = new THREE.Vector3(0, 1, 0);
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraPosition = new THREE.Vector3();
@@ -292,6 +293,7 @@ export class ThirdPersonController implements WorldController {
     this.velocity.set(0, 0, 0);
     this.animationVelocity.set(0, 0, 0);
     this.desiredVelocity.set(0, 0, 0);
+    this.rollDirection.set(Math.sin(facing), 0, Math.cos(facing));
     this.facing = facing;
     this.cameraYaw = facing;
     this.speed = 0;
@@ -368,33 +370,47 @@ export class ThirdPersonController implements WorldController {
       this.movement.normalize();
     }
 
-    if (this.input.consumeRoll() && this.grounded && !this.character.isRolling()) {
+    let rolling = this.character.isRolling();
+    if (this.input.consumeRoll() && this.grounded && !rolling) {
+      if (hasMovement) {
+        this.rollDirection.copy(this.movement);
+      } else {
+        this.rollDirection.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+      }
+      this.rollDirection.normalize();
       this.character.triggerRoll();
-      const rollDirX = hasMovement ? this.movement.x : Math.sin(this.facing);
-      const rollDirZ = hasMovement ? this.movement.z : Math.cos(this.facing);
-      this.velocity.set(
-        rollDirX * this.config.characterRunSpeed * 1.25,
-        0,
-        rollDirZ * this.config.characterRunSpeed * 1.25,
-      );
+      rolling = true;
+      this.velocity
+        .copy(this.rollDirection)
+        .multiplyScalar(
+          this.config.characterRunSpeed *
+            this.config.characterRollInitialSpeedMultiplier,
+        );
     }
 
     const isCrouched = this.input.isCrouched();
-    const targetSpeed = this.character.isRolling()
-      ? this.config.characterRunSpeed * 1.15
-      : hasMovement
+    if (rolling) {
+      this.desiredVelocity
+        .copy(this.rollDirection)
+        .multiplyScalar(
+          this.config.characterRunSpeed *
+            this.config.characterRollSustainSpeedMultiplier,
+        );
+    } else {
+      const targetSpeed = hasMovement
         ? isCrouched
           ? this.config.characterWalkSpeed * 0.6
           : this.input.isSprinting()
             ? this.config.characterRunSpeed
             : this.config.characterWalkSpeed
         : 0;
-    this.desiredVelocity.copy(this.movement).multiplyScalar(targetSpeed);
+      this.desiredVelocity.copy(this.movement).multiplyScalar(targetSpeed);
+    }
     this.velocityDelta.subVectors(this.desiredVelocity, this.velocity);
     this.velocityDelta.y = 0;
     const controlScale = this.grounded ? 1 : this.config.characterAirControl;
     const maxVelocityChange =
-      (hasMovement
+      (rolling || hasMovement
         ? this.config.characterAcceleration
         : this.config.characterDeceleration) *
       controlScale *
