@@ -58,6 +58,15 @@ assert(
   "Deer decisions and villager routes must use the complete active profile counts for spacing.",
 );
 assert(
+  faunaSystem.includes("memberKey?: string") &&
+    faunaSystem.includes("const occupied = new Set<string>()") &&
+    faunaSystem.includes("occupied.add(slot.memberKey)") &&
+    faunaSystem.includes("!occupied.has(faunaMemberKey(member))") &&
+    faunaSystem.includes("slot.memberKey = faunaMemberKey(member)") &&
+    faunaSystem.includes("slot.memberKey = undefined"),
+  "A deterministic herd member must be owned by at most one live deer slot across roster rebuilds.",
+);
+assert(
   faunaField.includes("const HASH_UNIT = 1 / 4294967296;") &&
     treeField.includes("const HASH_UNIT = 1 / 4294967296;") &&
     !faunaField.includes("4294967295") &&
