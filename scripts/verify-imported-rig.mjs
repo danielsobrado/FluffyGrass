@@ -39,8 +39,6 @@ function readGlbJson(path) {
 const binding = read("src/character/gltf/KayKitHumanoidBinding.ts");
 const loader = read("src/character/gltf/GltfCharacterLoader.ts");
 
-// Bones the binding resolves with requireIndex must exist in every shipped
-// model, or the actor throws at load time in front of the player.
 const REQUIRED_BONES = [
   "root",
   "hips",
@@ -59,8 +57,6 @@ const REQUIRED_BONES = [
   "lowerleg.r",
   "foot.r",
 ];
-// Chain segments, as root -> mid -> end. Each hop must be a direct parent link
-// with a positive rest length or the shared solver cannot use it.
 const CHAINS = [
   ["upperleg.l", "lowerleg.l", "foot.l"],
   ["upperleg.r", "lowerleg.r", "foot.r"],
@@ -78,8 +74,6 @@ for (const model of models) {
   const path = resolve(MODEL_DIRECTORY, model);
   const { json, bytes } = readGlbJson(path);
 
-  // The preparation step exists so the shipped asset carries neither the
-  // pack's baked clips nor a per-model copy of the shared atlas.
   assert(
     (json.animations ?? []).length === 0,
     `${model} still carries ${(json.animations ?? []).length} baked animation clips; run scripts/prepare-character-assets.mjs.`,
@@ -136,10 +130,6 @@ for (const model of models) {
         length > 1e-6,
         `${model}: segment to ${childName} has no length, so it cannot be solved.`,
       );
-      // The imported rigs run their limbs along +Y where this project's
-      // procedural rigs run theirs along -Y. Chain axes are derived from the
-      // bind offsets precisely so neither convention needs a special case; if
-      // that ever stops holding, the derivation is what to fix.
       assert(
         translation[1] / length > 0.9,
         `${model}: segment to ${childName} no longer runs along +Y, so the imported axis assumption in the binding is stale.`,
@@ -148,8 +138,6 @@ for (const model of models) {
     }
   }
 
-  // Control rigs ship inside the joint list and must be excluded by the
-  // binding rather than posed.
   const controlBones = [...nameOf.keys()].filter(
     (name) =>
       name.includes("ik") ||
@@ -173,19 +161,38 @@ assert(
   "Imported characters are animated procedurally; the loader must not reach for baked clips.",
 );
 assert(
-  loader.includes("sharedTextures") && loader.includes("flipY = false"),
-  "The pack atlas must be shared across characters and sampled with the glTF orientation.",
+  loader.includes('import { APP_VERSION } from "../../version"') &&
+    loader.includes("const GLTF_ASSET_TIMEOUT_MS = 15_000") &&
+    loader.includes("function revisionedAssetUrl(url: string): string") &&
+    loader.includes("encodeURIComponent(APP_VERSION)") &&
+    loader.includes("function loadGltfWithTimeout(") &&
+    loader.includes("function loadTextureWithTimeout(") &&
+    loader.includes("window.setTimeout(() =>") &&
+    loader.includes("request timed out after ${GLTF_ASSET_TIMEOUT_MS} ms") &&
+    loader.includes("disposeGltfSceneSafely(gltf.scene, `late GLTF ${url}`)") &&
+    loader.includes("disposeResourceSafely(texture, `late texture ${url}`)"),
+  "Published imported-character GLB and atlas requests must be revisioned, bounded, and clean late arrivals.",
+);
+assert(
+  loader.includes("sharedTextures") &&
+    loader.includes("const revisionedUrl = revisionedAssetUrl(url)") &&
+    loader.includes("loadTextureWithTimeout(revisionedUrl)") &&
+    loader.includes("flipY = false"),
+  "The pack atlas must be revisioned, shared across characters, and sampled with the glTF orientation.",
 );
 assert(
   loader.includes("request.catch((error) =>") &&
-    loader.includes("sharedTextures.get(url) === pending") &&
-    loader.includes("sharedTextures.delete(url)"),
+    loader.includes("sharedTextures.get(revisionedUrl) === pending") &&
+    loader.includes("sharedTextures.delete(revisionedUrl)"),
   "A failed shared atlas request must leave the cache retryable instead of pinning a rejected promise forever.",
 );
 assert(
-  /const gltf = await loader\(\)\.loadAsync\(url\);[\s\S]*?try \{[\s\S]*?return \{[\s\S]*?skinnedMeshes,[\s\S]*?\};[\s\S]*?\} catch \(error\) \{[\s\S]*?disposeGltfScene\(gltf\.scene\)/.test(
-    loader,
+  loader.includes(
+    "const gltf = await loadGltfWithTimeout(revisionedAssetUrl(url));",
   ) &&
+    /try \{[\s\S]*?return \{[\s\S]*?skinnedMeshes,[\s\S]*?\};[\s\S]*?\} catch \(error\) \{[\s\S]*?disposeGltfSceneSafely\(gltf\.scene, url\);[\s\S]*?throw error;/.test(
+      loader,
+    ) &&
     loader.includes("const skeletons = new Set<THREE.Skeleton>()") &&
     loader.includes("skeletons.add(skinned.skeleton)") &&
     loader.includes("disposeResources([") &&
@@ -196,5 +203,5 @@ assert(
 );
 
 console.log(
-  `[imported-rig] ${models.length} prepared characters verified: clips and imagery stripped, required bones present, ${checkedChains} chain segments direct and +Y aligned, control bones excluded.`,
+  `[imported-rig] ${models.length} prepared characters verified: clips/imagery stripped, revisioned bounded loads, required bones present, ${checkedChains} chain segments direct and +Y aligned, control bones excluded.`,
 );
