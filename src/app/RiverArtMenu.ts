@@ -2,7 +2,7 @@ import type { WorldController } from "../controls/WorldController";
 import {
   clearRiverDevelopmentOverrides,
   readRiverDevelopmentOverrides,
-  serializeWorldConfigYaml,
+  serializeRiverConfigYaml,
   writeRiverDevelopmentOverrides,
   type RiverDevelopmentOverrideKey,
   type RiverDevelopmentOverrides,
@@ -264,7 +264,7 @@ export class RiverArtMenu {
   };
 
   private readonly exportYaml = (event: MouseEvent): void => {
-    const yaml = serializeWorldConfigYaml(this.working);
+    const yaml = serializeRiverConfigYaml(this.working);
     const button = event.currentTarget as HTMLButtonElement;
     this.showExportStatus(button, "YAML downloaded");
     const clipboard = navigator.clipboard;
