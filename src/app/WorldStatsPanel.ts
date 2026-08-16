@@ -9,6 +9,7 @@ export async function attachWorldStatsPanel(
     const { default: StatsPanel } = await import("stats-gl");
     stats = new StatsPanel({ minimal: true });
     stats.init(renderer);
+    bindStatsLifetime(stats);
     document.body.appendChild(stats.dom);
     return stats;
   } catch (error) {
@@ -23,4 +24,25 @@ export async function attachWorldStatsPanel(
     console.warn("[Drusniel World] Optional stats panel unavailable.", error);
     return undefined;
   }
+}
+
+function bindStatsLifetime(stats: Stats): void {
+  const dispose = stats.dispose.bind(stats);
+  const removeDom = stats.dom.remove.bind(stats.dom);
+  let disposed = false;
+
+  stats.dispose = (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    try {
+      dispose();
+    } finally {
+      removeDom();
+    }
+  };
+  stats.dom.remove = (): void => {
+    stats.dispose();
+  };
 }
