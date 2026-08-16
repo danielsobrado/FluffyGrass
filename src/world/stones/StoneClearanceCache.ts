@@ -2,6 +2,7 @@ import type { WorldConfig } from "../WorldConfig";
 import type { StoneField, StoneInstance } from "./StoneField";
 
 const CACHE_LIMIT = 512;
+const EXPANDED_CACHE_LIMIT = 256;
 const CELL_KEY_MARGIN = 4;
 const EDGE_EPSILON = 1e-6;
 const CLEARANCE_INNER_SCALE = 0.72;
@@ -22,6 +23,12 @@ function smoothstep(value: number, minimum: number, maximum: number): number {
   return amount * amount * (3 - 2 * amount);
 }
 
+function trimOldest<K, V>(cache: Map<K, V>, limit: number): void {
+  if (cache.size < limit) return;
+  const oldestKey = cache.keys().next().value;
+  if (oldestKey !== undefined) cache.delete(oldestKey);
+}
+
 /**
  * Amortizes stone clearance across all grass blades sharing a stone cell.
  * The expensive deterministic placement walk runs once per neighborhood rather
@@ -29,6 +36,10 @@ function smoothstep(value: number, minimum: number, maximum: number): number {
  */
 export class StoneClearanceCache {
   private readonly neighborhoods = new Map<number, StoneClearanceCandidate[]>();
+  private readonly expandedNeighborhoods = new Map<
+    string,
+    StoneClearanceCandidate[]
+  >();
   private readonly chunkScratch: StoneInstance[] = [];
   private readonly cellKeyOffset: number;
   private readonly cellKeyStride: number;
@@ -47,9 +58,14 @@ export class StoneClearanceCache {
   }
 
   sample(x: number, z: number, extraRadius = 0): number {
-    const cellX = Math.floor(x / this.config.stoneCellSize);
-    const cellZ = Math.floor(z / this.config.stoneCellSize);
-    const candidates = this.getNeighborhood(cellX, cellZ);
+    if (!Number.isFinite(extraRadius) || extraRadius < 0) {
+      throw new Error("Stone clearance extraRadius must be a non-negative finite number.");
+    }
+    const cellSize = this.config.stoneCellSize;
+    const cellX = Math.floor(x / cellSize);
+    const cellZ = Math.floor(z / cellSize);
+    const marginCells = 1 + Math.ceil(extraRadius / cellSize);
+    const candidates = this.getNeighborhood(cellX, cellZ, marginCells);
     let mask = 1;
 
     if (extraRadius === 0) {
@@ -89,22 +105,44 @@ export class StoneClearanceCache {
 
   clear(): void {
     this.neighborhoods.clear();
+    this.expandedNeighborhoods.clear();
   }
 
   private getNeighborhood(
     cellX: number,
     cellZ: number,
+    marginCells: number,
   ): StoneClearanceCandidate[] {
-    const key = this.cellKey(cellX, cellZ);
-    const cached = this.neighborhoods.get(key);
-    if (cached) return cached;
+    const cellKey = this.cellKey(cellX, cellZ);
+    if (marginCells === 1) {
+      const cached = this.neighborhoods.get(cellKey);
+      if (cached) return cached;
+      const candidates = this.collectNeighborhood(cellX, cellZ, marginCells);
+      trimOldest(this.neighborhoods, CACHE_LIMIT);
+      this.neighborhoods.set(cellKey, candidates);
+      return candidates;
+    }
 
+    const expandedKey = `${cellKey}:${marginCells}`;
+    const cached = this.expandedNeighborhoods.get(expandedKey);
+    if (cached) return cached;
+    const candidates = this.collectNeighborhood(cellX, cellZ, marginCells);
+    trimOldest(this.expandedNeighborhoods, EXPANDED_CACHE_LIMIT);
+    this.expandedNeighborhoods.set(expandedKey, candidates);
+    return candidates;
+  }
+
+  private collectNeighborhood(
+    cellX: number,
+    cellZ: number,
+    marginCells: number,
+  ): StoneClearanceCandidate[] {
     const cellSize = this.config.stoneCellSize;
     const chunkSize = this.config.chunkSize;
-    const minimumX = (cellX - 1) * cellSize;
-    const minimumZ = (cellZ - 1) * cellSize;
-    const maximumX = (cellX + 2) * cellSize;
-    const maximumZ = (cellZ + 2) * cellSize;
+    const minimumX = (cellX - marginCells) * cellSize;
+    const minimumZ = (cellZ - marginCells) * cellSize;
+    const maximumX = (cellX + 1 + marginCells) * cellSize;
+    const maximumZ = (cellZ + 1 + marginCells) * cellSize;
     const firstChunkX = Math.floor(minimumX / chunkSize);
     const firstChunkZ = Math.floor(minimumZ / chunkSize);
     const lastChunkX = Math.floor((maximumX - EDGE_EPSILON) / chunkSize);
@@ -140,14 +178,6 @@ export class StoneClearanceCache {
         }
       }
     }
-
-    if (this.neighborhoods.size >= CACHE_LIMIT) {
-      const oldestKey = this.neighborhoods.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.neighborhoods.delete(oldestKey);
-      }
-    }
-    this.neighborhoods.set(key, candidates);
     return candidates;
   }
 
