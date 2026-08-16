@@ -217,10 +217,10 @@ function addMesh(
   geometry: THREE.BufferGeometry,
   material: THREE.Material,
 ): THREE.Mesh {
+  rig.geometries.push(geometry);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = SHADOW_CASTER;
   mesh.receiveShadow = SHADOW_RECEIVER;
   parent.add(mesh);
-  rig.geometries.push(geometry);
   return mesh;
 }
