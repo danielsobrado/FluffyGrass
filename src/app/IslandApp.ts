@@ -170,16 +170,23 @@ export class IslandApp {
     if (!this.running || this.disposed) {
       return;
     }
+    try {
+      const rawDeltaSeconds = this.clock.getDelta();
+      const deltaSeconds = THREE.MathUtils.clamp(
+        Number.isFinite(rawDeltaSeconds) ? rawDeltaSeconds : 0,
+        0,
+        ISLAND_MAX_DELTA_SECONDS,
+      );
+      this.controls.update();
+      this.grass.update(deltaSeconds, this.camera);
+      this.renderer.render(this.scene, this.camera);
+    } catch (error) {
+      this.running = false;
+      this.clock.stop();
+      console.error("[FluffyGrass] Island frame failed; render loop stopped.", error);
+      return;
+    }
     this.frameHandle = requestAnimationFrame(this.render);
-    const rawDeltaSeconds = this.clock.getDelta();
-    const deltaSeconds = THREE.MathUtils.clamp(
-      Number.isFinite(rawDeltaSeconds) ? rawDeltaSeconds : 0,
-      0,
-      ISLAND_MAX_DELTA_SECONDS,
-    );
-    this.controls.update();
-    this.grass.update(deltaSeconds, this.camera);
-    this.renderer.render(this.scene, this.camera);
   };
 
   private configureIsland(root: THREE.Object3D): THREE.Mesh {
@@ -222,27 +229,36 @@ export class IslandApp {
 
     const originalMaterials = new Set<THREE.Material>();
     let material: THREE.MeshPhongMaterial | undefined;
+    let materialAttached = false;
+    let originalsDisposed = false;
     try {
-      material = new THREE.MeshPhongMaterial({ color: 0x333333 });
+      const replacementMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+      material = replacementMaterial;
       root.scale.setScalar(MODEL_SCALE);
       root.position.y += 0.5;
       root.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           collectMaterials(child.material, originalMaterials);
-          child.material = material!;
+          child.material = replacementMaterial;
+          materialAttached = true;
           child.castShadow = this.profile.shadows;
         }
       });
       disposeMaterialResources(originalMaterials);
+      originalsDisposed = true;
       this.scene.add(root);
-      this.decorativeMaterial = material;
+      this.decorativeMaterial = replacementMaterial;
       this.decorativeRoot = root;
     } catch (error) {
       this.scene.remove(root);
       disposeObjectGeometry(root);
+      if (!originalsDisposed) {
+        disposeMaterialResources(originalMaterials);
+      }
       disposeObjectMaterials(root);
-      disposeMaterialResources(originalMaterials);
-      material?.dispose();
+      if (!materialAttached) {
+        material?.dispose();
+      }
       throw error;
     }
   }
