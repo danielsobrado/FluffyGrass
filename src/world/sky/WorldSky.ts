@@ -62,7 +62,7 @@ void main() {
  */
 export class WorldSky {
   private readonly mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
-  private environmentTexture?: THREE.Texture;
+  private environmentTarget?: THREE.WebGLRenderTarget;
   private readonly pmrem?: THREE.PMREMGenerator;
 
   constructor(
@@ -102,9 +102,13 @@ export class WorldSky {
     const bakeScene = new THREE.Scene();
     const bakeMesh = new THREE.Mesh(this.mesh.geometry, material.clone());
     bakeScene.add(bakeMesh);
-    const renderTarget = this.pmrem.fromScene(bakeScene, 0, 0.1, SKY_RADIUS);
-    this.environmentTexture = renderTarget.texture;
-    this.scene.environment = this.environmentTexture;
+    this.environmentTarget = this.pmrem.fromScene(
+      bakeScene,
+      0,
+      0.1,
+      SKY_RADIUS,
+    );
+    this.scene.environment = this.environmentTarget.texture;
     bakeMesh.material.dispose();
   }
 
@@ -113,7 +117,8 @@ export class WorldSky {
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
     this.scene.environment = null;
-    this.environmentTexture?.dispose();
+    this.environmentTarget?.dispose();
+    this.environmentTarget = undefined;
     this.pmrem?.dispose();
   }
 }
