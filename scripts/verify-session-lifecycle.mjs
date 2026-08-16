@@ -21,6 +21,11 @@ const statsPanel = read("src/app/WorldStatsPanel.ts");
 const visualMatrix = read("src/qa/WorldVisualMatrixRunner.ts");
 const metrics = read("src/qa/GrassQaMetrics.ts");
 const diagnostics = read("src/runtime/WorldDiagnosticsController.ts");
+const terrainStreamer = read("src/world/TerrainStreamer.ts");
+const terrainMaterial = read("src/world/TerrainMaterialController.ts");
+const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
+const waterBedMaterial = read("src/world/hydrology/WaterBedMaterialController.ts");
+const horizon = read("src/world/horizon/WorldHorizonShell.ts");
 const deerAssets = read("src/creatures/deer/DeerAssets.ts");
 const villagerAssets = read("src/character/npc/VillagerAssets.ts");
 
@@ -44,6 +49,50 @@ assert(
     world.includes('disposeConstructionSafely("Environment", () => environment?.dispose())') &&
     world.includes('disposeConstructionSafely("Renderer", () => this.renderer.dispose())'),
   "World construction must delay the reveal owner and roll back every successfully-created runtime owner when a later constructor step fails.",
+);
+
+assert(
+  terrainStreamer.includes("let materialController: TerrainMaterialController | undefined") &&
+    terrainStreamer.includes("let waterMaterialController: WaterMaterialController | undefined") &&
+    terrainStreamer.includes("let waterBedMaterialController: WaterBedMaterialController | undefined") &&
+    terrainStreamer.includes('disposeTerrainResource(horizon, "Horizon shell")') &&
+    terrainStreamer.includes('disposeTerrainResource(waterBedMaterialController, "Water bed material")') &&
+    terrainStreamer.includes('disposeTerrainResource(waterMaterialController, "Water material")') &&
+    terrainStreamer.includes('disposeTerrainResource(materialController, "Terrain material")') &&
+    terrainStreamer.includes("Terrain chunk cleanup failed."),
+  "Terrain streaming must roll back partially constructed render owners and isolate normal teardown failures.",
+);
+
+assert(
+  terrainMaterial.includes("let surfaceNoiseTexture: THREE.DataTexture | undefined") &&
+    terrainMaterial.includes("surfaceNoiseTexture?.dispose()") &&
+    terrainMaterial.includes("material.dispose()") &&
+    terrainMaterial.includes("private disposed = false"),
+  "Terrain material setup must release both material and surface texture after partial construction failures.",
+);
+
+for (const [name, source, textureCleanup] of [
+  ["Water material", waterMaterial, "flowNoiseTexture.dispose()"],
+  ["Water bed material", waterBedMaterial, "bedTexture.dispose()"],
+]) {
+  assert(
+    source.includes("private disposed = false") &&
+      source.includes("let material:") &&
+      source.includes("material?.dispose()") &&
+      source.includes(textureCleanup),
+    `${name} setup must release its texture/material pair transactionally and remain disposal-safe.`,
+  );
+}
+
+assert(
+  horizon.includes("let coverage: WorldHorizonCoverage | undefined") &&
+    horizon.includes("let materialController: WorldHorizonMaterial | undefined") &&
+    horizon.includes('disposeHorizonResource(materialController, "Horizon material")') &&
+    horizon.includes('disposeHorizonResource(coverage, "Horizon coverage")') &&
+    /private finalize\(\): void \{[\s\S]*?const geometry = new THREE\.BufferGeometry\(\);[\s\S]*?try \{[\s\S]*?this\.scene\.add\(mesh\);[\s\S]*?this\.mesh = mesh;[\s\S]*?\} catch \(error\) \{[\s\S]*?mesh\?\.removeFromParent\(\);[\s\S]*?geometry\.dispose\(\)/.test(
+      horizon,
+    ),
+  "Horizon construction and final geometry publication must roll back resources that never reach normal ownership.",
 );
 
 assert(
@@ -109,5 +158,5 @@ for (const [name, source] of [
 }
 
 console.log(
-  "[session-lifecycle] Bootstrap, world construction, diagnostics, QA, stats, and actor asset ownership verified.",
+  "[session-lifecycle] Bootstrap, world/terrain construction, diagnostics, QA, stats, and actor asset ownership verified.",
 );
