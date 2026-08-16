@@ -6,6 +6,7 @@ import packageMetadata from "./package.json";
 const DEPLOYMENT_BASE_PATH = "./";
 const PUBLIC_ASSET_PATH_PATTERN =
 	/(["'`])\/([^"'`]+\.(?:avif|basis|bin|exr|gif|glb|gltf|hdr|jpe?g|ktx2|mp3|ogg|png|svg|wav|webp))\1/g;
+const STONE_GRAIN_ASSET_PATTERN = /(["'`])\.\/perlinnoise\.webp\1/g;
 
 function resolveSourceRevision(): string {
 	try {
@@ -33,10 +34,15 @@ function rewriteRootPublicAssetPaths(): Plugin {
 				return null;
 			}
 
-			const code = source.replace(
+			const relativeCode = source.replace(
 				PUBLIC_ASSET_PATH_PATTERN,
 				(_match, quote: string, assetPath: string) =>
 					`${quote}${DEPLOYMENT_BASE_PATH}${assetPath}${quote}`
+			);
+			const code = relativeCode.replace(
+				STONE_GRAIN_ASSET_PATTERN,
+				(_match, quote: string) =>
+					`${quote}${DEPLOYMENT_BASE_PATH}perlinnoise.webp?v=${encodeURIComponent(SOURCE_REVISION)}${quote}`
 			);
 
 			return code === source ? null : { code, map: null };
