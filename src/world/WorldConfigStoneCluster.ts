@@ -4,6 +4,7 @@ import {
   clusterMinimumSeparation,
   maxNormalizedReach,
 } from "./stones/StoneClusterTuning";
+import { STONE_PATH_DISTANCE_PLATEAU } from "./stones/StonePathPlacement";
 import type { WorldConfig } from "./WorldConfig";
 
 /**
@@ -66,6 +67,13 @@ export function validateStoneClusterGeometry(config: WorldConfig): void {
   if (queryReach >= nearestUnqueriedCenter - epsilon) {
     throw new Error(
       "Stone cluster footprint, jitter, and cell size must stay inside the fixed 3x3 macro query.",
+    );
+  }
+
+  const sourceCellHalfDiagonal = config.stoneCellSize * Math.SQRT1_2;
+  if (sourceCellHalfDiagonal >= STONE_PATH_DISTANCE_PLATEAU - epsilon) {
+    throw new Error(
+      "stoneCellSize must keep any path crossing a source cell inside the path-distance plateau.",
     );
   }
 
