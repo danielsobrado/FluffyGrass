@@ -103,6 +103,30 @@ function verifyColdSampling(config: WorldConfig): number {
   return observed;
 }
 
+function verifyDisabledClusterSampling(config: WorldConfig): void {
+  for (const disabled of [
+    { stoneDensity: 0 },
+    { stoneClusterChance: 0 },
+  ] as const) {
+    const disabledConfig = { ...config, ...disabled };
+    const terrain = new TerrainField(disabledConfig);
+    const stones = new StoneField(terrain, disabledConfig);
+    const clusterField = stones.getClusterField();
+    for (let gridZ = -2; gridZ <= 2; gridZ += 1) {
+      for (let gridX = -2; gridX <= 2; gridX += 1) {
+        assert(
+          !clusterField.getDescriptor(gridX, gridZ).active,
+          "Disabled cluster controls produced an active descriptor.",
+        );
+      }
+    }
+    assert(
+      clusterField.getFullTerrainSampleCount() === 0,
+      "Disabled cluster controls performed full terrain/ecology sampling.",
+    );
+  }
+}
+
 export function verifyStoneClusterPerformance(
   configSource: string,
   baseline: StonePerformanceBaseline,
@@ -112,6 +136,7 @@ export function verifyStoneClusterPerformance(
     config.seed === baseline.seed,
     `Baseline seed ${baseline.seed} does not match shipped config seed ${config.seed}.`,
   );
+  verifyDisabledClusterSampling(config);
   const terrain = new TerrainField(config);
   const stones = new StoneField(terrain, config);
   assert(
