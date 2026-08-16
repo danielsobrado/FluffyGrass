@@ -1,7 +1,10 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { GrassSystem } from "../grass/GrassSystem";
-import { OctahedralImpostorBaker } from "../grass/impostors/OctahedralImpostorBaker";
+import {
+  OctahedralImpostorBaker,
+  type ImpostorDownloadPanel,
+} from "../grass/impostors/OctahedralImpostorBaker";
 import { GrassQaRunner } from "../qa/GrassQaRunner";
 
 interface GrassDevelopmentDependencies {
@@ -19,7 +22,7 @@ interface WindowWithDevelopmentResults extends Window {
 
 export class GrassDevelopmentController {
   private readonly abortController = new AbortController();
-  private bakePanel?: HTMLDivElement;
+  private bakePanel?: ImpostorDownloadPanel;
   private qaRunner?: GrassQaRunner;
   private started = false;
   private disposed = false;
@@ -80,7 +83,7 @@ export class GrassDevelopmentController {
     this.abortController.abort();
     this.qaRunner?.dispose();
     this.qaRunner = undefined;
-    this.bakePanel?.remove();
+    this.bakePanel?.dispose();
     this.bakePanel = undefined;
     const windowWithResults = window as WindowWithDevelopmentResults;
     delete windowWithResults.__FLUFFY_GRASS_IMPOSTOR_BAKE__;
@@ -111,7 +114,7 @@ export class GrassDevelopmentController {
       if (this.disposed) {
         return;
       }
-      this.bakePanel?.remove();
+      this.bakePanel?.dispose();
       this.bakePanel = baker.createDownloadLinks(
         result,
         `grass-impostor-${target.patchId}`,
