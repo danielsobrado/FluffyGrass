@@ -4,6 +4,7 @@ import { validateSpawnConfig } from "./SpawnConfigValidator";
 import type { WorldConfig } from "./WorldConfig";
 import { WORLD_CONFIG_SCHEMA } from "./WorldConfigSchema";
 import { validateWorldConfig } from "./WorldConfigValidator";
+import { validateFaunaStreamingConfig } from "./scenic/FaunaConfigValidator";
 
 const CONFIG_URL = "./config/world.yaml";
 
@@ -31,6 +32,7 @@ export class WorldConfigLoader {
     values.assertFullyConsumed();
     validateWorldConfig(config);
     validateSpawnConfig(config);
+    validateFaunaStreamingConfig(config);
     return Object.freeze(config);
   }
 }
