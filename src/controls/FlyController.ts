@@ -66,9 +66,19 @@ export class FlyController {
     this.spawnPitch = spawn.pitch;
     this.previousTouchAction = canvas.style.touchAction;
     this.reset();
-    this.bindEvents();
-    if (profile.compact) {
-      this.createMobileControls();
+
+    try {
+      this.bindEvents();
+      if (profile.compact) {
+        this.createMobileControls();
+      }
+    } catch (error) {
+      this.unbindEvents();
+      this.clearTransientInput();
+      this.mobileControls?.remove();
+      this.mobileControls = undefined;
+      this.canvas.style.touchAction = this.previousTouchAction;
+      throw error;
     }
   }
 
@@ -193,28 +203,9 @@ export class FlyController {
       return;
     }
     this.disposed = true;
-    window.removeEventListener("keydown", this.handleKeyDown);
-    window.removeEventListener("keyup", this.handleKeyUp);
-    window.removeEventListener("blur", this.handleWindowBlur);
-    window.removeEventListener("mousemove", this.handleMouseMove);
-    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-    this.canvas.removeEventListener("click", this.handleCanvasClick);
-    this.canvas.removeEventListener("wheel", this.handleWheel);
-    this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
+    this.unbindEvents();
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
-    }
-
-    if (this.usesPointerEvents) {
-      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
-      window.removeEventListener("pointermove", this.handlePointerMove);
-      window.removeEventListener("pointerup", this.handlePointerUp);
-      window.removeEventListener("pointercancel", this.handlePointerUp);
-    } else {
-      this.canvas.removeEventListener("touchstart", this.handleTouchStart);
-      window.removeEventListener("touchmove", this.handleTouchMove);
-      window.removeEventListener("touchend", this.handleTouchEnd);
-      window.removeEventListener("touchcancel", this.handleTouchEnd);
     }
 
     this.clearTransientInput();
@@ -262,6 +253,29 @@ export class FlyController {
     }
 
     this.canvas.style.touchAction = "none";
+  }
+
+  private unbindEvents(): void {
+    window.removeEventListener("keydown", this.handleKeyDown);
+    window.removeEventListener("keyup", this.handleKeyUp);
+    window.removeEventListener("blur", this.handleWindowBlur);
+    window.removeEventListener("mousemove", this.handleMouseMove);
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    this.canvas.removeEventListener("click", this.handleCanvasClick);
+    this.canvas.removeEventListener("wheel", this.handleWheel);
+    this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
+
+    if (this.usesPointerEvents) {
+      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+      window.removeEventListener("pointermove", this.handlePointerMove);
+      window.removeEventListener("pointerup", this.handlePointerUp);
+      window.removeEventListener("pointercancel", this.handlePointerUp);
+    } else {
+      this.canvas.removeEventListener("touchstart", this.handleTouchStart);
+      window.removeEventListener("touchmove", this.handleTouchMove);
+      window.removeEventListener("touchend", this.handleTouchEnd);
+      window.removeEventListener("touchcancel", this.handleTouchEnd);
+    }
   }
 
   private createMobileControls(): void {
