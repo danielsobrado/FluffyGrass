@@ -180,10 +180,12 @@ export function normalizeStoneClusterTuning(config: WorldConfig): WorldConfig {
   const authoredRadiusLimit =
     Math.min(queryInfluenceLimit, conflictInfluenceLimit) /
     Math.max(normalizedReach, GEOMETRY_EPSILON);
+  const integerRadiusLimit = Math.floor(
+    Math.min(circularRadiusLimit, authoredRadiusLimit),
+  );
   next.stoneClusterRadiusMax = Math.min(
     next.stoneClusterRadiusMax,
-    circularRadiusLimit,
-    authoredRadiusLimit,
+    integerRadiusLimit,
   );
   if (!(next.stoneClusterRadiusMin < next.stoneClusterRadiusMax)) {
     next.stoneClusterRadiusMin = Math.max(4, next.stoneClusterRadiusMax - 1);
