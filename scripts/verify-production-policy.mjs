@@ -62,10 +62,13 @@ if (
   !deployScript.includes('sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main"') ||
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
-  !deployScript.includes("assertSourceStillCurrent(sourceHead)")
+  !deployScript.includes("assertSourceStillCurrent(sourceHead)") ||
+  !/if \(diff\.status === 0\) \{[\s\S]*?assertSourceStillCurrent\(sourceHead\);[\s\S]*?No deployment changes were detected\./.test(
+    deployScript,
+  )
 ) {
   fail(
-    "Manual deployment must require a clean synchronized source branch and reject stale builds.",
+    "Manual deployment must require a clean synchronized source branch and reject stale builds, including no-op publishes.",
   );
 }
 
