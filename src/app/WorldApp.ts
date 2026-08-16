@@ -63,7 +63,7 @@ export class WorldApp {
   private readonly minimap: WorldMinimap;
   private readonly environment: WorldEnvironmentController;
   private readonly scenic: WorldScenicLayer;
-  private readonly reveal = new WorldRevealController();
+  private readonly reveal: WorldRevealController;
   private readonly frameMetrics = new WorldFrameMetrics();
   private readonly runtimeGuard: WorldRuntimeGuard;
   private readonly statusHud = new WorldStatusHud(document.querySelector<HTMLElement>("#world-stats"));
@@ -114,77 +114,139 @@ export class WorldApp {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.applyRendererSize();
 
-    this.field = new TerrainField(config);
-    const stoneField = new StoneField(this.field, config);
-    const spawn = new DenseSpawnLocator(this.field, config, stoneField).find();
-    const params = new URLSearchParams(window.location.search);
-    const useFlyControls =
-      params.get("control") === "fly" || params.get("view") === "aerial";
-    this.flyMode = useFlyControls;
-    if (params.get("view") === "aerial") {
-      spawn.position.y += 48;
-      spawn.pitch = THREE.MathUtils.degToRad(-34);
-    }
-    this.environment = new WorldEnvironmentController(
-      this.scene, this.renderer, profile, profile.shadows && !useFlyControls,
-    );
-    this.terrain = new TerrainStreamer(
-      this.scene, this.field, config, profile.compact, profile.shadows && !useFlyControls,
-    );
-    this.stones = new WorldStoneSystem(
-      this.scene, stoneField, config, profile.compact, profile.shadows && !useFlyControls,
-    );
-    this.grass = new WorldGrassSystem(this.scene, this.field, config, profile);
-    const tierOverride = params.get("tier");
-    if (tierOverride !== null && /^\d+$/.test(tierOverride)) {
-      this.grass.setQualityTierOverride(Number(tierOverride));
-    }
-    this.applyGrassViewportScale();
-    grassTrailField.configure({
-      resolution: config.grassTrailResolution,
-      coverage: config.grassTrailCoverage,
-      recoveryRate: config.grassTrailRecoveryRate,
-      freshnessRate: config.grassTrailFreshnessRate,
-    });
-    if (!useFlyControls) {
-      grassTrailField.attach(this.renderer);
-    }
-    const artKey = resolveGrassArtDirectionKey(params.get("grassArt"));
-    this.applyGrassArtDirection(GRASS_ART_DIRECTIONS[artKey]);
-    if (profile.showGui && params.get("diagnostics") === "1") {
-      this.artMenu = new GrassArtMenu(artKey, this.applyGrassArtDirection);
-      this.detailFoliageMenu = new DetailFoliageTuningMenu(
-        this.grass.getDetailFoliageTuning(),
-        (tuning) => this.grass.setDetailFoliageTuning(tuning));
-    }
-    this.controls = useFlyControls
-      ? new FlyWorldController(
-          this.camera, canvas, config, profile, spawn, this.field,
-        )
-      : new ThirdPersonController(
-          this.scene, this.camera, canvas, this.field, config, profile, spawn,
-        );
-    this.minimap = new WorldMinimap(this.field, config, this.controls);
-    this.scenic = new WorldScenicLayer(
-      this.scene,
-      this.field,
-      config,
-      profile,
-      spawn.position,
-      profile.shadows && !useFlyControls,
-    );
+    let environment: WorldEnvironmentController | undefined;
+    let terrain: TerrainStreamer | undefined;
+    let stones: WorldStoneSystem | undefined;
+    let grass: WorldGrassSystem | undefined;
+    let controls: WorldController | undefined;
+    let minimap: WorldMinimap | undefined;
+    let scenic: WorldScenicLayer | undefined;
+    let reveal: WorldRevealController | undefined;
+    let runtimeGuard: WorldRuntimeGuard | undefined;
 
-    console.info(
-      `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
-    );
-    this.environment.updateShadow(this.controls.getStreamingPosition());
-    this.runtimeGuard = new WorldRuntimeGuard(
-      canvas,
-      this.handleResize,
-      (enabled) => {
-        this.rendererEnabled = enabled;
-      },
-    );
+    try {
+      this.field = new TerrainField(config);
+      const stoneField = new StoneField(this.field, config);
+      const spawn = new DenseSpawnLocator(this.field, config, stoneField).find();
+      const params = new URLSearchParams(window.location.search);
+      const useFlyControls =
+        params.get("control") === "fly" || params.get("view") === "aerial";
+      this.flyMode = useFlyControls;
+      if (params.get("view") === "aerial") {
+        spawn.position.y += 48;
+        spawn.pitch = THREE.MathUtils.degToRad(-34);
+      }
+
+      environment = new WorldEnvironmentController(
+        this.scene,
+        this.renderer,
+        profile,
+        profile.shadows && !useFlyControls,
+      );
+      this.environment = environment;
+      terrain = new TerrainStreamer(
+        this.scene,
+        this.field,
+        config,
+        profile.compact,
+        profile.shadows && !useFlyControls,
+      );
+      this.terrain = terrain;
+      stones = new WorldStoneSystem(
+        this.scene,
+        stoneField,
+        config,
+        profile.compact,
+        profile.shadows && !useFlyControls,
+      );
+      this.stones = stones;
+      grass = new WorldGrassSystem(this.scene, this.field, config, profile);
+      this.grass = grass;
+
+      const tierOverride = params.get("tier");
+      if (tierOverride !== null && /^\d+$/.test(tierOverride)) {
+        this.grass.setQualityTierOverride(Number(tierOverride));
+      }
+      this.applyGrassViewportScale();
+      grassTrailField.configure({
+        resolution: config.grassTrailResolution,
+        coverage: config.grassTrailCoverage,
+        recoveryRate: config.grassTrailRecoveryRate,
+        freshnessRate: config.grassTrailFreshnessRate,
+      });
+      if (!useFlyControls) {
+        grassTrailField.attach(this.renderer);
+      }
+      const artKey = resolveGrassArtDirectionKey(params.get("grassArt"));
+      this.applyGrassArtDirection(GRASS_ART_DIRECTIONS[artKey]);
+      if (profile.showGui && params.get("diagnostics") === "1") {
+        this.artMenu = new GrassArtMenu(artKey, this.applyGrassArtDirection);
+        this.detailFoliageMenu = new DetailFoliageTuningMenu(
+          this.grass.getDetailFoliageTuning(),
+          (tuning) => this.grass.setDetailFoliageTuning(tuning));
+      }
+
+      controls = useFlyControls
+        ? new FlyWorldController(
+            this.camera,
+            canvas,
+            config,
+            profile,
+            spawn,
+            this.field,
+          )
+        : new ThirdPersonController(
+            this.scene,
+            this.camera,
+            canvas,
+            this.field,
+            config,
+            profile,
+            spawn,
+          );
+      this.controls = controls;
+      minimap = new WorldMinimap(this.field, config, this.controls);
+      this.minimap = minimap;
+      scenic = new WorldScenicLayer(
+        this.scene,
+        this.field,
+        config,
+        profile,
+        spawn.position,
+        profile.shadows && !useFlyControls,
+      );
+      this.scenic = scenic;
+
+      console.info(
+        `[Drusniel World] Dense ground spawn X ${spawn.position.x.toFixed(0)} / Z ${spawn.position.z.toFixed(0)} / suitability ${spawn.suitability.toFixed(3)} / controls ${this.controls.getMode()}.`,
+      );
+      this.environment.updateShadow(this.controls.getStreamingPosition());
+      reveal = new WorldRevealController();
+      this.reveal = reveal;
+      runtimeGuard = new WorldRuntimeGuard(
+        canvas,
+        this.handleResize,
+        (enabled) => {
+          this.rendererEnabled = enabled;
+        },
+      );
+      this.runtimeGuard = runtimeGuard;
+    } catch (error) {
+      disposeConstructionSafely("Runtime guard", () => runtimeGuard?.dispose());
+      disposeConstructionSafely("World reveal", () => reveal?.dispose());
+      disposeConstructionSafely("Scenic layer", () => scenic?.dispose());
+      disposeConstructionSafely("Minimap", () => minimap?.dispose());
+      disposeConstructionSafely("World controls", () => controls?.dispose());
+      disposeConstructionSafely("Detail foliage menu", () => this.detailFoliageMenu?.dispose());
+      disposeConstructionSafely("Grass art menu", () => this.artMenu?.dispose());
+      disposeConstructionSafely("Grass trail field", () => grassTrailField.dispose());
+      disposeConstructionSafely("Grass system", () => grass?.dispose());
+      disposeConstructionSafely("Stone system", () => stones?.dispose());
+      disposeConstructionSafely("Terrain streamer", () => terrain?.dispose());
+      disposeConstructionSafely("Environment", () => environment?.dispose());
+      disposeConstructionSafely("Renderer", () => this.renderer.dispose());
+      throw error;
+    }
   }
 
   static async create(
@@ -614,4 +676,12 @@ export class WorldApp {
     this.applyRendererSize();
     this.applyGrassViewportScale();
   };
+}
+
+function disposeConstructionSafely(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} construction rollback failed.`, error);
+  }
 }
