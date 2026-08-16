@@ -20,6 +20,7 @@ interface WindowWithDevelopmentResults extends Window {
 export class GrassDevelopmentController {
   private readonly abortController = new AbortController();
   private bakePanel?: HTMLDivElement;
+  private qaRunner?: GrassQaRunner;
   private started = false;
   private disposed = false;
 
@@ -43,22 +44,31 @@ export class GrassDevelopmentController {
     if (qaMode === "grass" || qaMode === "grass-lod") {
       const qaConfig = this.dependencies.grassSystem.getQaConfig();
       const runner = new GrassQaRunner(this.dependencies);
-      await runner.run(
-        {
-          warmupSeconds: this.readNonNegativeNumber(
-            params,
-            "warmup",
-            qaConfig.warmupSeconds,
-          ),
-          sampleSeconds: this.readPositiveNumber(
-            params,
-            "duration",
-            qaConfig.sampleSeconds,
-          ),
-          download: params.get("download") === "1",
-        },
-        this.abortController.signal,
-      );
+      this.qaRunner = runner;
+      try {
+        await runner.run(
+          {
+            warmupSeconds: this.readNonNegativeNumber(
+              params,
+              "warmup",
+              qaConfig.warmupSeconds,
+            ),
+            sampleSeconds: this.readPositiveNumber(
+              params,
+              "duration",
+              qaConfig.sampleSeconds,
+            ),
+            download: params.get("download") === "1",
+          },
+          this.abortController.signal,
+        );
+      } catch (error) {
+        if (this.qaRunner === runner) {
+          this.qaRunner = undefined;
+          runner.dispose();
+        }
+        throw error;
+      }
     }
   }
 
@@ -68,6 +78,8 @@ export class GrassDevelopmentController {
     }
     this.disposed = true;
     this.abortController.abort();
+    this.qaRunner?.dispose();
+    this.qaRunner = undefined;
     this.bakePanel?.remove();
     this.bakePanel = undefined;
     const windowWithResults = window as WindowWithDevelopmentResults;
@@ -108,9 +120,11 @@ export class GrassDevelopmentController {
         result.metadata;
       console.info("[FluffyGrass] Impostor bake complete", result.metadata);
     } finally {
-      controls.enabled = previousEnabled;
-      controls.autoRotate = previousAutoRotate;
-      this.dependencies.grassSystem.setLodBakeOverride(false);
+      if (!this.disposed) {
+        controls.enabled = previousEnabled;
+        controls.autoRotate = previousAutoRotate;
+        this.dependencies.grassSystem.setLodBakeOverride(false);
+      }
     }
   }
 
