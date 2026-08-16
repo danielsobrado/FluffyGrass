@@ -19,6 +19,8 @@ const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
 const scenicTuning = read("src/world/scenic/WorldScenicTuning.ts");
 const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
 const faunaField = read("src/world/scenic/WorldFaunaField.ts");
+const faunaConfigValidator = read("src/world/scenic/FaunaConfigValidator.ts");
+const worldConfigLoader = read("src/world/WorldConfigLoader.ts");
 const treeField = read("src/world/scenic/WorldTreeField.ts");
 const treeSystem = read("src/world/scenic/WorldTreeSystem.ts");
 const villagerBody = read("src/character/npc/VillagerBody.ts");
@@ -63,6 +65,16 @@ assert(
     treeSystem.includes("bark.dispose()") &&
     treeSystem.includes("leaves.dispose()"),
   "A failed tree constructor must roll back every local mesh, geometry, and material before the scenic layer degrades without trees.",
+);
+assert(
+  faunaConfigValidator.includes("MAX_FAUNA_STREAM_RADIUS = 512") &&
+    faunaConfigValidator.includes("config.faunaStreamRadius > MAX_FAUNA_STREAM_RADIUS") &&
+    faunaConfigValidator.includes("config.faunaStreamRadius > config.worldSize * 0.5") &&
+    worldConfigLoader.includes("validateFaunaStreamingConfig(config)") &&
+    faunaField.includes("MAX_FAUNA_STREAM_RADIUS") &&
+    faunaField.includes("Number.isFinite(radius)") &&
+    faunaField.includes("this.maxCollectionRadius"),
+  "Fauna streaming must reject unbounded configuration and defensively cap synchronous lattice collection cost.",
 );
 assert(
   faunaSystem.includes(
