@@ -28,7 +28,11 @@ export class GrassQaRunner {
 
   constructor(private readonly dependencies: GrassQaDependencies) {}
 
-  async run(options: GrassQaOptions): Promise<GrassQaReport> {
+  async run(
+    options: GrassQaOptions,
+    signal?: AbortSignal,
+  ): Promise<GrassQaReport> {
+    throwIfAborted(signal);
     const { camera, controls } = this.dependencies;
     const previousPosition = camera.position.clone();
     const previousTarget = controls.target.clone();
@@ -46,12 +50,15 @@ export class GrassQaRunner {
 
     try {
       for (const pose of this.createPoses()) {
+        throwIfAborted(signal);
         this.applyPose(pose);
-        await this.metrics.sampleFrames(options.warmupSeconds, false);
+        await this.metrics.sampleFrames(options.warmupSeconds, false, signal);
         const frameDurations = await this.metrics.sampleFrames(
           options.sampleSeconds,
           true,
+          signal,
         );
+        throwIfAborted(signal);
         this.dependencies.renderer.render(
           this.dependencies.scene,
           this.dependencies.camera,
@@ -60,6 +67,7 @@ export class GrassQaRunner {
           this.dependencies.renderer,
           pose.name,
         );
+        throwIfAborted(signal);
         const screenshotName = `${pose.name}.png`;
         captures.push({
           name: pose.name,
@@ -79,12 +87,15 @@ export class GrassQaRunner {
       controls.target.copy(previousTarget);
       controls.autoRotate = false;
       controls.enableDamping = false;
-      controls.update();
+      if (!signal?.aborted) {
+        controls.update();
+      }
       controls.enableDamping = previousEnableDamping;
       controls.autoRotate = previousAutoRotate;
       controls.enabled = previousEnabled;
     }
 
+    throwIfAborted(signal);
     const report: GrassQaReport = {
       version: 1,
       generatedAt: new Date().toISOString(),
@@ -173,5 +184,11 @@ export class GrassQaRunner {
     camera.lookAt(pose.target);
     camera.updateMatrixWorld(true);
     controls.update();
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("Grass QA aborted.", "AbortError");
   }
 }
