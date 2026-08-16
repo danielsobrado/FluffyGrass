@@ -116,6 +116,8 @@ function installAndBuild() {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
   log("Installing locked build dependencies...");
   run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
+  log("Auditing locked dependencies...");
+  run(npmCommand, ["audit", "--audit-level=high"]);
   log("Building the production site...");
   run(npmCommand, ["run", "build"]);
 
