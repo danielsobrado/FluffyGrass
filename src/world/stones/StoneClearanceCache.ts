@@ -152,10 +152,25 @@ export class StoneClearanceCache {
     const minimumZ = (cellZ - marginCells) * cellSize;
     const maximumX = (cellX + 1 + marginCells) * cellSize;
     const maximumZ = (cellZ + 1 + marginCells) * cellSize;
-    const firstChunkX = Math.floor(minimumX / chunkSize);
-    const firstChunkZ = Math.floor(minimumZ / chunkSize);
-    const lastChunkX = Math.floor((maximumX - EDGE_EPSILON) / chunkSize);
-    const lastChunkZ = Math.floor((maximumZ - EDGE_EPSILON) / chunkSize);
+    const halfChunks = this.config.worldSize / (chunkSize * 2);
+    const minimumChunk = -halfChunks;
+    const maximumChunk = halfChunks - 1;
+    const firstChunkX = Math.max(
+      minimumChunk,
+      Math.floor(minimumX / chunkSize),
+    );
+    const firstChunkZ = Math.max(
+      minimumChunk,
+      Math.floor(minimumZ / chunkSize),
+    );
+    const lastChunkX = Math.min(
+      maximumChunk,
+      Math.floor((maximumX - EDGE_EPSILON) / chunkSize),
+    );
+    const lastChunkZ = Math.min(
+      maximumChunk,
+      Math.floor((maximumZ - EDGE_EPSILON) / chunkSize),
+    );
     const candidates: StoneClearanceCandidate[] = [];
 
     for (let chunkZ = firstChunkZ; chunkZ <= lastChunkZ; chunkZ += 1) {
