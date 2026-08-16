@@ -1,3 +1,4 @@
+import { fetchConfigText } from "../config/ConfigTextLoader";
 import { FlatConfig } from "../config/FlatConfig";
 import {
   FlatConfigValueReader,
@@ -10,14 +11,7 @@ const MAX_SHADOW_MAP_SIZE = 16384;
 
 export class RuntimeConfigLoader {
   async load(url: string = CONFIG_URL): Promise<RuntimeConfig> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(
-        `Unable to load runtime config from ${url}: HTTP ${response.status}`,
-      );
-    }
-
-    return this.parse(await response.text());
+    return this.parse(await fetchConfigText(url, "runtime config"));
   }
 
   private parse(source: string): RuntimeConfig {
