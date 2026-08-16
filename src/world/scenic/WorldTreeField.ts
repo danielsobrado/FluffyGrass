@@ -44,6 +44,15 @@ export class WorldTreeField {
   }
 
   collect(centerX: number, centerZ: number, radius: number): WorldTreeInstance[] {
+    if (
+      !Number.isFinite(centerX) ||
+      !Number.isFinite(centerZ) ||
+      !Number.isFinite(radius) ||
+      radius <= 0
+    ) {
+      return [];
+    }
+
     const trees: WorldTreeInstance[] = [];
     const minX = Math.floor((centerX - radius) / TREE_CELL_SIZE);
     const maxX = Math.floor((centerX + radius) / TREE_CELL_SIZE);
