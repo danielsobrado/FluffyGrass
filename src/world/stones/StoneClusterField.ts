@@ -51,6 +51,34 @@ import {
   type StoneMacroCoord,
 } from "./StoneClusterTuning";
 
+/**
+ * Response knees for macro activation, calibrated against the suitability the
+ * shipped world actually produces (p50 0.00, p90 0.17, p99 0.43, max 0.90).
+ *
+ * The original 0.14..0.72 band was written for a suitability that reaches its
+ * top knee, but `surfaceVisibility` floors at 0.18 wherever ecology rockiness
+ * is zero — half the world — so real suitability never approaches 0.72 and the
+ * smoothstep returned ~0 for nine sites in ten. That left 4 live formations in
+ * 841 macro cells: one per 654 m, which reads as a world with no geology at
+ * all. These knees sit inside the observed range, so the ranking by geology and
+ * rockiness is unchanged and only the mapping onto it is honest.
+ */
+const STONE_CLUSTER_SUITABILITY_KNEE_LOW = 0.02;
+const STONE_CLUSTER_SUITABILITY_KNEE_HIGH = 0.24;
+
+/**
+ * Member budget knees, calibrated the same way and for the same reason. The
+ * original 0.25..0.80 band sat above almost every live cluster's suitability,
+ * so `budgetT` was 0 and every formation in the world resolved to exactly
+ * `stoneClusterBudgetMin` members — four, always. A world where each outcrop
+ * has the same part count reads generated rather than authored, which is the
+ * opposite of what the size-hierarchy goal asks for. These knees span the
+ * suitability that surviving clusters actually hold, so budget varies across
+ * the configured 4..8 range again.
+ */
+const STONE_CLUSTER_BUDGET_KNEE_LOW = 0.08;
+const STONE_CLUSTER_BUDGET_KNEE_HIGH = 0.45;
+
 export interface StoneClusterCandidate {
   readonly gridX: number;
   readonly gridZ: number;
@@ -292,7 +320,11 @@ export class StoneClusterField {
       Math.exp(
         -this.config.stoneClusterDensityResponse * this.config.stoneDensity,
       );
-    const suitabilityResponse = smoothstep(suitability, 0.14, 0.72);
+    const suitabilityResponse = smoothstep(
+      suitability,
+      STONE_CLUSTER_SUITABILITY_KNEE_LOW,
+      STONE_CLUSTER_SUITABILITY_KNEE_HIGH,
+    );
     const rawActive = rng
       .fork("activation")
       .chance(
@@ -384,7 +416,11 @@ export class StoneClusterField {
     }
     const minorRadius = majorRadius * aspect;
     const influenceRadius = majorRadius * this.config.stoneClusterHaloRatio;
-    const budgetT = smoothstep(suitability, 0.25, 0.8);
+    const budgetT = smoothstep(
+      suitability,
+      STONE_CLUSTER_BUDGET_KNEE_LOW,
+      STONE_CLUSTER_BUDGET_KNEE_HIGH,
+    );
     const budget = clamp(
       Math.round(
         lerp(

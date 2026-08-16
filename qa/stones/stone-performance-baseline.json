@@ -2,9 +2,9 @@
   "seed": 42017,
   "chunkMin": -6,
   "chunkMax": 6,
-  "includeSmallRoots": 355,
-  "farRoots": 177,
-  "maxRootsInChunk": 16,
-  "detailedTrianglePotential": 65620,
-  "coarseTrianglePotential": 31658
+  "includeSmallRoots": 475,
+  "farRoots": 234,
+  "maxRootsInChunk": 19,
+  "detailedTrianglePotential": 85872,
+  "coarseTrianglePotential": 40848
 }

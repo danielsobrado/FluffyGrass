@@ -135,6 +135,18 @@ interface AcceptedMember {
 
 /** Below this scale a stone nestles into grass instead of clearing it. */
 const CLEAR_SCALE_CUTOFF = 0.5;
+/**
+ * Ceiling on how much of a stone's baked moss susceptibility may actually grow.
+ *
+ * Damp lowland meadow was reaching 0.89, and at that level the growth shader
+ * mixes so far towards moss colour that a boulder renders as a smooth green
+ * dome — indistinguishable from a shrub, and with none of the silhouette or
+ * material read the stone geometry was built for. Capping keeps the wettest
+ * meadow stones clearly mossy while leaving roughly a third of the rock
+ * showing through on their mossiest faces; drier biomes are nowhere near this
+ * bound and are unaffected.
+ */
+const MAX_ENVIRONMENT_MOSS = 0.66;
 /** Slope gates on the terrain normal's Y component. */
 const SLOPE_REJECT_NY = 0.62;
 const PATH_DISTANCE_PLATEAU = 24;
@@ -898,14 +910,17 @@ export class StoneField {
       pickGrassBiomeIndex(x, z, biomeSample),
       BIOME_PALETTE.length - 1,
     );
-    const moss = clamp01(
-      stoneMossBase(
-        sampled.height,
-        biomeIndex,
-        ecology.rockiness,
-        this.config.grassMinAltitude,
-        this.config.grassMaxAltitude,
-      ) * random.fork("moss").range(0.94, 1.06),
+    const moss = Math.min(
+      MAX_ENVIRONMENT_MOSS,
+      clamp01(
+        stoneMossBase(
+          sampled.height,
+          biomeIndex,
+          ecology.rockiness,
+          this.config.grassMinAltitude,
+          this.config.grassMaxAltitude,
+        ) * random.fork("moss").range(0.94, 1.06),
+      ),
     );
     instances.push(
       this.createInstance(
@@ -1068,14 +1083,17 @@ export class StoneField {
         BIOME_PALETTE.length - 1,
       );
       const alongAngle = Math.atan2(alongTangentZ, alongTangentX);
-      const moss = clamp01(
-        stoneMossBase(
-          stoneHeight,
-          biomeIndex,
-          ecology.rockiness,
-          this.config.grassMinAltitude,
-          this.config.grassMaxAltitude,
-        ) * attempt.fork("moss").range(0.94, 1.06),
+      const moss = Math.min(
+        MAX_ENVIRONMENT_MOSS,
+        clamp01(
+          stoneMossBase(
+            stoneHeight,
+            biomeIndex,
+            ecology.rockiness,
+            this.config.grassMinAltitude,
+            this.config.grassMaxAltitude,
+          ) * attempt.fork("moss").range(0.94, 1.06),
+        ),
       );
       instances.push(
         this.createInstance(
