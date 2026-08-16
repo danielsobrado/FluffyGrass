@@ -17,6 +17,8 @@ const DECORATIVE_TEXT_MODEL_PATH = revisionedAssetPath("./fluffy_grass_text.glb"
 const MODEL_SCALE = 3;
 const ISLAND_MAX_DELTA_SECONDS = 0.1;
 const ISLAND_GLTF_TIMEOUT_MS = 15_000;
+const ISLAND_FATAL_FRAME_MESSAGE =
+  "FluffyGrass island stopped after an unexpected frame failure.";
 
 type LoadedGltf = Awaited<ReturnType<GLTFLoader["loadAsync"]>>;
 
@@ -40,12 +42,15 @@ export class IslandApp {
   private decorativeRoot?: THREE.Object3D;
   private decorativeMaterial?: THREE.Material;
   private developmentController?: GrassDevelopmentController;
+  private fatalErrorElement?: HTMLPreElement;
   private frameHandle = 0;
   private running = false;
+  private contextLost = false;
+  private resumeAfterContextRestore = false;
   private disposed = false;
 
   constructor(
-    canvas: HTMLCanvasElement,
+    private readonly canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
   ) {
     this.camera = new THREE.PerspectiveCamera(
@@ -68,7 +73,18 @@ export class IslandApp {
 
     try {
       window.addEventListener("resize", this.handleResize);
+      this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
+      this.canvas.addEventListener(
+        "webglcontextrestored",
+        this.handleContextRestored,
+      );
     } catch (error) {
+      window.removeEventListener("resize", this.handleResize);
+      this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
+      this.canvas.removeEventListener(
+        "webglcontextrestored",
+        this.handleContextRestored,
+      );
       disposeIslandRuntimeResources(resources);
       throw error;
     }
@@ -127,6 +143,10 @@ export class IslandApp {
     if (this.running || this.disposed) {
       return;
     }
+    if (this.contextLost) {
+      this.resumeAfterContextRestore = true;
+      return;
+    }
     this.running = true;
     this.clock.start();
     this.frameHandle = requestAnimationFrame(this.render);
@@ -138,9 +158,17 @@ export class IslandApp {
     }
     this.disposed = true;
     this.running = false;
+    this.resumeAfterContextRestore = false;
     this.clock.stop();
     cancelAnimationFrame(this.frameHandle);
     window.removeEventListener("resize", this.handleResize);
+    this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.removeEventListener(
+      "webglcontextrestored",
+      this.handleContextRestored,
+    );
+    this.fatalErrorElement?.remove();
+    this.fatalErrorElement = undefined;
 
     const developmentController = this.developmentController;
     this.developmentController = undefined;
@@ -171,7 +199,7 @@ export class IslandApp {
   }
 
   private render = (): void => {
-    if (!this.running || this.disposed) {
+    if (!this.running || this.disposed || this.contextLost) {
       return;
     }
     try {
@@ -187,11 +215,25 @@ export class IslandApp {
     } catch (error) {
       this.running = false;
       this.clock.stop();
+      this.publishFatalFrameError(error);
       console.error("[FluffyGrass] Island frame failed; render loop stopped.", error);
       return;
     }
     this.frameHandle = requestAnimationFrame(this.render);
   };
+
+  private publishFatalFrameError(error: unknown): void {
+    let output = this.fatalErrorElement;
+    if (!output) {
+      output = document.createElement("pre");
+      output.className = "startup-error";
+      output.setAttribute("role", "alert");
+      document.body.appendChild(output);
+      this.fatalErrorElement = output;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    output.textContent = `${ISLAND_FATAL_FRAME_MESSAGE}\nReload the page to restart.\n\n${message}`;
+  }
 
   private configureIsland(root: THREE.Object3D): THREE.Mesh {
     const bounds = new THREE.Box3();
@@ -317,6 +359,30 @@ export class IslandApp {
     if (!this.disposed) {
       this.applyViewportSize();
     }
+  };
+
+  private readonly handleContextLost = (event: Event): void => {
+    event.preventDefault();
+    if (this.disposed) {
+      return;
+    }
+    this.contextLost = true;
+    this.resumeAfterContextRestore ||= this.running;
+    this.running = false;
+    this.clock.stop();
+    cancelAnimationFrame(this.frameHandle);
+  };
+
+  private readonly handleContextRestored = (): void => {
+    if (this.disposed) {
+      return;
+    }
+    this.contextLost = false;
+    if (!this.resumeAfterContextRestore) {
+      return;
+    }
+    this.resumeAfterContextRestore = false;
+    this.start();
   };
 }
 
