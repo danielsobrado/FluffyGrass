@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { disposeResources } from "../../render/ResourceDisposal";
+import { APP_VERSION } from "../../version";
 
 export interface LoadedGltfCharacter {
   /** The imported scene graph. Whoever loaded it owns disposal. */
@@ -11,12 +12,112 @@ export interface LoadedGltfCharacter {
   readonly skinnedMeshes: THREE.SkinnedMesh[];
 }
 
+const GLTF_ASSET_TIMEOUT_MS = 15_000;
+type LoadedGltf = Awaited<ReturnType<GLTFLoader["loadAsync"]>>;
+
 let sharedLoader: GLTFLoader | undefined;
 const sharedTextures = new Map<string, Promise<THREE.Texture>>();
 
 function loader(): GLTFLoader {
   sharedLoader ??= new GLTFLoader();
   return sharedLoader;
+}
+
+function revisionedAssetUrl(url: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(APP_VERSION)}`;
+}
+
+function normalizeLoadError(error: unknown, url: string): Error {
+  return error instanceof Error ? error : new Error(`Unable to load ${url}.`);
+}
+
+function loadGltfWithTimeout(url: string): Promise<LoadedGltf> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutHandle = window.setTimeout(() => {
+      settled = true;
+      reject(
+        new Error(
+          `Unable to load ${url}: request timed out after ${GLTF_ASSET_TIMEOUT_MS} ms.`,
+        ),
+      );
+    }, GLTF_ASSET_TIMEOUT_MS);
+
+    try {
+      loader().load(
+        url,
+        (gltf) => {
+          if (settled) {
+            disposeGltfSceneSafely(gltf.scene, `late GLTF ${url}`);
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          resolve(gltf);
+        },
+        undefined,
+        (error) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          reject(normalizeLoadError(error, url));
+        },
+      );
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timeoutHandle);
+        reject(normalizeLoadError(error, url));
+      }
+    }
+  });
+}
+
+function loadTextureWithTimeout(url: string): Promise<THREE.Texture> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutHandle = window.setTimeout(() => {
+      settled = true;
+      reject(
+        new Error(
+          `Unable to load ${url}: request timed out after ${GLTF_ASSET_TIMEOUT_MS} ms.`,
+        ),
+      );
+    }, GLTF_ASSET_TIMEOUT_MS);
+
+    try {
+      new THREE.TextureLoader().load(
+        url,
+        (texture) => {
+          if (settled) {
+            disposeResourceSafely(texture, `late texture ${url}`);
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          resolve(texture);
+        },
+        undefined,
+        (error) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          reject(normalizeLoadError(error, url));
+        },
+      );
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timeoutHandle);
+        reject(normalizeLoadError(error, url));
+      }
+    }
+  });
 }
 
 /**
@@ -29,9 +130,10 @@ function loader(): GLTFLoader {
  * embedded imagery would otherwise trip over.
  */
 function sharedTexture(url: string): Promise<THREE.Texture> {
-  let pending = sharedTextures.get(url);
+  const revisionedUrl = revisionedAssetUrl(url);
+  let pending = sharedTextures.get(revisionedUrl);
   if (pending === undefined) {
-    const request = new THREE.TextureLoader().loadAsync(url).then((texture) => {
+    const request = loadTextureWithTimeout(revisionedUrl).then((texture) => {
       // glTF samples with the origin at the top left and stores colour in sRGB.
       texture.flipY = false;
       texture.colorSpace = THREE.SRGBColorSpace;
@@ -39,12 +141,12 @@ function sharedTexture(url: string): Promise<THREE.Texture> {
       return texture;
     });
     pending = request.catch((error) => {
-      if (sharedTextures.get(url) === pending) {
-        sharedTextures.delete(url);
+      if (sharedTextures.get(revisionedUrl) === pending) {
+        sharedTextures.delete(revisionedUrl);
       }
       throw error;
     });
-    sharedTextures.set(url, pending);
+    sharedTextures.set(revisionedUrl, pending);
   }
   return pending;
 }
@@ -64,7 +166,7 @@ export async function loadGltfCharacter(
   url: string,
   textureUrl?: string,
 ): Promise<LoadedGltfCharacter> {
-  const gltf = await loader().loadAsync(url);
+  const gltf = await loadGltfWithTimeout(revisionedAssetUrl(url));
   try {
     const skinnedMeshes: THREE.SkinnedMesh[] = [];
     gltf.scene.traverse((object) => {
@@ -83,7 +185,6 @@ export async function loadGltfCharacter(
           `${url} has more than one skeleton; the actor rig expects a single skin per character.`,
         );
       }
-      // Imported characters are lit by the same sun and sky as everything else.
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
@@ -110,14 +211,7 @@ export async function loadGltfCharacter(
       skinnedMeshes,
     };
   } catch (error) {
-    try {
-      disposeGltfScene(gltf.scene);
-    } catch (cleanupError) {
-      console.warn(
-        `[Drusniel World] Failed GLTF character cleanup for ${url}.`,
-        cleanupError,
-      );
-    }
+    disposeGltfSceneSafely(gltf.scene, url);
     throw error;
   }
 }
@@ -125,6 +219,25 @@ export async function loadGltfCharacter(
 /** Releases every resource owned by a loaded character scene. */
 export function disposeGltfCharacter(character: LoadedGltfCharacter): void {
   disposeGltfScene(character.scene);
+}
+
+function disposeResourceSafely(
+  resource: { dispose(): void },
+  label: string,
+): void {
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] Failed cleanup for ${label}.`, error);
+  }
+}
+
+function disposeGltfSceneSafely(scene: THREE.Group, label: string): void {
+  try {
+    disposeGltfScene(scene);
+  } catch (error) {
+    console.warn(`[Drusniel World] Failed GLTF character cleanup for ${label}.`, error);
+  }
 }
 
 function disposeGltfScene(scene: THREE.Group): void {
