@@ -88,6 +88,10 @@ assert(
   "Stone wakes must keep WAKE_SAMPLE_COUNT = 3.",
 );
 assert(
+  !interaction.includes("waterStoneWakeStrength <= 0"),
+  "Live wake strength must not suppress the CPU wake mask needed to turn the effect back on.",
+);
+assert(
   chunkGeometry.includes('setAttribute("waterData"') &&
     chunkGeometry.includes("new THREE.BufferAttribute(this.data, 4)"),
   "waterData must remain four floats.",
