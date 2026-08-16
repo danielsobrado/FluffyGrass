@@ -22,8 +22,10 @@ const REQUIRED_CSP_DIRECTIVES = Object.freeze([
   "base-uri 'none'",
   "object-src 'none'",
   "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "connect-src 'self'",
+  "font-src 'self'",
   "form-action 'none'",
 ]);
 
@@ -168,5 +170,5 @@ for (const legalFile of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
 }
 
 console.log(
-  `[built-site] Pages-relative index/bundles, security policy, no source maps, ${references.length} HTML references, byte-identical public/legal assets verified.`,
+  `[built-site] Pages-relative index/bundles, complete runtime CSP, no source maps, ${references.length} HTML references, byte-identical public/legal assets verified.`,
 );
