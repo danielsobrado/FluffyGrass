@@ -79,11 +79,15 @@ if (localEnvironmentFiles.length > 0) {
 }
 
 const deployScript = readFileSync(DEPLOY_SCRIPT, "utf8");
-const lockedDependencyAudit =
-  'run(npmCommand, ["audit", "--package-lock-only", "--audit-level=high"])';
-const lockedBuildInstall =
-  'run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"])';
-const productionBuild = 'run(npmCommand, ["run", "build"])';
+const auditCommandPattern =
+  /run\(npmCommand,\s*\[\s*"audit",\s*"--package-lock-only",\s*"--include=dev",\s*"--audit-level=high",?\s*\]\)/;
+const installCommandPattern =
+  /run\(npmCommand,\s*\[\s*"ci",\s*"--include=dev",\s*"--no-audit",\s*"--no-fund",?\s*\]\)/;
+const buildCommandPattern =
+  /run\(npmCommand,\s*\[\s*"run",\s*"build",?\s*\]\)/;
+const auditCommandIndex = deployScript.search(auditCommandPattern);
+const installCommandIndex = deployScript.search(installCommandPattern);
+const buildCommandIndex = deployScript.search(buildCommandPattern);
 if (deployScript.includes("ALLOW_DIRTY_DEPLOY")) {
   fail("Manual production deployment must never allow a dirty working tree.");
 }
@@ -98,13 +102,11 @@ if (
   ) ||
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
-  !deployScript.includes(lockedDependencyAudit) ||
-  !deployScript.includes(lockedBuildInstall) ||
-  !deployScript.includes(productionBuild) ||
-  deployScript.indexOf(lockedDependencyAudit) >
-    deployScript.indexOf(lockedBuildInstall) ||
-  deployScript.indexOf(lockedBuildInstall) >
-    deployScript.indexOf(productionBuild) ||
+  auditCommandIndex < 0 ||
+  installCommandIndex < 0 ||
+  buildCommandIndex < 0 ||
+  auditCommandIndex > installCommandIndex ||
+  installCommandIndex > buildCommandIndex ||
   !deployScript.includes('existsSync(join(CONFIG.distDirectory, "index.html"))') ||
   !/function assertSourceStillCurrent\(expectedHead\) \{[\s\S]*?const currentHead = assertRepositoryState\(\);[\s\S]*?currentHead !== expectedHead/.test(
     deployScript,
@@ -117,7 +119,7 @@ if (
   )
 ) {
   fail(
-    "Manual deployment must be fixed to main -> origin/gh-pages, require a patched Node runtime and clean synchronized source, audit the lockfile before installation, install the exact dependency graph, run the full production build, revalidate source state, and reject stale/no-op publish races.",
+    "Manual deployment must be fixed to main -> origin/gh-pages, require a patched Node runtime and clean synchronized source, audit all locked build/runtime dependencies before installation, install the exact dependency graph, run the full production build, revalidate source state, and reject stale/no-op publish races.",
   );
 }
 
