@@ -212,14 +212,6 @@ export class StoneField {
     return resolved;
   }
 
-  /**
-   * Pre-generated mesh for an instance; built lazily, cached forever.
-   *
-   * `detailed` selects the chipped close-range form. Both come from the same
-   * recipe and differ only by a handful of shallow corner facets, so a stone
-   * keeps its identity across the swap — and the swap happens at the detail
-   * radius, by which distance those facets are far below a pixel.
-   */
   getVariant(
     archetype: StoneArchetypeId,
     variantIndex: number,
@@ -242,10 +234,6 @@ export class StoneField {
     return mesh;
   }
 
-  /**
-   * Every stone whose root lies inside the chunk. `includeSmall` false drops
-   * the nestling classes for far chunks where they are sub-pixel anyway.
-   */
   collectChunkInstances(
     chunkX: number,
     chunkZ: number,
@@ -287,11 +275,6 @@ export class StoneField {
     return out;
   }
 
-  /**
-   * How much grass survives at (x, z): 1 clear of every stone, 0 under one.
-   * `extraRadius` widens the cleared band by the footprint of whatever is
-   * being placed, mirroring {@link TerrainField.samplePathGrassMask}.
-   */
   sampleGrassClearance(x: number, z: number, extraRadius = 0): number {
     if (!this.enabled) {
       return 1;
@@ -674,10 +657,7 @@ export class StoneField {
       descriptor.strike + Math.PI * 0.5 + splitAngle.signed(0.35);
     const x = anchor.instance.x + Math.cos(breakAngle) * desiredDistance;
     const z = anchor.instance.z + Math.sin(breakAngle) * desiredDistance;
-    if (!this.insideWorld(x, z)) {
-      return undefined;
-    }
-    if (!this.insideInfluence(descriptor, x, z)) {
+    if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
       return undefined;
     }
     const height = this.field.sampleHeight(x, z);
@@ -691,9 +671,7 @@ export class StoneField {
     if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }
-    if (
-      this.pathBlocks(x, z, height, scale, anchor.instance.archetype, footprint)
-    ) {
+    if (this.pathBlocks(x, z, height, scale, footprint)) {
       return undefined;
     }
     if (this.overlapsAny(x, z, footprint, others)) {
@@ -742,10 +720,7 @@ export class StoneField {
     );
     let x = root.x;
     let z = root.z;
-    if (!this.insideWorld(x, z)) {
-      return { corrected: false };
-    }
-    if (!this.insideInfluence(descriptor, x, z)) {
+    if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
       return { corrected: false };
     }
     const sampled = this.samplePlacement(
@@ -759,7 +734,7 @@ export class StoneField {
       return { corrected: false };
     }
     let { height, normal, footprint, variant } = sampled;
-    if (this.pathBlocks(x, z, height, spec.scale, spec.archetype, footprint)) {
+    if (this.pathBlocks(x, z, height, spec.scale, footprint)) {
       return { corrected: false };
     }
 
@@ -783,10 +758,7 @@ export class StoneField {
       x = pushed.x;
       z = pushed.z;
       corrected = true;
-      if (!this.insideWorld(x, z)) {
-        return { corrected: true };
-      }
-      if (!this.insideInfluence(descriptor, x, z)) {
+      if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
         return { corrected: true };
       }
       const resampled = this.samplePlacement(
@@ -803,7 +775,7 @@ export class StoneField {
       normal = resampled.normal;
       footprint = resampled.footprint;
       variant = resampled.variant;
-      if (this.pathBlocks(x, z, height, spec.scale, spec.archetype, footprint)) {
+      if (this.pathBlocks(x, z, height, spec.scale, footprint)) {
         return { corrected: true };
       }
       if (this.overlapsAny(x, z, footprint, accepted)) {
@@ -891,16 +863,7 @@ export class StoneField {
     if (!sampled) {
       return false;
     }
-    if (
-      this.pathBlocks(
-        x,
-        z,
-        sampled.height,
-        scale,
-        archetype,
-        sampled.footprint,
-      )
-    ) {
+    if (this.pathBlocks(x, z, sampled.height, scale, sampled.footprint)) {
       return false;
     }
     const biomeSample = sampleGrassBiome(x, z);
@@ -1038,8 +1001,7 @@ export class StoneField {
         if (Math.abs(Math.abs(currentDistance) - PATH_DISTANCE_PLATEAU) < 0.01) {
           break;
         }
-        const stepTangent = this.samplePathTangent(x, z);
-        if (!stepTangent) {
+        if (!this.samplePathTangent(x, z)) {
           break;
         }
         stepAcrossX = this.tangentScratch.z;
@@ -1048,10 +1010,7 @@ export class StoneField {
       const landed = Math.abs(currentDistance);
       const bandMin = clearance + footprint + 0.05;
       const bandMax = clearance + footprint + VERGE_BAND + 0.6;
-      if (!(landed >= bandMin && landed <= bandMax)) {
-        continue;
-      }
-      if (!this.insideWorld(x, z)) {
+      if (!(landed >= bandMin && landed <= bandMax) || !this.insideWorld(x, z)) {
         continue;
       }
       const stoneHeight = this.field.sampleHeight(x, z);
@@ -1063,7 +1022,10 @@ export class StoneField {
       for (const existing of instances) {
         const offsetX = existing.x - x;
         const offsetZ = existing.z - z;
-        const minimum = (existing.clearRadius + footprint) * 0.85 + 0.2;
+        const existingFootprint =
+          this.getVariant(existing.archetype, existing.variantIndex).metrics
+            .footprintRadius * existing.scale;
+        const minimum = (existingFootprint + footprint) * 0.85 + 0.2;
         if (offsetX * offsetX + offsetZ * offsetZ < minimum * minimum) {
           blocked = true;
           break;
@@ -1156,7 +1118,6 @@ export class StoneField {
     z: number,
     height: number,
     scale: number,
-    archetype: StoneArchetypeId,
     footprint: number,
   ): boolean {
     const visibility = this.field.samplePathVisibility(height);
@@ -1180,11 +1141,7 @@ export class StoneField {
       this.config.pathGrassClearance;
     const mainMargin = Math.abs(distances.x) - mainClear - footprint;
     const branchMargin = Math.abs(distances.y) - branchClear - footprint;
-    const margin = Math.min(mainMargin, branchMargin);
-    if (margin < 0.35) {
-      return !(archetype === "pebble" && margin > -0.2);
-    }
-    return false;
+    return Math.min(mainMargin, branchMargin) < 0.35;
   }
 
   private findOverlap(
