@@ -48,10 +48,13 @@ assert(
 );
 
 assert(
-  /disposeInstancedMesh\([\s\S]*?geometry\.setIndex\(null\);[\s\S]*?disposeResources\(\[[\s\S]*?geometry,[\s\S]*?preserveSharedInstanceData \? undefined : mesh/.test(
+  /disposeInstancedGeometry\([\s\S]*?for \(const name of Object\.keys\(geometry\.attributes\)\)[\s\S]*?geometry\.deleteAttribute\(name\)[\s\S]*?geometry\.setIndex\(null\);[\s\S]*?geometry\.dispose\(\);/.test(
     source,
-  ),
-  "Instanced mesh teardown must attempt geometry and mesh cleanup independently.",
+  ) &&
+    /disposeInstancedMesh\([\s\S]*?disposeResources\(\[[\s\S]*?this\.disposeInstancedGeometry\(geometry, preserveSharedInstanceData\)[\s\S]*?preserveSharedInstanceData \? undefined : mesh/.test(
+      source,
+    ),
+  "Instanced geometry must detach borrowed attributes once, while mesh teardown independently attempts geometry and mesh cleanup.",
 );
 
 assert(
