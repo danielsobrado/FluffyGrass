@@ -254,7 +254,11 @@ export class RiverField {
             this.secondaryFrequency *
             this.secondaryFrequency),
     );
-    const bend = clamp(secondDerivative / secondDerivativeReference, -1, 1);
+    const tangentLength = Math.sqrt(1 + firstDerivative * firstDerivative);
+    const curvature =
+      secondDerivative /
+      (tangentLength * tangentLength * tangentLength);
+    const bend = clamp(curvature / secondDerivativeReference, -1, 1);
 
     const side =
       lane.signedDistance > 0 ? 1 : lane.signedDistance < 0 ? -1 : 0;
@@ -323,7 +327,6 @@ export class RiverField {
       target.bank *
       (1 - target.coverage);
 
-    const tangentLength = Math.sqrt(1 + firstDerivative * firstDerivative);
     const flowSign = lane.shape.flowSign;
     target.flowX = flowSign / tangentLength;
     target.flowZ = (flowSign * firstDerivative) / tangentLength;
