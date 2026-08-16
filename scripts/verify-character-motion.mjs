@@ -145,10 +145,15 @@ assert(
 );
 assert(
   character.includes("private disposed = false") &&
-    /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\("animation runtime"[\s\S]*?disposeSafely\("rig instance"/.test(
+    character.includes("const resources = createSnowflowCharacterResources(") &&
+    character.includes("disposeSnowflowRig(this.rig)") &&
+    /function createSnowflowCharacterResources\([\s\S]*?const rig = buildSnowflowCharacter\(scene, scale\);[\s\S]*?catch \(error\) \{[\s\S]*?cloth\?\.dispose\(\)[\s\S]*?disposeSnowflowRig\(rig\);[\s\S]*?throw error;/.test(
+      character,
+    ) &&
+    /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\("animation runtime"[\s\S]*?disposeSnowflowRig\(this\.rig\)/.test(
       character,
     ),
-  "Snowflow teardown must be idempotent and continue releasing owned resources after isolated cleanup faults.",
+  "Snowflow construction and teardown must transactionally own the published rig and remain idempotent after isolated cleanup faults.",
 );
 assert(
   input.includes('from "./MobileJoystick"') &&
@@ -175,7 +180,7 @@ verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSi
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Roll edges, controller ownership, spring recovery, explicit reset, analogue mobile input, cape inputs, shared geometry, and deformation bounds verified.",
+  "[character-motion] Roll edges, controller and Snowflow ownership, spring recovery, explicit reset, analogue mobile input, cape inputs, shared geometry, and deformation bounds verified.",
 );
 
 function verifyBounds(
