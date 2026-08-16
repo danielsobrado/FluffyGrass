@@ -21,6 +21,7 @@ const statsPanel = read("src/app/WorldStatsPanel.ts");
 const visualMatrix = read("src/qa/WorldVisualMatrixRunner.ts");
 const metrics = read("src/qa/GrassQaMetrics.ts");
 const diagnostics = read("src/runtime/WorldDiagnosticsController.ts");
+const resourceDisposal = read("src/render/ResourceDisposal.ts");
 const terrainStreamer = read("src/world/TerrainStreamer.ts");
 const terrainChunk = read("src/world/TerrainChunk.ts");
 const terrainMaterial = read("src/world/TerrainMaterialController.ts");
@@ -56,6 +57,14 @@ assert(
 );
 
 assert(
+  resourceDisposal.includes("for (const resource of resources)") &&
+    resourceDisposal.includes("resource.dispose()") &&
+    resourceDisposal.includes("if (!failed)") &&
+    resourceDisposal.includes("throw firstError"),
+  "Owned-resource cleanup must attempt every resource and only rethrow after the complete cleanup pass.",
+);
+
+assert(
   terrainStreamer.includes("let materialController: TerrainMaterialController | undefined") &&
     terrainStreamer.includes("let waterMaterialController: WaterMaterialController | undefined") &&
     terrainStreamer.includes("let waterBedMaterialController: WaterBedMaterialController | undefined") &&
@@ -75,23 +84,38 @@ assert(
 );
 
 assert(
-  terrainMaterial.includes("let surfaceNoiseTexture: THREE.DataTexture | undefined") &&
-    terrainMaterial.includes("surfaceNoiseTexture?.dispose()") &&
-    terrainMaterial.includes("material.dispose()") &&
+  terrainMaterial.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
+    terrainMaterial.includes("disposeResources([material, surfaceNoiseTexture])") &&
+    terrainMaterial.includes("disposeResources([this.material, this.surfaceNoiseTexture])") &&
+    terrainMaterial.includes("Terrain material construction cleanup failed.") &&
     terrainMaterial.includes("private disposed = false"),
-  "Terrain material setup must release both material and surface texture after partial construction failures.",
+  "Terrain material setup and teardown must attempt both material and surface-texture cleanup even when one disposer fails.",
 );
 
-for (const [name, source, textureCleanup] of [
-  ["Water material", waterMaterial, "flowNoiseTexture.dispose()"],
-  ["Water bed material", waterBedMaterial, "bedTexture.dispose()"],
+for (const [name, source, constructionCleanup, normalCleanup, cleanupLog] of [
+  [
+    "Water material",
+    waterMaterial,
+    "disposeResources([material, flowNoiseTexture])",
+    "disposeResources([this.flowNoiseTexture, this.material])",
+    "Water material construction cleanup failed.",
+  ],
+  [
+    "Water bed material",
+    waterBedMaterial,
+    "disposeResources([material, bedTexture])",
+    "disposeResources([this.bedTexture, this.material])",
+    "Water bed material construction cleanup failed.",
+  ],
 ]) {
   assert(
-    source.includes("private disposed = false") &&
+    source.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
+      source.includes("private disposed = false") &&
       source.includes("let material:") &&
-      source.includes("material?.dispose()") &&
-      source.includes(textureCleanup),
-    `${name} setup must release its texture/material pair transactionally and remain disposal-safe.`,
+      source.includes(constructionCleanup) &&
+      source.includes(normalCleanup) &&
+      source.includes(cleanupLog),
+    `${name} setup and teardown must isolate texture/material disposal failures without masking the original setup error.`,
   );
 }
 
@@ -169,5 +193,5 @@ for (const [name, source] of [
 }
 
 console.log(
-  "[session-lifecycle] Bootstrap, world/terrain construction, diagnostics, QA, stats, and actor asset ownership verified.",
+  "[session-lifecycle] Bootstrap, world/terrain construction, isolated material cleanup, diagnostics, QA, stats, and actor asset ownership verified.",
 );
