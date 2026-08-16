@@ -229,6 +229,11 @@ export class WorldApp {
         this.handleResize,
         (enabled) => {
           this.rendererEnabled = enabled;
+          if (enabled && !useFlyControls) {
+            this.disposeSafely("Grass trail context restore", () =>
+              grassTrailField.configure({}),
+            );
+          }
         },
       );
       this.runtimeGuard = runtimeGuard;
