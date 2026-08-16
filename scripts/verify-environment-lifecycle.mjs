@@ -46,9 +46,13 @@ assert(
     sky.includes("Sky environment bake unavailable; continuing without IBL.") &&
     sky.includes("Sky environment cleanup failed.") &&
     sky.includes("Sky bake material cleanup failed.") &&
-    sky.includes("disposeResources([environmentTarget, pmrem])") &&
-    sky.includes("bakeMaterial.dispose()"),
-  "A failed desktop PMREM bake must release optional GPU resources without cleanup failures escaping the fail-soft IBL boundary.",
+    sky.includes("Sky PMREM generator cleanup failed.") &&
+    sky.includes("disposeResources([environmentTarget])") &&
+    sky.includes("bakeMaterial.dispose()") &&
+    /finally \{[\s\S]*?pmrem\.dispose\(\)/.test(sky) &&
+    !sky.includes("private pmrem?: THREE.PMREMGenerator") &&
+    !sky.includes("this.pmrem = pmrem"),
+  "The one-shot desktop PMREM generator must always release its temporary GPU resources while the generated target remains owned by the sky.",
 );
 assert(
   sky.includes("private disposed = false") &&
@@ -57,10 +61,10 @@ assert(
     ) &&
     sky.includes("this.scene.environment === environmentTarget.texture") &&
     sky.includes("this.environmentTarget = undefined") &&
-    sky.includes("this.pmrem = undefined") &&
     sky.includes("{ dispose: () => this.mesh.removeFromParent() }") &&
     sky.includes("this.mesh.geometry") &&
-    sky.includes("this.mesh.material"),
+    sky.includes("this.mesh.material") &&
+    /disposeResources\(\[[\s\S]*?environmentTarget,[\s\S]*?\]\);/.test(sky),
   "Sky teardown must be idempotent, clear only the environment texture it still owns, and attempt every dome/IBL cleanup.",
 );
 assert(
@@ -80,4 +84,6 @@ assert(
   "Environment teardown must release the shadow render target, stay idempotent, and remove lights even if cleanup fails.",
 );
 
-console.log("[environment-lifecycle] Sky, shadow, and fail-soft IBL ownership verified.");
+console.log(
+  "[environment-lifecycle] Sky, shadow, one-shot PMREM, and fail-soft IBL ownership verified.",
+);
