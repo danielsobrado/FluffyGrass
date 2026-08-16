@@ -25,7 +25,12 @@ export class WorldScenicLayer {
     shadows: boolean,
   ) {
     this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
-    this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
+    try {
+      this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
+    } catch (error) {
+      this.disposeTrees();
+      throw error;
+    }
   }
 
   update(deltaSeconds: number, focus: THREE.Vector3): void {
@@ -39,7 +44,7 @@ export class WorldScenicLayer {
       } catch (error) {
         console.warn("[Drusniel World] Trees disabled after a fault.", error);
         this.treesEnabled = false;
-        this.trees.dispose();
+        this.disposeTrees();
       }
     }
 
@@ -53,7 +58,7 @@ export class WorldScenicLayer {
     } catch (error) {
       console.warn("[Drusniel World] Fauna disabled after a fault.", error);
       this.faunaEnabled = false;
-      this.life.dispose();
+      this.disposeFauna();
     }
   }
 
@@ -62,7 +67,25 @@ export class WorldScenicLayer {
       return;
     }
     this.disposed = true;
-    this.trees.dispose();
-    this.life.dispose();
+    this.treesEnabled = false;
+    this.faunaEnabled = false;
+    this.disposeTrees();
+    this.disposeFauna();
+  }
+
+  private disposeTrees(): void {
+    try {
+      this.trees.dispose();
+    } catch (error) {
+      console.warn("[Drusniel World] Tree cleanup failed.", error);
+    }
+  }
+
+  private disposeFauna(): void {
+    try {
+      this.life.dispose();
+    } catch (error) {
+      console.warn("[Drusniel World] Fauna cleanup failed.", error);
+    }
   }
 }
