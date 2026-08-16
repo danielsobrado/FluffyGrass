@@ -28,9 +28,9 @@ Upstream source and license: <https://github.com/mrdoob/three.js/blob/dev/LICENS
 
 ## stats-gl
 
-stats-gl is distributed under the MIT License.
+stats-gl declares the MIT License in its package metadata.
 
-Copyright (c) Renaud Rohlinger and contributors
+Upstream package author: Renaud Rohlinger
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
