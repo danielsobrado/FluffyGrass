@@ -176,6 +176,24 @@ assert(
   loader.includes("sharedTextures") && loader.includes("flipY = false"),
   "The pack atlas must be shared across characters and sampled with the glTF orientation.",
 );
+assert(
+  loader.includes("request.catch((error) =>") &&
+    loader.includes("sharedTextures.get(url) === pending") &&
+    loader.includes("sharedTextures.delete(url)"),
+  "A failed shared atlas request must leave the cache retryable instead of pinning a rejected promise forever.",
+);
+assert(
+  /const gltf = await loader\(\)\.loadAsync\(url\);[\s\S]*?try \{[\s\S]*?return \{[\s\S]*?skinnedMeshes,[\s\S]*?\};[\s\S]*?\} catch \(error\) \{[\s\S]*?disposeGltfScene\(gltf\.scene\)/.test(
+    loader,
+  ) &&
+    loader.includes("const skeletons = new Set<THREE.Skeleton>()") &&
+    loader.includes("skeletons.add(skinned.skeleton)") &&
+    loader.includes("disposeResources([") &&
+    loader.includes("...geometries") &&
+    loader.includes("...materials") &&
+    loader.includes("...skeletons"),
+  "Failed imported-character validation or atlas loading must release scene geometry, materials, and skeleton GPU resources before rethrowing.",
+);
 
 console.log(
   `[imported-rig] ${models.length} prepared characters verified: clips and imagery stripped, required bones present, ${checkedChains} chain segments direct and +Y aligned, control bones excluded.`,
