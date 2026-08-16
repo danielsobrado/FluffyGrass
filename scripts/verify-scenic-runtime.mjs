@@ -21,6 +21,8 @@ const faunaField = read("src/world/scenic/WorldFaunaField.ts");
 const treeField = read("src/world/scenic/WorldTreeField.ts");
 const villagerBody = read("src/character/npc/VillagerBody.ts");
 const scriptedHumanoid = read("src/character/npc/ScriptedHumanoidActor.ts");
+const deerBody = read("src/creatures/deer/DeerBody.ts");
+const quadrupedActor = read("src/creatures/quadruped/QuadrupedActor.ts");
 
 assert(
   scenicLayer.includes("Trees disabled after a fault.") &&
@@ -90,6 +92,23 @@ const scenePublication = scriptedHumanoid.indexOf("scene.add(this.root);");
 assert(
   runtimeReset >= 0 && scenePublication > runtimeReset,
   "Scripted humanoids must enter the scene only after construction and animation reset succeed.",
+);
+assert(
+  deerBody.includes("const geometries = placements.map") &&
+    deerBody.includes("mesh.removeFromParent()") &&
+    deerBody.includes("let disposed = false"),
+  "Deer body construction must resolve shared geometry before attachment and roll back owned resources.",
+);
+const quadrupedReset = quadrupedActor.indexOf("this.runtime.reset(this.input);");
+const quadrupedPublication = quadrupedActor.indexOf("scene.add(this.root);");
+assert(
+  quadrupedReset >= 0 &&
+    quadrupedPublication > quadrupedReset &&
+    quadrupedActor.includes("private disposed = false") &&
+    quadrupedActor.includes('disposeResource(this.runtime, "Quadruped animation runtime")') &&
+    quadrupedActor.includes('disposeResource(this.rigInstance, "Quadruped rig instance")') &&
+    quadrupedActor.includes('disposeResource(this.body, "Quadruped body")'),
+  "Quadrupeds must publish only after construction succeeds and release every owned layer independently.",
 );
 
 console.log("[scenic-runtime] Scenic ownership and independent fauna paths verified.");
