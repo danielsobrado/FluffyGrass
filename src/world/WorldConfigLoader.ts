@@ -3,6 +3,7 @@ import { FlatConfig } from "../config/FlatConfig";
 import { FlatConfigValueReader } from "../config/FlatConfigValueReader";
 import { validateSpawnConfig } from "./SpawnConfigValidator";
 import type { WorldConfig } from "./WorldConfig";
+import { validateWorldGrassAllocationConfig } from "./WorldGrassAllocationValidator";
 import { WORLD_CONFIG_SCHEMA } from "./WorldConfigSchema";
 import { validateWorldConfig } from "./WorldConfigValidator";
 import { validateFaunaStreamingConfig } from "./scenic/FaunaConfigValidator";
@@ -26,6 +27,7 @@ export class WorldConfigLoader {
 
     values.assertFullyConsumed();
     validateWorldConfig(config);
+    validateWorldGrassAllocationConfig(config);
     validateSpawnConfig(config);
     validateFaunaStreamingConfig(config);
     return Object.freeze(config);
