@@ -115,6 +115,12 @@ if (
 }
 
 const packageMetadata = JSON.parse(readFileSync(PACKAGE_FILE, "utf8"));
+const buildScript = String(packageMetadata.scripts?.build ?? "");
+if (!buildScript.includes("vite build && node scripts/verify-built-site.mjs")) {
+  fail(
+    "The production build must verify the generated GitHub Pages artifact after Vite finishes.",
+  );
+}
 const packageLock = JSON.parse(readFileSync(PACKAGE_LOCK_FILE, "utf8"));
 const packageLockRoot = packageLock.packages?.[""];
 if (
@@ -152,4 +158,4 @@ if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
   fail("npm must enforce package.json engine constraints during install.");
 }
 
-console.log("[production-policy] Deployment, Pages packaging, cache, dependency, and runtime policies verified.");
+console.log("[production-policy] Deployment, Pages artifact, cache, dependency, and runtime policies verified.");
