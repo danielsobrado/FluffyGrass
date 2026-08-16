@@ -19,6 +19,7 @@ const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
 const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
 const faunaField = read("src/world/scenic/WorldFaunaField.ts");
 const treeField = read("src/world/scenic/WorldTreeField.ts");
+const treeSystem = read("src/world/scenic/WorldTreeSystem.ts");
 const villagerBody = read("src/character/npc/VillagerBody.ts");
 const scriptedHumanoid = read("src/character/npc/ScriptedHumanoidActor.ts");
 const deerBody = read("src/creatures/deer/DeerBody.ts");
@@ -49,6 +50,18 @@ assert(
     scenicLayer.includes("this.disposeTrees();") &&
     scenicLayer.includes("this.disposeFauna();"),
   "Scenic cleanup failures must remain isolated from each other and the world owner.",
+);
+assert(
+  treeSystem.includes("let trunk: THREE.CylinderGeometry | undefined") &&
+    treeSystem.includes("let canopy: THREE.IcosahedronGeometry | undefined") &&
+    treeSystem.includes("scene.add(trunkMesh, canopyMesh)") &&
+    treeSystem.includes("trunkMesh?.removeFromParent()") &&
+    treeSystem.includes("canopyMesh?.removeFromParent()") &&
+    treeSystem.includes("trunk?.dispose()") &&
+    treeSystem.includes("canopy?.dispose()") &&
+    treeSystem.includes("bark.dispose()") &&
+    treeSystem.includes("leaves.dispose()"),
+  "A failed tree constructor must roll back every local mesh, geometry, and material before the scenic layer degrades without trees.",
 );
 assert(
   faunaSystem.includes(
