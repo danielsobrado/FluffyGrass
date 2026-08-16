@@ -58,6 +58,9 @@ export class StoneClearanceCache {
   }
 
   sample(x: number, z: number, extraRadius = 0): number {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      throw new Error("Stone clearance coordinates must be finite numbers.");
+    }
     if (!Number.isFinite(extraRadius) || extraRadius < 0) {
       throw new Error("Stone clearance extraRadius must be a non-negative finite number.");
     }
