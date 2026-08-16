@@ -17,6 +17,8 @@ function assert(condition, message) {
 
 const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
 const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
+const villagerBody = read("src/character/npc/VillagerBody.ts");
+const scriptedHumanoid = read("src/character/npc/ScriptedHumanoidActor.ts");
 
 assert(
   scenicLayer.includes("Trees disabled after a fault.") &&
@@ -47,10 +49,22 @@ assert(
   faunaSystem.includes(
     "(this.slots.length === 0 && this.villagers.length === 0)",
   ) &&
-    faunaSystem.includes("if (this.slots.length > 0)") &&
+    faunaSystem.includes("this.slots.length > 0 ? this.rebuildRoster(focus) : false") &&
     faunaSystem.includes("villagerCount,") &&
     faunaSystem.includes("index / Math.max(count, 1)"),
   "Villagers must update without deer and use the active profile count for spacing.",
+);
+assert(
+  villagerBody.includes("const geometries = placements.map") &&
+    villagerBody.includes("mesh.removeFromParent()") &&
+    villagerBody.includes("let disposed = false"),
+  "Villager body construction must resolve shared geometry before attachment and roll back owned resources.",
+);
+const runtimeReset = scriptedHumanoid.indexOf("this.runtime.reset(this.input);");
+const scenePublication = scriptedHumanoid.indexOf("scene.add(this.root);");
+assert(
+  runtimeReset >= 0 && scenePublication > runtimeReset,
+  "Scripted humanoids must enter the scene only after construction and animation reset succeed.",
 );
 
 console.log("[scenic-runtime] Scenic ownership and independent fauna paths verified.");
