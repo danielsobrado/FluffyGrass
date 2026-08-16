@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { WorldConfig } from "../WorldConfig";
 import { createWaterBedTexture } from "./WaterBedTexture";
 import {
@@ -75,8 +76,14 @@ export class WaterBedMaterialController {
       };
       this.configureMaterial();
     } catch (error) {
-      material?.dispose();
-      bedTexture.dispose();
+      try {
+        disposeResources([material, bedTexture]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Water bed material construction cleanup failed.",
+          cleanupError,
+        );
+      }
       throw error;
     }
   }
@@ -104,8 +111,7 @@ export class WaterBedMaterialController {
       return;
     }
     this.disposed = true;
-    this.bedTexture.dispose();
-    this.material.dispose();
+    disposeResources([this.bedTexture, this.material]);
   }
 
   private configureMaterial(): void {
