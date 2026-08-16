@@ -29,11 +29,21 @@ assert(
 assert(
   sky.includes("let bakeMaterial: THREE.ShaderMaterial | undefined") &&
     sky.includes("} catch (error) {") &&
-    sky.includes("this.scene.remove(this.mesh)") &&
-    sky.includes("this.pmrem?.dispose()") &&
+    sky.includes("Sky environment bake unavailable; continuing without IBL.") &&
+    sky.includes("this.environmentTarget = undefined") &&
+    sky.includes("this.pmrem = undefined") &&
     sky.includes("} finally {") &&
     sky.includes("bakeMaterial?.dispose()"),
-  "A failed desktop sky bake must roll back the dome, PMREM resources, and temporary bake material.",
+  "A failed desktop PMREM bake must release optional GPU resources and keep the sky dome available.",
+);
+assert(
+  sky.includes("private disposed = false") &&
+    /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true/.test(
+      sky,
+    ) &&
+    sky.includes("this.scene.environment === this.environmentTarget.texture") &&
+    sky.includes("this.pmrem = undefined"),
+  "Sky teardown must be idempotent and clear only the environment texture it still owns.",
 );
 assert(
   environment.includes("private disposed = false") &&
@@ -43,7 +53,7 @@ assert(
     /catch \(error\) \{[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
       environment,
     ),
-  "Environment lights and shadow resources must publish only after sky construction succeeds and roll back on initialization failure.",
+  "Environment lights and shadow resources must publish only after core sky construction succeeds and roll back on initialization failure.",
 );
 assert(
   /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
@@ -52,4 +62,4 @@ assert(
   "Environment teardown must release the shadow render target, stay idempotent, and remove lights even if cleanup fails.",
 );
 
-console.log("[environment-lifecycle] Sky, shadow, and environment ownership rollback verified.");
+console.log("[environment-lifecycle] Sky, shadow, and fail-soft IBL ownership verified.");
