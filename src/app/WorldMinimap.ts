@@ -1,3 +1,4 @@
+import { exitPointerLockSafely } from "../controls/InputTarget";
 import type { WorldController } from "../controls/WorldController";
 import type { TerrainField } from "../world/TerrainField";
 import type { WorldConfig } from "../world/WorldConfig";
@@ -138,7 +139,7 @@ export class WorldMinimap {
       return;
     }
     if (document.pointerLockElement !== null) {
-      document.exitPointerLock();
+      exitPointerLockSafely();
     }
     // First open pays for the raster; later opens reuse it.
     this.raster ??= new WorldMinimapRaster(this.field, this.extent);
