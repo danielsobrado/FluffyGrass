@@ -34,11 +34,7 @@ function verifyZeroChanceVergeFastPath() {
     "this.clusterField.sampleGeologyPotential(",
   );
   const placement = generateCell.indexOf("this.addVergeStones(");
-  if (
-    guard < 0 ||
-    geology <= guard ||
-    placement <= geology
-  ) {
+  if (guard < 0 || geology <= guard || placement <= geology) {
     throw new Error(
       "[stones] stoneVergeChance=0 must reject before verge geology and placement work.",
     );
@@ -51,17 +47,21 @@ function verifyStoneSystemConstructionOwnership() {
     "utf8",
   );
   const setup = source.indexOf("applyStoneSurfaceShader(");
-  const registration = source.indexOf("this.clearanceRegistration = registerStoneClearanceField(");
-  const rollback = source.indexOf("this.grainTexture?.dispose();", registration);
+  const registration = source.indexOf(
+    "this.clearanceRegistration = registerStoneClearanceField(",
+  );
+  const rollback = source.indexOf("disposeResources([", registration);
   if (
     setup < 0 ||
     registration <= setup ||
     rollback <= registration ||
-    !source.includes("this.detailMaterial.dispose();") ||
-    !source.includes("this.coarseMaterial.dispose();")
+    !source.includes("this.grainTexture,") ||
+    !source.includes("this.detailMaterial,") ||
+    !source.includes("this.coarseMaterial,") ||
+    !source.includes("Stone construction cleanup failed.")
   ) {
     throw new Error(
-      "[stones] Stone clearance ownership must publish after local setup and failed setup must release local render resources.",
+      "[stones] Stone clearance ownership must publish after local setup and failed setup must attempt every local render-resource cleanup.",
     );
   }
 }
