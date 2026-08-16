@@ -82,6 +82,7 @@ export class WorldNearGrassField {
   private detailFoliageFactory?: WorldDetailFoliageFactory;
   private detailFoliageField?: WorldDetailFoliageField;
   private detailFoliageEnabled = true;
+  private detailFoliageDensityScale: number;
   private detailFoliageTuning: DetailFoliageTuning;
   private initialization?: Promise<void>;
   private artDirection: GrassArtDirection =
@@ -144,6 +145,9 @@ export class WorldNearGrassField {
       microWind: !profile.compact,
     });
     this.detailFoliageTuning = createDetailFoliageTuning(worldConfig);
+    this.detailFoliageDensityScale = profile.compact
+      ? COMPACT_DETAIL_FOLIAGE_SCALE
+      : 1;
   }
 
   initialize(grassConfig?: GrassConfig): Promise<void> {
@@ -345,10 +349,13 @@ export class WorldNearGrassField {
   ): void {
     this.nearDistanceScale = nearDistanceScale;
     this.detailFoliageEnabled = accentDensityScale > 0;
-    this.detailFoliageField?.setDensityScale(
+    this.detailFoliageDensityScale = THREE.MathUtils.clamp(
       accentDensityScale *
         (this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1),
+      0,
+      1,
     );
+    this.detailFoliageField?.setDensityScale(this.detailFoliageDensityScale);
 
     // The bridge split uses the raw placement dither as its lower boundary.
     // Scaling LOD0's upper boundary independently opens a missing dither range,
@@ -441,9 +448,7 @@ export class WorldNearGrassField {
         tilesPerFrame: DETAIL_FOLIAGE_TILES_PER_FRAME,
       },
     );
-    this.detailFoliageField.setDensityScale(
-      this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1,
-    );
+    this.detailFoliageField.setDensityScale(this.detailFoliageDensityScale);
   }
 
   private resolveBaseVisibilityRadius(
