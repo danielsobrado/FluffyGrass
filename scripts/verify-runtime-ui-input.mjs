@@ -67,6 +67,17 @@ assert(
       sprintSource.indexOf("this.mobileSprint = active"),
   "Mobile JUMP/RUN held state must not publish before pointer capture succeeds.",
 );
+assert(
+  input.includes("private mobileJumpButton?: HTMLButtonElement") &&
+    input.includes("private mobileRunButton?: HTMLButtonElement") &&
+    input.includes("private setMobileButtonState(") &&
+    /private clearTransientInput\(\): void \{[\s\S]*?this\.mobileSprint = false;[\s\S]*?this\.mobileJumpHeld = false;[\s\S]*?this\.setMobileButtonState\(this\.mobileRunButton, false\);[\s\S]*?this\.setMobileButtonState\(this\.mobileJumpButton, false\);/.test(
+      input,
+    ) &&
+    input.includes("this.mobileJumpButton = undefined") &&
+    input.includes("this.mobileRunButton = undefined"),
+  "Blur, visibility loss, and disposal must clear both gameplay and visible/ARIA state for compact JUMP/RUN controls.",
+);
 
 assert(
   controller.includes(
@@ -169,5 +180,5 @@ assert(
 );
 
 console.log(
-  "[runtime-ui-input] Diagnostics ownership, action/coyote precedence, transactional compact/fly input, and tuning UI lifecycle verified.",
+  "[runtime-ui-input] Diagnostics ownership, mobile visual reset, action/coyote precedence, transactional compact/fly input, and tuning UI lifecycle verified.",
 );
