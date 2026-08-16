@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { WorldConfig } from "../world/WorldConfig";
 import {
+  exitPointerLockSafely,
   isEditableInputTarget,
   requestPointerLockSafely,
 } from "./InputTarget";
@@ -169,7 +170,7 @@ export class FlyController {
     const dx = target.x - position.x;
     const dy = target.y - position.y;
     const dz = target.z - position.z;
-    this.yaw = Math.atan2(dx, dz);
+    this.yaw = Math.atan2(-dx, -dz);
     this.pitch = THREE.MathUtils.clamp(
       Math.atan2(dy, Math.hypot(dx, dz)),
       -Math.PI * 0.48,
@@ -205,7 +206,7 @@ export class FlyController {
     this.disposed = true;
     this.unbindEvents();
     if (document.pointerLockElement === this.canvas) {
-      document.exitPointerLock();
+      exitPointerLockSafely();
     }
 
     this.clearTransientInput();
