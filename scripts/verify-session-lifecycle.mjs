@@ -16,6 +16,7 @@ function assert(condition, message) {
 }
 
 const main = read("src/main.ts");
+const world = read("src/app/WorldApp.ts");
 const visualMatrix = read("src/qa/WorldVisualMatrixRunner.ts");
 const metrics = read("src/qa/GrassQaMetrics.ts");
 const diagnostics = read("src/runtime/WorldDiagnosticsController.ts");
@@ -29,6 +30,19 @@ assert(
     main.includes('disposeSafely("Application", () => app?.dispose())') &&
     main.includes('disposeSafely("UI controller", () => uiController.dispose())'),
   "Bootstrap must own optional visual QA and isolate cleanup so one failing owner cannot block the application teardown.",
+);
+
+assert(
+  world.includes("private readonly reveal: WorldRevealController;") &&
+    !world.includes("private readonly reveal = new WorldRevealController()") &&
+    world.includes('disposeConstructionSafely("Scenic layer", () => scenic?.dispose())') &&
+    world.includes('disposeConstructionSafely("Minimap", () => minimap?.dispose())') &&
+    world.includes('disposeConstructionSafely("World controls", () => controls?.dispose())') &&
+    world.includes('disposeConstructionSafely("Grass trail field", () => grassTrailField.dispose())') &&
+    world.includes('disposeConstructionSafely("Terrain streamer", () => terrain?.dispose())') &&
+    world.includes('disposeConstructionSafely("Environment", () => environment?.dispose())') &&
+    world.includes('disposeConstructionSafely("Renderer", () => this.renderer.dispose())'),
+  "World construction must delay the reveal owner and roll back every successfully-created runtime owner when a later constructor step fails.",
 );
 
 assert(
@@ -81,5 +95,5 @@ for (const [name, source] of [
 }
 
 console.log(
-  "[session-lifecycle] Bootstrap, QA, diagnostics, and actor asset ownership verified.",
+  "[session-lifecycle] Bootstrap, world construction, QA, diagnostics, and actor asset ownership verified.",
 );
