@@ -8,6 +8,10 @@ const source = readFileSync(
   resolve(REPOSITORY_ROOT, "src/app/WorldRuntimeGuard.ts"),
   "utf8",
 );
+const trail = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/grass/interaction/GrassTrailField.ts"),
+  "utf8",
+);
 
 function assert(condition, message) {
   if (!condition) {
@@ -41,6 +45,15 @@ assert(
 );
 
 assert(
+  /render\(deltaSeconds: number\): void \{[\s\S]*?renderer\.getContext\(\)\.isContextLost\(\)[\s\S]*?this\.resetPendingFrame\(\);[\s\S]*?return;/.test(
+    trail,
+  ) &&
+    trail.indexOf("renderer.getContext().isContextLost()") <
+      trail.indexOf("renderer.setRenderTarget(targets[writeTarget])"),
+  "Grass trail feedback rendering must discard pending contacts and avoid GPU calls while the shared WebGL context is lost.",
+);
+
+assert(
   source.includes('if (subsystem === "frame")') &&
     source.includes("this.publishFatalFrameError(message)") &&
     source.includes('output.className = "startup-error"') &&
@@ -61,5 +74,5 @@ for (const listener of [
 }
 
 console.log(
-  "[runtime-guard-lifecycle] Transactional listeners, fatal-error presentation, and persistent renderer-fault state verified.",
+  "[runtime-guard-lifecycle] Transactional listeners, fatal-error presentation, persistent renderer-fault state, and context-safe trail rendering verified.",
 );
