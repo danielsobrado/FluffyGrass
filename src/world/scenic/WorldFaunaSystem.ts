@@ -121,6 +121,9 @@ export class WorldFaunaSystem {
           : config.faunaDeerDesktopCount;
     const sampleHeight = (x: number, z: number): number => field.sampleHeight(x, z);
     const contact = new WorldTerrainContactSampler(field);
+    if (count > 0) {
+      this.rebuildRoster(spawn);
+    }
 
     try {
       for (let index = 0; index < count; index += 1) {
@@ -422,13 +425,9 @@ export class WorldFaunaSystem {
 
   private takeMember(
     focus: THREE.Vector3,
-    spawn: THREE.Vector3,
+    _spawn: THREE.Vector3,
     variant?: DeerVariant,
   ): WorldFaunaMember | undefined {
-    if (this.available.length === 0) {
-      this.builtX = Number.NaN;
-      this.rebuildRoster(spawn);
-    }
     // Nearest first, so a limited pool of animals is always spent on the herds
     // the player can actually see. Taking them in cell order instead scatters
     // the whole population across the streaming radius and leaves the meadow in
