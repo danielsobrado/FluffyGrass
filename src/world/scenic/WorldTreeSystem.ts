@@ -49,24 +49,41 @@ export class WorldTreeSystem {
     });
     leaves.emissive.copy(FOLIAGE_TIP).multiplyScalar(0.04);
 
-    const trunk = new THREE.CylinderGeometry(0.07, 0.13, 1, 8, 1, false);
-    trunk.translate(0, 0.5, 0);
-    const canopy = new THREE.IcosahedronGeometry(1, 1);
-    canopy.translate(0, 0.15, 0);
+    let trunk: THREE.CylinderGeometry | undefined;
+    let canopy: THREE.IcosahedronGeometry | undefined;
+    let trunkMesh: THREE.InstancedMesh | undefined;
+    let canopyMesh: THREE.InstancedMesh | undefined;
+    try {
+      trunk = new THREE.CylinderGeometry(0.07, 0.13, 1, 8, 1, false);
+      trunk.translate(0, 0.5, 0);
+      canopy = new THREE.IcosahedronGeometry(1, 1);
+      canopy.translate(0, 0.15, 0);
 
-    this.trunkMesh = new THREE.InstancedMesh(trunk, bark, this.maxCount);
-    this.canopyMesh = new THREE.InstancedMesh(canopy, leaves, this.maxCount);
-    this.trunkMesh.name = "world-tree-trunks";
-    this.canopyMesh.name = "world-tree-canopies";
-    this.trunkMesh.castShadow = shadows;
-    this.canopyMesh.castShadow = shadows;
-    this.trunkMesh.receiveShadow = shadows;
-    this.canopyMesh.receiveShadow = shadows;
-    this.trunkMesh.frustumCulled = false;
-    this.canopyMesh.frustumCulled = false;
-    this.trunkMesh.count = 0;
-    this.canopyMesh.count = 0;
-    scene.add(this.trunkMesh, this.canopyMesh);
+      trunkMesh = new THREE.InstancedMesh(trunk, bark, this.maxCount);
+      canopyMesh = new THREE.InstancedMesh(canopy, leaves, this.maxCount);
+      trunkMesh.name = "world-tree-trunks";
+      canopyMesh.name = "world-tree-canopies";
+      trunkMesh.castShadow = shadows;
+      canopyMesh.castShadow = shadows;
+      trunkMesh.receiveShadow = shadows;
+      canopyMesh.receiveShadow = shadows;
+      trunkMesh.frustumCulled = false;
+      canopyMesh.frustumCulled = false;
+      trunkMesh.count = 0;
+      canopyMesh.count = 0;
+      scene.add(trunkMesh, canopyMesh);
+
+      this.trunkMesh = trunkMesh;
+      this.canopyMesh = canopyMesh;
+    } catch (error) {
+      trunkMesh?.removeFromParent();
+      canopyMesh?.removeFromParent();
+      trunk?.dispose();
+      canopy?.dispose();
+      bark.dispose();
+      leaves.dispose();
+      throw error;
+    }
   }
 
   update(focus: THREE.Vector3): void {
