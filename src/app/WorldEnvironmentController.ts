@@ -93,7 +93,13 @@ export class WorldEnvironmentController {
   }
 
   updateShadow(focus: THREE.Vector3): void {
-    if (this.disposed || !this.sun.castShadow) {
+    if (
+      this.disposed ||
+      !this.sun.castShadow ||
+      !Number.isFinite(focus.x) ||
+      !Number.isFinite(focus.y) ||
+      !Number.isFinite(focus.z)
+    ) {
       return;
     }
     if (
