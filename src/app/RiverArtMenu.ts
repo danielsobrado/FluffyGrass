@@ -58,6 +58,13 @@ const LIVE_KEYS = [
   "waterGlintStrength",
 ] as const satisfies readonly RiverDevelopmentOverrideKey[];
 
+const STEP_OVERRIDES: Partial<Record<RiverDevelopmentOverrideKey, number>> = {
+  riverBendBankAsymmetry: 0.005,
+  waterFlowSpeed: 0.01,
+  waterRippleScale: 0.005,
+  waterRoughness: 0.005,
+};
+
 const LANDMARKS: Array<{ key: RiverTuningLandmark; label: string }> = [
   { key: "pool", label: "Go: Pool" },
   { key: "riffle", label: "Go: Riffle" },
@@ -148,7 +155,9 @@ export class RiverArtMenu {
     this.addHeading("QA");
     for (const landmark of LANDMARKS) {
       this.addButton(landmark.label, () => {
-        void this.goToLandmark(landmark.key);
+        void this.goToLandmark(landmark.key).catch((error) => {
+          console.warn("[Drusniel World] River tuning landmark unavailable.", error);
+        });
       });
     }
 
@@ -178,11 +187,13 @@ export class RiverArtMenu {
     setting: RiverDevelopmentOverrideKey,
   ): void {
     const rule = WORLD_CONFIG_SCHEMA[setting];
+    const minimum = rule.minimum ?? 0;
+    const maximum = rule.maximum ?? 1;
     const input = document.createElement("input");
     input.type = "range";
-    input.min = String(rule.minimum ?? 0);
-    input.max = String(rule.maximum ?? 1);
-    input.step = String(resolveStep(rule.minimum ?? 0, rule.maximum ?? 1));
+    input.min = String(minimum);
+    input.max = String(maximum);
+    input.step = String(resolveStep(setting, minimum, maximum));
     const output = document.createElement("output");
     input.addEventListener("input", () => {
       this.setNumericSetting(setting, Number(input.value));
@@ -212,6 +223,10 @@ export class RiverArtMenu {
     setting: RiverDevelopmentOverrideKey,
     value: number,
   ): void {
+    if (!Number.isFinite(value)) {
+      this.syncControl(setting);
+      return;
+    }
     const previous = this.working[setting];
     this.working[setting] = value;
     if (isGeometryKey(setting)) {
@@ -325,7 +340,7 @@ export class RiverArtMenu {
       return;
     }
     input.value = String(this.working[setting]);
-    output.value = formatValue(this.working[setting]);
+    output.value = formatValue(this.working[setting], Number(input.step));
   }
 
   private showExportStatus(button: HTMLButtonElement, status: string): void {
@@ -381,15 +396,21 @@ function collectLiveOverrides(config: WorldConfig): RiverDevelopmentOverrides {
   return overrides;
 }
 
-function resolveStep(minimum: number, maximum: number): number {
-  const span = maximum - minimum;
-  if (span <= 2) return 0.01;
-  return 0.05;
+function resolveStep(
+  setting: RiverDevelopmentOverrideKey,
+  minimum: number,
+  maximum: number,
+): number {
+  const override = STEP_OVERRIDES[setting];
+  if (override !== undefined) {
+    return override;
+  }
+  return maximum - minimum <= 2 ? 0.01 : 0.05;
 }
 
-function formatValue(value: number): string {
+function formatValue(value: number, step: number): string {
   if (Number.isInteger(value)) {
     return String(value);
   }
-  return value.toFixed(2);
+  return value.toFixed(step < 0.01 ? 3 : 2);
 }
