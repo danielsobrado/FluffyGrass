@@ -36,6 +36,14 @@ interface ActiveStoneBuild {
   readonly job: StoneRenderBatchBuildJob;
 }
 
+interface StoneRuntimeResources {
+  readonly detailMaterial: THREE.MeshLambertMaterial;
+  readonly coarseMaterial: THREE.MeshLambertMaterial;
+  readonly builder: StoneRenderBatchBuilder;
+  readonly clearanceRegistration: StoneClearanceRegistration;
+  readonly grainTexture?: THREE.Texture;
+}
+
 export interface StoneDiagnostics {
   /** Active render batches; retained for compatibility with existing diagnostics. */
   activeChunks: number;
@@ -55,12 +63,8 @@ export class WorldStoneSystem {
   private readonly desired = new Map<string, StoneBatchRequest>();
   /** Negative cache prevents deterministic empty batches rebuilding on every move. */
   private readonly emptySignatures = new Map<string, string>();
-  private readonly detailMaterial = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-  });
-  private readonly coarseMaterial = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-  });
+  private readonly detailMaterial: THREE.MeshLambertMaterial;
+  private readonly coarseMaterial: THREE.MeshLambertMaterial;
   private readonly mossExposureDirection = new THREE.Vector3();
   private readonly builder: StoneRenderBatchBuilder;
   private readonly clearanceRegistration: StoneClearanceRegistration;
@@ -82,10 +86,6 @@ export class WorldStoneSystem {
     private readonly receiveShadows: boolean,
   ) {
     this.enabled = config.stonesEnabled >= 1;
-    this.detailMaterial.name = "world-stone-detail-material";
-    this.detailMaterial.dithering = true;
-    this.coarseMaterial.name = "world-stone-coarse-material";
-    this.coarseMaterial.dithering = false;
     this.coarseShaderMinimumDistance = Math.max(
       config.stoneGrowthDetailStrength > 0
         ? config.stoneGrowthDetailFadeDistance
@@ -107,45 +107,18 @@ export class WorldStoneSystem {
         Math.sin(azimuth) * horizontal,
       )
       .normalize();
-    this.builder = new StoneRenderBatchBuilder(
+
+    const resources = createStoneRuntimeResources(
       stoneField,
       config,
       this.mossExposureDirection,
+      this.enabled,
     );
-
-    try {
-      if (this.enabled && config.stoneGrainStrength > 0) {
-        this.grainTexture = this.createGrainTexture();
-      }
-      if (this.enabled) {
-        applyStoneSurfaceShader(
-          this.detailMaterial,
-          config,
-          this.grainTexture,
-        );
-        applyStoneCoarseSurfaceShader(this.coarseMaterial);
-      }
-
-      // Publish global clearance ownership only after local construction succeeds.
-      this.clearanceRegistration = registerStoneClearanceField(
-        this.enabled ? stoneField : undefined,
-        this.enabled ? config : undefined,
-      );
-    } catch (error) {
-      try {
-        disposeResources([
-          this.grainTexture,
-          this.detailMaterial,
-          this.coarseMaterial,
-        ]);
-      } catch (cleanupError) {
-        console.warn(
-          "[Drusniel World] Stone construction cleanup failed.",
-          cleanupError,
-        );
-      }
-      throw error;
-    }
+    this.detailMaterial = resources.detailMaterial;
+    this.coarseMaterial = resources.coarseMaterial;
+    this.builder = resources.builder;
+    this.clearanceRegistration = resources.clearanceRegistration;
+    this.grainTexture = resources.grainTexture;
   }
 
   update(position: THREE.Vector3, buildDeadline: number): void {
@@ -198,18 +171,6 @@ export class WorldStoneSystem {
       this.coarseMaterial,
       this.grainTexture,
     ]);
-  }
-
-  private createGrainTexture(): THREE.Texture {
-    const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
-    texture.name = "world-stone-grain";
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = true;
-    return texture;
   }
 
   private reconcile(): void {
@@ -444,6 +405,78 @@ export class WorldStoneSystem {
       batch.mesh.geometry,
     ]);
   }
+}
+
+function createStoneRuntimeResources(
+  stoneField: StoneField,
+  config: WorldConfig,
+  mossExposureDirection: THREE.Vector3,
+  enabled: boolean,
+): StoneRuntimeResources {
+  let detailMaterial: THREE.MeshLambertMaterial | undefined;
+  let coarseMaterial: THREE.MeshLambertMaterial | undefined;
+  let grainTexture: THREE.Texture | undefined;
+  let clearanceRegistration: StoneClearanceRegistration | undefined;
+  try {
+    detailMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    detailMaterial.name = "world-stone-detail-material";
+    detailMaterial.dithering = true;
+    coarseMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    coarseMaterial.name = "world-stone-coarse-material";
+    coarseMaterial.dithering = false;
+    const builder = new StoneRenderBatchBuilder(
+      stoneField,
+      config,
+      mossExposureDirection,
+    );
+
+    if (enabled && config.stoneGrainStrength > 0) {
+      grainTexture = createGrainTexture();
+    }
+    if (enabled) {
+      applyStoneSurfaceShader(detailMaterial, config, grainTexture);
+      applyStoneCoarseSurfaceShader(coarseMaterial);
+    }
+
+    clearanceRegistration = registerStoneClearanceField(
+      enabled ? stoneField : undefined,
+      enabled ? config : undefined,
+    );
+    return {
+      detailMaterial,
+      coarseMaterial,
+      builder,
+      clearanceRegistration,
+      grainTexture,
+    };
+  } catch (error) {
+    try {
+      disposeResources([
+        clearanceRegistration,
+        grainTexture,
+        detailMaterial,
+        coarseMaterial,
+      ]);
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Stone construction cleanup failed.",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
+}
+
+function createGrainTexture(): THREE.Texture {
+  const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
+  texture.name = "world-stone-grain";
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  return texture;
 }
 
 function sceneAddAndUpdate(scene: THREE.Scene, mesh: THREE.Mesh): void {
