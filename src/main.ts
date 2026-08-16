@@ -75,6 +75,7 @@ async function bootstrap(): Promise<void> {
   let diagnostics: Disposable | undefined;
   let actorProof: Disposable | undefined;
   let animationHud: Disposable | undefined;
+  let visualMatrix: Disposable | undefined;
   try {
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
@@ -119,7 +120,9 @@ async function bootstrap(): Promise<void> {
         const { WorldVisualMatrixRunner } = await import(
           "./qa/WorldVisualMatrixRunner"
         );
-        void new WorldVisualMatrixRunner(world.attachVisualMatrix()).start();
+        const runner = new WorldVisualMatrixRunner(world.attachVisualMatrix());
+        visualMatrix = runner;
+        void runner.start();
       }
       if (params.get("actorProof") === "1") {
         const { ActorExtensibilityProof } = await import(
@@ -136,19 +139,49 @@ async function bootstrap(): Promise<void> {
         return;
       }
       disposed = true;
-      animationHud?.dispose();
-      actorProof?.dispose();
-      diagnostics?.dispose();
-      uiController.dispose();
-      app?.dispose();
+      disposeRuntimeSafely(
+        app,
+        uiController,
+        diagnostics,
+        actorProof,
+        animationHud,
+        visualMatrix,
+      );
     });
   } catch (error) {
-    animationHud?.dispose();
-    actorProof?.dispose();
-    diagnostics?.dispose();
-    app?.dispose();
-    uiController.dispose();
+    disposeRuntimeSafely(
+      app,
+      uiController,
+      diagnostics,
+      actorProof,
+      animationHud,
+      visualMatrix,
+    );
     throw error;
+  }
+}
+
+function disposeRuntimeSafely(
+  app: RunnableApp | undefined,
+  uiController: UiVisibilityController,
+  diagnostics: Disposable | undefined,
+  actorProof: Disposable | undefined,
+  animationHud: Disposable | undefined,
+  visualMatrix: Disposable | undefined,
+): void {
+  disposeSafely("Animation HUD", () => animationHud?.dispose());
+  disposeSafely("Actor proof", () => actorProof?.dispose());
+  disposeSafely("Visual matrix", () => visualMatrix?.dispose());
+  disposeSafely("Diagnostics", () => diagnostics?.dispose());
+  disposeSafely("UI controller", () => uiController.dispose());
+  disposeSafely("Application", () => app?.dispose());
+}
+
+function disposeSafely(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[${WORLD_NAME}] ${label} cleanup failed.`, error);
   }
 }
 
