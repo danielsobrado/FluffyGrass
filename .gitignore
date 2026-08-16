@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Vite and local tooling may read environment files. Never commit local values.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
