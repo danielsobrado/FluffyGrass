@@ -108,11 +108,6 @@ export class WorldApp {
       precision: "highp",
       powerPreference: "high-performance",
     });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = profile.shadows;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.applyRendererSize();
 
     let environment: WorldEnvironmentController | undefined;
     let terrain: TerrainStreamer | undefined;
@@ -125,6 +120,12 @@ export class WorldApp {
     let runtimeGuard: WorldRuntimeGuard | undefined;
 
     try {
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.shadowMap.enabled = profile.shadows;
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
+      this.applyRendererSize();
+
       this.field = new TerrainField(config);
       const stoneField = new StoneField(this.field, config);
       const spawn = new DenseSpawnLocator(this.field, config, stoneField).find();
