@@ -16,6 +16,7 @@ import {
   type DeerSteering,
 } from "../../creatures/deer/DeerBehavior";
 import { createDeerBodyBuilder } from "../../creatures/deer/DeerBody";
+import type { DeerVariant } from "../../creatures/deer/DeerGeometry";
 import { setDeerCoatTint } from "../../creatures/deer/DeerPalette";
 import { QuadrupedActor } from "../../creatures/quadruped/QuadrupedActor";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
@@ -43,6 +44,7 @@ interface FaunaSlot {
   readonly quality: ActorAnimationQuality;
   readonly steering: DeerSteering;
   readonly meshes: readonly THREE.Mesh[];
+  readonly variant: DeerVariant;
   memberKey?: string;
   active: boolean;
   castsShadow: boolean;
@@ -207,12 +209,11 @@ export class WorldFaunaSystem {
     }
     const rosterRebuilt =
       this.slots.length > 0 ? this.rebuildRoster(focus) : false;
-    let canReactivate = rosterRebuilt;
 
     for (const slot of this.slots) {
       if (!slot.active) {
-        if (canReactivate && !this.recycle(slot, focus)) {
-          canReactivate = false;
+        if (rosterRebuilt) {
+          this.recycle(slot, focus);
         }
         if (!slot.active) {
           continue;
@@ -330,11 +331,12 @@ export class WorldFaunaSystem {
       contact,
     );
     try {
+      const seed = member?.seed ?? index + 1;
       const behavior = new DeerBehavior({
         habitat: this.habitat,
         facts: actor.facts,
         walkSpeed: this.walkSpeed,
-        seed: member?.seed ?? index + 1,
+        seed,
         decisionIntervalSeconds: this.behaviorInterval,
         // Staggered across the complete pool so decisions stay evenly spread.
         decisionPhaseSeconds:
@@ -347,6 +349,7 @@ export class WorldFaunaSystem {
         member?.z ?? spawn.z,
         actor.position.x,
         actor.position.z,
+        seed,
       );
       const slot: FaunaSlot = {
         actor,
@@ -358,6 +361,7 @@ export class WorldFaunaSystem {
           desiredSpeed: 0,
         },
         meshes: actor.meshes,
+        variant,
         memberKey: member ? faunaMemberKey(member) : undefined,
         active: member !== undefined,
         castsShadow: this.shadows,
@@ -419,6 +423,7 @@ export class WorldFaunaSystem {
   private takeMember(
     focus: THREE.Vector3,
     spawn: THREE.Vector3,
+    variant?: DeerVariant,
   ): WorldFaunaMember | undefined {
     if (this.available.length === 0) {
       this.builtX = Number.NaN;
@@ -435,6 +440,9 @@ export class WorldFaunaSystem {
     let bestDistance = Number.POSITIVE_INFINITY;
     for (let index = 0; index < this.available.length; index += 1) {
       const member = this.available[index];
+      if (variant !== undefined && member.variant !== variant) {
+        continue;
+      }
       const distance = Math.hypot(member.x - focus.x, member.z - focus.z);
       if (distance < FAUNA_SPAWN_MIN_PLAYER_DISTANCE || distance >= bestDistance) {
         continue;
@@ -449,7 +457,7 @@ export class WorldFaunaSystem {
   }
 
   private recycle(slot: FaunaSlot, focus: THREE.Vector3): boolean {
-    const member = this.takeMember(focus, focus);
+    const member = this.takeMember(focus, focus, slot.variant);
     if (member === undefined) {
       slot.memberKey = undefined;
       slot.active = false;
@@ -459,14 +467,35 @@ export class WorldFaunaSystem {
     slot.memberKey = faunaMemberKey(member);
     slot.active = true;
     slot.actor.object.visible = true;
+    this.applyMemberCoat(slot, member);
     slot.actor.respawn(member.x, member.z, this.walkSpeed);
-    slot.behavior.reset(member.x, member.z, member.x, member.z);
+    slot.behavior.reset(
+      member.x,
+      member.z,
+      member.x,
+      member.z,
+      member.seed,
+    );
     slot.quality.reset();
     slot.steering.targetX = member.x;
     slot.steering.targetZ = member.z;
     slot.steering.desiredSpeed = 0;
     this.applyQuality(slot);
     return true;
+  }
+
+  private applyMemberCoat(slot: FaunaSlot, member: WorldFaunaMember): void {
+    setDeerCoatTint(this.tint, member.coatValue, member.coatWarmth);
+    for (const mesh of slot.meshes) {
+      const materials = Array.isArray(mesh.material)
+        ? mesh.material
+        : [mesh.material];
+      for (const material of materials) {
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.color.copy(this.tint);
+        }
+      }
+    }
   }
 
   /**
