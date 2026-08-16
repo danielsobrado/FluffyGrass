@@ -13,11 +13,16 @@ export class WorldRuntimeGuard {
     private readonly onResize: () => void,
     private readonly onRendererEnabledChange: (enabled: boolean) => void,
   ) {
-    window.addEventListener("resize", this.handleResize);
-    window.addEventListener("error", this.handleWindowError);
-    window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
-    this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
-    this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
+    try {
+      window.addEventListener("resize", this.handleResize);
+      window.addEventListener("error", this.handleWindowError);
+      window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
+      this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
+      this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
+    } catch (error) {
+      this.unbindEvents();
+      throw error;
+    }
   }
 
   get error(): string | undefined {
@@ -49,6 +54,10 @@ export class WorldRuntimeGuard {
       return;
     }
     this.disposed = true;
+    this.unbindEvents();
+  }
+
+  private unbindEvents(): void {
     window.removeEventListener("resize", this.handleResize);
     window.removeEventListener("error", this.handleWindowError);
     window.removeEventListener("unhandledrejection", this.handleUnhandledRejection);
