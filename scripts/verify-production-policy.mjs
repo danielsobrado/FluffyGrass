@@ -62,7 +62,10 @@ if (
   !deployScript.includes('sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main"') ||
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
+  !deployScript.includes('run(npmCommand, ["ci", "--no-audit", "--no-fund"])') ||
   !deployScript.includes('run(npmCommand, ["run", "build"])') ||
+  deployScript.indexOf('run(npmCommand, ["ci", "--no-audit", "--no-fund"])') >
+    deployScript.indexOf('run(npmCommand, ["run", "build"])') ||
   !deployScript.includes('existsSync(join(CONFIG.distDirectory, "index.html"))') ||
   !/function assertSourceStillCurrent\(expectedHead\) \{[\s\S]*?const currentHead = assertRepositoryState\(\);[\s\S]*?currentHead !== expectedHead/.test(
     deployScript,
@@ -75,7 +78,7 @@ if (
   )
 ) {
   fail(
-    "Manual deployment must require a clean synchronized source branch, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
+    "Manual deployment must require a clean synchronized source branch, reinstall the committed lockfile with npm ci, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
   );
 }
 
