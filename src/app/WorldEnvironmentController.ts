@@ -30,6 +30,7 @@ export class WorldEnvironmentController {
   private readonly sun: THREE.DirectionalLight;
   private readonly hemisphere: THREE.HemisphereLight;
   private readonly sky: WorldSky;
+  private readonly shadowMapSize: number;
   private readonly shadowTexelSize: number;
   private shadowFocusX = Number.NaN;
   private shadowFocusY = Number.NaN;
@@ -51,9 +52,15 @@ export class WorldEnvironmentController {
       WORLD_DEFAULT_SUN,
       WORLD_DEFAULT_SUN_INTENSITY,
     );
+    this.shadowMapSize = Math.max(
+      1,
+      Math.min(
+        this.profile.shadowMapSize,
+        this.renderer.capabilities.maxTextureSize,
+      ),
+    );
     this.shadowTexelSize =
-      (2 * WORLD_SUN_SHADOW_HALF_EXTENT) /
-      Math.max(1, this.profile.shadowMapSize);
+      (2 * WORLD_SUN_SHADOW_HALF_EXTENT) / this.shadowMapSize;
     this.sun.position
       .copy(SUN_DIRECTION)
       .multiplyScalar(WORLD_SUN_SHADOW_DISTANCE);
@@ -154,10 +161,7 @@ export class WorldEnvironmentController {
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = 3;
     this.sun.shadow.bias = -0.0008;
-    this.sun.shadow.mapSize.set(
-      this.profile.shadowMapSize,
-      this.profile.shadowMapSize,
-    );
+    this.sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize);
   }
 }
 
