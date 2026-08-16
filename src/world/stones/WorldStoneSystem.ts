@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { WorldConfig } from "../WorldConfig";
 import {
   registerStoneClearanceField,
@@ -131,9 +132,18 @@ export class WorldStoneSystem {
         this.enabled ? config : undefined,
       );
     } catch (error) {
-      this.grainTexture?.dispose();
-      this.detailMaterial.dispose();
-      this.coarseMaterial.dispose();
+      try {
+        disposeResources([
+          this.grainTexture,
+          this.detailMaterial,
+          this.coarseMaterial,
+        ]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Stone construction cleanup failed.",
+          cleanupError,
+        );
+      }
       throw error;
     }
   }
@@ -176,17 +186,18 @@ export class WorldStoneSystem {
     }
     this.disposed = true;
     this.activeBuild = undefined;
-    for (const batch of this.batches.values()) {
-      this.removeBatch(batch);
-    }
+    const batches = Array.from(this.batches.values());
     this.batches.clear();
     this.queue.length = 0;
     this.desired.clear();
     this.emptySignatures.clear();
-    this.clearanceRegistration.dispose();
-    this.detailMaterial.dispose();
-    this.coarseMaterial.dispose();
-    this.grainTexture?.dispose();
+    disposeResources([
+      ...batches.map((batch) => ({ dispose: () => this.removeBatch(batch) })),
+      this.clearanceRegistration,
+      this.detailMaterial,
+      this.coarseMaterial,
+      this.grainTexture,
+    ]);
   }
 
   private createGrainTexture(): THREE.Texture {
@@ -321,6 +332,9 @@ export class WorldStoneSystem {
 
       const wanted = this.desired.get(active.request.key);
       if (!wanted || wanted.signature !== active.request.signature) {
+        if (progress.result) {
+          disposeStoneResource(progress.result.geometry, "Stale stone batch");
+        }
         this.activeBuild = undefined;
         continue;
       }
@@ -350,43 +364,72 @@ export class WorldStoneSystem {
     result: ReturnType<StoneRenderBatchBuilder["build"]>,
   ): void {
     const existing = this.batches.get(request.key);
-    if (existing) {
-      this.removeBatch(existing);
-      this.batches.delete(existing.key);
-    }
-
     if (!result) {
+      if (existing) {
+        this.removeBatch(existing);
+        this.batches.delete(existing.key);
+      }
       this.emptySignatures.set(request.key, request.signature);
       return;
     }
 
-    this.emptySignatures.delete(request.key);
-    const useDetailMaterial =
-      result.hasDetailedGeometry || !this.isCoarseShaderSafe(request);
-    const mesh = new THREE.Mesh(
-      result.geometry,
-      useDetailMaterial ? this.detailMaterial : this.coarseMaterial,
-    );
-    mesh.name = `world-stones-${request.key}`;
-    mesh.position.set(result.originX, result.originY, result.originZ);
-    const localShadowDetail =
-      this.receiveShadows && result.hasDetailedGeometry;
-    mesh.castShadow = localShadowDetail;
-    mesh.receiveShadow = localShadowDetail;
-    mesh.matrixAutoUpdate = false;
-    mesh.matrixWorldAutoUpdate = false;
-    mesh.updateMatrix();
+    let batch: StoneBatch | undefined;
+    try {
+      const useDetailMaterial =
+        result.hasDetailedGeometry || !this.isCoarseShaderSafe(request);
+      const mesh = new THREE.Mesh(
+        result.geometry,
+        useDetailMaterial ? this.detailMaterial : this.coarseMaterial,
+      );
+      mesh.name = `world-stones-${request.key}`;
+      mesh.position.set(result.originX, result.originY, result.originZ);
+      const localShadowDetail =
+        this.receiveShadows && result.hasDetailedGeometry;
+      mesh.castShadow = localShadowDetail;
+      mesh.receiveShadow = localShadowDetail;
+      mesh.matrixAutoUpdate = false;
+      mesh.matrixWorldAutoUpdate = false;
+      mesh.updateMatrix();
+      sceneAddAndUpdate(this.scene, mesh);
 
-    const batch: StoneBatch = {
-      key: request.key,
-      signature: request.signature,
-      mesh,
-      triangles: result.triangles,
-      stones: result.stones,
-    };
-    this.batches.set(batch.key, batch);
-    this.scene.add(mesh);
-    mesh.updateMatrixWorld(true);
+      batch = {
+        key: request.key,
+        signature: request.signature,
+        mesh,
+        triangles: result.triangles,
+        stones: result.stones,
+      };
+      this.batches.set(batch.key, batch);
+      this.emptySignatures.delete(request.key);
+    } catch (error) {
+      if (batch && this.batches.get(batch.key) === batch) {
+        if (existing) {
+          this.batches.set(existing.key, existing);
+        } else {
+          this.batches.delete(batch.key);
+        }
+      }
+      try {
+        disposeResources([
+          { dispose: () => batch?.mesh.removeFromParent() },
+          result.geometry,
+        ]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Unpublished stone batch cleanup failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
+
+    if (existing) {
+      try {
+        this.removeBatch(existing);
+      } catch (error) {
+        console.warn("[Drusniel World] Replaced stone batch cleanup failed.", error);
+      }
+    }
   }
 
   private isCoarseShaderSafe(request: StoneBatchRequest): boolean {
@@ -396,7 +439,33 @@ export class WorldStoneSystem {
   }
 
   private removeBatch(batch: StoneBatch): void {
-    this.scene.remove(batch.mesh);
-    batch.mesh.geometry.dispose();
+    disposeResources([
+      { dispose: () => this.scene.remove(batch.mesh) },
+      batch.mesh.geometry,
+    ]);
+  }
+}
+
+function sceneAddAndUpdate(scene: THREE.Scene, mesh: THREE.Mesh): void {
+  scene.add(mesh);
+  try {
+    mesh.updateMatrixWorld(true);
+  } catch (error) {
+    mesh.removeFromParent();
+    throw error;
+  }
+}
+
+function disposeStoneResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
