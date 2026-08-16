@@ -133,7 +133,6 @@ interface AcceptedMember {
   localV: number;
 }
 
-const CHUNK_SOURCE_CELL_MARGIN = STONE_CELL_SOURCE_MARGIN;
 /** Below this scale a stone nestles into grass instead of clearing it. */
 const CLEAR_SCALE_CUTOFF = 0.5;
 /** Slope gates on the terrain normal's Y component. */
@@ -262,13 +261,13 @@ export class StoneField {
     const maxX = minX + chunkSize;
     const maxZ = minZ + chunkSize;
     const firstCellX =
-      Math.floor(minX / this.cellSize) - CHUNK_SOURCE_CELL_MARGIN;
+      Math.floor(minX / this.cellSize) - STONE_CELL_SOURCE_MARGIN;
     const firstCellZ =
-      Math.floor(minZ / this.cellSize) - CHUNK_SOURCE_CELL_MARGIN;
+      Math.floor(minZ / this.cellSize) - STONE_CELL_SOURCE_MARGIN;
     const lastCellX =
-      Math.floor((maxX - 1e-3) / this.cellSize) + CHUNK_SOURCE_CELL_MARGIN;
+      Math.floor((maxX - 1e-3) / this.cellSize) + STONE_CELL_SOURCE_MARGIN;
     const lastCellZ =
-      Math.floor((maxZ - 1e-3) / this.cellSize) + CHUNK_SOURCE_CELL_MARGIN;
+      Math.floor((maxZ - 1e-3) / this.cellSize) + STONE_CELL_SOURCE_MARGIN;
     for (let cellZ = firstCellZ; cellZ <= lastCellZ; cellZ += 1) {
       for (let cellX = firstCellX; cellX <= lastCellX; cellX += 1) {
         for (const instance of this.getCellInstances(cellX, cellZ)) {

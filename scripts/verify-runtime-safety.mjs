@@ -31,6 +31,7 @@ const viewportSizing = read("src/runtime/ViewportSizing.ts");
 const qaMetrics = read("src/qa/GrassQaMetrics.ts");
 const qaRunner = read("src/qa/GrassQaRunner.ts");
 const stoneField = read("src/world/stones/StoneField.ts");
+const stoneClusterTuning = read("src/world/stones/StoneClusterTuning.ts");
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
@@ -159,9 +160,9 @@ assert(
   "QA captures must report the actual camera pose and eliminate OrbitControls damping drift while sampling.",
 );
 assert(
-  stoneField.includes("CHUNK_SOURCE_CELL_MARGIN = 1") &&
-    stoneField.includes("Math.floor(minX / this.cellSize) - CHUNK_SOURCE_CELL_MARGIN") &&
-    stoneField.includes("Math.floor((maxX - 1e-3) / this.cellSize) + CHUNK_SOURCE_CELL_MARGIN"),
+  stoneClusterTuning.includes("STONE_CELL_SOURCE_MARGIN = 1") &&
+    stoneField.includes("Math.floor(minX / this.cellSize) - STONE_CELL_SOURCE_MARGIN") &&
+    stoneField.includes("Math.floor((maxX - 1e-3) / this.cellSize) + STONE_CELL_SOURCE_MARGIN"),
   "Stone chunk collection must inspect neighboring source cells for split, satellite, and verge roots displaced across chunk edges.",
 );
 assert(
