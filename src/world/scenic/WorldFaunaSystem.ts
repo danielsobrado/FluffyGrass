@@ -43,7 +43,6 @@ interface FaunaSlot {
   readonly quality: ActorAnimationQuality;
   readonly steering: DeerSteering;
   readonly meshes: readonly THREE.Mesh[];
-  behaviorClock: number;
   active: boolean;
   castsShadow: boolean;
 }
@@ -55,6 +54,10 @@ interface VillagerSlot {
   readonly quality: ActorAnimationQuality;
   readonly steering: VillagerSteering;
   castsShadow: boolean;
+}
+
+interface DisposableActor {
+  dispose(): void;
 }
 
 /**
@@ -115,30 +118,36 @@ export class WorldFaunaSystem {
           : config.faunaDeerDesktopCount;
     const sampleHeight = (x: number, z: number): number => field.sampleHeight(x, z);
     const contact = new WorldTerrainContactSampler(field);
-    for (let index = 0; index < count; index += 1) {
-      this.slots.push(this.createSlot(scene, index, spawn, sampleHeight, contact));
-    }
 
-    // Villagers stay near the player's own spawn rather than streaming: people
-    // belong to a place, and a person who materialises in open country every
-    // time you cross a lattice boundary reads as a glitch, not a neighbour.
-    const villagerCount =
-      config.faunaEnabled < 1
-        ? 0
-        : profile.compact
-          ? config.faunaVillagerCompactCount
-          : config.faunaVillagerDesktopCount;
-    for (let index = 0; index < villagerCount; index += 1) {
-      this.villagers.push(
-        this.createVillager(
-          scene,
-          index,
-          villagerCount,
-          spawn,
-          sampleHeight,
-          contact,
-        ),
-      );
+    try {
+      for (let index = 0; index < count; index += 1) {
+        this.slots.push(this.createSlot(scene, index, spawn, sampleHeight, contact));
+      }
+
+      // Villagers stay near the player's own spawn rather than streaming: people
+      // belong to a place, and a person who materialises in open country every
+      // time you cross a lattice boundary reads as a glitch, not a neighbour.
+      const villagerCount =
+        config.faunaEnabled < 1
+          ? 0
+          : profile.compact
+            ? config.faunaVillagerCompactCount
+            : config.faunaVillagerDesktopCount;
+      for (let index = 0; index < villagerCount; index += 1) {
+        this.villagers.push(
+          this.createVillager(
+            scene,
+            index,
+            villagerCount,
+            spawn,
+            sampleHeight,
+            contact,
+          ),
+        );
+      }
+    } catch (error) {
+      this.dispose();
+      throw error;
     }
   }
 
@@ -165,20 +174,25 @@ export class WorldFaunaSystem {
       sampleHeight,
       contact,
     );
-    actor.setReferenceSpeed(this.config.faunaVillagerWalkSpeed);
-    return {
-      actor,
-      route: new VillagerRoute({
-        centerX,
-        centerZ,
-        radius,
-        walkSpeed: this.config.faunaVillagerWalkSpeed,
-        seed: index + 17,
-      }),
-      quality: this.createQuality(),
-      steering: { targetX: centerX, targetZ: centerZ, desiredSpeed: 0 },
-      castsShadow: this.shadows,
-    };
+    try {
+      actor.setReferenceSpeed(this.config.faunaVillagerWalkSpeed);
+      return {
+        actor,
+        route: new VillagerRoute({
+          centerX,
+          centerZ,
+          radius,
+          walkSpeed: this.config.faunaVillagerWalkSpeed,
+          seed: index + 17,
+        }),
+        quality: this.createQuality(),
+        steering: { targetX: centerX, targetZ: centerZ, desiredSpeed: 0 },
+        castsShadow: this.shadows,
+      };
+    } catch (error) {
+      disposeActor(actor, "Villager actor");
+      throw error;
+    }
   }
 
   update(deltaSeconds: number, focus: THREE.Vector3): void {
@@ -188,13 +202,22 @@ export class WorldFaunaSystem {
     ) {
       return;
     }
-    if (this.slots.length > 0) {
-      this.rebuildRoster(focus);
-    }
+    const rosterRebuilt =
+      this.slots.length > 0 ? this.rebuildRoster(focus) : false;
+    let canReactivate = rosterRebuilt;
 
     for (const slot of this.slots) {
+      if (!slot.active) {
+        if (canReactivate && !this.recycle(slot, focus)) {
+          canReactivate = false;
+        }
+        if (!slot.active) {
+          continue;
+        }
+      }
+
       const distance = slot.actor.position.distanceTo(focus);
-      if (slot.active && distance > this.config.faunaCullDistance + FAUNA_RETIRE_MARGIN) {
+      if (distance > this.config.faunaCullDistance + FAUNA_RETIRE_MARGIN) {
         this.recycle(slot, focus);
         continue;
       }
@@ -202,13 +225,8 @@ export class WorldFaunaSystem {
         this.applyQuality(slot);
       }
 
-      // Behaviour runs on its own clock for everything, including animals whose
-      // animation is culled. That is what makes a herd you walk back to look
-      // like it has been living rather than paused.
-      slot.behaviorClock -= deltaSeconds;
-      if (slot.behaviorClock <= 0) {
-        slot.behaviorClock += this.behaviorInterval;
-      }
+      // Behaviour decides on its own staggered clock internally. Calling it per
+      // frame keeps proximity reactions immediate even when animation is culled.
       slot.behavior.update(
         deltaSeconds,
         slot.actor.position.x,
@@ -269,16 +287,16 @@ export class WorldFaunaSystem {
     }
     this.disposed = true;
     for (const slot of this.slots) {
-      slot.actor.dispose();
+      disposeActor(slot.actor, "Deer actor");
     }
     this.slots.length = 0;
     for (const villager of this.villagers) {
-      villager.actor.dispose();
+      disposeActor(villager.actor, "Villager actor");
     }
     this.villagers.length = 0;
     // Last: every actor was drawing these buffers a moment ago.
-    this.assets.dispose();
-    this.villagerAssets.dispose();
+    disposeResource(() => this.assets.dispose(), "Deer assets");
+    disposeResource(() => this.villagerAssets.dispose(), "Villager assets");
   }
 
   private createSlot(
@@ -307,36 +325,44 @@ export class WorldFaunaSystem {
       sampleHeight,
       contact,
     );
-    const behavior = new DeerBehavior({
-      habitat: this.habitat,
-      facts: actor.facts,
-      walkSpeed: this.walkSpeed,
-      seed: member?.seed ?? index + 1,
-      decisionIntervalSeconds: this.behaviorInterval,
-      // Staggered across the pool so a herd never decides on one frame.
-      decisionPhaseSeconds: (index / Math.max(this.slots.length + 1, 1)) *
-        this.behaviorInterval,
-      alertRadius: FAUNA_ALERT_RADIUS,
-      fleeRadius: FAUNA_FLEE_RADIUS,
-    });
-    behavior.reset(
-      member?.x ?? spawn.x,
-      member?.z ?? spawn.z,
-      actor.position.x,
-      actor.position.z,
-    );
-    const slot: FaunaSlot = {
-      actor,
-      behavior,
-      quality: this.createQuality(),
-      steering: { targetX: actor.position.x, targetZ: actor.position.z, desiredSpeed: 0 },
-      meshes: actor.meshes,
-      behaviorClock: 0,
-      active: true,
-      castsShadow: this.shadows,
-    };
-    this.applyQuality(slot);
-    return slot;
+    try {
+      const behavior = new DeerBehavior({
+        habitat: this.habitat,
+        facts: actor.facts,
+        walkSpeed: this.walkSpeed,
+        seed: member?.seed ?? index + 1,
+        decisionIntervalSeconds: this.behaviorInterval,
+        // Staggered across the pool so a herd never decides on one frame.
+        decisionPhaseSeconds: (index / Math.max(this.slots.length + 1, 1)) *
+          this.behaviorInterval,
+        alertRadius: FAUNA_ALERT_RADIUS,
+        fleeRadius: FAUNA_FLEE_RADIUS,
+      });
+      behavior.reset(
+        member?.x ?? spawn.x,
+        member?.z ?? spawn.z,
+        actor.position.x,
+        actor.position.z,
+      );
+      const slot: FaunaSlot = {
+        actor,
+        behavior,
+        quality: this.createQuality(),
+        steering: {
+          targetX: actor.position.x,
+          targetZ: actor.position.z,
+          desiredSpeed: 0,
+        },
+        meshes: actor.meshes,
+        active: true,
+        castsShadow: this.shadows,
+      };
+      this.applyQuality(slot);
+      return slot;
+    } catch (error) {
+      disposeActor(actor, "Deer actor");
+      throw error;
+    }
   }
 
   private createQuality(): ActorAnimationQuality {
@@ -358,13 +384,13 @@ export class WorldFaunaSystem {
    * herds is a terrain-sampling pass, and doing it every frame would pay for a
    * decision that only changes when the player has actually gone somewhere.
    */
-  private rebuildRoster(focus: THREE.Vector3): void {
+  private rebuildRoster(focus: THREE.Vector3): boolean {
     if (
       Number.isFinite(this.builtX) &&
       Math.abs(focus.x - this.builtX) < FAUNA_REBUILD_STEP &&
       Math.abs(focus.z - this.builtZ) < FAUNA_REBUILD_STEP
     ) {
-      return;
+      return false;
     }
     this.builtX = focus.x;
     this.builtZ = focus.z;
@@ -374,6 +400,7 @@ export class WorldFaunaSystem {
         this.available.push(member);
       }
     }
+    return true;
   }
 
   private takeMember(
@@ -408,12 +435,12 @@ export class WorldFaunaSystem {
     return this.available.splice(bestIndex, 1)[0];
   }
 
-  private recycle(slot: FaunaSlot, focus: THREE.Vector3): void {
+  private recycle(slot: FaunaSlot, focus: THREE.Vector3): boolean {
     const member = this.takeMember(focus, focus);
     if (member === undefined) {
       slot.active = false;
       slot.actor.object.visible = false;
-      return;
+      return false;
     }
     slot.active = true;
     slot.actor.object.visible = true;
@@ -424,6 +451,7 @@ export class WorldFaunaSystem {
     slot.steering.targetZ = member.z;
     slot.steering.desiredSpeed = 0;
     this.applyQuality(slot);
+    return true;
   }
 
   /**
@@ -458,5 +486,17 @@ export class WorldFaunaSystem {
     for (const mesh of slot.meshes) {
       mesh.castShadow = casts;
     }
+  }
+}
+
+function disposeActor(actor: DisposableActor, label: string): void {
+  disposeResource(() => actor.dispose(), label);
+}
+
+function disposeResource(dispose: () => void, label: string): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
