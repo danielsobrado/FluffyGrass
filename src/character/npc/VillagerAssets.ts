@@ -16,14 +16,7 @@ export interface VillagerAssets {
   dispose(): void;
 }
 
-/**
- * Shared villager geometry, one set per palette.
- *
- * Colour rides on the vertices rather than on the material here, unlike the
- * deer: a villager's palette is a handful of discrete garments, not a coat tone,
- * so baking it into the buffer means the material carries nothing at all and
- * every villager in the world can share one. The variants are the variation.
- */
+/** Shared villager geometry, one set per palette. */
 class VillagerAssetLibrary implements VillagerAssets {
   readonly variantCount = VILLAGER_PALETTES.length;
   private readonly built = new Map<
@@ -46,8 +39,13 @@ class VillagerAssetLibrary implements VillagerAssets {
       roughness: VILLAGER_ROUGHNESS,
       metalness: 0,
     });
-    applyActorEnvironmentResponse(material);
-    return material;
+    try {
+      applyActorEnvironmentResponse(material);
+      return material;
+    } catch (error) {
+      material.dispose();
+      throw error;
+    }
   }
 
   dispose(): void {
@@ -56,9 +54,7 @@ class VillagerAssetLibrary implements VillagerAssets {
     }
     this.disposed = true;
     for (const slots of this.built.values()) {
-      for (const geometry of slots.values()) {
-        geometry.dispose();
-      }
+      disposeGeometries(slots.values());
       slots.clear();
     }
     this.built.clear();
@@ -75,16 +71,34 @@ class VillagerAssetLibrary implements VillagerAssets {
     if (existing !== undefined) {
       return existing;
     }
+
     const slots = new Map<VillagerPartSlot, THREE.BufferGeometry>();
     const parts = buildVillagerParts(villagerPaletteFor(key));
-    for (const [slot, list] of parts) {
-      slots.set(slot, mergeActorParts(list));
-      for (const part of list) {
-        part.geometry.dispose();
+    try {
+      for (const [slot, list] of parts) {
+        try {
+          slots.set(slot, mergeActorParts(list));
+        } finally {
+          for (const part of list) {
+            part.geometry.dispose();
+          }
+        }
       }
+      this.built.set(key, slots);
+      return slots;
+    } catch (error) {
+      disposeGeometries(slots.values());
+      slots.clear();
+      throw error;
     }
-    this.built.set(key, slots);
-    return slots;
+  }
+}
+
+function disposeGeometries(
+  geometries: Iterable<THREE.BufferGeometry>,
+): void {
+  for (const geometry of geometries) {
+    geometry.dispose();
   }
 }
 
