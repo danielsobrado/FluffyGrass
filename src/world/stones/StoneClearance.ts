@@ -6,9 +6,15 @@ export interface StoneClearanceRegistration {
   dispose(): void;
 }
 
+interface StoneClearanceOwner {
+  readonly owner: symbol;
+  readonly field: StoneField | undefined;
+  readonly config: WorldConfig | undefined;
+}
+
+const owners: StoneClearanceOwner[] = [];
 let activeField: StoneField | undefined;
 let activeCache: StoneClearanceCache | undefined;
-let activeOwner: symbol | undefined;
 
 function applyStoneClearanceField(
   field: StoneField | undefined,
@@ -19,13 +25,22 @@ function applyStoneClearanceField(
   activeCache = field && config ? new StoneClearanceCache(field, config) : undefined;
 }
 
+function applyCurrentOwner(): void {
+  const active = owners[owners.length - 1];
+  applyStoneClearanceField(active?.field, active?.config);
+}
+
 /** Register the deterministic stone field used by grass placement. */
 export function registerStoneClearanceField(
   field: StoneField | undefined,
   config?: WorldConfig,
 ): StoneClearanceRegistration {
-  const owner = Symbol("stone-clearance-owner");
-  activeOwner = owner;
+  const registration: StoneClearanceOwner = {
+    owner: Symbol("stone-clearance-owner"),
+    field,
+    config,
+  };
+  owners.push(registration);
   applyStoneClearanceField(field, config);
   let disposed = false;
 
@@ -35,11 +50,17 @@ export function registerStoneClearanceField(
         return;
       }
       disposed = true;
-      if (activeOwner !== owner) {
+      const index = owners.findIndex(
+        (candidate) => candidate.owner === registration.owner,
+      );
+      if (index < 0) {
         return;
       }
-      activeOwner = undefined;
-      applyStoneClearanceField(undefined);
+      const wasActive = index === owners.length - 1;
+      owners.splice(index, 1);
+      if (wasActive) {
+        applyCurrentOwner();
+      }
     },
   };
 }
@@ -52,7 +73,7 @@ export function setStoneClearanceField(
   field: StoneField | undefined,
   config?: WorldConfig,
 ): void {
-  activeOwner = undefined;
+  owners.length = 0;
   applyStoneClearanceField(field, config);
 }
 
