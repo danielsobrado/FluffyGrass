@@ -63,7 +63,8 @@ void main() {
 export class WorldSky {
   private readonly mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private environmentTarget?: THREE.WebGLRenderTarget;
-  private readonly pmrem?: THREE.PMREMGenerator;
+  private pmrem?: THREE.PMREMGenerator;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -113,27 +114,37 @@ export class WorldSky {
       );
       this.scene.environment = this.environmentTarget.texture;
     } catch (error) {
-      this.scene.environment = null;
       this.environmentTarget?.dispose();
       this.environmentTarget = undefined;
       this.pmrem?.dispose();
-      this.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      this.mesh.material.dispose();
-      throw error;
+      this.pmrem = undefined;
+      console.warn(
+        "[Drusniel World] Sky environment bake unavailable; continuing without IBL.",
+        error,
+      );
     } finally {
       bakeMaterial?.dispose();
     }
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
-    this.scene.environment = null;
+    if (
+      this.environmentTarget &&
+      this.scene.environment === this.environmentTarget.texture
+    ) {
+      this.scene.environment = null;
+    }
     this.environmentTarget?.dispose();
     this.environmentTarget = undefined;
     this.pmrem?.dispose();
+    this.pmrem = undefined;
   }
 }
 
