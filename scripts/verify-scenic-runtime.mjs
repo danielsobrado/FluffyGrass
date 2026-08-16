@@ -73,8 +73,10 @@ assert(
     worldConfigLoader.includes("validateFaunaStreamingConfig(config)") &&
     faunaField.includes("MAX_FAUNA_STREAM_RADIUS") &&
     faunaField.includes("Number.isFinite(radius)") &&
+    faunaField.includes("!Number.isFinite(centerX)") &&
+    faunaField.includes("!Number.isFinite(centerZ)") &&
     faunaField.includes("this.maxCollectionRadius"),
-  "Fauna streaming must reject unbounded configuration and defensively cap synchronous lattice collection cost.",
+  "Fauna streaming must reject unbounded configuration, non-finite collection centers, and defensively cap synchronous lattice collection cost.",
 );
 assert(
   faunaSystem.includes(
