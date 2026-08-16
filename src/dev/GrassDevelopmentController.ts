@@ -12,8 +12,9 @@ interface GrassDevelopmentDependencies {
   grassSystem: GrassSystem;
 }
 
-interface WindowWithBakeResult extends Window {
+interface WindowWithDevelopmentResults extends Window {
   __FLUFFY_GRASS_IMPOSTOR_BAKE__?: unknown;
+  __FLUFFY_GRASS_QA__?: unknown;
 }
 
 export class GrassDevelopmentController {
@@ -69,7 +70,9 @@ export class GrassDevelopmentController {
     this.abortController.abort();
     this.bakePanel?.remove();
     this.bakePanel = undefined;
-    delete (window as WindowWithBakeResult).__FLUFFY_GRASS_IMPOSTOR_BAKE__;
+    const windowWithResults = window as WindowWithDevelopmentResults;
+    delete windowWithResults.__FLUFFY_GRASS_IMPOSTOR_BAKE__;
+    delete windowWithResults.__FLUFFY_GRASS_QA__;
   }
 
   private async runImpostorBake(): Promise<void> {
@@ -101,7 +104,7 @@ export class GrassDevelopmentController {
         result,
         `grass-impostor-${target.patchId}`,
       );
-      (window as WindowWithBakeResult).__FLUFFY_GRASS_IMPOSTOR_BAKE__ =
+      (window as WindowWithDevelopmentResults).__FLUFFY_GRASS_IMPOSTOR_BAKE__ =
         result.metadata;
       console.info("[FluffyGrass] Impostor bake complete", result.metadata);
     } finally {
