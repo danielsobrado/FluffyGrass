@@ -77,6 +77,7 @@ export class ThirdPersonController implements WorldController {
   private verticalVelocity = 0;
   private grounded = true;
   private timeSinceGrounded = 0;
+  private coyoteJumpAvailable = true;
   private jumpBufferRemaining = 0;
   private jumpHoldRemaining = 0;
   private jumpStarted = false;
@@ -303,6 +304,7 @@ export class ThirdPersonController implements WorldController {
     this.verticalVelocity = 0;
     this.grounded = true;
     this.timeSinceGrounded = 0;
+    this.coyoteJumpAvailable = true;
     this.jumpBufferRemaining = 0;
     this.jumpHoldRemaining = 0;
     this.jumpStarted = false;
@@ -478,6 +480,7 @@ export class ThirdPersonController implements WorldController {
     const wasGrounded = this.grounded;
     if (wasGrounded) {
       this.timeSinceGrounded = 0;
+      this.coyoteJumpAvailable = true;
     } else {
       this.timeSinceGrounded += deltaSeconds;
     }
@@ -488,11 +491,13 @@ export class ThirdPersonController implements WorldController {
 
     const canUseCoyoteTime =
       wasGrounded ||
-      this.timeSinceGrounded <= this.config.characterCoyoteTime;
+      (this.coyoteJumpAvailable &&
+        this.timeSinceGrounded <= this.config.characterCoyoteTime);
     if (this.jumpBufferRemaining > 0 && canUseCoyoteTime) {
       this.verticalVelocity = this.config.characterJumpSpeed;
       this.jumpHoldRemaining = this.config.characterJumpHoldTime;
       this.jumpBufferRemaining = 0;
+      this.coyoteJumpAvailable = false;
       this.grounded = false;
       this.jumpStarted = true;
     }
