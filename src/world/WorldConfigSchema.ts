@@ -287,6 +287,8 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   characterScale: POSITIVE_NUMBER_RULE,
   characterWalkSpeed: POSITIVE_NUMBER_RULE,
   characterRunSpeed: POSITIVE_NUMBER_RULE,
+  characterRollInitialSpeedMultiplier: { minimum: 0.5, maximum: 3 },
+  characterRollSustainSpeedMultiplier: { minimum: 0.5, maximum: 3 },
   characterAcceleration: POSITIVE_NUMBER_RULE,
   characterDeceleration: POSITIVE_NUMBER_RULE,
   characterTurnRate: POSITIVE_NUMBER_RULE,
