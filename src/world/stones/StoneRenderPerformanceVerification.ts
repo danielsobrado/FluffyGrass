@@ -123,6 +123,82 @@ function verifyClearanceAmortization(
   );
 }
 
+function verifyExpandedClearanceNeighborhood(
+  config: ReturnType<WorldConfigLoader["parse"]>,
+): void {
+  const cellSize = config.stoneCellSize;
+  const sampleX = cellSize * 3 - 0.1;
+  const sampleZ = cellSize * 2.5;
+  const rootX = cellSize * 4;
+  const rootZ = sampleZ;
+  const baseReach = cellSize - 0.2;
+  const clearRadius = baseReach - config.stoneGrassClearanceFeather;
+  assert(clearRadius > 0, "Stone clearance test radius must remain positive.");
+
+  const root: StoneInstance = {
+    x: rootX,
+    z: rootZ,
+    height: 0,
+    sink: 0,
+    rotationY: 0,
+    scale: 1,
+    archetype: "pebble",
+    variantIndex: 0,
+    paletteKey: "meadowSage",
+    graniteBlend: 0,
+    moss: 0,
+    valueScale: 1,
+    normalX: 0,
+    normalY: 1,
+    normalZ: 0,
+    tiltStrength: 0,
+    clearRadius,
+  };
+  const rootChunkX = Math.floor(rootX / config.chunkSize);
+  const rootChunkZ = Math.floor(rootZ / config.chunkSize);
+  let chunkCollections = 0;
+  const fakeField = {
+    collectChunkInstances(
+      chunkX: number,
+      chunkZ: number,
+      _includeSmall: boolean,
+      out: StoneInstance[],
+    ): StoneInstance[] {
+      chunkCollections += 1;
+      out.length = 0;
+      if (chunkX === rootChunkX && chunkZ === rootChunkZ) out.push(root);
+      return out;
+    },
+  } as unknown as StoneField;
+  const cache = new StoneClearanceCache(fakeField, config);
+
+  assert(
+    cache.sample(sampleX, sampleZ) === 1,
+    "Base stone clearance reached beyond its one-cell neighborhood contract.",
+  );
+  const expanded = cache.sample(sampleX, sampleZ, 0.5);
+  assert(
+    expanded < 1,
+    "Expanded stone clearance missed a root in the next destination-cell ring.",
+  );
+  const collectionsAfterBuild = chunkCollections;
+  for (let index = 0; index < 64; index += 1) {
+    cache.sample(sampleX, sampleZ, 0.5);
+  }
+  assert(
+    chunkCollections === collectionsAfterBuild,
+    "Expanded stone clearance neighborhood was not cached.",
+  );
+
+  let rejectedInvalidRadius = false;
+  try {
+    cache.sample(sampleX, sampleZ, -0.1);
+  } catch {
+    rejectedInvalidRadius = true;
+  }
+  assert(rejectedInvalidRadius, "Negative stone clearance radius was accepted.");
+}
+
 /** Production contracts for draw count, detail footprint, and vertex bandwidth. */
 export function verifyStoneRenderPerformance(configSource: string): string {
   const config = new WorldConfigLoader().parse(configSource);
@@ -135,6 +211,7 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     "Compact stones must use a smaller close-geometry radius than desktop.",
   );
   verifyClearanceAmortization(config);
+  verifyExpandedClearanceNeighborhood(config);
 
   const shaderDetailDistance = Math.max(
     config.stoneGrowthDetailStrength > 0
