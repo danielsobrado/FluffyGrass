@@ -180,8 +180,9 @@ assert(
     island.includes("disposeObjectMaterials") &&
     island.includes("disposeMaterialResources") &&
     island.includes("value instanceof THREE.Texture") &&
-    island.includes("texture.dispose()"),
-  "Island QA code must stay lazy and loaded assets must release geometry, materials, and textures.",
+    island.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
+    island.includes("disposeResources([...ownedMaterials, ...textures])"),
+  "Island QA code must stay lazy and loaded assets must release geometry, materials, and textures through complete resource disposal.",
 );
 assert(
   islandGrass.includes("private disposed = false") &&
@@ -237,8 +238,11 @@ assert(
     trailField.includes("Grass trail attach cleanup failed.") &&
     /private releaseTargets\(\): void \{[\s\S]*?const quad = this\.quad;[\s\S]*?this\.quad = undefined;[\s\S]*?this\.material = undefined;[\s\S]*?this\.targets = undefined;[\s\S]*?disposeResources\(\[/.test(
       trailField,
+    ) &&
+    /new WorldRuntimeGuard\([\s\S]*?\(enabled\) => \{[\s\S]*?this\.rendererEnabled = enabled;[\s\S]*?if \(enabled && !useFlyControls\) \{[\s\S]*?this\.disposeSafely\("Grass trail context restore"[\s\S]*?grassTrailField\.configure\(\{\}\)/.test(
+      world,
     ),
-  "Grass trail feedback must reject invalid inputs, restore renderer state, roll back partial attachment, and clear singleton ownership before complete resource disposal.",
+  "Grass trail feedback must reject invalid inputs, restore renderer state, roll back partial attachment, clear singleton ownership before complete resource disposal, and rebuild neutral feedback targets after WebGL restoration.",
 );
 const windOwnershipClear = windNoise.indexOf("sharedTexture = undefined;");
 const windDispose = windNoise.indexOf("texture?.dispose();", windOwnershipClear);
