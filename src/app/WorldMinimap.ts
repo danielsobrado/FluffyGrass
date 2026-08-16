@@ -133,18 +133,29 @@ export class WorldMinimap {
     if (this.disposed || open === this.open) {
       return;
     }
-    this.open = open;
-    this.root.hidden = !open;
     if (!open) {
+      this.open = false;
+      this.root.hidden = true;
       return;
     }
+
+    // First open pays for the raster; later opens reuse it. Build it before the
+    // modal state is published so allocation failure cannot pause world input.
+    const raster = this.raster ?? new WorldMinimapRaster(this.field, this.extent);
     if (document.pointerLockElement !== null) {
       exitPointerLockSafely();
     }
-    // First open pays for the raster; later opens reuse it.
-    this.raster ??= new WorldMinimapRaster(this.field, this.extent);
-    this.canvas.focus();
-    this.update();
+    this.raster = raster;
+    this.open = true;
+    this.root.hidden = false;
+    try {
+      this.canvas.focus();
+      this.update();
+    } catch (error) {
+      this.open = false;
+      this.root.hidden = true;
+      throw error;
+    }
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
