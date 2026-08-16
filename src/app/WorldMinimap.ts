@@ -79,10 +79,18 @@ export class WorldMinimap {
     this.terrainCanvas.height = RESOLUTION;
     this.terrainContext = this.terrainCanvas.getContext("2d");
 
-    document.body.appendChild(this.root);
-    this.canvas.addEventListener("pointerdown", this.handlePointerDown);
-    this.canvas.addEventListener("keydown", this.handleCanvasKey);
-    window.addEventListener("keydown", this.handleKeyDown, true);
+    try {
+      document.body.appendChild(this.root);
+      this.canvas.addEventListener("pointerdown", this.handlePointerDown);
+      this.canvas.addEventListener("keydown", this.handleCanvasKey);
+      window.addEventListener("keydown", this.handleKeyDown, true);
+    } catch (error) {
+      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+      this.canvas.removeEventListener("keydown", this.handleCanvasKey);
+      window.removeEventListener("keydown", this.handleKeyDown, true);
+      this.root.remove();
+      throw error;
+    }
   }
 
   isOpen(): boolean {
