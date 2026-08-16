@@ -208,7 +208,7 @@ grassMaxSlopeDegrees: 44
 # Procedural stones.
 stonesEnabled: 1
 stoneCellSize: 16
-stoneDensity: 0.17
+stoneDensity: 0.30
 stoneVariantsPerArchetype: 10
 stoneClusterChance: 0.82
 # Macro stone geology. 56 m intentionally does not divide the 16 m stone cell
@@ -225,7 +225,7 @@ stoneClusterCoreRatio: 0.42
 stoneClusterShoulderRatio: 0.78
 stoneClusterHaloRatio: 1.12
 stoneClusterDensityResponse: 6
-stoneSingletonChance: 0.10
+stoneSingletonChance: 0.17
 stoneGrassClearanceFeather: 0.4
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3

@@ -47,6 +47,7 @@ import {
   STONE_STRIKE_SEED_XOR,
   STRIKE_PERIOD,
   trimOldestCacheEntries,
+  uplandGeologyBoost,
   type StoneClusterProcess,
   type StoneMacroCoord,
 } from "./StoneClusterTuning";
@@ -78,6 +79,20 @@ const STONE_CLUSTER_SUITABILITY_KNEE_HIGH = 0.24;
  */
 const STONE_CLUSTER_BUDGET_KNEE_LOW = 0.08;
 const STONE_CLUSTER_BUDGET_KNEE_HIGH = 0.45;
+
+/**
+ * How much a walking way suppresses macro formations around it.
+ *
+ * At the original 0.9 the disturbance field left a hole in the geology roughly
+ * 40 m either side of every path: measured against the ground available, stones
+ * landed at index 0.38 in the 6-15 m band and 0.17 in the 15-40 m band, while
+ * the kicked-aside verge sat at 18.1. A trail therefore read as a tidy kerb of
+ * pebbles inside an unnaturally clean corridor. Paths should sweep their own
+ * surface clear — which the separate clearance and verge passes already do —
+ * not sterilise the country they cross.
+ */
+const STONE_CLUSTER_PATH_SUPPRESSION = 0.55;
+
 
 export interface StoneClusterCandidate {
   readonly gridX: number;
@@ -322,7 +337,12 @@ export class StoneClusterField {
     const suitability = clamp01(
       geologyPotential *
         (0.18 + 0.82 * surfaceRockiness) *
-        (1 - 0.9 * disturbance),
+        (1 - STONE_CLUSTER_PATH_SUPPRESSION * disturbance) *
+        uplandGeologyBoost(
+          height,
+          this.config.grassMinAltitude,
+          this.config.grassMaxAltitude,
+        ),
     );
     const densityResponse =
       1 -

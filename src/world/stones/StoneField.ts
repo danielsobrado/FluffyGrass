@@ -32,6 +32,7 @@ import {
   packLatticeKey,
   resolveOverlapPush,
   singletonProbability,
+  uplandGeologyBoost,
   smoothstep,
   SPLIT_CORE_OFFSET_FACTOR,
   SPLIT_GAP_MAX,
@@ -868,6 +869,11 @@ export class StoneField {
       geologyPotential,
       ecology.rockiness,
       this.config.stoneSingletonChance,
+      uplandGeologyBoost(
+        height,
+        this.config.grassMinAltitude,
+        this.config.grassMaxAltitude,
+      ),
     );
     if (activationRoll >= probability) {
       return false;

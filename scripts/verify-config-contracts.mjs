@@ -105,7 +105,7 @@ try {
       "Shipped river morphology and foam-balance production values must parse exactly.",
     );
     assert(
-      world.stoneDensity === 0.17 &&
+      world.stoneDensity === 0.3 &&
         world.stoneClusterChance === 0.82 &&
         world.stoneClusterSpacing === 56 &&
         world.stoneClusterCenterJitter === 0.26 &&
@@ -119,7 +119,7 @@ try {
         world.stoneClusterShoulderRatio === 0.78 &&
         world.stoneClusterHaloRatio === 1.12 &&
         world.stoneClusterDensityResponse === 6 &&
-        world.stoneSingletonChance === 0.1,
+        world.stoneSingletonChance === 0.17,
       "Shipped stone cluster production values must parse exactly.",
     );
     assert(
