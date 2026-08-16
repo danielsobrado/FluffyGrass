@@ -44,12 +44,20 @@ assert(
   "Applications resolving after pagehide must not continue bootstrap or start without an owner.",
 );
 
+for (const modulePath of [
+  "./runtime/AnimationBlendingHud",
+  "./runtime/WorldDiagnosticsController",
+  "./qa/WorldVisualMatrixRunner",
+  "./dev/ActorExtensibilityProof",
+]) {
+  const escaped = modulePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  assert(
+    new RegExp(`await import\\(\\s*"${escaped}"\\s*\\)`).test(source),
+    `Expected optional import ${modulePath} to remain asynchronous.`,
+  );
+}
 assert(
-  source.includes('await import("./runtime/AnimationBlendingHud"') &&
-    source.includes('await import("./runtime/WorldDiagnosticsController"') &&
-    source.includes('await import("./qa/WorldVisualMatrixRunner"') &&
-    source.includes('await import("./dev/ActorExtensibilityProof"') &&
-    (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 6,
+  (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 6,
   "Optional asynchronous runtime modules must re-check bootstrap ownership before publishing resources.",
 );
 
