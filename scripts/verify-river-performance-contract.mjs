@@ -53,6 +53,7 @@ const resolver = read("src/world/hydrology/WaterChunkInteractionResolver.ts");
 const streamer = read("src/world/TerrainStreamer.ts");
 const chunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
 
+const sample = extractFunction(riverField, "sample");
 const sampleLane = extractFunction(riverField, "sampleLane");
 const resolveSelected = extractFunction(riverField, "resolveSelectedLane");
 
@@ -74,10 +75,16 @@ assert(
     resolveSelected.includes("curvature / secondDerivativeReference"),
   "Bend strength must use geometric curvature rather than raw second derivative.",
 );
+const altitudeRejectIndex = sample.indexOf("height >= this.config.riverMaxAltitude");
+const laneSampleIndex = sample.indexOf("this.sampleLane(");
+assert(
+  altitudeRejectIndex >= 0 && laneSampleIndex > altitudeRejectIndex,
+  "Samples above riverMaxAltitude must reject before any centreline trigonometry.",
+);
 assert(
   riverField.includes("maximumInfluenceHalfWidth") &&
-    riverField.includes("lane.distance > this.maximumInfluenceHalfWidth") &&
-    riverField.includes("return clearRiverSample(target)"),
+    sample.includes("lane.distance > this.maximumInfluenceHalfWidth") &&
+    sample.includes("return clearRiverSample(target)"),
   "Dry samples outside every possible river influence must skip selected-lane morphology work.",
 );
 assert(
