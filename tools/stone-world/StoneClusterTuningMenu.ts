@@ -105,8 +105,10 @@ function downloadYaml(source: string): void {
   anchor.hidden = true;
   document.body.appendChild(anchor);
   anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  requestAnimationFrame(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  });
 }
 
 export function readStoneClusterQueryOverrides(
@@ -285,7 +287,11 @@ export class StoneClusterTuningMenu {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.addEventListener("click", handler);
+    button.addEventListener("click", () => {
+      if (!this.disposed) {
+        handler();
+      }
+    });
     this.root.appendChild(button);
   }
 
@@ -341,6 +347,9 @@ export class StoneClusterTuningMenu {
     } catch {
       copied = false;
     }
+    if (this.disposed) {
+      return;
+    }
     downloadYaml(yaml);
     this.setStatus(copied ? "YAML copied + downloaded" : "YAML downloaded");
   };
@@ -368,6 +377,9 @@ export class StoneClusterTuningMenu {
   }
 
   private setStatus(message: string): void {
+    if (this.disposed) {
+      return;
+    }
     window.clearTimeout(this.exportResetHandle);
     const existing = this.root.querySelector(".stone-cluster-status");
     const status =
