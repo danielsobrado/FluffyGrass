@@ -1,12 +1,14 @@
+import {
+  clusterMinimumSeparation,
+  maxNormalizedReach,
+} from "./stones/StoneClusterTuning";
 import type { WorldConfig } from "./WorldConfig";
 
 /**
- * Geometric proofs for formation lookup. Production queries a fixed 3x3 of
- * macro cells, so radius, halo, jitter, and stone-cell size must keep every
- * reachable formation inside that neighborhood.
+ * Geometric proofs for the fixed macro neighborhoods used by stone placement.
  */
 export function validateStoneClusterGeometry(config: WorldConfig): void {
-  const queryEpsilon = 1e-6;
+  const epsilon = 1e-6;
   if (config.stoneClusterRadiusMin >= config.stoneClusterRadiusMax) {
     throw new Error("stoneClusterRadiusMin must be lower than stoneClusterRadiusMax.");
   }
@@ -28,21 +30,28 @@ export function validateStoneClusterGeometry(config: WorldConfig): void {
   }
 
   const spacing = config.stoneClusterSpacing;
-  const influenceRadius =
-    config.stoneClusterRadiusMax * config.stoneClusterHaloRatio;
-  if (influenceRadius > spacing * 0.5 + queryEpsilon) {
-    throw new Error(
-      "stoneClusterRadiusMax * stoneClusterHaloRatio must not exceed half of stoneClusterSpacing.",
-    );
-  }
-  if (
-    config.stoneCellSize * 0.5 +
-      influenceRadius +
-      config.stoneClusterCenterJitter * spacing >=
-    spacing * 1.5 - queryEpsilon
-  ) {
+  const maxInfluenceRadius =
+    config.stoneClusterRadiusMax *
+    maxNormalizedReach(config.stoneClusterHaloRatio);
+  const queryReach = maxInfluenceRadius + config.stoneCellSize * 0.5;
+  const nearestUnqueriedCenter =
+    spacing * (1.5 - config.stoneClusterCenterJitter);
+  if (queryReach >= nearestUnqueriedCenter - epsilon) {
     throw new Error(
       "Stone cluster footprint, jitter, and cell size must stay inside the fixed 3x3 macro query.",
+    );
+  }
+
+  const nearestTwoAwayCenter =
+    spacing * (2 - 2 * config.stoneClusterCenterJitter);
+  const maxConflictDistance = clusterMinimumSeparation(
+    spacing,
+    maxInfluenceRadius,
+    maxInfluenceRadius,
+  );
+  if (nearestTwoAwayCenter <= maxConflictDistance + epsilon) {
+    throw new Error(
+      "Stone cluster conflict suppression must stay inside immediate macro neighbors.",
     );
   }
 }
