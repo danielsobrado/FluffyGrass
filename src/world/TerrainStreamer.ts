@@ -315,24 +315,47 @@ export class TerrainStreamer {
       return;
     }
 
-    const existing = this.chunks.get(chunk.key);
-    if (existing) {
-      this.removeChunk(existing);
-    }
-    this.chunks.set(chunk.key, chunk);
-    this.scene.add(chunk.mesh);
-    if (chunk.waterBedMesh) {
-      this.scene.add(chunk.waterBedMesh);
-    }
-    if (chunk.waterMesh) {
-      this.scene.add(chunk.waterMesh);
-    }
-    this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true);
+    this.commitChunk(chunk);
     this.activeBuild = undefined;
   }
 
-  private removeChunk(chunk: TerrainChunk): void {
-    this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
+  private commitChunk(chunk: TerrainChunk): void {
+    const existing = this.chunks.get(chunk.key);
+    try {
+      this.scene.add(chunk.mesh);
+      if (chunk.waterBedMesh) {
+        this.scene.add(chunk.waterBedMesh);
+      }
+      if (chunk.waterMesh) {
+        this.scene.add(chunk.waterMesh);
+      }
+      this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true);
+      this.chunks.set(chunk.key, chunk);
+    } catch (error) {
+      chunk.mesh.removeFromParent();
+      chunk.waterBedMesh?.removeFromParent();
+      chunk.waterMesh?.removeFromParent();
+      if (!existing) {
+        this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
+      }
+      disposeTerrainResource(chunk, "Unpublished terrain chunk");
+      throw error;
+    }
+
+    if (!existing) {
+      return;
+    }
+    try {
+      this.removeChunk(existing, false);
+    } catch (error) {
+      console.warn("[Drusniel World] Replaced terrain chunk cleanup failed.", error);
+    }
+  }
+
+  private removeChunk(chunk: TerrainChunk, updateCoverage = true): void {
+    if (updateCoverage) {
+      this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
+    }
     this.scene.remove(chunk.mesh);
     if (chunk.waterBedMesh) {
       this.scene.remove(chunk.waterBedMesh);
