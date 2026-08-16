@@ -82,7 +82,7 @@ export class WorldMinimap {
     document.body.appendChild(this.root);
     this.canvas.addEventListener("pointerdown", this.handlePointerDown);
     this.canvas.addEventListener("keydown", this.handleCanvasKey);
-    window.addEventListener("keydown", this.handleKeyDown);
+    window.addEventListener("keydown", this.handleKeyDown, true);
   }
 
   isOpen(): boolean {
@@ -112,7 +112,7 @@ export class WorldMinimap {
     this.disposed = true;
     this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
     this.canvas.removeEventListener("keydown", this.handleCanvasKey);
-    window.removeEventListener("keydown", this.handleKeyDown);
+    window.removeEventListener("keydown", this.handleKeyDown, true);
     this.root.remove();
   }
 
@@ -139,21 +139,31 @@ export class WorldMinimap {
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
-      return;
-    }
     if (isTypingTarget(event.target)) {
       return;
     }
-    if (event.code === "KeyM") {
+    const hasModifier = event.altKey || event.ctrlKey || event.metaKey;
+    if (event.code === "KeyM" && !event.repeat && !hasModifier) {
       event.preventDefault();
+      event.stopPropagation();
       this.toggle();
       return;
     }
     if (event.code === "Escape" && this.open) {
       event.preventDefault();
+      event.stopPropagation();
       this.setOpen(false);
+      return;
     }
+    if (
+      !this.open ||
+      (event.target === this.canvas &&
+        (event.code === "Enter" || event.code === "Space"))
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   private readonly handleCanvasKey = (event: KeyboardEvent): void => {
