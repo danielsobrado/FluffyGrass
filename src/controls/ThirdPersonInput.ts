@@ -380,6 +380,7 @@ export class ThirdPersonInput {
     this.mobileJumpHeld = false;
     this.jumpRequested = false;
     this.resetRequested = false;
+    this.rollRequested = false;
     this.zoomDelta = 0;
     this.lookDelta.set(0, 0);
     this.keys.clear();
