@@ -113,8 +113,8 @@ function clearWorktree(directory) {
 
 function installAndBuild() {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  log("Installing locked production build dependencies...");
-  run(npmCommand, ["ci", "--no-audit", "--no-fund"]);
+  log("Installing locked build dependencies...");
+  run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
   log("Building the production site...");
   run(npmCommand, ["run", "build"]);
 
