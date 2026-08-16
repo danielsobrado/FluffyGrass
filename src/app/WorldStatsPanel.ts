@@ -43,6 +43,10 @@ function bindStatsLifetime(stats: Stats): void {
     }
   };
   stats.dom.remove = (): void => {
+    if (disposed) {
+      removeDom();
+      return;
+    }
     stats.dispose();
   };
 }
