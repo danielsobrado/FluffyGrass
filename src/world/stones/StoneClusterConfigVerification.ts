@@ -48,10 +48,24 @@ export function verifyStoneClusterConfig(configSource: string): string {
   );
 
   expectReject(
+    {
+      ...config,
+      stoneCellSize: 64,
+      stoneClusterSpacing: 96,
+      stoneClusterCenterJitter: 0,
+      stoneClusterRadiusMin: 4,
+      stoneClusterRadiusMax: 8,
+      stoneClusterHaloRatio: 0.9,
+    },
+    /path-distance plateau/,
+    "path-distance source-cell reach",
+  );
+
+  expectReject(
     { ...config, worldSize: 1_100_000 },
     /packed stone-lattice coordinate range/,
     "packed lattice range",
   );
 
-  return "3x3 reach + cell lattice + packed key bounds";
+  return "3x3 reach + path reach + cell lattice + packed key bounds";
 }
