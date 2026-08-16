@@ -297,23 +297,19 @@ export class RiverArtMenu {
       return;
     }
     const origin = this.host.controls.getStreamingPosition();
+    const originX = origin.x;
+    const originZ = origin.z;
     const moved =
       !Number.isFinite(this.locationsOriginX) ||
-      Math.hypot(
-        origin.x - this.locationsOriginX,
-        origin.z - this.locationsOriginZ,
-      ) > 64;
+      Math.hypot(originX - this.locationsOriginX, originZ - this.locationsOriginZ) >
+        64;
     if (!this.locations || moved) {
-      const task = findWorldVisualLocations(
-        this.host.field,
-        origin.x,
-        origin.z,
-      );
+      const task = findWorldVisualLocations(this.host.field, originX, originZ);
       this.locationsTask = task;
       try {
         this.locations = await task;
-        this.locationsOriginX = origin.x;
-        this.locationsOriginZ = origin.z;
+        this.locationsOriginX = originX;
+        this.locationsOriginZ = originZ;
       } finally {
         if (this.locationsTask === task) {
           this.locationsTask = undefined;
