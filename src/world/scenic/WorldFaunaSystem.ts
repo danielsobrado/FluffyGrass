@@ -121,11 +121,11 @@ export class WorldFaunaSystem {
           : config.faunaDeerDesktopCount;
     const sampleHeight = (x: number, z: number): number => field.sampleHeight(x, z);
     const contact = new WorldTerrainContactSampler(field);
-    if (count > 0) {
-      this.rebuildRoster(spawn);
-    }
 
     try {
+      if (count > 0) {
+        this.rebuildRoster(spawn);
+      }
       for (let index = 0; index < count; index += 1) {
         this.slots.push(
           this.createSlot(scene, index, count, spawn, sampleHeight, contact),
