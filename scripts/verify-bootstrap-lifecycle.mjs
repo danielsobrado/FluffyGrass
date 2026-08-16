@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 const source = read("src/main.ts");
 const listener = source.indexOf('window.addEventListener("pagehide", handlePageHide)');
+const runtimeConfigLoad = source.indexOf("await new RuntimeConfigLoader().load(");
 const islandImport = source.indexOf('await import("./app/IslandApp")');
 const worldImport = source.indexOf('await import("./app/WorldApp")');
 const appStart = source.indexOf("app.start()");
@@ -28,10 +29,14 @@ assert(
     source.includes("disposed = true") &&
     source.includes("disposeRuntime()") &&
     listener >= 0 &&
+    runtimeConfigLoad > listener &&
     listener < islandImport &&
     listener < worldImport &&
-    listener < appStart,
-  "Non-BFCache pagehide cleanup must own runtime resources before asynchronous application setup begins.",
+    listener < appStart &&
+    /await new RuntimeConfigLoader\(\)\.load\([\s\S]*?\);[\s\S]*?if \(disposed\) \{[\s\S]*?return;/.test(
+      source,
+    ),
+  "Non-BFCache pagehide cleanup must own bootstrap before the first async config load and every later application setup boundary.",
 );
 
 assert(
@@ -57,7 +62,7 @@ for (const modulePath of [
   );
 }
 assert(
-  (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 6,
+  (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 7,
   "Optional asynchronous runtime modules must re-check bootstrap ownership before publishing resources.",
 );
 
@@ -69,5 +74,5 @@ assert(
 );
 
 console.log(
-  "[bootstrap-lifecycle] Async navigation ownership and startup rollback verified.",
+  "[bootstrap-lifecycle] First-await navigation ownership, async setup checks, and startup rollback verified.",
 );
