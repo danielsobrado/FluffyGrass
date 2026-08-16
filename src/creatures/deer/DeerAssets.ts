@@ -54,8 +54,13 @@ class DeerAssetLibrary implements DeerAssets {
       roughness: DEER_ROUGHNESS,
       metalness: 0,
     });
-    applyActorEnvironmentResponse(material);
-    return material;
+    try {
+      applyActorEnvironmentResponse(material);
+      return material;
+    } catch (error) {
+      material.dispose();
+      throw error;
+    }
   }
 
   dispose(): void {
@@ -64,9 +69,7 @@ class DeerAssetLibrary implements DeerAssets {
     }
     this.disposed = true;
     for (const slots of this.built.values()) {
-      for (const geometry of slots.values()) {
-        geometry.dispose();
-      }
+      disposeGeometries(slots.values());
       slots.clear();
     }
     this.built.clear();
@@ -82,17 +85,35 @@ class DeerAssetLibrary implements DeerAssets {
     if (existing !== undefined) {
       return existing;
     }
+
     const slots = new Map<DeerPartSlot, THREE.BufferGeometry>();
     const parts = buildDeerParts(variant);
-    for (const [slot, list] of parts) {
-      slots.set(slot, mergeActorParts(list));
-      // The primitives were only ever scaffolding for the merge.
-      for (const part of list) {
-        part.geometry.dispose();
+    try {
+      for (const [slot, list] of parts) {
+        try {
+          slots.set(slot, mergeActorParts(list));
+        } finally {
+          // The primitives were only ever scaffolding for the merge.
+          for (const part of list) {
+            part.geometry.dispose();
+          }
+        }
       }
+      this.built.set(variant, slots);
+      return slots;
+    } catch (error) {
+      disposeGeometries(slots.values());
+      slots.clear();
+      throw error;
     }
-    this.built.set(variant, slots);
-    return slots;
+  }
+}
+
+function disposeGeometries(
+  geometries: Iterable<THREE.BufferGeometry>,
+): void {
+  for (const geometry of geometries) {
+    geometry.dispose();
   }
 }
 
