@@ -594,6 +594,7 @@ export class WorldGrassImpostorMaterial {
 
   private readonly uniforms: ShaderUniforms;
   private readonly baseWindStrength: number;
+  private readonly allowViewBlending: boolean;
   private artRootDarkening: number;
   private artTipColorStrength = 0.5;
 
@@ -607,6 +608,7 @@ export class WorldGrassImpostorMaterial {
     noiseWind = blendViews,
   ) {
     this.baseWindStrength = windConfig.strength;
+    this.allowViewBlending = blendViews;
     this.artRootDarkening = materialConfig.rootDarkening;
     let createdMaterial: THREE.ShaderMaterial | undefined;
 
@@ -758,7 +760,11 @@ export class WorldGrassImpostorMaterial {
   }
 
   setBlendViews(enabled: boolean): void {
-    this.uniforms.uBlendViews.value = enabled ? 1 : 0;
+    // Compact creates the material without view blending so it never enters the
+    // derivative-heavy multi-view path later just because the quality governor
+    // happens to be on a tier that permits it on desktop.
+    this.uniforms.uBlendViews.value =
+      this.allowViewBlending && enabled ? 1 : 0;
   }
 
   configureLod(config: GrassLodConfig): void {
