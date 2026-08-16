@@ -16,6 +16,7 @@ function assert(condition, message) {
 }
 
 const main = read("src/main.ts");
+const hud = read("src/runtime/AnimationBlendingHud.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 const joystick = read("src/controls/MobileJoystick.ts");
@@ -27,6 +28,16 @@ assert(
     main.includes("let detachObserver: (() => void) | undefined") &&
     main.indexOf("animationHud = {") < main.indexOf("hud.attachCharacter(character)"),
   "The skeletal blending HUD must stay diagnostics-only and publish its cleanup owner before attachment can fail.",
+);
+assert(
+  /try \{[\s\S]*?document\.body\.appendChild\(this\.container\);[\s\S]*?this\.bindEvents\(\);[\s\S]*?\} catch \(error\) \{[\s\S]*?window\.removeEventListener\("keydown", this\.handleKeyDown\);[\s\S]*?this\.container\.remove\(\);[\s\S]*?throw error;/.test(
+    hud,
+  ) &&
+    hud.includes("Crouch: C · Dodge roll: R") &&
+    !hud.includes("this.character.setCrouch(") &&
+    !hud.includes("this.character.triggerRoll(") &&
+    hud.includes("this.character?.clearLookTarget()"),
+  "The diagnostics HUD must roll back failed publication and keep gameplay crouch/roll actions owned by the real controller/input path.",
 );
 
 const bootstrapTry = main.indexOf("  try {");
