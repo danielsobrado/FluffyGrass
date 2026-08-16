@@ -1,7 +1,11 @@
 import { TerrainField } from "../TerrainField";
 import { WorldConfigLoader } from "../WorldConfigLoader";
+import type { WorldConfig } from "../WorldConfig";
 import { StoneField } from "./StoneField";
-import { stoneSourceCellCacheLimit } from "./StoneClusterTuning";
+import {
+  STONE_CELL_SOURCE_MARGIN,
+  stoneSourceCellCacheLimit,
+} from "./StoneClusterTuning";
 
 export interface StonePerformanceBaseline {
   readonly seed: number;
@@ -66,6 +70,39 @@ function collectMetrics(
   };
 }
 
+function maximumColdRawCandidates(config: WorldConfig): number {
+  const sourceCellsAxis =
+    config.chunkSize / config.stoneCellSize + 2 * STONE_CELL_SOURCE_MARGIN;
+  const sourceCenterSpan = (sourceCellsAxis - 1) * config.stoneCellSize;
+  const baseMacroAxis =
+    Math.ceil(sourceCenterSpan / config.stoneClusterSpacing) + 1;
+  const descriptorAndConflictMargin = 4;
+  const rawAxis = baseMacroAxis + descriptorAndConflictMargin;
+  return rawAxis * rawAxis;
+}
+
+function verifyColdSampling(config: WorldConfig): number {
+  const maximum = maximumColdRawCandidates(config);
+  let observed = 0;
+  const scratch: ReturnType<StoneField["collectChunkInstances"]> = [];
+  for (const [chunkX, chunkZ] of [
+    [0, 0],
+    [1, 0],
+    [-1, 1],
+  ] as const) {
+    const terrain = new TerrainField(config);
+    const stones = new StoneField(terrain, config);
+    stones.collectChunkInstances(chunkX, chunkZ, true, scratch);
+    const samples = stones.getClusterField().getFullTerrainSampleCount();
+    observed = Math.max(observed, samples);
+    assert(
+      samples <= maximum,
+      `Cold chunk ${chunkX}:${chunkZ} sampled ${samples} full macro candidates; ceiling ${maximum}.`,
+    );
+  }
+  return observed;
+}
+
 export function verifyStoneClusterPerformance(
   configSource: string,
   baseline: StonePerformanceBaseline,
@@ -86,6 +123,7 @@ export function verifyStoneClusterPerformance(
       ),
     "Cell cache is smaller than the desktop source-cell ring.",
   );
+  const coldSamples = verifyColdSampling(config);
   const metrics = collectMetrics(stones, baseline.chunkMin, baseline.chunkMax);
   assert(
     metrics.includeSmallRoots <= baseline.includeSmallRoots,
@@ -110,6 +148,6 @@ export function verifyStoneClusterPerformance(
   return (
     `roots ${metrics.includeSmallRoots}/${metrics.farRoots} · ` +
     `tris ${metrics.detailedTrianglePotential}/${metrics.coarseTrianglePotential} · ` +
-    `peak ${metrics.maxRootsInChunk}`
+    `peak ${metrics.maxRootsInChunk} · cold macro samples ${coldSamples}`
   );
 }
