@@ -68,6 +68,7 @@ export class WorldEnvironmentController {
       this.applyArtDirection();
     } catch (error) {
       disposeSafely(sky, "Sky");
+      disposeSafely(this.sun.shadow, "Sun shadow");
       this.scene.remove(this.hemisphere, this.sun, this.sun.target);
       throw error;
     }
@@ -132,6 +133,7 @@ export class WorldEnvironmentController {
     }
     this.disposed = true;
     disposeSafely(this.sky, "Sky");
+    disposeSafely(this.sun.shadow, "Sun shadow");
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);
   }
 
