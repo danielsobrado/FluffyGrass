@@ -33,8 +33,10 @@ assertRejected("22.23.1");
 assertRejected("24.18.0");
 assertRejected("20.99.0");
 assertRejected("26.0.0");
+assertRejected("24.18.1-rc.1");
+assertRejected("24.18.1+local");
 assertSecureNodeRuntime();
 
 console.log(
-  `[node-runtime] Patched Node 22/24 floors verified; local production pin is ${PINNED_NODE_VERSION}.`,
+  `[node-runtime] Stable patched Node 22/24 floors verified; local production pin is ${PINNED_NODE_VERSION}.`,
 );
