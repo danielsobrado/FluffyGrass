@@ -1,4 +1,6 @@
 import {
+  LATTICE_KEY_OFFSET,
+  STONE_CELL_SOURCE_MARGIN,
   clusterMinimumSeparation,
   maxNormalizedReach,
 } from "./stones/StoneClusterTuning";
@@ -28,8 +30,33 @@ export function validateStoneClusterGeometry(config: WorldConfig): void {
       "stoneClusterShoulderRatio must be lower than stoneClusterHaloRatio.",
     );
   }
+  if (!Number.isInteger(config.chunkSize / config.stoneCellSize)) {
+    throw new Error("chunkSize must be divisible by stoneCellSize.");
+  }
+
+  const halfWorld = config.worldSize * 0.5;
+  const maxCellIndex =
+    Math.ceil(halfWorld / config.stoneCellSize) + STONE_CELL_SOURCE_MARGIN;
+  const maxMacroIndex =
+    Math.ceil(halfWorld / config.stoneClusterSpacing) + 2;
+  if (
+    maxCellIndex >= LATTICE_KEY_OFFSET ||
+    maxMacroIndex >= LATTICE_KEY_OFFSET
+  ) {
+    throw new Error(
+      "World size exceeds the packed stone-lattice coordinate range.",
+    );
+  }
 
   const spacing = config.stoneClusterSpacing;
+  const circularInfluence =
+    config.stoneClusterRadiusMax * config.stoneClusterHaloRatio;
+  if (circularInfluence > spacing * 0.5 + epsilon) {
+    throw new Error(
+      "stoneClusterRadiusMax * stoneClusterHaloRatio must not exceed half of stoneClusterSpacing.",
+    );
+  }
+
   const maxInfluenceRadius =
     config.stoneClusterRadiusMax *
     maxNormalizedReach(config.stoneClusterHaloRatio);
