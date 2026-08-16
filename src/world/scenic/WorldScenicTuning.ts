@@ -47,11 +47,11 @@ export const FAUNA_FLEE_RADIUS = 6;
 /** A fawn is a little over half the size of an adult. */
 export const FAUNA_FAWN_SCALE = 0.62;
 /**
- * Body variants for pool slots that cannot claim an initial herd member.
+ * Fixed body variants for the recycled deer pool.
  * The 1 stag / 5 doe / 2 fawn cycle approximates the authored herd mix while
  * keeping small pools doe-led. A slot keeps its body variant for its lifetime.
  */
-export const FAUNA_POOL_FALLBACK_VARIANTS = [
+export const FAUNA_POOL_VARIANTS = [
   "doe",
   "fawn",
   "doe",
