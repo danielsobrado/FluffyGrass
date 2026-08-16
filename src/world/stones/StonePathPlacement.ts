@@ -7,6 +7,7 @@ export interface StoneVergePathSelection {
 }
 
 export const STONE_PATH_DISTANCE_PLATEAU = 24;
+const SOURCE_NEIGHBORHOOD_EPSILON = 1e-6;
 
 function candidate(
   channel: StoneVergePathChannel,
@@ -52,4 +53,19 @@ export function selectPathDistance(
   branchDistance: number,
 ): number {
   return channel === "main" ? mainDistance : branchDistance;
+}
+
+/** Keeps a verge root inside its source cell or one immediate neighbor. */
+export function stoneVergeInsideSourceNeighborhood(
+  sourceCenterX: number,
+  sourceCenterZ: number,
+  x: number,
+  z: number,
+  cellSize: number,
+): boolean {
+  const reach = cellSize * 1.5 - SOURCE_NEIGHBORHOOD_EPSILON;
+  return (
+    Math.abs(x - sourceCenterX) < reach &&
+    Math.abs(z - sourceCenterZ) < reach
+  );
 }
