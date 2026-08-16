@@ -22,6 +22,7 @@ const PACKAGE_FILE = resolve(REPOSITORY_ROOT, "package.json");
 const PACKAGE_LOCK_FILE = resolve(REPOSITORY_ROOT, "package-lock.json");
 const NODE_VERSION_FILE = resolve(REPOSITORY_ROOT, ".nvmrc");
 const NPM_CONFIG_FILE = resolve(REPOSITORY_ROOT, ".npmrc");
+const GITIGNORE_FILE = resolve(REPOSITORY_ROOT, ".gitignore");
 const WORKFLOW_EXTENSIONS = new Set([".yml", ".yaml"]);
 
 function fail(message) {
@@ -58,6 +59,23 @@ if (existsSync(WORKFLOW_DIRECTORY)) {
       `GitHub Actions are not allowed in this repository: ${workflowFiles.join(", ")}.`,
     );
   }
+}
+
+const gitignore = readFileSync(GITIGNORE_FILE, "utf8");
+for (const requiredPattern of [".env", ".env.*", "!.env.example"]) {
+  if (!gitignore.split(/\r?\n/).includes(requiredPattern)) {
+    fail(`.gitignore must preserve environment-file rule: ${requiredPattern}.`);
+  }
+}
+const localEnvironmentFiles = readdirSync(REPOSITORY_ROOT).filter(
+  (entry) =>
+    entry !== ".env.example" &&
+    (entry === ".env" || entry.startsWith(".env.")),
+);
+if (localEnvironmentFiles.length > 0) {
+  fail(
+    `Production builds must not load local environment files: ${localEnvironmentFiles.join(", ")}.`,
+  );
 }
 
 const deployScript = readFileSync(DEPLOY_SCRIPT, "utf8");
@@ -147,6 +165,14 @@ if (!buildScript.startsWith(secureBuildPrefix)) {
 if (packageMetadata.scripts?.["test:node-runtime"] !== "node scripts/verify-node-runtime.mjs") {
   fail("The Node runtime security verifier must remain directly runnable.");
 }
+if (
+  !buildScript.includes(
+    "node scripts/verify-production-policy.mjs && node scripts/verify-legal-notices.mjs &&",
+  ) ||
+  packageMetadata.scripts?.["test:legal"] !== "node scripts/verify-legal-notices.mjs"
+) {
+  fail("Shipped third-party notices must remain a mandatory and directly runnable production gate.");
+}
 if (!buildScript.includes("vite build && node scripts/verify-built-site.mjs")) {
   fail(
     "The production build must verify the generated GitHub Pages artifact after Vite finishes.",
@@ -191,4 +217,4 @@ if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
   fail("npm must enforce package.json engine constraints during install.");
 }
 
-console.log("[production-policy] Deployment, Pages artifact, reproducible cache metadata, dependency, and runtime policies verified.");
+console.log("[production-policy] Deployment, Pages artifact, reproducible cache/environment metadata, legal notices, dependency, and runtime policies verified.");
