@@ -94,8 +94,7 @@ export class IslandApp {
     const gltf = await loadGltfWithTimeout(this.loader, ISLAND_MODEL_PATH);
     const root = gltf.scene;
     if (this.disposed) {
-      disposeObjectGeometry(root);
-      disposeObjectMaterials(root);
+      disposeModelResourcesSafely("Disposed island model", root);
       return;
     }
 
@@ -131,9 +130,9 @@ export class IslandApp {
         this.scene.remove(root);
         this.islandRoot = undefined;
       }
-      disposeObjectGeometry(root);
+      disposeSafely("Failed island geometry", () => disposeObjectGeometry(root));
       if (!configured) {
-        disposeObjectMaterials(root);
+        disposeSafely("Failed island materials", () => disposeObjectMaterials(root));
       }
       throw error;
     }
@@ -238,6 +237,7 @@ export class IslandApp {
   private configureIsland(root: THREE.Object3D): THREE.Mesh {
     const bounds = new THREE.Box3();
     const size = new THREE.Vector3();
+    const meshes: THREE.Mesh[] = [];
     const replacedMaterials = new Set<THREE.Material>();
     let terrain: THREE.Mesh | undefined;
     let largestHorizontalArea = Number.NEGATIVE_INFINITY;
@@ -246,9 +246,8 @@ export class IslandApp {
       if (!(child instanceof THREE.Mesh)) {
         return;
       }
+      meshes.push(child);
       collectMaterials(child.material, replacedMaterials);
-      child.material = this.terrainMaterial;
-      child.receiveShadow = this.profile.shadows;
       bounds.setFromObject(child).getSize(size);
       const horizontalArea = size.x * size.z;
       if (horizontalArea > largestHorizontalArea) {
@@ -256,11 +255,18 @@ export class IslandApp {
         terrain = child;
       }
     });
-    disposeMaterialResources(replacedMaterials);
 
     if (!terrain) {
       throw new Error("Island model does not contain a terrain mesh.");
     }
+
+    for (const mesh of meshes) {
+      mesh.material = this.terrainMaterial;
+      mesh.receiveShadow = this.profile.shadows;
+    }
+    disposeSafely("Replaced island materials", () =>
+      disposeMaterialResources(replacedMaterials),
+    );
     return terrain;
   }
 
@@ -271,43 +277,41 @@ export class IslandApp {
     );
     const root = gltf.scene;
     if (this.disposed) {
-      disposeObjectGeometry(root);
-      disposeObjectMaterials(root);
+      disposeModelResourcesSafely("Disposed decorative model", root);
       return;
     }
 
     const originalMaterials = new Set<THREE.Material>();
-    let material: THREE.MeshPhongMaterial | undefined;
-    let materialAttached = false;
-    let originalsDisposed = false;
+    const meshes: THREE.Mesh[] = [];
+    let replacementMaterial: THREE.MeshPhongMaterial | undefined;
     try {
-      const replacementMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
-      material = replacementMaterial;
+      replacementMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
       root.scale.setScalar(MODEL_SCALE);
       root.position.y += 0.5;
       root.traverse((child) => {
         if (child instanceof THREE.Mesh) {
+          meshes.push(child);
           collectMaterials(child.material, originalMaterials);
-          child.material = replacementMaterial;
-          materialAttached = true;
-          child.castShadow = this.profile.shadows;
         }
       });
-      disposeMaterialResources(originalMaterials);
-      originalsDisposed = true;
+      for (const mesh of meshes) {
+        mesh.material = replacementMaterial;
+        mesh.castShadow = this.profile.shadows;
+      }
+      disposeSafely("Replaced decorative materials", () =>
+        disposeMaterialResources(originalMaterials),
+      );
       this.scene.add(root);
       this.decorativeMaterial = replacementMaterial;
       this.decorativeRoot = root;
     } catch (error) {
       this.scene.remove(root);
-      disposeObjectGeometry(root);
-      if (!originalsDisposed) {
-        disposeMaterialResources(originalMaterials);
-      }
-      disposeObjectMaterials(root);
-      if (!materialAttached) {
-        material?.dispose();
-      }
+      disposeSafely("Failed decorative geometry", () =>
+        disposeObjectGeometry(root),
+      );
+      disposeSafely("Failed decorative material", () =>
+        replacementMaterial?.dispose(),
+      );
       throw error;
     }
   }
@@ -478,12 +482,7 @@ function loadGltfWithTimeout(
         url,
         (gltf) => {
           if (settled) {
-            disposeSafely(`Late GLTF geometry ${url}`, () =>
-              disposeObjectGeometry(gltf.scene),
-            );
-            disposeSafely(`Late GLTF materials ${url}`, () =>
-              disposeObjectMaterials(gltf.scene),
-            );
+            disposeModelResourcesSafely(`Late GLTF ${url}`, gltf.scene);
             return;
           }
           settled = true;
@@ -520,6 +519,11 @@ function disposeSafely(label: string, dispose: () => void): void {
   } catch (error) {
     console.warn(`[FluffyGrass] ${label} cleanup failed.`, error);
   }
+}
+
+function disposeModelResourcesSafely(label: string, root: THREE.Object3D): void {
+  disposeSafely(`${label} geometry`, () => disposeObjectGeometry(root));
+  disposeSafely(`${label} materials`, () => disposeObjectMaterials(root));
 }
 
 function revisionedAssetPath(path: string): string {
