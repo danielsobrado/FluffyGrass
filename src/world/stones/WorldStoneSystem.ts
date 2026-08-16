@@ -111,21 +111,30 @@ export class WorldStoneSystem {
       config,
       this.mossExposureDirection,
     );
-    this.clearanceRegistration = registerStoneClearanceField(
-      this.enabled ? stoneField : undefined,
-      this.enabled ? config : undefined,
-    );
 
-    if (this.enabled && config.stoneGrainStrength > 0) {
-      this.grainTexture = this.createGrainTexture();
-    }
-    if (this.enabled) {
-      applyStoneSurfaceShader(
-        this.detailMaterial,
-        config,
-        this.grainTexture,
+    try {
+      if (this.enabled && config.stoneGrainStrength > 0) {
+        this.grainTexture = this.createGrainTexture();
+      }
+      if (this.enabled) {
+        applyStoneSurfaceShader(
+          this.detailMaterial,
+          config,
+          this.grainTexture,
+        );
+        applyStoneCoarseSurfaceShader(this.coarseMaterial);
+      }
+
+      // Publish global clearance ownership only after local construction succeeds.
+      this.clearanceRegistration = registerStoneClearanceField(
+        this.enabled ? stoneField : undefined,
+        this.enabled ? config : undefined,
       );
-      applyStoneCoarseSurfaceShader(this.coarseMaterial);
+    } catch (error) {
+      this.grainTexture?.dispose();
+      this.detailMaterial.dispose();
+      this.coarseMaterial.dispose();
+      throw error;
     }
   }
 
