@@ -16,6 +16,7 @@ function assert(condition, message) {
 }
 
 const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
+const scenicTuning = read("src/world/scenic/WorldScenicTuning.ts");
 const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
 const faunaField = read("src/world/scenic/WorldFaunaField.ts");
 const treeField = read("src/world/scenic/WorldTreeField.ts");
@@ -87,6 +88,13 @@ assert(
     faunaSystem.includes("slot.active = false") &&
     faunaSystem.includes("slot.actor.object.visible = false"),
   "Unassigned deer pool slots must stay inactive and hidden until a real herd member is available.",
+);
+assert(
+  scenicTuning.includes("FAUNA_POOL_FALLBACK_VARIANTS") &&
+    scenicTuning.includes('"stag"') &&
+    scenicTuning.includes('"fawn"') &&
+    faunaSystem.includes("FAUNA_POOL_FALLBACK_VARIANTS[index % FAUNA_POOL_FALLBACK_VARIANTS.length]"),
+  "Initially unassigned deer pool slots must retain deterministic adult/fawn/stag body capacity instead of collapsing to does.",
 );
 assert(
   faunaSystem.includes("readonly variant: DeerVariant") &&
