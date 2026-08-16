@@ -62,6 +62,11 @@ assert(
   "River tuning must remain opt-in and outside the default bundle path.",
 );
 assert(
+  world.includes("Optional river tuning unavailable.") &&
+    /try \{[\s\S]*?await app\.attachRiverArtMenu\(\);[\s\S]*?\} catch \(error\) \{/.test(world),
+  "Optional river tuning failures must not abort the world startup path.",
+);
+assert(
   main.includes('statsPanelEnabled: params.get("stats") === "1"') &&
     world.includes("attachWorldStatsPanel") &&
     world.includes("this.stats?.update()") &&
@@ -91,6 +96,12 @@ assert(
     /await import\(\s*"\.\.\/world\/grass\/WorldDetailFoliageAtlasDebug"\s*\)/.test(world) &&
     !world.includes('import { appendDetailFoliageAtlasDebugCanvas }'),
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
+);
+assert(
+  world.includes("this.notifyFrameObservers(deltaSeconds)") &&
+    world.includes("this.frameObservers.delete(observer)") &&
+    world.includes('this.runtimeGuard.recordSubsystemFailure("frame-observer", error)'),
+  "A failing optional frame observer must be detached without aborting later frame subsystems.",
 );
 assert(
   viewportSizing.includes("Math.max(1, window.innerWidth)") &&
