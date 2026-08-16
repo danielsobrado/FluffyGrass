@@ -181,7 +181,7 @@ export class ThirdPersonController implements WorldController {
     this.jumpStarted = false;
     this.landed = false;
     this.landingImpact = 0;
-    if (this.input.consumeJump()) {
+    if (this.input.consumeJump() && !this.character.isRolling()) {
       this.jumpBufferRemaining = this.config.characterJumpBufferTime;
     }
 
@@ -378,6 +378,8 @@ export class ThirdPersonController implements WorldController {
         this.rollDirection.set(Math.sin(this.facing), 0, Math.cos(this.facing));
       }
       this.rollDirection.normalize();
+      this.jumpBufferRemaining = 0;
+      this.jumpHoldRemaining = 0;
       this.character.triggerRoll();
       rolling = true;
       this.velocity
