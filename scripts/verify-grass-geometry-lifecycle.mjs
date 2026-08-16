@@ -16,6 +16,7 @@ function assert(condition, message) {
 }
 
 const source = read("src/grass/GrassGeometryFactory.ts");
+const patchSource = read("src/world/grass/WorldGrassPatchGeometryFactory.ts");
 
 assert(
   source.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
@@ -53,6 +54,23 @@ assert(
   "Instanced mesh teardown must attempt geometry and mesh cleanup independently.",
 );
 
+assert(
+  patchSource.includes(
+    'import { disposeResources } from "../../render/ResourceDisposal"',
+  ) &&
+    /createLodVariants\([\s\S]*?const mid: THREE\.BufferGeometry\[\] = \[\];[\s\S]*?try \{[\s\S]*?mid\.push\(this\.createGeometry[\s\S]*?return \{[\s\S]*?mid,[\s\S]*?catch \(error\)[\s\S]*?disposePatchGeometries\(mid, "partial patch variants"\)/.test(
+      patchSource,
+    ),
+  "Shared patch-variant creation must release completed mid geometries when a later variant fails.",
+);
+
+assert(
+  /private createGeometry\([\s\S]*?const geometry = new THREE\.BufferGeometry\(\);[\s\S]*?try \{[\s\S]*?geometry\.computeBoundingSphere\(\);[\s\S]*?return geometry;[\s\S]*?catch \(error\)[\s\S]*?disposePatchGeometries\(\[geometry\], "patch geometry"\)/.test(
+    patchSource,
+  ),
+  "Shared patch geometry must dispose a partially configured BufferGeometry before rethrowing.",
+);
+
 console.log(
-  "[grass-geometry-lifecycle] Variant, clump, instanced-geometry, and mesh ownership verified.",
+  "[grass-geometry-lifecycle] Clump, instanced, shared patch, and variant geometry ownership verified.",
 );
