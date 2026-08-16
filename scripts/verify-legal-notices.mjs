@@ -18,6 +18,7 @@ const SKELETON_MODELS = Object.freeze([
   "Skeleton_Warrior.glb",
   "skeleton_texture.png",
 ]);
+const CC0_LICENSE_URL = "http://creativecommons.org/publicdomain/zero/1.0/";
 
 function assert(condition, message) {
   if (!condition) {
@@ -57,8 +58,9 @@ assert(
   "Skeleton provenance must name the upstream pack and CC0 license.",
 );
 assert(
-  license.includes("CC0 1.0 Universal"),
-  "Skeleton asset directory must ship the CC0 1.0 license text.",
+  license.includes("Creative Commons Zero, CC0") &&
+    license.includes(CC0_LICENSE_URL),
+  "Skeleton asset directory must ship the upstream CC0 license name and canonical 1.0 URL.",
 );
 
 console.log(
