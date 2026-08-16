@@ -104,11 +104,12 @@ const viteConfig = readFileSync(VITE_CONFIG, "utf8");
 if (
   !viteConfig.includes('const DEPLOYMENT_BASE_PATH = "./"') ||
   !viteConfig.includes("base: DEPLOYMENT_BASE_PATH") ||
+  !viteConfig.includes("sourcemap: false") ||
   !viteConfig.includes("PUBLIC_ASSET_PATH_PATTERN") ||
   !viteConfig.includes("plugins: [rewriteRootPublicAssetPaths(), includeLegalFiles()]")
 ) {
   fail(
-    "GitHub Pages packaging must keep a relative Vite base and rewrite root public-asset references for repository-subpath deployment.",
+    "GitHub Pages packaging must keep a relative Vite base, disable production source maps, and rewrite root public-asset references for repository-subpath deployment.",
   );
 }
 if (
