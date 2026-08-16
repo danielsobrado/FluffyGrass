@@ -67,6 +67,9 @@ function includeLegalFiles(): Plugin {
 
 export default defineConfig({
 	base: DEPLOYMENT_BASE_PATH,
+	build: {
+		sourcemap: false,
+	},
 	define: {
 		__APP_VERSION__: JSON.stringify(
 			`v${packageMetadata.version}+${SOURCE_REVISION}`
