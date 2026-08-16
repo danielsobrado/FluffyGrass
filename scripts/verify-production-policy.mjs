@@ -113,13 +113,18 @@ if (
   );
 }
 if (
-  !viteConfig.includes('execFileSync("git", ["rev-parse", "--short=12", "HEAD"]') ||
+  !viteConfig.includes('runGit(["rev-parse", "--short=12", "HEAD"])') ||
+  !viteConfig.includes('runGit(["show", "-s", "--format=%cs", "HEAD"])') ||
+  !viteConfig.includes('const SOURCE_ARCHIVE_REVISION = "archive"') ||
+  !viteConfig.includes('const SOURCE_ARCHIVE_BUILD_LABEL = "source-archive"') ||
+  viteConfig.includes("new Date(") ||
   !viteConfig.includes("`v${packageMetadata.version}+${SOURCE_REVISION}`") ||
+  !viteConfig.includes("__BUILD_LABEL__: JSON.stringify(BUILD_LABEL)") ||
   !viteConfig.includes("STONE_GRAIN_ASSET_PATTERN") ||
   !viteConfig.includes("perlinnoise.webp?v=${encodeURIComponent(SOURCE_REVISION)}")
 ) {
   fail(
-    "Runtime config and stable public asset cache keys must include the source revision so a deployment cannot reuse stale files under unchanged public URLs.",
+    "Runtime version/cache metadata must be source-derived and reproducible; production bundles must not depend on the wall-clock build time.",
   );
 }
 const grassConfigLoader = readFileSync(GRASS_CONFIG_LOADER, "utf8");
@@ -186,4 +191,4 @@ if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
   fail("npm must enforce package.json engine constraints during install.");
 }
 
-console.log("[production-policy] Deployment, Pages artifact, cache, dependency, and runtime policies verified.");
+console.log("[production-policy] Deployment, Pages artifact, reproducible cache metadata, dependency, and runtime policies verified.");
