@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertSecureNodeRuntime,
+  PINNED_NODE_VERSION,
+} from "./node-runtime.mjs";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
@@ -45,6 +49,8 @@ function releaseLine(version) {
   return match ? `${match[1]}.${match[2]}` : undefined;
 }
 
+assertSecureNodeRuntime();
+
 if (existsSync(WORKFLOW_DIRECTORY)) {
   const workflowFiles = findWorkflowFiles(WORKFLOW_DIRECTORY);
   if (workflowFiles.length > 0) {
@@ -61,6 +67,10 @@ if (deployScript.includes("ALLOW_DIRTY_DEPLOY")) {
   fail("Manual production deployment must never allow a dirty working tree.");
 }
 if (
+  !deployScript.includes('import { assertSecureNodeRuntime } from "./node-runtime.mjs"') ||
+  !/function deploy\(\) \{[\s\S]*?assertSecureNodeRuntime\(\);[\s\S]*?const sourceHead = assertRepositoryState\(\);/.test(
+    deployScript,
+  ) ||
   !deployScript.includes('sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main"') ||
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
@@ -80,7 +90,7 @@ if (
   )
 ) {
   fail(
-    "Manual deployment must require a clean synchronized source branch, reinstall the committed lockfile including build-time dev dependencies, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
+    "Manual deployment must require a patched Node runtime, a clean synchronized source branch, reinstall the committed lockfile including build-time dev dependencies, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
   );
 }
 
@@ -151,9 +161,11 @@ if (
 ) {
   fail("Three.js must declare @types/three from the same release line.");
 }
-const pinnedNodeMajor = readFileSync(NODE_VERSION_FILE, "utf8").trim();
-if (pinnedNodeMajor !== "24") {
-  fail("Local production tooling must pin the current Node 24 LTS line in .nvmrc.");
+const pinnedNodeVersion = readFileSync(NODE_VERSION_FILE, "utf8").trim();
+if (pinnedNodeVersion !== PINNED_NODE_VERSION) {
+  fail(
+    `Local production tooling must pin patched Node ${PINNED_NODE_VERSION} in .nvmrc.`,
+  );
 }
 const npmConfig = readFileSync(NPM_CONFIG_FILE, "utf8");
 if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
