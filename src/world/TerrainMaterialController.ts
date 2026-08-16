@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
+import { disposeResources } from "../render/ResourceDisposal";
 import { PATH_GRASS_FEATHER } from "./TerrainField";
 import {
   TERRAIN_DETAIL_COLOR,
@@ -74,8 +75,14 @@ export class TerrainMaterialController {
       };
       this.configureMaterial();
     } catch (error) {
-      surfaceNoiseTexture?.dispose();
-      material.dispose();
+      try {
+        disposeResources([material, surfaceNoiseTexture]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Terrain material construction cleanup failed.",
+          cleanupError,
+        );
+      }
       throw error;
     }
   }
@@ -95,8 +102,7 @@ export class TerrainMaterialController {
       return;
     }
     this.disposed = true;
-    this.material.dispose();
-    this.surfaceNoiseTexture.dispose();
+    disposeResources([this.material, this.surfaceNoiseTexture]);
   }
 
   private configureMaterial(): void {
