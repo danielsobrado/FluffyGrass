@@ -33,7 +33,6 @@ interface SpawnCandidate {
 
 export class DenseSpawnLocator {
   private readonly normal = new THREE.Vector3();
-  private readonly stones?: StoneField;
   private readonly stoneClearance?: StoneClearanceCache;
 
   constructor(
@@ -41,10 +40,10 @@ export class DenseSpawnLocator {
     private readonly config: WorldConfig,
     stones?: StoneField,
   ) {
-    this.stones =
-      stones ?? (config.stonesEnabled >= 1 ? new StoneField(field, config) : undefined);
-    this.stoneClearance = this.stones
-      ? new StoneClearanceCache(this.stones, config)
+    const stoneField =
+      config.stonesEnabled >= 1 ? stones ?? new StoneField(field, config) : undefined;
+    this.stoneClearance = stoneField
+      ? new StoneClearanceCache(stoneField, config)
       : undefined;
   }
 
