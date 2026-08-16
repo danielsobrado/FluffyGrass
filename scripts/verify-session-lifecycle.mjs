@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:url";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 const main = read("src/main.ts");
 const world = read("src/app/WorldApp.ts");
+const statsPanel = read("src/app/WorldStatsPanel.ts");
 const visualMatrix = read("src/qa/WorldVisualMatrixRunner.ts");
 const metrics = read("src/qa/GrassQaMetrics.ts");
 const diagnostics = read("src/runtime/WorldDiagnosticsController.ts");
@@ -43,6 +44,14 @@ assert(
     world.includes('disposeConstructionSafely("Environment", () => environment?.dispose())') &&
     world.includes('disposeConstructionSafely("Renderer", () => this.renderer.dispose())'),
   "World construction must delay the reveal owner and roll back every successfully-created runtime owner when a later constructor step fails.",
+);
+
+assert(
+  statsPanel.includes("let stats: Stats | undefined") &&
+    /catch \(error\) \{[\s\S]*?stats\?\.dispose\(\);[\s\S]*?Optional stats panel unavailable/.test(
+      statsPanel,
+    ),
+  "Stats panel attachment must release a partially initialized profiler before degrading.",
 );
 
 assert(
@@ -95,5 +104,5 @@ for (const [name, source] of [
 }
 
 console.log(
-  "[session-lifecycle] Bootstrap, world construction, QA, diagnostics, and actor asset ownership verified.",
+  "[session-lifecycle] Bootstrap, world construction, diagnostics, QA, stats, and actor asset ownership verified.",
 );
