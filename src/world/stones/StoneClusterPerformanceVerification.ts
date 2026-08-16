@@ -30,6 +30,7 @@ function assert(condition: boolean, message: string): asserts condition {
 
 function collectMetrics(
   stones: StoneField,
+  config: WorldConfig,
   chunkMin: number,
   chunkMax: number,
 ): Omit<StonePerformanceBaseline, "seed"> {
@@ -45,6 +46,13 @@ function collectMetrics(
       includeSmallRoots += includeSmall.length;
       maxRootsInChunk = Math.max(maxRootsInChunk, includeSmall.length);
       for (const instance of includeSmall) {
+        assert(
+          instance.clearRadius + config.stoneGrassClearanceFeather <
+            config.stoneCellSize,
+          `Stone clearance reach ${(
+            instance.clearRadius + config.stoneGrassClearanceFeather
+          ).toFixed(3)} exceeds its ${config.stoneCellSize} m cache cell.`,
+        );
         detailedTrianglePotential +=
           stones.getVariant(instance.archetype, instance.variantIndex, true)
             .indices.length / 3;
@@ -149,7 +157,12 @@ export function verifyStoneClusterPerformance(
     "Cell cache is smaller than the desktop source-cell ring.",
   );
   const coldSamples = verifyColdSampling(config);
-  const metrics = collectMetrics(stones, baseline.chunkMin, baseline.chunkMax);
+  const metrics = collectMetrics(
+    stones,
+    config,
+    baseline.chunkMin,
+    baseline.chunkMax,
+  );
   assert(
     metrics.includeSmallRoots <= baseline.includeSmallRoots,
     `includeSmallRoots rose from ${baseline.includeSmallRoots} to ${metrics.includeSmallRoots}.`,
