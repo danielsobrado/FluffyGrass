@@ -39,6 +39,13 @@ export interface SnowflowCharacterPose {
   rollStarted?: boolean;
 }
 
+interface SnowflowCharacterResources {
+  rig: SnowflowCharacterRig;
+  profile: HumanoidAnimationProfile;
+  runtime: ActorAnimationRuntime;
+  cloth: SnowflowClothMotion;
+}
+
 /**
  * The player character.
  *
@@ -71,31 +78,16 @@ export class SnowflowCharacter {
     landingRecoverySeconds: number,
     terrainContact?: ActorTerrainContactSampler,
   ) {
-    this.rig = buildSnowflowCharacter(scene, scale);
-    addDrowCharacterFeatures(this.rig);
-    // The cloth module reads the same landing impulses the locomotion layer
-    // does, so the facts object is created first and shared by both.
-    const facts = createHumanoidLocomotionFacts();
-    this.cloth = new SnowflowClothMotion(this.rig, facts);
-    this.profile = createHumanoidAnimationProfile({
-      definition: this.rig.humanoid.definition,
-      bones: this.rig.humanoid.bones,
+    const resources = createSnowflowCharacterResources(
+      scene,
+      scale,
       landingRecoverySeconds,
-      facts,
-      secondaryMotion: [this.cloth],
-      ikStages:
-        terrainContact === undefined
-          ? undefined
-          : [
-              createHumanoidContactIk(
-                this.rig.humanoid.definition,
-                this.rig.humanoid.bones,
-                terrainContact,
-                this.rig.heading,
-              ),
-            ],
-    });
-    this.runtime = new ActorAnimationRuntime(this.profile, this.rig.rigInstance);
+      terrainContact,
+    );
+    this.rig = resources.rig;
+    this.profile = resources.profile;
+    this.runtime = resources.runtime;
+    this.cloth = resources.cloth;
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
@@ -145,14 +137,7 @@ export class SnowflowCharacter {
     }
     this.disposed = true;
     disposeSafely("animation runtime", () => this.runtime.dispose());
-    disposeSafely("rig instance", () => this.rig.rigInstance.dispose());
-    this.rig.root.removeFromParent();
-    for (const geometry of this.rig.geometries) {
-      disposeSafely("character geometry", () => geometry.dispose());
-    }
-    for (const material of this.rig.materials) {
-      disposeSafely("character material", () => material.dispose());
-    }
+    disposeSnowflowRig(this.rig);
   }
 
   getState(): string {
@@ -160,7 +145,9 @@ export class SnowflowCharacter {
   }
 
   setCrouch(crouched: boolean): void {
-    this.profile.facts.crouched = crouched;
+    if (!this.disposed) {
+      this.profile.facts.crouched = crouched;
+    }
   }
 
   isCrouched(): boolean {
@@ -285,6 +272,56 @@ export class SnowflowCharacter {
     }
     const blend = 1 - Math.exp(-9 * deltaSeconds);
     this.rig.slope.quaternion.slerp(this.desiredSlope, blend);
+  }
+}
+
+function createSnowflowCharacterResources(
+  scene: THREE.Scene,
+  scale: number,
+  landingRecoverySeconds: number,
+  terrainContact?: ActorTerrainContactSampler,
+): SnowflowCharacterResources {
+  const rig = buildSnowflowCharacter(scene, scale);
+  let cloth: SnowflowClothMotion | undefined;
+  try {
+    addDrowCharacterFeatures(rig);
+    const facts = createHumanoidLocomotionFacts();
+    cloth = new SnowflowClothMotion(rig, facts);
+    const profile = createHumanoidAnimationProfile({
+      definition: rig.humanoid.definition,
+      bones: rig.humanoid.bones,
+      landingRecoverySeconds,
+      facts,
+      secondaryMotion: [cloth],
+      ikStages:
+        terrainContact === undefined
+          ? undefined
+          : [
+              createHumanoidContactIk(
+                rig.humanoid.definition,
+                rig.humanoid.bones,
+                terrainContact,
+                rig.heading,
+              ),
+            ],
+    });
+    const runtime = new ActorAnimationRuntime(profile, rig.rigInstance);
+    return { rig, profile, runtime, cloth };
+  } catch (error) {
+    disposeSafely("cloth construction", () => cloth?.dispose());
+    disposeSnowflowRig(rig);
+    throw error;
+  }
+}
+
+function disposeSnowflowRig(rig: SnowflowCharacterRig): void {
+  disposeSafely("rig instance", () => rig.rigInstance.dispose());
+  disposeSafely("character root", () => rig.root.removeFromParent());
+  for (const geometry of rig.geometries) {
+    disposeSafely("character geometry", () => geometry.dispose());
+  }
+  for (const material of rig.materials) {
+    disposeSafely("character material", () => material.dispose());
   }
 }
 
