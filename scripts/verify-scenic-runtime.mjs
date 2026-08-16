@@ -84,6 +84,18 @@ assert(
     !faunaSystem.includes("let canReactivate"),
   "Recycled deer must preserve their built body variant, refresh coat identity, and let every inactive variant search the rebuilt roster.",
 );
+const takeMemberStart = faunaSystem.indexOf("private takeMember(");
+const recycleStart = faunaSystem.indexOf("private recycle(", takeMemberStart);
+const takeMemberSource = faunaSystem.slice(takeMemberStart, recycleStart);
+assert(
+  faunaSystem.includes("if (count > 0) {") &&
+    faunaSystem.includes("this.rebuildRoster(spawn);") &&
+    takeMemberStart >= 0 &&
+    recycleStart > takeMemberStart &&
+    !takeMemberSource.includes("rebuildRoster(") &&
+    !takeMemberSource.includes("this.builtX"),
+  "Fauna roster generation must stay explicit and movement-gated; member selection must not trigger hidden terrain sampling.",
+);
 assert(
   deerBehavior.includes("this.random = normalizeSeed(seed)") &&
     deerBehavior.includes(
