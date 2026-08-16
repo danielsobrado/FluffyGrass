@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
@@ -82,12 +83,21 @@ export class WorldTreeSystem {
       this.trunkMesh = trunkMesh;
       this.canopyMesh = canopyMesh;
     } catch (error) {
-      trunkMesh?.removeFromParent();
-      canopyMesh?.removeFromParent();
-      trunk?.dispose();
-      canopy?.dispose();
-      bark.dispose();
-      leaves.dispose();
+      try {
+        disposeResources([
+          { dispose: () => trunkMesh?.removeFromParent() },
+          { dispose: () => canopyMesh?.removeFromParent() },
+          trunk,
+          canopy,
+          bark,
+          leaves,
+        ]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Tree construction cleanup failed.",
+          cleanupError,
+        );
+      }
       throw error;
     }
   }
@@ -133,21 +143,17 @@ export class WorldTreeSystem {
       return;
     }
     this.disposed = true;
-    this.trunkMesh.removeFromParent();
-    this.canopyMesh.removeFromParent();
-    this.trunkMesh.geometry.dispose();
-    this.canopyMesh.geometry.dispose();
-    disposeMaterial(this.trunkMesh.material);
-    disposeMaterial(this.canopyMesh.material);
+    disposeResources([
+      { dispose: () => this.trunkMesh.removeFromParent() },
+      { dispose: () => this.canopyMesh.removeFromParent() },
+      this.trunkMesh.geometry,
+      this.canopyMesh.geometry,
+      { dispose: () => disposeMaterial(this.trunkMesh.material) },
+      { dispose: () => disposeMaterial(this.canopyMesh.material) },
+    ]);
   }
 }
 
 function disposeMaterial(material: THREE.Material | THREE.Material[]): void {
-  if (Array.isArray(material)) {
-    for (const entry of material) {
-      entry.dispose();
-    }
-    return;
-  }
-  material.dispose();
+  disposeResources(Array.isArray(material) ? material : [material]);
 }
