@@ -359,7 +359,7 @@ export class WorldFaunaSystem {
         },
         meshes: actor.meshes,
         memberKey: member ? faunaMemberKey(member) : undefined,
-        active: true,
+        active: member !== undefined,
         castsShadow: this.shadows,
       };
       this.applyQuality(slot);
