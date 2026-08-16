@@ -79,10 +79,10 @@ if (localEnvironmentFiles.length > 0) {
 }
 
 const deployScript = readFileSync(DEPLOY_SCRIPT, "utf8");
+const lockedDependencyAudit =
+  'run(npmCommand, ["audit", "--package-lock-only", "--audit-level=high"])';
 const lockedBuildInstall =
   'run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"])';
-const lockedDependencyAudit =
-  'run(npmCommand, ["audit", "--audit-level=high"])';
 const productionBuild = 'run(npmCommand, ["run", "build"])';
 if (deployScript.includes("ALLOW_DIRTY_DEPLOY")) {
   fail("Manual production deployment must never allow a dirty working tree.");
@@ -95,12 +95,12 @@ if (
   !deployScript.includes('sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main"') ||
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
-  !deployScript.includes(lockedBuildInstall) ||
   !deployScript.includes(lockedDependencyAudit) ||
+  !deployScript.includes(lockedBuildInstall) ||
   !deployScript.includes(productionBuild) ||
-  deployScript.indexOf(lockedBuildInstall) >
-    deployScript.indexOf(lockedDependencyAudit) ||
   deployScript.indexOf(lockedDependencyAudit) >
+    deployScript.indexOf(lockedBuildInstall) ||
+  deployScript.indexOf(lockedBuildInstall) >
     deployScript.indexOf(productionBuild) ||
   !deployScript.includes('existsSync(join(CONFIG.distDirectory, "index.html"))') ||
   !/function assertSourceStillCurrent\(expectedHead\) \{[\s\S]*?const currentHead = assertRepositoryState\(\);[\s\S]*?currentHead !== expectedHead/.test(
@@ -114,7 +114,7 @@ if (
   )
 ) {
   fail(
-    "Manual deployment must require a patched Node runtime, a clean synchronized source branch, reinstall and audit the committed dependency graph, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
+    "Manual deployment must require a patched Node runtime, a clean synchronized source branch, audit the committed dependency graph before installation, install the exact lockfile, run the full production build, revalidate local and remote source state, verify its output, and reject stale builds including no-op publishes.",
   );
 }
 
