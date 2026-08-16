@@ -122,7 +122,15 @@ export class WorldStoneSystem {
   }
 
   update(position: THREE.Vector3, buildDeadline: number): void {
-    if (this.disposed || !this.enabled) return;
+    if (
+      this.disposed ||
+      !this.enabled ||
+      !Number.isFinite(position.x) ||
+      !Number.isFinite(position.y) ||
+      !Number.isFinite(position.z)
+    ) {
+      return;
+    }
     this.lastBuildMs = 0;
 
     const chunkX = Math.floor(position.x / this.config.chunkSize);
