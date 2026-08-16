@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import type { ActorBoneIndex } from "../../actor/rig/ActorBoneIndex";
-import type { ActorRigInstance } from "../../actor/rig/ActorRigInstance";
 import type {
   QuadrupedBodyBuilder,
   QuadrupedBodyHandle,
@@ -24,70 +23,76 @@ export function createDeerBodyBuilder(
   shadows: boolean,
 ): QuadrupedBodyBuilder {
   return (rigInstance, bones) => {
+    const placements = createPlacements(bones);
+    const geometries = placements.map(([slot]) => assets.geometryFor(variant, slot));
     const material = assets.createMaterial(tint);
-    const meshes = attachDeerMeshes(
-      rigInstance,
-      bones,
-      assets,
-      variant,
-      material,
-      shadows,
-    );
+    const meshes: THREE.Mesh[] = [];
+
+    try {
+      for (let index = 0; index < placements.length; index += 1) {
+        const [, bone] = placements[index];
+        const mesh = new THREE.Mesh(geometries[index], material);
+        mesh.castShadow = shadows;
+        mesh.receiveShadow = shadows;
+        rigInstance.attach(bone, mesh);
+        meshes.push(mesh);
+      }
+    } catch (error) {
+      for (const mesh of meshes) {
+        mesh.removeFromParent();
+      }
+      material.dispose();
+      throw error;
+    }
+
+    let disposed = false;
     return {
       meshes,
-      // Only the material: the merged buffers are the library's, and the next
-      // deer to spawn is still drawing them.
-      dispose: () => material.dispose(),
+      dispose: () => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        for (const mesh of meshes) {
+          mesh.removeFromParent();
+        }
+        material.dispose();
+      },
     } satisfies QuadrupedBodyHandle;
   };
 }
 
-/**
- * Hangs one merged mesh on each bone that carries geometry.
- *
- * Every offset is already baked into the merged buffers, so each mesh sits at
- * its bone's origin.
- */
-function attachDeerMeshes(
-  rigInstance: ActorRigInstance,
+function createPlacements(
   bones: QuadrupedRigBones,
-  assets: DeerAssets,
-  variant: DeerVariant,
-  material: THREE.Material,
-  shadows: boolean,
-): THREE.Mesh[] {
-  const meshes: THREE.Mesh[] = [];
-  const place = (slot: DeerPartSlot, bone: ActorBoneIndex): void => {
-    const mesh = new THREE.Mesh(assets.geometryFor(variant, slot), material);
-    // Shadow casting is a per-actor decision the world makes from the device
-    // profile and the animal's distance, not something the body asserts.
-    mesh.castShadow = shadows;
-    mesh.receiveShadow = shadows;
-    rigInstance.attach(bone, mesh);
-    meshes.push(mesh);
-  };
+): Array<readonly [DeerPartSlot, ActorBoneIndex]> {
+  const placements: Array<readonly [DeerPartSlot, ActorBoneIndex]> = [
+    ["body", bones.bodyCenter],
+    ["neck", bones.neck],
+    ["head", bones.head],
+  ];
 
-  place("body", bones.bodyCenter);
-  place("neck", bones.neck);
-  place("head", bones.head);
   if (bones.ears.length === 2) {
-    place("earLeft", bones.ears[0]);
-    place("earRight", bones.ears[1]);
+    placements.push(["earLeft", bones.ears[0]], ["earRight", bones.ears[1]]);
   }
 
   const tailSlots: DeerPartSlot[] = ["tailBase", "tailMid", "tailTip"];
   for (let index = 0; index < bones.tail.length; index += 1) {
-    place(tailSlots[Math.min(index, tailSlots.length - 1)], bones.tail[index]);
+    placements.push([
+      tailSlots[Math.min(index, tailSlots.length - 1)],
+      bones.tail[index],
+    ]);
   }
 
   for (let side = 0; side < 2; side += 1) {
-    place("frontUpper", bones.frontUpper[side]);
-    place("frontLower", bones.frontLower[side]);
-    place("frontHoof", bones.frontPaw[side]);
-    place("hindUpper", bones.hindUpper[side]);
-    place("hindLower", bones.hindLower[side]);
-    place("hindHoof", bones.hindPaw[side]);
+    placements.push(
+      ["frontUpper", bones.frontUpper[side]],
+      ["frontLower", bones.frontLower[side]],
+      ["frontHoof", bones.frontPaw[side]],
+      ["hindUpper", bones.hindUpper[side]],
+      ["hindLower", bones.hindLower[side]],
+      ["hindHoof", bones.hindPaw[side]],
+    );
   }
 
-  return meshes;
+  return placements;
 }
