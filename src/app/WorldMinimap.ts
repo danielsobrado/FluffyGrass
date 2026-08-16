@@ -129,6 +129,9 @@ export class WorldMinimap {
     if (!open) {
       return;
     }
+    if (document.pointerLockElement !== null) {
+      document.exitPointerLock();
+    }
     // First open pays for the raster; later opens reuse it.
     this.raster ??= new WorldMinimapRaster(this.field, this.extent);
     this.canvas.focus();
@@ -158,6 +161,7 @@ export class WorldMinimap {
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     this.travelTo(0.5, 0.5);
   };
 
