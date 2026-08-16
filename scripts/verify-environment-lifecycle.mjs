@@ -45,7 +45,8 @@ assert(
   "Sky dome construction must roll back unpublished/published mesh, geometry, and material before rethrowing the original setup error.",
 );
 assert(
-  sky.includes("private initializeEnvironment(renderer: THREE.WebGLRenderer)") &&
+  sky.includes("private initializeEnvironment(): void") &&
+    sky.includes("new THREE.PMREMGenerator(this.renderer)") &&
     sky.includes("let environmentTarget: THREE.WebGLRenderTarget | undefined") &&
     sky.includes("let pmrem: THREE.PMREMGenerator | undefined") &&
     sky.includes("Sky environment bake unavailable; continuing without IBL.") &&
@@ -57,7 +58,18 @@ assert(
     /finally \{[\s\S]*?pmrem\.dispose\(\)/.test(sky) &&
     !sky.includes("private pmrem?: THREE.PMREMGenerator") &&
     !sky.includes("this.pmrem = pmrem"),
-  "The one-shot desktop PMREM generator must always release its temporary GPU resources while the generated target remains owned by the sky.",
+  "Each desktop PMREM bake must release its temporary generator while the generated target remains owned by the sky.",
+);
+assert(
+  sky.includes("private readonly environmentEnabled: boolean") &&
+    sky.includes('addEventListener(\n          "webglcontextrestored"') &&
+    sky.includes('removeEventListener(\n      "webglcontextrestored"') &&
+    sky.includes("private readonly handleContextRestored") &&
+    sky.includes("const previousTarget = this.environmentTarget") &&
+    sky.includes("previousTarget.dispose()") &&
+    sky.includes("this.initializeEnvironment()") &&
+    sky.includes("Sky constructor rollback failed."),
+  "Desktop sky IBL must rebake after WebGL restoration and own its restore listener through constructor rollback and normal teardown.",
 );
 assert(
   sky.includes("private disposed = false") &&
@@ -90,5 +102,5 @@ assert(
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, shadow, one-shot PMREM, and fail-soft IBL ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, shadow, context-restored PMREM, and fail-soft IBL ownership verified.",
 );
