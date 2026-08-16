@@ -55,16 +55,18 @@ assert(
   "Scenic cleanup failures must remain isolated from each other and the world owner.",
 );
 assert(
-  treeSystem.includes("let trunk: THREE.CylinderGeometry | undefined") &&
+  treeSystem.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
+    treeSystem.includes("let trunk: THREE.CylinderGeometry | undefined") &&
     treeSystem.includes("let canopy: THREE.IcosahedronGeometry | undefined") &&
     treeSystem.includes("scene.add(trunkMesh, canopyMesh)") &&
-    treeSystem.includes("trunkMesh?.removeFromParent()") &&
-    treeSystem.includes("canopyMesh?.removeFromParent()") &&
-    treeSystem.includes("trunk?.dispose()") &&
-    treeSystem.includes("canopy?.dispose()") &&
-    treeSystem.includes("bark.dispose()") &&
-    treeSystem.includes("leaves.dispose()"),
-  "A failed tree constructor must roll back every local mesh, geometry, and material before the scenic layer degrades without trees.",
+    treeSystem.includes("Tree construction cleanup failed.") &&
+    treeSystem.includes("disposeResources([") &&
+    treeSystem.includes("{ dispose: () => trunkMesh?.removeFromParent() }") &&
+    treeSystem.includes("{ dispose: () => canopyMesh?.removeFromParent() }") &&
+    treeSystem.includes("{ dispose: () => this.trunkMesh.removeFromParent() }") &&
+    treeSystem.includes("{ dispose: () => this.canopyMesh.removeFromParent() }") &&
+    treeSystem.includes("disposeResources(Array.isArray(material) ? material : [material])"),
+  "Tree construction and normal teardown must attempt every mesh, geometry, and material cleanup without masking the original setup fault.",
 );
 assert(
   faunaConfigValidator.includes("MAX_FAUNA_STREAM_RADIUS = 512") &&
