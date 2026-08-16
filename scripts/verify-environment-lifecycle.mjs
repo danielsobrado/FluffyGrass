@@ -25,5 +25,14 @@ assert(
     !sky.includes("environmentTexture?.dispose()"),
   "The PMREM output must stay owned as a WebGLRenderTarget and be disposed through the target lifecycle.",
 );
+assert(
+  sky.includes("let bakeMaterial: THREE.ShaderMaterial | undefined") &&
+    sky.includes("} catch (error) {") &&
+    sky.includes("this.scene.remove(this.mesh)") &&
+    sky.includes("this.pmrem?.dispose()") &&
+    sky.includes("} finally {") &&
+    sky.includes("bakeMaterial?.dispose()"),
+  "A failed desktop sky bake must roll back the dome, PMREM resources, and temporary bake material.",
+);
 
-console.log("[environment-lifecycle] Sky PMREM render-target ownership verified.");
+console.log("[environment-lifecycle] Sky PMREM ownership and rollback verified.");
