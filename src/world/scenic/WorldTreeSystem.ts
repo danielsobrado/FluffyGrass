@@ -51,7 +51,14 @@ export class WorldTreeSystem {
         metalness: 0,
       });
     } catch (error) {
-      bark.dispose();
+      try {
+        bark.dispose();
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Tree material cleanup failed.",
+          cleanupError,
+        );
+      }
       throw error;
     }
 
