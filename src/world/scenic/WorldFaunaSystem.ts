@@ -29,7 +29,7 @@ import {
   FAUNA_ALERT_RADIUS,
   FAUNA_FAWN_SCALE,
   FAUNA_FLEE_RADIUS,
-  FAUNA_POOL_FALLBACK_VARIANTS,
+  FAUNA_POOL_VARIANTS,
   FAUNA_QUALITY_HYSTERESIS,
   FAUNA_REBUILD_STEP,
   FAUNA_RETIRE_MARGIN,
@@ -315,12 +315,8 @@ export class WorldFaunaSystem {
     sampleHeight: (x: number, z: number) => number,
     contact: WorldTerrainContactSampler,
   ): FaunaSlot {
-    // The pool is built from the herds around the player's own spawn, so the
-    // first thing anybody sees is a herd rather than an empty meadow filling in.
-    const member = this.takeMember(spawn, spawn);
-    const variant =
-      member?.variant ??
-      FAUNA_POOL_FALLBACK_VARIANTS[index % FAUNA_POOL_FALLBACK_VARIANTS.length];
+    const variant = FAUNA_POOL_VARIANTS[index % FAUNA_POOL_VARIANTS.length];
+    const member = this.takeMember(spawn, spawn, variant);
     setDeerCoatTint(
       this.tint,
       member?.coatValue ?? 0.5,
