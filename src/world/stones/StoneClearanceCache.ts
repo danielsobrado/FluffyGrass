@@ -1,10 +1,15 @@
 import type { WorldConfig } from "../WorldConfig";
+import {
+  STONE_CELL_SOURCE_MARGIN,
+} from "./StoneClusterTuning";
 import type { StoneField, StoneInstance } from "./StoneField";
 
 const CACHE_LIMIT = 512;
 const CELL_KEY_MARGIN = 4;
 const EDGE_EPSILON = 1e-6;
 const CLEARANCE_INNER_SCALE = 0.72;
+/** Root displacement uses one source cell; clearance can extend through the next. */
+const CLEARANCE_SOURCE_CELL_MARGIN = STONE_CELL_SOURCE_MARGIN + 1;
 
 interface StoneClearanceCandidate {
   x: number;
@@ -101,10 +106,12 @@ export class StoneClearanceCache {
 
     const cellSize = this.config.stoneCellSize;
     const chunkSize = this.config.chunkSize;
-    const minimumX = (cellX - 1) * cellSize;
-    const minimumZ = (cellZ - 1) * cellSize;
-    const maximumX = (cellX + 2) * cellSize;
-    const maximumZ = (cellZ + 2) * cellSize;
+    const minimumX = (cellX - CLEARANCE_SOURCE_CELL_MARGIN) * cellSize;
+    const minimumZ = (cellZ - CLEARANCE_SOURCE_CELL_MARGIN) * cellSize;
+    const maximumX =
+      (cellX + 1 + CLEARANCE_SOURCE_CELL_MARGIN) * cellSize;
+    const maximumZ =
+      (cellZ + 1 + CLEARANCE_SOURCE_CELL_MARGIN) * cellSize;
     const firstChunkX = Math.floor(minimumX / chunkSize);
     const firstChunkZ = Math.floor(minimumZ / chunkSize);
     const lastChunkX = Math.floor((maximumX - EDGE_EPSILON) / chunkSize);
