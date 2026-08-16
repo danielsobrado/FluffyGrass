@@ -151,13 +151,18 @@ for (const sourcePath of listFiles(PUBLIC_DIRECTORY)) {
 }
 
 for (const legalFile of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
-  const path = resolve(DIST_DIRECTORY, legalFile);
+  const sourcePath = resolve(REPOSITORY_ROOT, legalFile);
+  const builtPath = resolve(DIST_DIRECTORY, legalFile);
   assert(
-    existsSync(path) && statSync(path).isFile() && statSync(path).size > 0,
+    existsSync(builtPath) && statSync(builtPath).isFile(),
     `Generated site is missing ${legalFile}.`,
+  );
+  assert(
+    readFileSync(builtPath).equals(readFileSync(sourcePath)),
+    `Generated ${legalFile} does not match the repository source.`,
   );
 }
 
 console.log(
-  `[built-site] Pages-relative index/bundles, security policy, ${references.length} HTML references, byte-identical public assets, and legal files verified.`,
+  `[built-site] Pages-relative index/bundles, security policy, ${references.length} HTML references, byte-identical public/legal assets verified.`,
 );
