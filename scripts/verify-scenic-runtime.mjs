@@ -26,9 +26,22 @@ assert(
   "Tree faults must stay inside the scenic failure domain.",
 );
 assert(
+  scenicLayer.includes("Trees unavailable during initialization.") &&
+    scenicLayer.includes("Fauna unavailable during initialization.") &&
+    !/catch \(error\) \{[\s\S]{0,180}?throw error;/.test(scenicLayer),
+  "Scenic constructor failures must disable only the failing optional system.",
+);
+assert(
   scenicLayer.includes("config.faunaEnabled < 1 || faunaCount === 0") &&
     scenicLayer.includes("this.life = undefined"),
   "Inactive or failed fauna must not retain a live scenic owner.",
+);
+assert(
+  scenicLayer.includes("Tree cleanup failed.") &&
+    scenicLayer.includes("Fauna cleanup failed.") &&
+    scenicLayer.includes("this.disposeTrees();") &&
+    scenicLayer.includes("this.disposeFauna();"),
+  "Scenic cleanup failures must remain isolated from each other and the world owner.",
 );
 assert(
   faunaSystem.includes(
