@@ -98,18 +98,32 @@ export class WorldSky {
       return;
     }
 
-    this.pmrem = new THREE.PMREMGenerator(renderer);
-    const bakeScene = new THREE.Scene();
-    const bakeMesh = new THREE.Mesh(this.mesh.geometry, material.clone());
-    bakeScene.add(bakeMesh);
-    this.environmentTarget = this.pmrem.fromScene(
-      bakeScene,
-      0,
-      0.1,
-      SKY_RADIUS,
-    );
-    this.scene.environment = this.environmentTarget.texture;
-    bakeMesh.material.dispose();
+    let bakeMaterial: THREE.ShaderMaterial | undefined;
+    try {
+      this.pmrem = new THREE.PMREMGenerator(renderer);
+      const bakeScene = new THREE.Scene();
+      const bakeMesh = new THREE.Mesh(this.mesh.geometry, material.clone());
+      bakeMaterial = bakeMesh.material;
+      bakeScene.add(bakeMesh);
+      this.environmentTarget = this.pmrem.fromScene(
+        bakeScene,
+        0,
+        0.1,
+        SKY_RADIUS,
+      );
+      this.scene.environment = this.environmentTarget.texture;
+    } catch (error) {
+      this.scene.environment = null;
+      this.environmentTarget?.dispose();
+      this.environmentTarget = undefined;
+      this.pmrem?.dispose();
+      this.scene.remove(this.mesh);
+      this.mesh.geometry.dispose();
+      this.mesh.material.dispose();
+      throw error;
+    } finally {
+      bakeMaterial?.dispose();
+    }
   }
 
   dispose(): void {
