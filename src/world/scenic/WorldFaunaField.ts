@@ -68,6 +68,9 @@ export class WorldFaunaField {
   }
 
   collect(centerX: number, centerZ: number, radius: number): WorldFaunaHerd[] {
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerZ)) {
+      return [];
+    }
     const boundedRadius = Number.isFinite(radius)
       ? Math.min(Math.max(radius, 0), this.maxCollectionRadius)
       : this.maxCollectionRadius;
