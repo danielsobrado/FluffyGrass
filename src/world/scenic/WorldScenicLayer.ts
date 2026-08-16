@@ -6,12 +6,13 @@ import { WorldFaunaSystem } from "./WorldFaunaSystem";
 import { WorldTreeSystem } from "./WorldTreeSystem";
 
 /**
- * Trees and fauna owned as one failure domain beside stones and grass.
- * Ground rock is the stone field, not a second quad layer.
+ * Trees and fauna owned beside stones and grass without sharing player-control
+ * failure state. Ground rock is the stone field, not a second quad layer.
  */
 export class WorldScenicLayer {
   private readonly trees: WorldTreeSystem;
   private readonly life: WorldFaunaSystem;
+  private treesEnabled = true;
   private faunaEnabled = true;
   private disposed = false;
 
@@ -31,13 +32,22 @@ export class WorldScenicLayer {
     if (this.disposed) {
       return;
     }
-    this.trees.update(focus);
+
+    if (this.treesEnabled) {
+      try {
+        this.trees.update(focus);
+      } catch (error) {
+        console.warn("[Drusniel World] Trees disabled after a fault.", error);
+        this.treesEnabled = false;
+        this.trees.dispose();
+      }
+    }
+
     if (!this.faunaEnabled) {
       return;
     }
-    // Fauna is ticked inside the controls subsystem, so a fault here would
-    // otherwise take the player's own movement down with it. It gets the same
-    // treatment stones get one level up: fail once, release, keep rendering.
+    // Scenic systems are ticked inside the controls subsystem, so faults here
+    // must release only the failing scenic owner and keep player input alive.
     try {
       this.life.update(deltaSeconds, focus);
     } catch (error) {
