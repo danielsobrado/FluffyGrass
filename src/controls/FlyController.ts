@@ -303,14 +303,17 @@ export class FlyController {
       "[data-flight-vertical]",
     )) {
       const value = Number(button.dataset.flightVertical);
-      const activate = (event: Event): void => {
+      const activate = (event: PointerEvent): void => {
         event.preventDefault();
         event.stopPropagation();
+        if (!button.hasPointerCapture(event.pointerId)) {
+          button.setPointerCapture(event.pointerId);
+        }
         this.inputEventCount += 1;
         this.lastInputType = "button";
         this.verticalTouch = value;
       };
-      const deactivate = (event: Event): void => {
+      const deactivate = (event: PointerEvent): void => {
         event.preventDefault();
         event.stopPropagation();
         if (this.verticalTouch === value) {
@@ -320,7 +323,11 @@ export class FlyController {
       button.addEventListener("pointerdown", activate);
       button.addEventListener("pointerup", deactivate);
       button.addEventListener("pointercancel", deactivate);
-      button.addEventListener("pointerleave", deactivate);
+      button.addEventListener("lostpointercapture", () => {
+        if (this.verticalTouch === value) {
+          this.verticalTouch = 0;
+        }
+      });
     }
     document.body.appendChild(controls);
     this.mobileControls = controls;
