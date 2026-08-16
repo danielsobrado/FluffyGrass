@@ -38,6 +38,12 @@ export interface GltfHumanoidOptions {
   readonly landingRecoverySeconds?: number;
 }
 
+interface GltfHumanoidRuntimeResources {
+  readonly rigInstance: ActorRigInstance;
+  readonly profile: HumanoidAnimationProfile;
+  readonly runtime: ActorAnimationRuntime;
+}
+
 /**
  * An imported character animated by this project's own actor runtime.
  *
@@ -87,36 +93,36 @@ export class GltfHumanoidActor {
     this.root.scale.setScalar(options.scale);
     this.root.add(this.heading);
     this.heading.add(character.scene);
-    scene.add(this.root);
 
-    const rig = buildKayKitHumanoidRig(character.skinBones, this.root.name);
-    // Adopt the imported bones rather than build a parallel hierarchy, so the
-    // pose reaches the very bones the skinned meshes are bound to.
-    this.rigInstance = new ActorRigInstance(rig.definition, this.heading, {
-      adoptBones: rig.orderedBones,
-      adoptSkeleton: character.skeleton,
-    });
-    this.profile = createHumanoidAnimationProfile({
-      definition: rig.definition,
-      bones: rig.bones,
-      landingRecoverySeconds: options.landingRecoverySeconds ?? 0.25,
-      ikStages:
-        terrainContact === undefined
-          ? undefined
-          : [
-              createHumanoidContactIk(
-                rig.definition,
-                rig.bones,
-                terrainContact,
-                this.heading,
-              ),
-            ],
-    });
-    this.runtime = new ActorAnimationRuntime(this.profile, this.rigInstance);
-    this.input.referenceSpeed = Math.max(options.patrol.speed, 0.001);
-    this.placeOnPath(0);
-    this.previousPosition.copy(this.worldPosition);
-    this.runtime.reset(this.input);
+    const resources = createRuntimeResources(
+      this.heading,
+      character,
+      this.root.name,
+      options,
+      terrainContact,
+    );
+    this.rigInstance = resources.rigInstance;
+    this.profile = resources.profile;
+    this.runtime = resources.runtime;
+
+    try {
+      this.input.referenceSpeed = Math.max(options.patrol.speed, 0.001);
+      this.placeOnPath(0);
+      this.previousPosition.copy(this.worldPosition);
+      this.runtime.reset(this.input);
+      scene.add(this.root);
+    } catch (error) {
+      disposeActorResourceSafely("animation runtime construction", () =>
+        this.runtime.dispose(),
+      );
+      disposeActorResourceSafely("rig construction", () =>
+        this.rigInstance.dispose(),
+      );
+      disposeActorResourceSafely("unpublished scene root", () =>
+        this.root.removeFromParent(),
+      );
+      throw error;
+    }
   }
 
   static async create(
@@ -126,13 +132,20 @@ export class GltfHumanoidActor {
     terrainContact?: ActorTerrainContactSampler,
   ): Promise<GltfHumanoidActor> {
     const character = await loadGltfCharacter(options.url, options.textureUrl);
-    return new GltfHumanoidActor(
-      scene,
-      character,
-      options,
-      sampleHeight,
-      terrainContact,
-    );
+    try {
+      return new GltfHumanoidActor(
+        scene,
+        character,
+        options,
+        sampleHeight,
+        terrainContact,
+      );
+    } catch (error) {
+      disposeActorResourceSafely("loaded character construction", () =>
+        disposeGltfCharacter(character),
+      );
+      throw error;
+    }
   }
 
   update(deltaSeconds: number): void {
@@ -176,12 +189,12 @@ export class GltfHumanoidActor {
       return;
     }
     this.disposed = true;
-    this.runtime.dispose();
-    // Releases this actor's sockets but leaves the imported bones alone; the
-    // loaded scene owns those and is torn down next.
-    this.rigInstance.dispose();
-    disposeGltfCharacter(this.character);
-    this.root.removeFromParent();
+    disposeActorResourceSafely("animation runtime", () => this.runtime.dispose());
+    disposeActorResourceSafely("rig instance", () => this.rigInstance.dispose());
+    disposeActorResourceSafely("loaded character", () =>
+      disposeGltfCharacter(this.character),
+    );
+    disposeActorResourceSafely("scene root", () => this.root.removeFromParent());
   }
 
   /** Walks the patrol circle, halting on a fixed cycle. */
@@ -204,5 +217,57 @@ export class GltfHumanoidActor {
     this.input.facing = -angle;
     this.root.position.copy(this.worldPosition);
     this.heading.rotation.y = -angle;
+  }
+}
+
+function createRuntimeResources(
+  heading: THREE.Group,
+  character: LoadedGltfCharacter,
+  actorName: string,
+  options: GltfHumanoidOptions,
+  terrainContact?: ActorTerrainContactSampler,
+): GltfHumanoidRuntimeResources {
+  let rigInstance: ActorRigInstance | undefined;
+  let runtime: ActorAnimationRuntime | undefined;
+  try {
+    const rig = buildKayKitHumanoidRig(character.skinBones, actorName);
+    // Adopt the imported bones rather than build a parallel hierarchy, so the
+    // pose reaches the very bones the skinned meshes are bound to.
+    rigInstance = new ActorRigInstance(rig.definition, heading, {
+      adoptBones: rig.orderedBones,
+      adoptSkeleton: character.skeleton,
+    });
+    const profile = createHumanoidAnimationProfile({
+      definition: rig.definition,
+      bones: rig.bones,
+      landingRecoverySeconds: options.landingRecoverySeconds ?? 0.25,
+      ikStages:
+        terrainContact === undefined
+          ? undefined
+          : [
+              createHumanoidContactIk(
+                rig.definition,
+                rig.bones,
+                terrainContact,
+                heading,
+              ),
+            ],
+    });
+    runtime = new ActorAnimationRuntime(profile, rigInstance);
+    return { rigInstance, profile, runtime };
+  } catch (error) {
+    disposeActorResourceSafely("animation runtime construction", () =>
+      runtime?.dispose(),
+    );
+    disposeActorResourceSafely("rig construction", () => rigInstance?.dispose());
+    throw error;
+  }
+}
+
+function disposeActorResourceSafely(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] GLTF actor ${label} cleanup failed.`, error);
   }
 }
