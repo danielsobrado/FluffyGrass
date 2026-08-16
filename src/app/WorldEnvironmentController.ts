@@ -34,6 +34,7 @@ export class WorldEnvironmentController {
   private shadowFocusX = Number.NaN;
   private shadowFocusY = Number.NaN;
   private shadowFocusZ = Number.NaN;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -58,12 +59,24 @@ export class WorldEnvironmentController {
       .multiplyScalar(WORLD_SUN_SHADOW_DISTANCE);
     this.sun.castShadow = shadowsEnabled;
     this.configureShadow();
-    this.scene.add(this.hemisphere, this.sun, this.sun.target);
-    this.sky = new WorldSky(this.scene, this.renderer, this.profile.compact);
-    this.applyArtDirection();
+
+    let sky: WorldSky | undefined;
+    try {
+      sky = new WorldSky(this.scene, this.renderer, this.profile.compact);
+      this.sky = sky;
+      this.scene.add(this.hemisphere, this.sun, this.sun.target);
+      this.applyArtDirection();
+    } catch (error) {
+      disposeSafely(sky, "Sky");
+      this.scene.remove(this.hemisphere, this.sun, this.sun.target);
+      throw error;
+    }
   }
 
   applyArtDirection(_direction?: GrassArtDirection): void {
+    if (this.disposed) {
+      return;
+    }
     this.scene.fog = new THREE.FogExp2(
       WORLD_DEFAULT_FOG,
       this.profile.compact
@@ -79,7 +92,7 @@ export class WorldEnvironmentController {
   }
 
   updateShadow(focus: THREE.Vector3): void {
-    if (!this.sun.castShadow) {
+    if (this.disposed || !this.sun.castShadow) {
       return;
     }
     if (
@@ -114,7 +127,11 @@ export class WorldEnvironmentController {
   }
 
   dispose(): void {
-    this.sky.dispose();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    disposeSafely(this.sky, "Sky");
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);
   }
 
@@ -133,5 +150,16 @@ export class WorldEnvironmentController {
       this.profile.shadowMapSize,
       this.profile.shadowMapSize,
     );
+  }
+}
+
+function disposeSafely(resource: { dispose(): void } | undefined, label: string): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
