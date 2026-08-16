@@ -76,6 +76,35 @@ assert(
 );
 
 assert(
+  island.includes("const ISLAND_GLTF_TIMEOUT_MS = 15_000") &&
+    island.includes("function loadGltfWithTimeout(") &&
+    island.includes("window.setTimeout(() =>") &&
+    island.includes("request timed out after ${ISLAND_GLTF_TIMEOUT_MS} ms") &&
+    island.includes("window.clearTimeout(timeoutHandle)") &&
+    island.includes("Late GLTF geometry ${url}") &&
+    island.includes("Late GLTF materials ${url}") &&
+    !island.includes("this.loader.loadAsync(ISLAND_MODEL_PATH)") &&
+    !island.includes("this.loader.loadAsync(DECORATIVE_TEXT_MODEL_PATH)"),
+  "Island GLTF requests must fail within a bounded interval and dispose models that arrive after timeout.",
+);
+
+assert(
+  island.includes("renderer.capabilities.maxTextureSize") &&
+    /function addIslandLights\([\s\S]*?maxTextureSize: number[\s\S]*?Math\.min\(profile\.shadowMapSize, maxTextureSize\)[\s\S]*?sun\.shadow\.mapSize\.set\(shadowMapSize, shadowMapSize\)/.test(
+      island,
+    ),
+  "Island shadow allocation must stay within the active GPU texture limit.",
+);
+
+assert(
+  island.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
+    island.includes("const ownedMaterials = [...materials]") &&
+    island.includes("disposeResources([...ownedMaterials, ...textures])") &&
+    island.includes("disposeResources([...geometries])"),
+  "Island model teardown must attempt every material, texture, and geometry cleanup even if one disposer fails.",
+);
+
+assert(
   island.includes("private developmentController?: GrassDevelopmentController") &&
     island.includes("this.developmentController = controller") &&
     island.includes('disposeSafely("Development tools"') &&
@@ -163,5 +192,5 @@ assert(
 );
 
 console.log(
-  "[island-lifecycle] Transactional island/grass construction, frame containment, and disposable QA/impostor ownership verified.",
+  "[island-lifecycle] Transactional island/grass construction, bounded asset loading, GPU-limited shadows, frame containment, and disposable QA/impostor ownership verified.",
 );
