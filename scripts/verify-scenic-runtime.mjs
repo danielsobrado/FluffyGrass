@@ -67,6 +67,12 @@ assert(
   "A deterministic herd member must be owned by at most one live deer slot across roster rebuilds.",
 );
 assert(
+  faunaSystem.includes("active: member !== undefined") &&
+    faunaSystem.includes("slot.active = false") &&
+    faunaSystem.includes("slot.actor.object.visible = false"),
+  "Unassigned deer pool slots must stay inactive and hidden until a real herd member is available.",
+);
+assert(
   faunaField.includes("const HASH_UNIT = 1 / 4294967296;") &&
     treeField.includes("const HASH_UNIT = 1 / 4294967296;") &&
     !faunaField.includes("4294967295") &&
