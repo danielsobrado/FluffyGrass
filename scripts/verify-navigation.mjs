@@ -149,6 +149,22 @@ try {
     fly.includes("spawnEyeHeight") && fly.includes("mountainHeight"),
     "FlyWorldController must own its ground clearance and altitude ceiling.",
   );
+  assert(
+    fly.includes("private worldDisposed = false") &&
+      /update\(deltaSeconds: number\): void \{[\s\S]*?if \(this\.worldDisposed\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?super\.update\(deltaSeconds\)/.test(
+        fly,
+      ) &&
+      /dispose\(\): void \{[\s\S]*?if \(this\.worldDisposed\)[\s\S]*?this\.worldDisposed = true;[\s\S]*?super\.dispose\(\)/.test(
+        fly,
+      ) &&
+      /teleport\(x: number, z: number\): void \{[\s\S]*?if \(this\.worldDisposed\)/.test(
+        fly,
+      ) &&
+      /captureLookAt\([\s\S]*?\): void \{[\s\S]*?if \(this\.worldDisposed\)/.test(
+        fly,
+      ),
+    "Disposed fly-world controls must stop terrain sampling and camera mutations through stale references.",
+  );
 
   // The raster must stay incremental. A single-shot build of a 256² map runs
   // long enough to trip the app's own frame-stall watchdog.
