@@ -177,6 +177,17 @@ try {
     minimap.includes("event.stopPropagation()"),
     "Keyboard map activation must not bubble into character movement actions.",
   );
+  assert(
+    minimap.includes(
+      'window.addEventListener("keydown", this.handleKeyDown, true)',
+    ) &&
+      minimap.includes(
+        'window.removeEventListener("keydown", this.handleKeyDown, true)',
+      ) &&
+      minimap.includes("event.target === this.canvas") &&
+      minimap.includes("!this.open ||"),
+    "The open minimap must capture keyboard events before world input while preserving its own activation keys.",
+  );
 
   console.log(
     `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded in both control modes · raster budgeted and lazy`,
