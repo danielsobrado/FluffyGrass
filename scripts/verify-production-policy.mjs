@@ -134,6 +134,13 @@ if (
 
 const packageMetadata = JSON.parse(readFileSync(PACKAGE_FILE, "utf8"));
 const buildScript = String(packageMetadata.scripts?.build ?? "");
+const secureBuildPrefix = "node scripts/verify-node-runtime.mjs && tsc &&";
+if (!buildScript.startsWith(secureBuildPrefix)) {
+  fail("The production build must verify the Node security floor before TypeScript or bundler tooling runs.");
+}
+if (packageMetadata.scripts?.["test:node-runtime"] !== "node scripts/verify-node-runtime.mjs") {
+  fail("The Node runtime security verifier must remain directly runnable.");
+}
 if (!buildScript.includes("vite build && node scripts/verify-built-site.mjs")) {
   fail(
     "The production build must verify the generated GitHub Pages artifact after Vite finishes.",
