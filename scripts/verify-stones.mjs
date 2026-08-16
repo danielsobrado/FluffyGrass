@@ -40,6 +40,9 @@ try {
   const growthVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneGrowthVerification.ts",
   );
+  const clusterConfigVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneClusterConfigVerification.ts",
+  );
   const clusterVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneClusterVerification.ts",
   );
@@ -62,6 +65,8 @@ try {
     configSource,
   );
   const growthSummary = growthVerification.verifyStoneGrowthField();
+  const clusterConfigSummary =
+    clusterConfigVerification.verifyStoneClusterConfig(configSource);
   const clusterSummary = clusterVerification.verifyStoneClusters(configSource);
   const clusterPerformanceSummary =
     clusterPerformanceVerification.verifyStoneClusterPerformance(
@@ -76,7 +81,7 @@ try {
     systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clusterSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
