@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE } from "./SpawnTuning";
 import { StoneClearanceCache } from "./stones/StoneClearanceCache";
 import { StoneField } from "./stones/StoneField";
 import type { WorldConfig } from "./WorldConfig";
@@ -9,7 +10,6 @@ const COARSE_STEP_MULTIPLIER = 4;
 const REFINE_CANDIDATE_COUNT = 8;
 const CLEAR_SPAWN_SEARCH_RADIUS_STEPS = 2;
 const CLEAR_SPAWN_STEP_SCALE = 0.5;
-const CHARACTER_CLEARANCE_RADIUS_SCALE = 0.5;
 const AREA_SAMPLE_OFFSETS = [
   [0, 0],
   [1, 0],
@@ -176,7 +176,7 @@ export class DenseSpawnLocator {
     searchRadius: number,
   ): SpawnCandidate | undefined {
     const clearanceRadius =
-      this.config.characterScale * CHARACTER_CLEARANCE_RADIUS_SCALE;
+      this.config.characterScale * CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE;
     const step = this.config.spawnSearchStep * CLEAR_SPAWN_STEP_SCALE;
     let best: SpawnCandidate | undefined;
 
