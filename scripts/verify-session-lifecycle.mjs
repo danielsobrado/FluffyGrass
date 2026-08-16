@@ -76,6 +76,31 @@ assert(
   "Terrain streaming must roll back partially constructed render owners and isolate normal teardown failures.",
 );
 
+const commitChunkStart = terrainStreamer.indexOf("private commitChunk(chunk: TerrainChunk): void");
+const removeChunkStart = terrainStreamer.indexOf("private removeChunk(", commitChunkStart);
+const commitChunkSource = terrainStreamer.slice(commitChunkStart, removeChunkStart);
+const publishMesh = commitChunkSource.indexOf("this.scene.add(chunk.mesh)");
+const publishCoverage = commitChunkSource.indexOf(
+  "this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true)",
+);
+const publishMap = commitChunkSource.indexOf("this.chunks.set(chunk.key, chunk)");
+const retireExisting = commitChunkSource.indexOf("this.removeChunk(existing, false)");
+assert(
+  commitChunkStart >= 0 &&
+    removeChunkStart > commitChunkStart &&
+    publishMesh >= 0 &&
+    publishCoverage > publishMesh &&
+    publishMap > publishCoverage &&
+    retireExisting > publishMap &&
+    commitChunkSource.includes("chunk.mesh.removeFromParent()") &&
+    commitChunkSource.includes("chunk.waterBedMesh?.removeFromParent()") &&
+    commitChunkSource.includes("chunk.waterMesh?.removeFromParent()") &&
+    commitChunkSource.includes('disposeTerrainResource(chunk, "Unpublished terrain chunk")') &&
+    commitChunkSource.includes("if (!existing)") &&
+    terrainStreamer.includes("private removeChunk(chunk: TerrainChunk, updateCoverage = true)"),
+  "Terrain replacement must publish the new chunk before retiring the last good chunk and must roll back every unpublished mesh on failure.",
+);
+
 assert(
   /private finalize\(\): TerrainChunk \{[\s\S]*?const geometry = new THREE\.BufferGeometry\(\);[\s\S]*?let waterGeometry: THREE\.BufferGeometry \| undefined;[\s\S]*?try \{[\s\S]*?const chunk = new TerrainChunk\([\s\S]*?return chunk;[\s\S]*?\} catch \(error\) \{[\s\S]*?waterGeometry\?\.dispose\(\);[\s\S]*?geometry\.dispose\(\)/.test(
     terrainChunk,
@@ -193,5 +218,5 @@ for (const [name, source] of [
 }
 
 console.log(
-  "[session-lifecycle] Bootstrap, world/terrain construction, isolated material cleanup, diagnostics, QA, stats, and actor asset ownership verified.",
+  "[session-lifecycle] Bootstrap, world/terrain construction and publication, isolated material cleanup, diagnostics, QA, stats, and actor asset ownership verified.",
 );
