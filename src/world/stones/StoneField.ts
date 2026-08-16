@@ -50,6 +50,12 @@ import {
   SCALE_BANDS,
   stoneMossBase,
 } from "./StonePlacementProfile";
+import {
+  selectPathDistance,
+  selectStoneVergePath,
+  STONE_PATH_DISTANCE_PLATEAU,
+  type StoneVergePathChannel,
+} from "./StonePathPlacement";
 import { resolveSplitHalfDistance } from "./StoneSplitPlacement";
 
 /**
@@ -138,7 +144,6 @@ interface AcceptedMember {
 const CLEAR_SCALE_CUTOFF = 0.5;
 /** Slope gates on the terrain normal's Y component. */
 const SLOPE_REJECT_NY = 0.62;
-const PATH_DISTANCE_PLATEAU = 24;
 const VERGE_BAND = 1.6;
 const VERGE_STEP_PASSES = 4;
 const VERGE_MAX_PER_CELL = 7;
@@ -906,8 +911,12 @@ export class StoneField {
     geologyPotential: number,
     instances: StoneInstance[],
   ): void {
-    const clearance =
+    const mainClearance =
       this.config.pathWidth * 0.5 +
+      this.config.pathEdgeRoughness +
+      this.config.pathGrassClearance;
+    const branchClearance =
+      this.config.pathBranchWidth * 0.5 +
       this.config.pathEdgeRoughness +
       this.config.pathGrassClearance;
     const centerX = originX + this.cellSize * 0.5;
@@ -917,13 +926,18 @@ export class StoneField {
       return;
     }
     this.field.samplePathDistances(centerX, centerZ, this.pathScratch);
-    const centerDistance = this.pathScratch.x;
-    if (
-      Math.abs(Math.abs(centerDistance) - PATH_DISTANCE_PLATEAU) < 0.01 ||
-      Math.abs(centerDistance) > clearance + VERGE_BAND + this.cellSize * 0.8
-    ) {
+    const selectedPath = selectStoneVergePath(
+      this.pathScratch.x,
+      this.pathScratch.y,
+      mainClearance,
+      branchClearance,
+      VERGE_BAND + this.cellSize * 0.8,
+    );
+    if (!selectedPath) {
       return;
     }
+    const channel = selectedPath.channel;
+    const clearance = selectedPath.clearance;
     const ecology = this.field.sampleEcologyAt(centerX, centerZ, centerHeight);
     const regionalStonePotential =
       0.45 * geologyPotential + 0.55 * ecology.rockiness;
@@ -941,7 +955,7 @@ export class StoneField {
         continue;
       }
       if (!haveCenterTangent) {
-        if (!this.samplePathTangent(centerX, centerZ)) {
+        if (!this.samplePathTangent(centerX, centerZ, channel)) {
           return;
         }
         alongX = this.tangentScratch.x;
@@ -956,14 +970,18 @@ export class StoneField {
         continue;
       }
       this.field.samplePathDistances(sampleX, sampleZ, this.pathScratch);
-      const distance = this.pathScratch.x;
+      const distance = selectPathDistance(
+        channel,
+        this.pathScratch.x,
+        this.pathScratch.y,
+      );
       if (
-        Math.abs(Math.abs(distance) - PATH_DISTANCE_PLATEAU) < 0.01 ||
+        Math.abs(Math.abs(distance) - STONE_PATH_DISTANCE_PLATEAU) < 0.01 ||
         Math.abs(distance) > clearance + VERGE_BAND + this.cellSize
       ) {
         continue;
       }
-      if (!this.samplePathTangent(sampleX, sampleZ)) {
+      if (!this.samplePathTangent(sampleX, sampleZ, channel)) {
         continue;
       }
       const alongTangentX = this.tangentScratch.x;
@@ -997,20 +1015,44 @@ export class StoneField {
         x += stepAcrossX * travel;
         z += stepAcrossZ * travel;
         this.field.samplePathDistances(x, z, this.pathScratch);
-        currentDistance = this.pathScratch.x;
-        if (Math.abs(Math.abs(currentDistance) - PATH_DISTANCE_PLATEAU) < 0.01) {
+        currentDistance = selectPathDistance(
+          channel,
+          this.pathScratch.x,
+          this.pathScratch.y,
+        );
+        if (
+          Math.abs(Math.abs(currentDistance) - STONE_PATH_DISTANCE_PLATEAU) <
+          0.01
+        ) {
           break;
         }
-        if (!this.samplePathTangent(x, z)) {
+        if (!this.samplePathTangent(x, z, channel)) {
           break;
         }
         stepAcrossX = this.tangentScratch.z;
         stepAcrossZ = -this.tangentScratch.x;
       }
+      this.field.samplePathDistances(x, z, this.pathScratch);
+      currentDistance = selectPathDistance(
+        channel,
+        this.pathScratch.x,
+        this.pathScratch.y,
+      );
       const landed = Math.abs(currentDistance);
       const bandMin = clearance + footprint + 0.05;
       const bandMax = clearance + footprint + VERGE_BAND + 0.6;
-      if (!(landed >= bandMin && landed <= bandMax) || !this.insideWorld(x, z)) {
+      const otherDistance = selectPathDistance(
+        channel === "main" ? "branch" : "main",
+        this.pathScratch.x,
+        this.pathScratch.y,
+      );
+      const otherClearance =
+        channel === "main" ? branchClearance : mainClearance;
+      if (
+        !(landed >= bandMin && landed <= bandMax) ||
+        Math.abs(otherDistance) - otherClearance - footprint < 0.05 ||
+        !this.insideWorld(x, z)
+      ) {
         continue;
       }
       const stoneHeight = this.field.sampleHeight(x, z);
@@ -1068,16 +1110,36 @@ export class StoneField {
     }
   }
 
-  private samplePathTangent(x: number, z: number): boolean {
+  private samplePathTangent(
+    x: number,
+    z: number,
+    channel: StoneVergePathChannel,
+  ): boolean {
     const step = 0.6;
     this.field.samplePathDistances(x + step, z, this.pathScratch);
-    const east = this.pathScratch.x;
+    const east = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     this.field.samplePathDistances(x - step, z, this.pathScratch);
-    const west = this.pathScratch.x;
+    const west = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     this.field.samplePathDistances(x, z + step, this.pathScratch);
-    const north = this.pathScratch.x;
+    const north = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     this.field.samplePathDistances(x, z - step, this.pathScratch);
-    const south = this.pathScratch.x;
+    const south = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     const gradientX = (east - west) / (2 * step);
     const gradientZ = (north - south) / (2 * step);
     const length = Math.hypot(gradientX, gradientZ);
