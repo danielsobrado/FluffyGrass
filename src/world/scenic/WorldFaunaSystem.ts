@@ -130,7 +130,14 @@ export class WorldFaunaSystem {
           : config.faunaVillagerDesktopCount;
     for (let index = 0; index < villagerCount; index += 1) {
       this.villagers.push(
-        this.createVillager(scene, index, spawn, sampleHeight, contact),
+        this.createVillager(
+          scene,
+          index,
+          villagerCount,
+          spawn,
+          sampleHeight,
+          contact,
+        ),
       );
     }
   }
@@ -138,12 +145,12 @@ export class WorldFaunaSystem {
   private createVillager(
     scene: THREE.Scene,
     index: number,
+    count: number,
     spawn: THREE.Vector3,
     sampleHeight: (x: number, z: number) => number,
     contact: WorldTerrainContactSampler,
   ): VillagerSlot {
-    const angle = (index / Math.max(this.config.faunaVillagerDesktopCount, 1)) *
-      Math.PI * 2;
+    const angle = (index / Math.max(count, 1)) * Math.PI * 2;
     const radius = FAUNA_VILLAGER_ROUTE_RADIUS;
     const centerX = spawn.x + Math.cos(angle) * radius;
     const centerZ = spawn.z + Math.sin(angle) * radius;
@@ -175,10 +182,15 @@ export class WorldFaunaSystem {
   }
 
   update(deltaSeconds: number, focus: THREE.Vector3): void {
-    if (this.disposed || this.slots.length === 0) {
+    if (
+      this.disposed ||
+      (this.slots.length === 0 && this.villagers.length === 0)
+    ) {
       return;
     }
-    this.rebuildRoster(focus);
+    if (this.slots.length > 0) {
+      this.rebuildRoster(focus);
+    }
 
     for (const slot of this.slots) {
       const distance = slot.actor.position.distanceTo(focus);
