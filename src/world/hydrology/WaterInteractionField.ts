@@ -49,10 +49,7 @@ export class WaterInteractionField {
     );
     target.obstacle = clamp01(1 - Math.min(stoneClearance, expandedClearance));
 
-    if (
-      this.config.waterStoneWakeStrength <= 0 ||
-      hydrology.riverCoverage <= MIN_RIVER_WAKE_COVERAGE
-    ) {
+    if (hydrology.riverCoverage <= MIN_RIVER_WAKE_COVERAGE) {
       return target;
     }
 

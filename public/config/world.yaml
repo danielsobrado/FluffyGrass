@@ -269,6 +269,8 @@ initialDistance: 180
 characterScale: 1
 characterWalkSpeed: 2.5
 characterRunSpeed: 5.4
+characterRollInitialSpeedMultiplier: 1.25
+characterRollSustainSpeedMultiplier: 1.15
 characterAcceleration: 26
 characterDeceleration: 30
 characterTurnRate: 11

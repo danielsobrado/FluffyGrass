@@ -35,6 +35,7 @@ export class ThirdPersonController implements WorldController {
   private readonly cameraForward = new THREE.Vector3();
   private readonly cameraRight = new THREE.Vector3();
   private readonly movement = new THREE.Vector3();
+  private readonly rollDirection = new THREE.Vector3(0, 0, 1);
   private readonly groundNormal = new THREE.Vector3(0, 1, 0);
   private readonly cameraTarget = new THREE.Vector3();
   private readonly desiredCameraPosition = new THREE.Vector3();
@@ -76,6 +77,7 @@ export class ThirdPersonController implements WorldController {
   private verticalVelocity = 0;
   private grounded = true;
   private timeSinceGrounded = 0;
+  private coyoteJumpAvailable = true;
   private jumpBufferRemaining = 0;
   private jumpHoldRemaining = 0;
   private jumpStarted = false;
@@ -92,13 +94,6 @@ export class ThirdPersonController implements WorldController {
     profile: RuntimeProfile,
     spawn: DenseWorldSpawn,
   ) {
-    this.input = new ThirdPersonInput(canvas, profile, config);
-    this.character = new SnowflowCharacter(
-      scene,
-      config.characterScale,
-      config.characterLandingRecoveryTime,
-      new WorldTerrainContactSampler(field),
-    );
     grassInteractionField.configure({
       strength: config.grassInteractionStrength,
       speedForFullEffect: config.grassInteractionSpeedForFullEffect,
@@ -120,7 +115,32 @@ export class ThirdPersonController implements WorldController {
       spawn.position.z,
     );
     this.spawnFacing = normalizeAngle(spawn.yaw + Math.PI);
-    this.reset();
+
+    const character = new SnowflowCharacter(
+      scene,
+      config.characterScale,
+      config.characterLandingRecoveryTime,
+      new WorldTerrainContactSampler(field),
+    );
+    let input: ThirdPersonInput;
+    try {
+      input = new ThirdPersonInput(canvas, profile, config);
+    } catch (error) {
+      character.dispose();
+      grassInteractionField.deactivate();
+      throw error;
+    }
+
+    this.character = character;
+    this.input = input;
+    try {
+      this.reset();
+    } catch (error) {
+      disposeControllerResource("Third-person input", () => input.dispose());
+      disposeControllerResource("Third-person character", () => character.dispose());
+      grassInteractionField.deactivate();
+      throw error;
+    }
   }
 
   update(deltaSeconds: number): void {
@@ -162,7 +182,7 @@ export class ThirdPersonController implements WorldController {
     this.jumpStarted = false;
     this.landed = false;
     this.landingImpact = 0;
-    if (this.input.consumeJump()) {
+    if (this.input.consumeJump() && !this.character.isRolling()) {
       this.jumpBufferRemaining = this.config.characterJumpBufferTime;
     }
 
@@ -192,8 +212,8 @@ export class ThirdPersonController implements WorldController {
     }
     this.disposed = true;
     grassInteractionField.deactivate();
-    this.input.dispose();
-    this.character.dispose();
+    disposeControllerResource("Third-person input", () => this.input.dispose());
+    disposeControllerResource("Third-person character", () => this.character.dispose());
   }
 
   getSpeed(): number {
@@ -274,6 +294,7 @@ export class ThirdPersonController implements WorldController {
     this.velocity.set(0, 0, 0);
     this.animationVelocity.set(0, 0, 0);
     this.desiredVelocity.set(0, 0, 0);
+    this.rollDirection.set(Math.sin(facing), 0, Math.cos(facing));
     this.facing = facing;
     this.cameraYaw = facing;
     this.speed = 0;
@@ -283,6 +304,7 @@ export class ThirdPersonController implements WorldController {
     this.verticalVelocity = 0;
     this.grounded = true;
     this.timeSinceGrounded = 0;
+    this.coyoteJumpAvailable = true;
     this.jumpBufferRemaining = 0;
     this.jumpHoldRemaining = 0;
     this.jumpStarted = false;
@@ -310,7 +332,6 @@ export class ThirdPersonController implements WorldController {
     this.characterPose.landed = this.landed;
     this.characterPose.landingImpact = this.landingImpact;
     this.characterPose.crouched = this.input.isCrouched();
-    this.characterPose.rollStarted = this.character.isRolling();
     return this.characterPose;
   }
 
@@ -351,33 +372,49 @@ export class ThirdPersonController implements WorldController {
       this.movement.normalize();
     }
 
-    if (this.input.consumeRoll() && this.grounded && !this.character.isRolling()) {
+    let rolling = this.character.isRolling();
+    if (this.input.consumeRoll() && this.grounded && !rolling) {
+      if (hasMovement) {
+        this.rollDirection.copy(this.movement);
+      } else {
+        this.rollDirection.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+      }
+      this.rollDirection.normalize();
+      this.jumpBufferRemaining = 0;
+      this.jumpHoldRemaining = 0;
       this.character.triggerRoll();
-      const rollDirX = hasMovement ? this.movement.x : Math.sin(this.facing);
-      const rollDirZ = hasMovement ? this.movement.z : Math.cos(this.facing);
-      this.velocity.set(
-        rollDirX * this.config.characterRunSpeed * 1.25,
-        0,
-        rollDirZ * this.config.characterRunSpeed * 1.25,
-      );
+      rolling = true;
+      this.velocity
+        .copy(this.rollDirection)
+        .multiplyScalar(
+          this.config.characterRunSpeed *
+            this.config.characterRollInitialSpeedMultiplier,
+        );
     }
 
     const isCrouched = this.input.isCrouched();
-    const targetSpeed = this.character.isRolling()
-      ? this.config.characterRunSpeed * 1.15
-      : hasMovement
+    if (rolling) {
+      this.desiredVelocity
+        .copy(this.rollDirection)
+        .multiplyScalar(
+          this.config.characterRunSpeed *
+            this.config.characterRollSustainSpeedMultiplier,
+        );
+    } else {
+      const targetSpeed = hasMovement
         ? isCrouched
           ? this.config.characterWalkSpeed * 0.6
           : this.input.isSprinting()
             ? this.config.characterRunSpeed
             : this.config.characterWalkSpeed
         : 0;
-    this.desiredVelocity.copy(this.movement).multiplyScalar(targetSpeed);
+      this.desiredVelocity.copy(this.movement).multiplyScalar(targetSpeed);
+    }
     this.velocityDelta.subVectors(this.desiredVelocity, this.velocity);
     this.velocityDelta.y = 0;
     const controlScale = this.grounded ? 1 : this.config.characterAirControl;
     const maxVelocityChange =
-      (hasMovement
+      (rolling || hasMovement
         ? this.config.characterAcceleration
         : this.config.characterDeceleration) *
       controlScale *
@@ -443,6 +480,7 @@ export class ThirdPersonController implements WorldController {
     const wasGrounded = this.grounded;
     if (wasGrounded) {
       this.timeSinceGrounded = 0;
+      this.coyoteJumpAvailable = true;
     } else {
       this.timeSinceGrounded += deltaSeconds;
     }
@@ -453,11 +491,13 @@ export class ThirdPersonController implements WorldController {
 
     const canUseCoyoteTime =
       wasGrounded ||
-      this.timeSinceGrounded <= this.config.characterCoyoteTime;
+      (this.coyoteJumpAvailable &&
+        this.timeSinceGrounded <= this.config.characterCoyoteTime);
     if (this.jumpBufferRemaining > 0 && canUseCoyoteTime) {
       this.verticalVelocity = this.config.characterJumpSpeed;
       this.jumpHoldRemaining = this.config.characterJumpHoldTime;
       this.jumpBufferRemaining = 0;
+      this.coyoteJumpAvailable = false;
       this.grounded = false;
       this.jumpStarted = true;
     }
@@ -588,6 +628,14 @@ export class ThirdPersonController implements WorldController {
       this.desiredCameraPosition.y,
       cameraGround + clearance,
     );
+  }
+}
+
+function disposeControllerResource(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }
 

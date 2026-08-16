@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import {
   WORLD_SKY_HAZE,
   WORLD_SKY_HORIZON,
@@ -16,7 +17,10 @@ varying vec3 vSkyDirection;
 
 void main() {
   vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-  vSkyDirection = worldPosition.xyz;
+  // The sky is infinitely far away. Measuring from the world origin gives the
+  // dome parallax as the camera crosses the map and visibly shifts both the
+  // horizon gradient and sun. Camera-relative direction stays celestial.
+  vSkyDirection = worldPosition.xyz - cameraPosition;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -55,22 +59,164 @@ void main() {
 `;
 
 /**
- * Painterly sky dome plus a one-time IBL bake for standard/physical materials.
+ * Painterly sky dome plus an IBL bake for standard/physical materials.
  *
- * Compact profiles keep the dome and skip the PMREM hitch; desktop bakes once
- * at startup so metal, water, and the ranger have something real to reflect.
+ * Compact profiles keep the dome and skip the PMREM hitch; desktop bakes at
+ * startup and again after WebGL context restoration because render-target
+ * contents do not survive context loss.
  */
 export class WorldSky {
   private readonly mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
-  private environmentTexture?: THREE.Texture;
-  private readonly pmrem?: THREE.PMREMGenerator;
+  private readonly environmentEnabled: boolean;
+  private environmentTarget?: THREE.WebGLRenderTarget;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
-    renderer: THREE.WebGLRenderer,
+    private readonly renderer: THREE.WebGLRenderer,
     compact: boolean,
   ) {
-    const material = new THREE.ShaderMaterial({
+    this.mesh = createSkyMesh(this.scene);
+    this.environmentEnabled = !compact;
+    try {
+      this.scene.background = null;
+      this.renderer.toneMappingExposure = WORLD_ZELDA_EXPOSURE;
+
+      if (this.environmentEnabled) {
+        this.initializeEnvironment();
+        this.renderer.domElement.addEventListener(
+          "webglcontextrestored",
+          this.handleContextRestored,
+        );
+      }
+    } catch (error) {
+      try {
+        this.dispose();
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Sky constructor rollback failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.renderer.domElement.removeEventListener(
+      "webglcontextrestored",
+      this.handleContextRestored,
+    );
+    const environmentTarget = this.environmentTarget;
+    this.environmentTarget = undefined;
+    if (
+      environmentTarget &&
+      this.scene.environment === environmentTarget.texture
+    ) {
+      this.scene.environment = null;
+    }
+    disposeResources([
+      { dispose: () => this.mesh.removeFromParent() },
+      this.mesh.geometry,
+      this.mesh.material,
+      environmentTarget,
+    ]);
+  }
+
+  private readonly handleContextRestored = (): void => {
+    if (this.disposed || !this.environmentEnabled) {
+      return;
+    }
+    const previousTarget = this.environmentTarget;
+    this.environmentTarget = undefined;
+    if (
+      previousTarget &&
+      this.scene.environment === previousTarget.texture
+    ) {
+      this.scene.environment = null;
+    }
+    if (previousTarget) {
+      try {
+        previousTarget.dispose();
+      } catch (error) {
+        console.warn(
+          "[Drusniel World] Restored sky environment cleanup failed.",
+          error,
+        );
+      }
+    }
+    this.initializeEnvironment();
+  };
+
+  private initializeEnvironment(): void {
+    let environmentTarget: THREE.WebGLRenderTarget | undefined;
+    let pmrem: THREE.PMREMGenerator | undefined;
+    let bakeMaterial: THREE.ShaderMaterial | undefined;
+    try {
+      pmrem = new THREE.PMREMGenerator(this.renderer);
+      const bakeScene = new THREE.Scene();
+      const bakeMesh = new THREE.Mesh(this.mesh.geometry, this.mesh.material.clone());
+      bakeMaterial = bakeMesh.material;
+      bakeScene.add(bakeMesh);
+      environmentTarget = pmrem.fromScene(bakeScene, 0, 0.1, SKY_RADIUS);
+      this.scene.environment = environmentTarget.texture;
+      this.environmentTarget = environmentTarget;
+    } catch (error) {
+      if (
+        environmentTarget &&
+        this.scene.environment === environmentTarget.texture
+      ) {
+        this.scene.environment = null;
+      }
+      try {
+        disposeResources([environmentTarget]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Sky environment cleanup failed.",
+          cleanupError,
+        );
+      }
+      console.warn(
+        "[Drusniel World] Sky environment bake unavailable; continuing without IBL.",
+        error,
+      );
+    } finally {
+      if (bakeMaterial) {
+        try {
+          bakeMaterial.dispose();
+        } catch (cleanupError) {
+          console.warn(
+            "[Drusniel World] Sky bake material cleanup failed.",
+            cleanupError,
+          );
+        }
+      }
+      if (pmrem) {
+        try {
+          pmrem.dispose();
+        } catch (cleanupError) {
+          console.warn(
+            "[Drusniel World] Sky PMREM generator cleanup failed.",
+            cleanupError,
+          );
+        }
+      }
+    }
+  }
+}
+
+function createSkyMesh(
+  scene: THREE.Scene,
+): THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> {
+  let material: THREE.ShaderMaterial | undefined;
+  let geometry: THREE.SphereGeometry | undefined;
+  let mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> | undefined;
+  try {
+    material = new THREE.ShaderMaterial({
       name: "world-sky-dome",
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
@@ -86,35 +232,27 @@ export class WorldSky {
       fog: false,
       toneMapped: true,
     });
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(SKY_RADIUS, 32, 16), material);
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = -1000;
-    this.mesh.name = "world-sky-dome";
-    this.scene.add(this.mesh);
-    this.scene.background = null;
-    renderer.toneMappingExposure = WORLD_ZELDA_EXPOSURE;
-
-    if (compact) {
-      return;
+    geometry = new THREE.SphereGeometry(SKY_RADIUS, 32, 16);
+    mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = -1000;
+    mesh.name = "world-sky-dome";
+    scene.add(mesh);
+    return mesh;
+  } catch (error) {
+    try {
+      disposeResources([
+        { dispose: () => mesh?.removeFromParent() },
+        geometry,
+        material,
+      ]);
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Sky construction cleanup failed.",
+        cleanupError,
+      );
     }
-
-    this.pmrem = new THREE.PMREMGenerator(renderer);
-    const bakeScene = new THREE.Scene();
-    const bakeMesh = new THREE.Mesh(this.mesh.geometry, material.clone());
-    bakeScene.add(bakeMesh);
-    const renderTarget = this.pmrem.fromScene(bakeScene, 0, 0.1, SKY_RADIUS);
-    this.environmentTexture = renderTarget.texture;
-    this.scene.environment = this.environmentTexture;
-    bakeMesh.material.dispose();
-  }
-
-  dispose(): void {
-    this.scene.remove(this.mesh);
-    this.mesh.geometry.dispose();
-    this.mesh.material.dispose();
-    this.scene.environment = null;
-    this.environmentTexture?.dispose();
-    this.pmrem?.dispose();
+    throw error;
   }
 }
 

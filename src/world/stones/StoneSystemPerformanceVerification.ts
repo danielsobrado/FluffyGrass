@@ -75,6 +75,13 @@ export function verifyStoneSystemPerformance(configSource: string): string {
     `Desktop production batching changed to ${diagnostics.drawCalls} draws.`,
   );
 
+  system.update(focus, Number.POSITIVE_INFINITY);
+  const idleDiagnostics = system.getDiagnostics();
+  assert(
+    idleDiagnostics.lastBuildMs === 0,
+    `Idle stone diagnostics retained ${idleDiagnostics.lastBuildMs} ms of stale build time.`,
+  );
+
   let detailedDraws = 0;
   let coarseDraws = 0;
   for (const child of scene.children) {

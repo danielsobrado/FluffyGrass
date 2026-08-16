@@ -4,28 +4,58 @@ import type { GrassFrameStats, GrassRendererStats } from "./GrassQaTypes";
 const MILLISECONDS_PER_SECOND = 1_000;
 
 export class GrassQaMetrics {
-  sampleFrames(durationSeconds: number, collect: boolean): Promise<number[]> {
-    return new Promise((resolve) => {
+  sampleFrames(
+    durationSeconds: number,
+    collect: boolean,
+    signal?: AbortSignal,
+  ): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(createAbortError());
+        return;
+      }
+
       const durationMs =
         Math.max(0, Number.isFinite(durationSeconds) ? durationSeconds : 0) *
         MILLISECONDS_PER_SECOND;
       const samples: number[] = [];
       let elapsedMs = 0;
       let previousTime: number | undefined;
+      let frameHandle = 0;
+      let finished = false;
 
+      const finish = (error?: Error): void => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        cancelAnimationFrame(frameHandle);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        signal?.removeEventListener("abort", handleAbort);
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(samples);
+      };
+      const schedule = (): void => {
+        frameHandle = requestAnimationFrame(step);
+      };
       const handleVisibilityChange = (): void => {
         if (document.hidden) {
           previousTime = undefined;
         }
       };
-      const finish = (): void => {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        resolve(samples);
+      const handleAbort = (): void => {
+        finish(createAbortError());
       };
       const step = (time: number): void => {
+        if (finished) {
+          return;
+        }
         if (document.hidden) {
           previousTime = undefined;
-          requestAnimationFrame(step);
+          schedule();
           return;
         }
         if (previousTime === undefined) {
@@ -34,7 +64,7 @@ export class GrassQaMetrics {
             finish();
             return;
           }
-          requestAnimationFrame(step);
+          schedule();
           return;
         }
 
@@ -49,11 +79,12 @@ export class GrassQaMetrics {
           finish();
           return;
         }
-        requestAnimationFrame(step);
+        schedule();
       };
 
       document.addEventListener("visibilitychange", handleVisibilityChange);
-      requestAnimationFrame(step);
+      signal?.addEventListener("abort", handleAbort, { once: true });
+      schedule();
     });
   }
 
@@ -102,4 +133,8 @@ export class GrassQaMetrics {
   private round(value: number): number {
     return Math.round(value * 100) / 100;
   }
+}
+
+function createAbortError(): Error {
+  return new DOMException("QA frame sampling aborted.", "AbortError");
 }

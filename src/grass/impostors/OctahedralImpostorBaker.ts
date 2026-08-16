@@ -4,6 +4,7 @@ import { OctahedralMapping, type OctahedralView } from "./OctahedralMapping";
 
 const BAKE_LAYER = 31;
 const PNG_TYPE = "image/png";
+const DOWNLOAD_REVOKE_DELAY_MS = 1_000;
 
 interface SavedObjectState {
   object: THREE.Object3D;
@@ -46,6 +47,11 @@ export interface ImpostorBakeRequest {
   source: THREE.Object3D;
   bounds: THREE.Box3;
   config: GrassImpostorConfig;
+}
+
+export interface ImpostorDownloadPanel {
+  readonly element: HTMLDivElement;
+  dispose(): void;
 }
 
 export class OctahedralImpostorBaker {
@@ -132,17 +138,56 @@ export class OctahedralImpostorBaker {
   createDownloadLinks(
     result: ImpostorBakeResult,
     filePrefix: string,
-  ): HTMLDivElement {
+  ): ImpostorDownloadPanel {
     const panel = document.createElement("div");
+    const objectUrls = new Set<string>();
+    const timeoutHandles = new Set<number>();
+    let disposed = false;
+
+    const revokeObjectUrl = (objectUrl: string): void => {
+      if (!objectUrls.delete(objectUrl)) {
+        return;
+      }
+      URL.revokeObjectURL(objectUrl);
+    };
+    const createDownloadLink = (
+      blob: Blob,
+      fileName: string,
+      label: string,
+    ): HTMLAnchorElement => {
+      const link = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrls.add(objectUrl);
+      link.href = objectUrl;
+      link.download = fileName;
+      link.textContent = label;
+      link.style.color = "#fff";
+      link.addEventListener(
+        "click",
+        () => {
+          if (disposed || !objectUrls.has(objectUrl)) {
+            return;
+          }
+          const handle = window.setTimeout(() => {
+            timeoutHandles.delete(handle);
+            revokeObjectUrl(objectUrl);
+          }, DOWNLOAD_REVOKE_DELAY_MS);
+          timeoutHandles.add(handle);
+        },
+        { once: true },
+      );
+      return link;
+    };
+
     panel.style.cssText =
       "position:fixed;left:12px;bottom:12px;z-index:10000;padding:12px;background:#111d;color:#fff;font:13px sans-serif;border-radius:8px;display:flex;gap:10px";
     panel.append(
-      this.createDownloadLink(
+      createDownloadLink(
         result.atlas,
         `${filePrefix}-albedo.png`,
         "Download atlas",
       ),
-      this.createDownloadLink(
+      createDownloadLink(
         new Blob([JSON.stringify(result.metadata, null, 2)], {
           type: "application/json",
         }),
@@ -151,7 +196,25 @@ export class OctahedralImpostorBaker {
       ),
     );
     document.body.appendChild(panel);
-    return panel;
+
+    return {
+      element: panel,
+      dispose: (): void => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        for (const handle of timeoutHandles) {
+          window.clearTimeout(handle);
+        }
+        timeoutHandles.clear();
+        for (const objectUrl of objectUrls) {
+          URL.revokeObjectURL(objectUrl);
+        }
+        objectUrls.clear();
+        panel.remove();
+      },
+    };
   }
 
   private createCamera(
@@ -313,23 +376,5 @@ export class OctahedralImpostorBaker {
       })),
       pendingPasses: ["normal-roughness", "linear-depth-thickness"],
     };
-  }
-
-  private createDownloadLink(
-    blob: Blob,
-    fileName: string,
-    label: string,
-  ): HTMLAnchorElement {
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = fileName;
-    link.textContent = label;
-    link.style.color = "#fff";
-    link.addEventListener(
-      "click",
-      () => window.setTimeout(() => URL.revokeObjectURL(link.href), 1_000),
-      { once: true },
-    );
-    return link;
   }
 }

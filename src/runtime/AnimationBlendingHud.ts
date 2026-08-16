@@ -18,14 +18,12 @@ export class AnimationBlendingHud {
   private crossfadeStartWeights = { idle: 1, walk: 0, run: 0 };
   private crossfadeTargetWeights = { idle: 1, walk: 0, run: 0 };
 
-  // Slider elements
   private idleSlider!: HTMLInputElement;
   private walkSlider!: HTMLInputElement;
   private runSlider!: HTMLInputElement;
   private idleValSpan!: HTMLElement;
   private walkValSpan!: HTMLElement;
   private runValSpan!: HTMLElement;
-
   private sneakSlider!: HTMLInputElement;
   private sadSlider!: HTMLInputElement;
   private agreeSlider!: HTMLInputElement;
@@ -34,7 +32,6 @@ export class AnimationBlendingHud {
   private sadValSpan!: HTMLElement;
   private agreeValSpan!: HTMLElement;
   private headShakeValSpan!: HTMLElement;
-
   private autoBtn!: HTMLButtonElement;
   private disposed = false;
 
@@ -54,9 +51,14 @@ export class AnimationBlendingHud {
     this.buildPanelDom();
     this.container.appendChild(this.toggleBtn);
     this.container.appendChild(this.panel);
-    document.body.appendChild(this.container);
-
-    this.bindEvents();
+    try {
+      document.body.appendChild(this.container);
+      this.bindEvents();
+    } catch (error) {
+      window.removeEventListener("keydown", this.handleKeyDown);
+      this.container.remove();
+      throw error;
+    }
   }
 
   attachCharacter(character: SnowflowCharacter | null): void {
@@ -68,7 +70,6 @@ export class AnimationBlendingHud {
       return;
     }
 
-    // Handle active crossfade
     if (this.crossfadeTarget !== null && this.crossfadeDuration > 0) {
       this.crossfadeElapsed += deltaSeconds;
       const t = Math.min(1, this.crossfadeElapsed / this.crossfadeDuration);
@@ -97,7 +98,6 @@ export class AnimationBlendingHud {
       }
     }
 
-    // Update displays
     const weights = this.character.getLocomotionBlendWeights();
     if (this.autoLocomotion && this.crossfadeTarget === null) {
       this.idleSlider.value = weights.idle.toFixed(2);
@@ -119,7 +119,6 @@ export class AnimationBlendingHud {
     this.sadSlider.value = sadW.toFixed(2);
     this.agreeSlider.value = agreeW.toFixed(2);
     this.headShakeSlider.value = headShakeW.toFixed(2);
-
     this.sneakValSpan.textContent = sneakW.toFixed(2);
     this.sadValSpan.textContent = sadW.toFixed(2);
     this.agreeValSpan.textContent = agreeW.toFixed(2);
@@ -203,12 +202,11 @@ export class AnimationBlendingHud {
 
       <div class="anim-section">
         <div class="anim-section-title">
-          <span>Stance & Actions</span>
+          <span>Gameplay Actions</span>
         </div>
+        <p>Crouch: C · Dodge roll: R</p>
         <div class="anim-btn-group">
-          <button type="button" data-action="crouch">Crouch [C]</button>
-          <button type="button" data-action="roll">Dodge Roll [R]</button>
-          <button type="button" data-action="look">Look Camera</button>
+          <button type="button" data-action="look">Clear Look Target</button>
         </div>
       </div>
     `;
@@ -219,7 +217,6 @@ export class AnimationBlendingHud {
     this.idleValSpan = this.panel.querySelector("[data-idle-val]")!;
     this.walkValSpan = this.panel.querySelector("[data-walk-val]")!;
     this.runValSpan = this.panel.querySelector("[data-run-val]")!;
-
     this.sneakSlider = this.panel.querySelector("[data-sneak-slider]")!;
     this.sadSlider = this.panel.querySelector("[data-sad-slider]")!;
     this.agreeSlider = this.panel.querySelector("[data-agree-slider]")!;
@@ -228,7 +225,6 @@ export class AnimationBlendingHud {
     this.sadValSpan = this.panel.querySelector("[data-sad-val]")!;
     this.agreeValSpan = this.panel.querySelector("[data-agree-val]")!;
     this.headShakeValSpan = this.panel.querySelector("[data-headshake-val]")!;
-
     this.autoBtn = this.panel.querySelector(".anim-auto-btn")!;
   }
 
@@ -242,7 +238,6 @@ export class AnimationBlendingHud {
       this.toggleVisibility(false);
     });
 
-    // Locomotion slider inputs
     const handleLocomotionChange = () => {
       this.autoLocomotion = false;
       this.crossfadeTarget = null;
@@ -264,7 +259,6 @@ export class AnimationBlendingHud {
       this.character?.setExplicitLocomotionWeights(null);
     });
 
-    // Crossfade buttons
     this.panel
       .querySelectorAll<HTMLButtonElement>("[data-fade]")
       .forEach((btn) => {
@@ -274,7 +268,6 @@ export class AnimationBlendingHud {
         });
       });
 
-    // Additive sliders
     this.sneakSlider.addEventListener("input", () => {
       this.character?.setAdditiveWeight(
         ADDITIVE_ACTION_SNEAK,
@@ -300,7 +293,6 @@ export class AnimationBlendingHud {
       );
     });
 
-    // Quick toggle buttons
     this.panel
       .querySelectorAll<HTMLButtonElement>("[data-toggle-additive]")
       .forEach((btn) => {
@@ -312,7 +304,6 @@ export class AnimationBlendingHud {
         });
       });
 
-    // Reset additives
     const resetAdditiveBtn = this.panel.querySelector(
       ".anim-reset-additive-btn",
     );
@@ -323,19 +314,11 @@ export class AnimationBlendingHud {
       this.character?.fadeAdditiveWeight(ADDITIVE_ACTION_HEAD_SHAKE, 0, 0.3);
     });
 
-    const actionBtns = this.panel.querySelectorAll<HTMLButtonElement>("[data-action]");
-    actionBtns.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const act = btn.getAttribute("data-action");
-        if (act === "crouch" && this.character) {
-          this.character.setCrouch(!this.character.isCrouched());
-        } else if (act === "roll" && this.character) {
-          this.character.triggerRoll();
-        } else if (act === "look" && this.character) {
-          this.character.clearLookTarget();
-        }
+    this.panel
+      .querySelector<HTMLButtonElement>('[data-action="look"]')
+      ?.addEventListener("click", () => {
+        this.character?.clearLookTarget();
       });
-    });
 
     window.addEventListener("keydown", this.handleKeyDown);
   }

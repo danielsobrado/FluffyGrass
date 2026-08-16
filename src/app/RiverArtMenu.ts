@@ -2,7 +2,7 @@ import type { WorldController } from "../controls/WorldController";
 import {
   clearRiverDevelopmentOverrides,
   readRiverDevelopmentOverrides,
-  serializeWorldConfigYaml,
+  serializeRiverConfigYaml,
   writeRiverDevelopmentOverrides,
   type RiverDevelopmentOverrideKey,
   type RiverDevelopmentOverrides,
@@ -22,6 +22,7 @@ import { validateWorldConfig } from "../world/WorldConfigValidator";
 import { validateRiverWidthEnvelope } from "../world/hydrology/RiverTuning";
 import type { WaterBedLiveVisuals } from "../world/hydrology/WaterBedMaterialController";
 import type { WaterSurfaceLiveVisuals } from "../world/hydrology/WaterMaterialController";
+import { downloadTextFile } from "./TextDownload";
 
 type LiveVisuals = WaterSurfaceLiveVisuals & WaterBedLiveVisuals;
 
@@ -57,6 +58,13 @@ const LIVE_KEYS = [
   "waterRoughness",
   "waterGlintStrength",
 ] as const satisfies readonly RiverDevelopmentOverrideKey[];
+
+const STEP_OVERRIDES: Partial<Record<RiverDevelopmentOverrideKey, number>> = {
+  riverBendBankAsymmetry: 0.005,
+  waterFlowSpeed: 0.01,
+  waterRippleScale: 0.005,
+  waterRoughness: 0.005,
+};
 
 const LANDMARKS: Array<{ key: RiverTuningLandmark; label: string }> = [
   { key: "pool", label: "Go: Pool" },
@@ -148,7 +156,9 @@ export class RiverArtMenu {
     this.addHeading("QA");
     for (const landmark of LANDMARKS) {
       this.addButton(landmark.label, () => {
-        void this.goToLandmark(landmark.key);
+        void this.goToLandmark(landmark.key).catch((error) => {
+          console.warn("[Drusniel World] River tuning landmark unavailable.", error);
+        });
       });
     }
 
@@ -178,11 +188,13 @@ export class RiverArtMenu {
     setting: RiverDevelopmentOverrideKey,
   ): void {
     const rule = WORLD_CONFIG_SCHEMA[setting];
+    const minimum = rule.minimum ?? 0;
+    const maximum = rule.maximum ?? 1;
     const input = document.createElement("input");
     input.type = "range";
-    input.min = String(rule.minimum ?? 0);
-    input.max = String(rule.maximum ?? 1);
-    input.step = String(resolveStep(rule.minimum ?? 0, rule.maximum ?? 1));
+    input.min = String(minimum);
+    input.max = String(maximum);
+    input.step = String(resolveStep(setting, minimum, maximum));
     const output = document.createElement("output");
     input.addEventListener("input", () => {
       this.setNumericSetting(setting, Number(input.value));
@@ -212,6 +224,10 @@ export class RiverArtMenu {
     setting: RiverDevelopmentOverrideKey,
     value: number,
   ): void {
+    if (!Number.isFinite(value)) {
+      this.syncControl(setting);
+      return;
+    }
     const previous = this.working[setting];
     this.working[setting] = value;
     if (isGeometryKey(setting)) {
@@ -249,7 +265,7 @@ export class RiverArtMenu {
   };
 
   private readonly exportYaml = (event: MouseEvent): void => {
-    const yaml = serializeWorldConfigYaml(this.working);
+    const yaml = serializeRiverConfigYaml(this.working);
     const button = event.currentTarget as HTMLButtonElement;
     this.showExportStatus(button, "YAML downloaded");
     const clipboard = navigator.clipboard;
@@ -259,19 +275,11 @@ export class RiverArtMenu {
         .then(() => this.showExportStatus(button, "YAML copied + downloaded"))
         .catch(() => undefined);
     }
-    const url = URL.createObjectURL(
-      new Blob([yaml], { type: "application/yaml;charset=utf-8" }),
+    downloadTextFile(
+      "world-river-tuning.yaml",
+      yaml,
+      "application/yaml;charset=utf-8",
     );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "world-river-tuning.yaml";
-    anchor.hidden = true;
-    document.body.appendChild(anchor);
-    anchor.click();
-    requestAnimationFrame(() => {
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    });
   };
 
   private async goToLandmark(landmark: RiverTuningLandmark): Promise<void> {
@@ -282,23 +290,19 @@ export class RiverArtMenu {
       return;
     }
     const origin = this.host.controls.getStreamingPosition();
+    const originX = origin.x;
+    const originZ = origin.z;
     const moved =
       !Number.isFinite(this.locationsOriginX) ||
-      Math.hypot(
-        origin.x - this.locationsOriginX,
-        origin.z - this.locationsOriginZ,
-      ) > 64;
+      Math.hypot(originX - this.locationsOriginX, originZ - this.locationsOriginZ) >
+        64;
     if (!this.locations || moved) {
-      const task = findWorldVisualLocations(
-        this.host.field,
-        origin.x,
-        origin.z,
-      );
+      const task = findWorldVisualLocations(this.host.field, originX, originZ);
       this.locationsTask = task;
       try {
         this.locations = await task;
-        this.locationsOriginX = origin.x;
-        this.locationsOriginZ = origin.z;
+        this.locationsOriginX = originX;
+        this.locationsOriginZ = originZ;
       } finally {
         if (this.locationsTask === task) {
           this.locationsTask = undefined;
@@ -325,7 +329,7 @@ export class RiverArtMenu {
       return;
     }
     input.value = String(this.working[setting]);
-    output.value = formatValue(this.working[setting]);
+    output.value = formatValue(this.working[setting], Number(input.step));
   }
 
   private showExportStatus(button: HTMLButtonElement, status: string): void {
@@ -381,15 +385,21 @@ function collectLiveOverrides(config: WorldConfig): RiverDevelopmentOverrides {
   return overrides;
 }
 
-function resolveStep(minimum: number, maximum: number): number {
-  const span = maximum - minimum;
-  if (span <= 2) return 0.01;
-  return 0.05;
+function resolveStep(
+  setting: RiverDevelopmentOverrideKey,
+  minimum: number,
+  maximum: number,
+): number {
+  const override = STEP_OVERRIDES[setting];
+  if (override !== undefined) {
+    return override;
+  }
+  return maximum - minimum <= 2 ? 0.01 : 0.05;
 }
 
-function formatValue(value: number): string {
+function formatValue(value: number, step: number): string {
   if (Number.isInteger(value)) {
     return String(value);
   }
-  return value.toFixed(2);
+  return value.toFixed(step < 0.01 ? 3 : 2);
 }

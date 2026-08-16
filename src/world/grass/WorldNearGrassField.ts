@@ -12,6 +12,7 @@ import {
   GRASS_WIND_NOISE_SPEED,
   getGrassWindNoiseTexture,
 } from "../../grass/wind/WindNoiseTexture";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import { APP_VERSION } from "../../version";
 import type { TerrainField } from "../TerrainField";
@@ -58,6 +59,14 @@ interface NearFieldBuilder {
   update(focus: THREE.Vector3, buildDeadline?: number): void;
 }
 
+interface NearGrassResources {
+  readonly baseMaterial: GrassNearMaterial;
+  readonly bridgeMaterial: GrassNearMaterial;
+  readonly baseDetailMaterial: GrassNearMaterial;
+  readonly ultraNearMaterial: GrassNearMaterial;
+  readonly detailFoliageTuning: DetailFoliageTuning;
+}
+
 export class WorldNearGrassField {
   private readonly configLoader = new GrassConfigLoader();
   // The ultra-near detail layer, regular near layer, and bridge are separate
@@ -97,53 +106,12 @@ export class WorldNearGrassField {
     private readonly worldConfig: WorldConfig,
     private readonly profile: RuntimeProfile,
   ) {
-    const windMode = profile.compact ? "sine" : "noise";
-    this.baseMaterial = new GrassNearMaterial({
-      name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v25-base-vertex-palette-${windMode}`,
-      detailMode: 1,
-      ditherSeed: BASE_SEED_SALT,
-      vertexPalette: true,
-      interactive: true,
-      subPixelWidth: true,
-      noiseWind: !profile.compact,
-      microWind: !profile.compact,
-    });
-    this.bridgeMaterial = new GrassNearMaterial({
-      name: "world-grass-near-bridge-material",
-      cacheKey: `grass-near-material-v25-bridge-vertex-palette-${windMode}`,
-      // Outside the bridge-entry radius, using the same dither as LOD0. This
-      // makes LOD0 -> bridge a strict partition of one placement set.
-      detailMode: 1,
-      ditherSeed: BASE_SEED_SALT,
-      vertexPalette: true,
-      interactive: true,
-      subPixelWidth: true,
-      // The bridge is a genuine cheaper representation: close sheen is already
-      // being handed off and the patch LOD it feeds does not carry it either.
-      sheen: false,
-      noiseWind: !profile.compact,
-      microWind: false,
-    });
-    this.baseDetailMaterial = new GrassNearMaterial({
-      name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v25-detail-${windMode}`,
-      detailMode: 2,
-      ditherSeed: BASE_SEED_SALT,
-      interactive: true,
-      noiseWind: !profile.compact,
-      microWind: !profile.compact,
-    });
-    this.ultraNearMaterial = new GrassNearMaterial({
-      name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v25-ultra-${windMode}`,
-      detailMode: 0,
-      ditherSeed: ULTRA_NEAR_SEED_SALT,
-      interactive: true,
-      noiseWind: !profile.compact,
-      microWind: !profile.compact,
-    });
-    this.detailFoliageTuning = createDetailFoliageTuning(worldConfig);
+    const resources = createNearGrassResources(profile, worldConfig);
+    this.baseMaterial = resources.baseMaterial;
+    this.bridgeMaterial = resources.bridgeMaterial;
+    this.baseDetailMaterial = resources.baseDetailMaterial;
+    this.ultraNearMaterial = resources.ultraNearMaterial;
+    this.detailFoliageTuning = resources.detailFoliageTuning;
   }
 
   initialize(grassConfig?: GrassConfig): Promise<void> {
@@ -151,7 +119,17 @@ export class WorldNearGrassField {
       return Promise.reject(new Error("WorldNearGrassField has been disposed."));
     }
     if (!this.initialization) {
-      this.initialization = this.initializeInternal(grassConfig);
+      this.initialization = this.initializeInternal(grassConfig).catch((error) => {
+        try {
+          this.dispose();
+        } catch (cleanupError) {
+          console.warn(
+            "[Drusniel World] Near grass initialization cleanup failed.",
+            cleanupError,
+          );
+        }
+        throw error;
+      });
     }
     return this.initialization;
   }
@@ -403,47 +381,70 @@ export class WorldNearGrassField {
   }
 
   private createDetailFoliageLayer(grassConfig: GrassConfig): void {
-    const atlas = new WorldDetailFoliageAtlasFactory().create();
-    const material = new WorldDetailFoliageMaterial(
-      atlas,
-      grassConfig.material,
-      grassConfig.wind,
-      {
-        fadeDistance: DETAIL_FOLIAGE_FADE_DISTANCE,
-        fadeTransition: DETAIL_FOLIAGE_FADE_TRANSITION,
-        noiseWind: !this.profile.compact,
-      },
-    );
-    material.applyArtDirection(this.artDirection);
-    if (!this.profile.compact) {
-      material.setWindNoise(
-        getGrassWindNoiseTexture(),
-        GRASS_WIND_NOISE_SCALE,
-        GRASS_WIND_NOISE_SPEED,
+    let atlas: WorldDetailFoliageAtlas | undefined;
+    let material: WorldDetailFoliageMaterial | undefined;
+    let factory: WorldDetailFoliageFactory | undefined;
+    let field: WorldDetailFoliageField | undefined;
+    try {
+      atlas = new WorldDetailFoliageAtlasFactory().create();
+      material = new WorldDetailFoliageMaterial(
+        atlas,
+        grassConfig.material,
+        grassConfig.wind,
+        {
+          fadeDistance: DETAIL_FOLIAGE_FADE_DISTANCE,
+          fadeTransition: DETAIL_FOLIAGE_FADE_TRANSITION,
+          noiseWind: !this.profile.compact,
+        },
       );
+      material.applyArtDirection(this.artDirection);
+      if (!this.profile.compact) {
+        material.setWindNoise(
+          getGrassWindNoiseTexture(),
+          GRASS_WIND_NOISE_SCALE,
+          GRASS_WIND_NOISE_SPEED,
+        );
+      }
+      factory = new WorldDetailFoliageFactory(
+        this.field,
+        this.worldConfig,
+        grassConfig,
+        material,
+        this.detailFoliageTuning,
+      );
+      field = new WorldDetailFoliageField(
+        this.scene,
+        factory,
+        material,
+        {
+          namePrefix: "world-grass-detail-foliage",
+          tilesPerFrame: DETAIL_FOLIAGE_TILES_PER_FRAME,
+        },
+      );
+      field.setDensityScale(
+        this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1,
+      );
+
+      this.detailFoliageAtlas = atlas;
+      this.detailFoliageMaterial = material;
+      this.detailFoliageFactory = factory;
+      this.detailFoliageField = field;
+    } catch (error) {
+      try {
+        disposeResources([
+          field,
+          factory,
+          material,
+          material ? undefined : atlas?.texture,
+        ]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Detail foliage construction cleanup failed.",
+          cleanupError,
+        );
+      }
+      throw error;
     }
-    const factory = new WorldDetailFoliageFactory(
-      this.field,
-      this.worldConfig,
-      grassConfig,
-      material,
-      this.detailFoliageTuning,
-    );
-    this.detailFoliageAtlas = atlas;
-    this.detailFoliageMaterial = material;
-    this.detailFoliageFactory = factory;
-    this.detailFoliageField = new WorldDetailFoliageField(
-      this.scene,
-      factory,
-      material,
-      {
-        namePrefix: "world-grass-detail-foliage",
-        tilesPerFrame: DETAIL_FOLIAGE_TILES_PER_FRAME,
-      },
-    );
-    this.detailFoliageField.setDensityScale(
-      this.profile.compact ? COMPACT_DETAIL_FOLIAGE_SCALE : 1,
-    );
   }
 
   private resolveBaseVisibilityRadius(
@@ -533,27 +534,40 @@ export class WorldNearGrassField {
     }
     this.disposed = true;
     this.initialized = false;
-    this.baseField?.dispose();
-    this.bridgeField?.dispose();
-    this.baseDetailedField?.dispose();
-    this.ultraNearField?.dispose();
-    this.detailFoliageField?.dispose();
+
+    const baseField = this.baseField;
+    const bridgeField = this.bridgeField;
+    const baseDetailedField = this.baseDetailedField;
+    const ultraNearField = this.ultraNearField;
+    const detailFoliageField = this.detailFoliageField;
+    const factory = this.factory;
+    const detailFoliageFactory = this.detailFoliageFactory;
+    const detailFoliageMaterial = this.detailFoliageMaterial;
+
     this.baseField = undefined;
     this.bridgeField = undefined;
     this.baseDetailedField = undefined;
     this.ultraNearField = undefined;
     this.detailFoliageField = undefined;
-    this.factory?.dispose();
     this.factory = undefined;
-    this.detailFoliageFactory?.dispose();
     this.detailFoliageFactory = undefined;
-    this.baseMaterial.material.dispose();
-    this.bridgeMaterial.material.dispose();
-    this.baseDetailMaterial.material.dispose();
-    this.ultraNearMaterial.material.dispose();
-    this.detailFoliageMaterial?.dispose();
     this.detailFoliageMaterial = undefined;
     this.detailFoliageAtlas = undefined;
+
+    disposeResources([
+      baseField,
+      bridgeField,
+      baseDetailedField,
+      ultraNearField,
+      detailFoliageField,
+      factory,
+      detailFoliageFactory,
+      this.baseMaterial.material,
+      this.bridgeMaterial.material,
+      this.baseDetailMaterial.material,
+      this.ultraNearMaterial.material,
+      detailFoliageMaterial,
+    ]);
   }
 
   private async initializeInternal(
@@ -753,5 +767,78 @@ export class WorldNearGrassField {
 
     this.createDetailFoliageLayer(grassConfig);
     this.initialized = true;
+  }
+}
+
+function createNearGrassResources(
+  profile: RuntimeProfile,
+  worldConfig: WorldConfig,
+): NearGrassResources {
+  const created: GrassNearMaterial[] = [];
+  try {
+    const windMode = profile.compact ? "sine" : "noise";
+    const baseMaterial = new GrassNearMaterial({
+      name: "world-grass-single-blade-material",
+      cacheKey: `grass-near-material-v25-base-vertex-palette-${windMode}`,
+      detailMode: 1,
+      ditherSeed: BASE_SEED_SALT,
+      vertexPalette: true,
+      interactive: true,
+      subPixelWidth: true,
+      noiseWind: !profile.compact,
+      microWind: !profile.compact,
+    });
+    created.push(baseMaterial);
+    const bridgeMaterial = new GrassNearMaterial({
+      name: "world-grass-near-bridge-material",
+      cacheKey: `grass-near-material-v25-bridge-vertex-palette-${windMode}`,
+      detailMode: 1,
+      ditherSeed: BASE_SEED_SALT,
+      vertexPalette: true,
+      interactive: true,
+      subPixelWidth: true,
+      sheen: false,
+      noiseWind: !profile.compact,
+      microWind: false,
+    });
+    created.push(bridgeMaterial);
+    const baseDetailMaterial = new GrassNearMaterial({
+      name: "world-grass-base-detail-material",
+      cacheKey: `grass-near-material-v25-detail-${windMode}`,
+      detailMode: 2,
+      ditherSeed: BASE_SEED_SALT,
+      interactive: true,
+      noiseWind: !profile.compact,
+      microWind: !profile.compact,
+    });
+    created.push(baseDetailMaterial);
+    const ultraNearMaterial = new GrassNearMaterial({
+      name: "world-grass-ultra-near-single-blade-material",
+      cacheKey: `grass-near-material-v25-ultra-${windMode}`,
+      detailMode: 0,
+      ditherSeed: ULTRA_NEAR_SEED_SALT,
+      interactive: true,
+      noiseWind: !profile.compact,
+      microWind: !profile.compact,
+    });
+    created.push(ultraNearMaterial);
+
+    return {
+      baseMaterial,
+      bridgeMaterial,
+      baseDetailMaterial,
+      ultraNearMaterial,
+      detailFoliageTuning: createDetailFoliageTuning(worldConfig),
+    };
+  } catch (error) {
+    try {
+      disposeResources(created.map((material) => material.material));
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Near grass construction cleanup failed.",
+        cleanupError,
+      );
+    }
+    throw error;
   }
 }

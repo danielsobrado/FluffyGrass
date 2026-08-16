@@ -19,31 +19,53 @@ export class WorldDiagnosticsController {
   private readonly originalRender: THREE.WebGLRenderer["render"];
   private readonly probe: GrassWorkloadProbe;
   private readonly gpuTimer: GpuFrameTimer;
-  private readonly hud = new WorldDiagnosticsHud();
+  private readonly hud: WorldDiagnosticsHud;
   private lastHudUpdate = 0;
   private enabled = true;
   private disposed = false;
 
-  private constructor(app: unknown, options: WorldDiagnosticsOptions) {
-    const runtime = resolveWorldDiagnosticsRuntime(app);
-    this.scene = runtime.scene;
-    this.renderer = runtime.renderer;
-    this.originalRender = this.renderer.render;
-    this.probe = new GrassWorkloadProbe(runtime.grass);
-    this.gpuTimer = new GpuFrameTimer(
-      this.renderer,
-      options.gpuTiming && !options.statsPanelEnabled,
-    );
-    this.renderer.render = this.renderWithDiagnostics;
+  private constructor(
+    scene: THREE.Scene,
+    renderer: THREE.WebGLRenderer,
+    probe: GrassWorkloadProbe,
+    gpuTimer: GpuFrameTimer,
+    hud: WorldDiagnosticsHud,
+  ) {
+    this.scene = scene;
+    this.renderer = renderer;
+    this.probe = probe;
+    this.gpuTimer = gpuTimer;
+    this.hud = hud;
+    this.originalRender = renderer.render;
+    renderer.render = this.renderWithDiagnostics;
   }
 
   static attach(
     app: unknown,
     options: WorldDiagnosticsOptions,
   ): WorldDiagnosticsController | undefined {
+    let probe: GrassWorkloadProbe | undefined;
+    let gpuTimer: GpuFrameTimer | undefined;
+    let hud: WorldDiagnosticsHud | undefined;
     try {
-      return new WorldDiagnosticsController(app, options);
+      const runtime = resolveWorldDiagnosticsRuntime(app);
+      probe = new GrassWorkloadProbe(runtime.grass);
+      gpuTimer = new GpuFrameTimer(
+        runtime.renderer,
+        options.gpuTiming && !options.statsPanelEnabled,
+      );
+      hud = new WorldDiagnosticsHud();
+      return new WorldDiagnosticsController(
+        runtime.scene,
+        runtime.renderer,
+        probe,
+        gpuTimer,
+        hud,
+      );
     } catch (error) {
+      disposeSafely(hud, "Diagnostics HUD");
+      disposeSafely(gpuTimer, "GPU frame timer");
+      disposeSafely(probe, "Grass workload probe");
       console.warn("[Drusniel World] Workload diagnostics unavailable.", error);
       return undefined;
     }
@@ -56,9 +78,9 @@ export class WorldDiagnosticsController {
     this.disposed = true;
     this.enabled = false;
     this.restoreRenderer();
-    this.probe.dispose();
-    this.hud.dispose();
-    this.gpuTimer.dispose();
+    disposeSafely(this.probe, "Grass workload probe");
+    disposeSafely(this.hud, "Diagnostics HUD");
+    disposeSafely(this.gpuTimer, "GPU frame timer");
   }
 
   private readonly renderWithDiagnostics: THREE.WebGLRenderer["render"] = (
@@ -113,5 +135,19 @@ export class WorldDiagnosticsController {
     if (this.renderer.render === this.renderWithDiagnostics) {
       this.renderer.render = this.originalRender;
     }
+  }
+}
+
+function disposeSafely(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }

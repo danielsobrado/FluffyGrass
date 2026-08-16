@@ -91,9 +91,9 @@ export class MobileJoystick {
     }
     event.preventDefault();
     event.stopPropagation();
+    this.element.setPointerCapture(event.pointerId);
     this.pointerId = event.pointerId;
     this.element.dataset.active = "true";
-    this.element.setPointerCapture(event.pointerId);
     this.update(event);
     this.onInput();
   };
@@ -114,16 +114,21 @@ export class MobileJoystick {
     }
     event.preventDefault();
     event.stopPropagation();
-    if (this.element.hasPointerCapture(event.pointerId)) {
-      this.element.releasePointerCapture(event.pointerId);
+    try {
+      if (this.element.hasPointerCapture(event.pointerId)) {
+        this.element.releasePointerCapture(event.pointerId);
+      }
+    } finally {
+      this.reset();
+      this.onInput();
     }
-    this.reset();
-    this.onInput();
   };
 
   private readonly handleLostPointerCapture = (event: PointerEvent): void => {
-    if (this.pointerId === event.pointerId) {
-      this.reset();
+    if (this.pointerId !== event.pointerId) {
+      return;
     }
+    this.reset();
+    this.onInput();
   };
 }

@@ -16,3 +16,14 @@ export function requestPointerLockSafely(canvas: HTMLCanvasElement): void {
     // Pointer lock is an optional enhancement and may be denied by the browser.
   }
 }
+
+export function exitPointerLockSafely(): void {
+  try {
+    const request: unknown = document.exitPointerLock();
+    if (request instanceof Promise) {
+      void request.catch(() => undefined);
+    }
+  } catch {
+    // Pointer lock release is best-effort during UI transitions and cleanup.
+  }
+}

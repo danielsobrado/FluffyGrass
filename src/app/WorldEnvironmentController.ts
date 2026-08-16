@@ -30,10 +30,12 @@ export class WorldEnvironmentController {
   private readonly sun: THREE.DirectionalLight;
   private readonly hemisphere: THREE.HemisphereLight;
   private readonly sky: WorldSky;
+  private readonly shadowMapSize: number;
   private readonly shadowTexelSize: number;
   private shadowFocusX = Number.NaN;
   private shadowFocusY = Number.NaN;
   private shadowFocusZ = Number.NaN;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -50,20 +52,39 @@ export class WorldEnvironmentController {
       WORLD_DEFAULT_SUN,
       WORLD_DEFAULT_SUN_INTENSITY,
     );
+    this.shadowMapSize = Math.max(
+      1,
+      Math.min(
+        this.profile.shadowMapSize,
+        this.renderer.capabilities.maxTextureSize,
+      ),
+    );
     this.shadowTexelSize =
-      (2 * WORLD_SUN_SHADOW_HALF_EXTENT) /
-      Math.max(1, this.profile.shadowMapSize);
+      (2 * WORLD_SUN_SHADOW_HALF_EXTENT) / this.shadowMapSize;
     this.sun.position
       .copy(SUN_DIRECTION)
       .multiplyScalar(WORLD_SUN_SHADOW_DISTANCE);
     this.sun.castShadow = shadowsEnabled;
     this.configureShadow();
-    this.scene.add(this.hemisphere, this.sun, this.sun.target);
-    this.sky = new WorldSky(this.scene, this.renderer, this.profile.compact);
-    this.applyArtDirection();
+
+    let sky: WorldSky | undefined;
+    try {
+      sky = new WorldSky(this.scene, this.renderer, this.profile.compact);
+      this.sky = sky;
+      this.scene.add(this.hemisphere, this.sun, this.sun.target);
+      this.applyArtDirection();
+    } catch (error) {
+      disposeSafely(sky, "Sky");
+      disposeSafely(this.sun.shadow, "Sun shadow");
+      this.scene.remove(this.hemisphere, this.sun, this.sun.target);
+      throw error;
+    }
   }
 
   applyArtDirection(_direction?: GrassArtDirection): void {
+    if (this.disposed) {
+      return;
+    }
     this.scene.fog = new THREE.FogExp2(
       WORLD_DEFAULT_FOG,
       this.profile.compact
@@ -79,7 +100,13 @@ export class WorldEnvironmentController {
   }
 
   updateShadow(focus: THREE.Vector3): void {
-    if (!this.sun.castShadow) {
+    if (
+      this.disposed ||
+      !this.sun.castShadow ||
+      !Number.isFinite(focus.x) ||
+      !Number.isFinite(focus.y) ||
+      !Number.isFinite(focus.z)
+    ) {
       return;
     }
     if (
@@ -114,7 +141,12 @@ export class WorldEnvironmentController {
   }
 
   dispose(): void {
-    this.sky.dispose();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    disposeSafely(this.sky, "Sky");
+    disposeSafely(this.sun.shadow, "Sun shadow");
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);
   }
 
@@ -129,9 +161,17 @@ export class WorldEnvironmentController {
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = 3;
     this.sun.shadow.bias = -0.0008;
-    this.sun.shadow.mapSize.set(
-      this.profile.shadowMapSize,
-      this.profile.shadowMapSize,
-    );
+    this.sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize);
+  }
+}
+
+function disposeSafely(resource: { dispose(): void } | undefined, label: string): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }

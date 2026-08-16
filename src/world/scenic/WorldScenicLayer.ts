@@ -6,12 +6,13 @@ import { WorldFaunaSystem } from "./WorldFaunaSystem";
 import { WorldTreeSystem } from "./WorldTreeSystem";
 
 /**
- * Trees and fauna owned as one failure domain beside stones and grass.
- * Ground rock is the stone field, not a second quad layer.
+ * Trees and fauna owned beside stones and grass without sharing player-control
+ * failure state. Ground rock is the stone field, not a second quad layer.
  */
 export class WorldScenicLayer {
-  private readonly trees: WorldTreeSystem;
-  private readonly life: WorldFaunaSystem;
+  private trees?: WorldTreeSystem;
+  private life?: WorldFaunaSystem;
+  private treesEnabled = true;
   private faunaEnabled = true;
   private disposed = false;
 
@@ -23,27 +24,56 @@ export class WorldScenicLayer {
     spawn: THREE.Vector3,
     shadows: boolean,
   ) {
-    this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
-    this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
+    try {
+      this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
+    } catch (error) {
+      this.treesEnabled = false;
+      console.warn("[Drusniel World] Trees unavailable during initialization.", error);
+    }
+
+    const faunaCount = profile.compact
+      ? config.faunaDeerCompactCount + config.faunaVillagerCompactCount
+      : config.faunaDeerDesktopCount + config.faunaVillagerDesktopCount;
+    if (config.faunaEnabled < 1 || faunaCount === 0) {
+      this.faunaEnabled = false;
+      return;
+    }
+
+    try {
+      this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
+    } catch (error) {
+      this.faunaEnabled = false;
+      console.warn("[Drusniel World] Fauna unavailable during initialization.", error);
+    }
   }
 
   update(deltaSeconds: number, focus: THREE.Vector3): void {
     if (this.disposed) {
       return;
     }
-    this.trees.update(focus);
-    if (!this.faunaEnabled) {
+
+    if (this.treesEnabled && this.trees) {
+      try {
+        this.trees.update(focus);
+      } catch (error) {
+        console.warn("[Drusniel World] Trees disabled after a fault.", error);
+        this.treesEnabled = false;
+        this.disposeTrees();
+      }
+    }
+
+    const life = this.life;
+    if (!this.faunaEnabled || !life) {
       return;
     }
-    // Fauna is ticked inside the controls subsystem, so a fault here would
-    // otherwise take the player's own movement down with it. It gets the same
-    // treatment stones get one level up: fail once, release, keep rendering.
+    // Scenic systems are ticked inside the controls subsystem, so faults here
+    // must release only the failing scenic owner and keep player input alive.
     try {
-      this.life.update(deltaSeconds, focus);
+      life.update(deltaSeconds, focus);
     } catch (error) {
       console.warn("[Drusniel World] Fauna disabled after a fault.", error);
       this.faunaEnabled = false;
-      this.life.dispose();
+      this.disposeFauna();
     }
   }
 
@@ -52,7 +82,35 @@ export class WorldScenicLayer {
       return;
     }
     this.disposed = true;
-    this.trees.dispose();
-    this.life.dispose();
+    this.treesEnabled = false;
+    this.faunaEnabled = false;
+    this.disposeTrees();
+    this.disposeFauna();
+  }
+
+  private disposeTrees(): void {
+    const trees = this.trees;
+    this.trees = undefined;
+    if (!trees) {
+      return;
+    }
+    try {
+      trees.dispose();
+    } catch (error) {
+      console.warn("[Drusniel World] Tree cleanup failed.", error);
+    }
+  }
+
+  private disposeFauna(): void {
+    const life = this.life;
+    this.life = undefined;
+    if (!life) {
+      return;
+    }
+    try {
+      life.dispose();
+    } catch (error) {
+      console.warn("[Drusniel World] Fauna cleanup failed.", error);
+    }
   }
 }

@@ -1,3 +1,4 @@
+import { exitPointerLockSafely } from "../controls/InputTarget";
 import type { WorldController } from "../controls/WorldController";
 import type { TerrainField } from "../world/TerrainField";
 import type { WorldConfig } from "../world/WorldConfig";
@@ -79,10 +80,18 @@ export class WorldMinimap {
     this.terrainCanvas.height = RESOLUTION;
     this.terrainContext = this.terrainCanvas.getContext("2d");
 
-    document.body.appendChild(this.root);
-    this.canvas.addEventListener("pointerdown", this.handlePointerDown);
-    this.canvas.addEventListener("keydown", this.handleCanvasKey);
-    window.addEventListener("keydown", this.handleKeyDown);
+    try {
+      document.body.appendChild(this.root);
+      this.canvas.addEventListener("pointerdown", this.handlePointerDown);
+      this.canvas.addEventListener("keydown", this.handleCanvasKey);
+      window.addEventListener("keydown", this.handleKeyDown, true);
+    } catch (error) {
+      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+      this.canvas.removeEventListener("keydown", this.handleCanvasKey);
+      window.removeEventListener("keydown", this.handleKeyDown, true);
+      this.root.remove();
+      throw error;
+    }
   }
 
   isOpen(): boolean {
@@ -94,15 +103,19 @@ export class WorldMinimap {
     if (!this.open || this.disposed) {
       return;
     }
-    const raster = this.raster;
-    if (!raster) {
-      return;
+    try {
+      const raster = this.raster;
+      if (!raster) {
+        return;
+      }
+      const advanced = raster.advance(BUILD_BUDGET_MS);
+      if (advanced || !this.terrainPainted) {
+        this.paintTerrain();
+      }
+      this.paint();
+    } catch (error) {
+      this.disableAfterFailure(error);
     }
-    const advanced = raster.advance(BUILD_BUDGET_MS);
-    if (advanced || !this.terrainPainted) {
-      this.paintTerrain();
-    }
-    this.paint();
   }
 
   dispose(): void {
@@ -110,9 +123,10 @@ export class WorldMinimap {
       return;
     }
     this.disposed = true;
+    this.open = false;
     this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
     this.canvas.removeEventListener("keydown", this.handleCanvasKey);
-    window.removeEventListener("keydown", this.handleKeyDown);
+    window.removeEventListener("keydown", this.handleKeyDown, true);
     this.root.remove();
   }
 
@@ -124,33 +138,68 @@ export class WorldMinimap {
     if (this.disposed || open === this.open) {
       return;
     }
-    this.open = open;
-    this.root.hidden = !open;
     if (!open) {
+      this.open = false;
+      this.root.hidden = true;
       return;
     }
-    // First open pays for the raster; later opens reuse it.
-    this.raster ??= new WorldMinimapRaster(this.field, this.extent);
-    this.canvas.focus();
-    this.update();
+
+    // First open pays for the raster; later opens reuse it. Build it before the
+    // modal state is published so allocation failure cannot pause world input.
+    const raster = this.raster ?? new WorldMinimapRaster(this.field, this.extent);
+    if (document.pointerLockElement !== null) {
+      exitPointerLockSafely();
+    }
+    this.raster = raster;
+    this.open = true;
+    this.root.hidden = false;
+    try {
+      this.canvas.focus();
+      this.update();
+    } catch (error) {
+      this.open = false;
+      this.root.hidden = true;
+      throw error;
+    }
+  }
+
+  private disableAfterFailure(error: unknown): void {
+    this.open = false;
+    this.root.hidden = true;
+    try {
+      this.dispose();
+    } catch (cleanupError) {
+      console.warn("[Drusniel World] Minimap cleanup failed.", cleanupError);
+    }
+    console.warn("[Drusniel World] Minimap disabled after a fault.", error);
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
-      return;
-    }
     if (isTypingTarget(event.target)) {
       return;
     }
-    if (event.code === "KeyM") {
+    const hasModifier = event.altKey || event.ctrlKey || event.metaKey;
+    if (event.code === "KeyM" && !event.repeat && !hasModifier) {
       event.preventDefault();
+      event.stopPropagation();
       this.toggle();
       return;
     }
     if (event.code === "Escape" && this.open) {
       event.preventDefault();
+      event.stopPropagation();
       this.setOpen(false);
+      return;
     }
+    if (
+      !this.open ||
+      (event.target === this.canvas &&
+        (event.code === "Enter" || event.code === "Space"))
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   private readonly handleCanvasKey = (event: KeyboardEvent): void => {
@@ -158,6 +207,7 @@ export class WorldMinimap {
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     this.travelTo(0.5, 0.5);
   };
 
@@ -180,8 +230,11 @@ export class WorldMinimap {
       v,
       this.worldScratch,
     );
-    this.controls.teleport(destination.x, destination.z);
-    this.setOpen(false);
+    try {
+      this.controls.teleport(destination.x, destination.z);
+    } finally {
+      this.setOpen(false);
+    }
   }
 
   private paintTerrain(): void {

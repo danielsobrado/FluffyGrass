@@ -10,14 +10,15 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { assertSecureNodeRuntime } from "./node-runtime.mjs";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 const CONFIG = Object.freeze({
-  branch: process.env.GITHUB_PAGES_BRANCH ?? "gh-pages",
-  sourceBranch: process.env.GITHUB_PAGES_SOURCE_BRANCH ?? "main",
-  remote: process.env.GITHUB_PAGES_REMOTE ?? "origin",
+  branch: "gh-pages",
+  sourceBranch: "main",
+  remote: "origin",
   distDirectory: resolve(REPOSITORY_ROOT, "dist"),
 });
 
@@ -30,9 +31,6 @@ function run(command, args, options = {}) {
     cwd: options.cwd ?? REPOSITORY_ROOT,
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
-    // Node cannot launch Windows command shims such as npm.cmd directly on
-    // every supported Windows runtime. Use cmd.exe for those shims only; native
-    // executables such as git continue to run without an intermediate shell.
     shell: process.platform === "win32" && command.endsWith(".cmd"),
   });
 
@@ -93,10 +91,10 @@ function assertRepositoryState() {
 }
 
 function assertSourceStillCurrent(expectedHead) {
-  const remoteHead = remoteBranchHead(CONFIG.sourceBranch);
-  if (remoteHead !== expectedHead) {
+  const currentHead = assertRepositoryState();
+  if (currentHead !== expectedHead) {
     throw new Error(
-      `${CONFIG.remote}/${CONFIG.sourceBranch} changed during deployment; rebuild from the new source head.`,
+      `${CONFIG.sourceBranch} changed during deployment; rebuild from the new source head.`,
     );
   }
 }
@@ -111,8 +109,17 @@ function clearWorktree(directory) {
   }
 }
 
-function build() {
+function installAndBuild() {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  log("Auditing the locked dependency graph...");
+  run(npmCommand, [
+    "audit",
+    "--package-lock-only",
+    "--include=dev",
+    "--audit-level=high",
+  ]);
+  log("Installing locked build dependencies...");
+  run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
   log("Building the production site...");
   run(npmCommand, ["run", "build"]);
 
@@ -122,8 +129,9 @@ function build() {
 }
 
 function deploy() {
+  assertSecureNodeRuntime();
   const sourceHead = assertRepositoryState();
-  build();
+  installAndBuild();
   assertSourceStillCurrent(sourceHead);
 
   const deploymentDirectory = mkdtempSync(join(tmpdir(), "fluffygrass-pages-"));
@@ -152,6 +160,7 @@ function deploy() {
     });
 
     if (diff.status === 0) {
+      assertSourceStillCurrent(sourceHead);
       log("No deployment changes were detected.");
       return;
     }

@@ -1,3 +1,4 @@
+import { fetchConfigText } from "../../config/ConfigTextLoader";
 import { FlatConfig } from "../../config/FlatConfig";
 import {
   FlatConfigValueReader,
@@ -20,14 +21,7 @@ function resolveDefaultConfigUrl(): string {
 
 export class GrassConfigLoader {
   async load(url: string = resolveDefaultConfigUrl()): Promise<GrassConfig> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(
-        `Unable to load grass config from ${url}: HTTP ${response.status}`,
-      );
-    }
-
-    return this.parse(await response.text());
+    return this.parse(await fetchConfigText(url, "grass config"));
   }
 
   private parse(source: string): GrassConfig {

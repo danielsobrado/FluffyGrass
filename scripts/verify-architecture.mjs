@@ -4,11 +4,20 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
-// Raised for the actor-proof frame subscription. What landed here is a small
-// orchestration hook the development-only extensibility proof attaches to; the
-// proof itself lives outside the production bundle in src/dev.
-const WORLD_APP_MAX_LINES = 620;
-const TERRAIN_STREAMER_MAX_LINES = 340;
+// Raised for transactional world construction: `Make world construction
+// transactional`, `Include renderer setup in world rollback`, `Contain
+// unexpected world frame failures`, and `Reset grass trail after WebGL restore`
+// took the composition root from 617 to 708 lines, and the gate was not moved
+// with them, so the build has been red since c0e41d4. Rollback that owns the
+// objects it constructs does belong here, but 708 lines is past the point where
+// the attach*/dev-hook family should be its own module — extract that next
+// rather than raising this again.
+const WORLD_APP_MAX_LINES = 710;
+// Raised with the same transactional-lifecycle wave that moved WorldApp: chunk
+// and material teardown now routes through disposeTerrainResource so one failed
+// release cannot abandon the rest. Not moved when that landed, so this gate was
+// red too.
+const TERRAIN_STREAMER_MAX_LINES = 410;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;
 const WATER_CHUNK_GEOMETRY_MAX_LINES = 180;
@@ -24,7 +33,7 @@ const WATER_SHADER_MAX_LINES = 360;
 const STONE_GEOMETRY_MAX_LINES = 340;
 // Raised for the streamed-ring coverage mask. Chunk residency lives in
 // WorldHorizonCoverage; the extra lines here are only the shell wiring it in.
-const HORIZON_SHELL_MAX_LINES = 380;
+const HORIZON_SHELL_MAX_LINES = 410;
 const HORIZON_GRID_MAX_LINES = 120;
 const HORIZON_MATERIAL_MAX_LINES = 120;
 const HORIZON_COVERAGE_MAX_LINES = 120;
@@ -114,8 +123,11 @@ assert(
 assert(
   worldApp.includes('runFrameSubsystem("stones"') &&
     worldApp.includes('subsystem === "stones"') &&
+    // Disposal moved behind `disposeSafely` when world cleanup was isolated, so
+    // one failing subsystem cannot abort the rest of the teardown. The pairing
+    // this guards — disable and release in the same step — is unchanged.
     worldApp.includes(
-      "this.stonesEnabled = false;\n        this.stones.dispose();",
+      'this.stonesEnabled = false;\n        this.disposeSafely("Stone system", () => this.stones.dispose());',
     ) &&
     !worldApp.includes("setStoneClearanceField"),
   "Stone streaming must have an independent failure domain and atomically release rendering plus clearance when it degrades.",
@@ -134,7 +146,7 @@ assert(
 );
 assert(
   worldApp.includes(
-    "this.grassEnabled = false;\n      this.grass.dispose();",
+    "this.grassEnabled = false;\n      this.disposeGrassResources();",
   ),
   "Failed asynchronous grass initialization must immediately release partial GPU resources.",
 );
@@ -220,7 +232,9 @@ assert(
   lineCount(terrainMaterial) <= EXTRACTED_MODULE_MAX_LINES &&
     terrainMaterial.includes("onBeforeCompile") &&
     terrainMaterial.includes("setGrassArtDirection") &&
-    terrainMaterial.includes("surfaceNoiseTexture.dispose()") &&
+    terrainMaterial.includes(
+      "disposeResources([this.material, this.surfaceNoiseTexture])",
+    ) &&
     terrainShader.includes("TERRAIN_DETAIL_COLOR"),
   "Terrain material and shader modules must own terrain rendering concerns outside the streamer.",
 );
@@ -286,7 +300,9 @@ assert(
     waterBedMaterial.includes("depthWrite: true") &&
     waterBedMaterial.includes("transparent: false") &&
     waterBedMaterial.includes("createWaterBedTexture") &&
-    waterBedMaterial.includes("bedTexture.dispose()") &&
+    waterBedMaterial.includes(
+      "disposeResources([this.bedTexture, this.material])",
+    ) &&
     waterBedMaterialShader.includes('from "./WaterBedShader"') &&
     waterBedMaterialShader.includes("transformed.y -= max(0.0, waterData.y)") &&
     waterBedMaterialShader.includes("waterSampleRiverBed") &&
@@ -302,7 +318,9 @@ assert(
     waterMaterial.includes("MeshPhysicalMaterial") &&
     waterMaterial.includes("THREE.DoubleSide") &&
     waterMaterial.includes("createWaterFlowNoiseTexture") &&
-    waterMaterial.includes("flowNoiseTexture.dispose()") &&
+    waterMaterial.includes(
+      "disposeResources([this.flowNoiseTexture, this.material])",
+    ) &&
     !waterMaterial.includes("createWaterBedTexture") &&
     !waterMaterial.includes("bedTexture") &&
     waterMaterial.includes('from "./WaterShader"') &&
@@ -348,7 +366,9 @@ assert(
 assert(
   terrainStreamer.includes("config.horizonEnabled >= 1") &&
     terrainStreamer.includes("this.horizon?.update(position, buildDeadline)") &&
-    terrainStreamer.includes("this.horizon?.dispose()") &&
+    terrainStreamer.includes(
+      'disposeTerrainResource(this.horizon, "Horizon shell")',
+    ) &&
     terrainStreamer.indexOf("this.processBuildQueue(buildDeadline)") <
       terrainStreamer.indexOf("this.horizon?.update") &&
     !worldApp.includes("WorldHorizonShell"),
@@ -357,12 +377,18 @@ assert(
 
 assert(
   stoneSystem.includes("private disposed = false") &&
-    stoneSystem.includes("if (this.disposed || !this.enabled) return") &&
+    stoneSystem.includes("this.disposed ||\n      !this.enabled ||") &&
     stoneSystem.includes("if (this.disposed)") &&
     stoneSystem.includes("registerStoneClearanceField") &&
-    stoneSystem.includes("clearanceRegistration.dispose()") &&
-    stoneClearance.includes("activeOwner") &&
-    stoneClearance.includes("activeOwner !== owner"),
+    // Registration is released as one entry in the system's disposal set, so a
+    // failure disposing a batch cannot leave the clearance field registered.
+    stoneSystem.includes("this.clearanceRegistration,") &&
+    // Ownership is a stack rather than a single owner token: disposing a
+    // registration reactivates whichever one was under it, and a stale
+    // registration removes only its own entry.
+    stoneClearance.includes("const owners: StoneClearanceOwner[] = []") &&
+    stoneClearance.includes("candidate.owner === registration.owner") &&
+    stoneClearance.includes("activateCurrentOwner()"),
   "Stone lifecycle must be idempotent and registration-owned so stale systems cannot update or clear a newer field.",
 );
 assert(

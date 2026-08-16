@@ -1,12 +1,17 @@
+import {
+  LATTICE_KEY_OFFSET,
+  STONE_CELL_SOURCE_MARGIN,
+  clusterMinimumSeparation,
+  maxNormalizedReach,
+} from "./stones/StoneClusterTuning";
+import { STONE_PATH_DISTANCE_PLATEAU } from "./stones/StonePathPlacement";
 import type { WorldConfig } from "./WorldConfig";
 
 /**
- * Geometric proofs for formation lookup. Production queries a fixed 3x3 of
- * macro cells, so radius, halo, jitter, and stone-cell size must keep every
- * reachable formation inside that neighborhood.
+ * Geometric proofs for the fixed macro neighborhoods used by stone placement.
  */
 export function validateStoneClusterGeometry(config: WorldConfig): void {
-  const queryEpsilon = 1e-6;
+  const epsilon = 1e-6;
   if (config.stoneClusterRadiusMin >= config.stoneClusterRadiusMax) {
     throw new Error("stoneClusterRadiusMin must be lower than stoneClusterRadiusMax.");
   }
@@ -26,23 +31,62 @@ export function validateStoneClusterGeometry(config: WorldConfig): void {
       "stoneClusterShoulderRatio must be lower than stoneClusterHaloRatio.",
     );
   }
+  if (!Number.isInteger(config.chunkSize / config.stoneCellSize)) {
+    throw new Error("chunkSize must be divisible by stoneCellSize.");
+  }
+
+  const halfWorld = config.worldSize * 0.5;
+  const maxCellIndex =
+    Math.ceil(halfWorld / config.stoneCellSize) + STONE_CELL_SOURCE_MARGIN;
+  const maxMacroIndex =
+    Math.ceil(halfWorld / config.stoneClusterSpacing) + 2;
+  if (
+    maxCellIndex >= LATTICE_KEY_OFFSET ||
+    maxMacroIndex >= LATTICE_KEY_OFFSET
+  ) {
+    throw new Error(
+      "World size exceeds the packed stone-lattice coordinate range.",
+    );
+  }
 
   const spacing = config.stoneClusterSpacing;
-  const influenceRadius =
+  const circularInfluence =
     config.stoneClusterRadiusMax * config.stoneClusterHaloRatio;
-  if (influenceRadius > spacing * 0.5 + queryEpsilon) {
+  if (circularInfluence > spacing * 0.5 + epsilon) {
     throw new Error(
       "stoneClusterRadiusMax * stoneClusterHaloRatio must not exceed half of stoneClusterSpacing.",
     );
   }
-  if (
-    config.stoneCellSize * 0.5 +
-      influenceRadius +
-      config.stoneClusterCenterJitter * spacing >=
-    spacing * 1.5 - queryEpsilon
-  ) {
+
+  const maxInfluenceRadius =
+    config.stoneClusterRadiusMax *
+    maxNormalizedReach(config.stoneClusterHaloRatio);
+  const queryReach = maxInfluenceRadius + config.stoneCellSize * 0.5;
+  const nearestUnqueriedCenter =
+    spacing * (1.5 - config.stoneClusterCenterJitter);
+  if (queryReach >= nearestUnqueriedCenter - epsilon) {
     throw new Error(
       "Stone cluster footprint, jitter, and cell size must stay inside the fixed 3x3 macro query.",
+    );
+  }
+
+  const sourceCellHalfDiagonal = config.stoneCellSize * Math.SQRT1_2;
+  if (sourceCellHalfDiagonal >= STONE_PATH_DISTANCE_PLATEAU - epsilon) {
+    throw new Error(
+      "stoneCellSize must keep any path crossing a source cell inside the path-distance plateau.",
+    );
+  }
+
+  const nearestTwoAwayCenter =
+    spacing * (2 - 2 * config.stoneClusterCenterJitter);
+  const maxConflictDistance = clusterMinimumSeparation(
+    spacing,
+    maxInfluenceRadius,
+    maxInfluenceRadius,
+  );
+  if (nearestTwoAwayCenter <= maxConflictDistance + epsilon) {
+    throw new Error(
+      "Stone cluster conflict suppression must stay inside immediate macro neighbors.",
     );
   }
 }

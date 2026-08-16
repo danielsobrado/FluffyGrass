@@ -1,3 +1,5 @@
+import type { DeerVariant } from "../../creatures/deer/DeerGeometry";
+
 /** Sparse dressing for the meadow: trees and a few walkers. */
 
 export const TREE_CELL_SIZE = 22;
@@ -44,6 +46,21 @@ export const FAUNA_ALERT_RADIUS = 12;
 export const FAUNA_FLEE_RADIUS = 6;
 /** A fawn is a little over half the size of an adult. */
 export const FAUNA_FAWN_SCALE = 0.62;
+/**
+ * Fixed body variants for the recycled deer pool.
+ * The 1 stag / 5 doe / 2 fawn cycle approximates the authored herd mix while
+ * keeping small pools doe-led. A slot keeps its body variant for its lifetime.
+ */
+export const FAUNA_POOL_VARIANTS = [
+  "doe",
+  "fawn",
+  "doe",
+  "stag",
+  "doe",
+  "doe",
+  "fawn",
+  "doe",
+] as const satisfies readonly DeerVariant[];
 /** Dead band around every animation-quality threshold. */
 export const FAUNA_QUALITY_HYSTERESIS = 4;
 /** How far a villager's errands take them from the settlement they belong to. */

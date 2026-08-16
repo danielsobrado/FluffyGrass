@@ -20,6 +20,13 @@
  * stays one draw call.
  */
 
+/**
+ * The validator's 120k-triangle ceiling fits below 245 samples per axis. Keep a
+ * small allocation guard in the primitive too so direct callers or malformed
+ * config cannot allocate an enormous typed array before policy validation runs.
+ */
+export const MAX_HORIZON_AXIS_SAMPLES = 256;
+
 /** Positions along one axis, ascending, symmetric about the world centre. */
 export interface WorldHorizonAxis {
   /** World coordinate of each grid line, from `-outerHalfExtent` upward. */
@@ -55,11 +62,17 @@ export function createWorldHorizonAxis(
     throw new Error("worldSize must be divisible by horizonSpacing.");
   }
 
+  const size = interiorCells + 1 + apronRings * 2;
+  if (!Number.isSafeInteger(size) || size > MAX_HORIZON_AXIS_SAMPLES) {
+    throw new Error(
+      `Horizon axis requires ${size} samples, above the ${MAX_HORIZON_AXIS_SAMPLES} allocation ceiling.`,
+    );
+  }
+
   const worldHalfExtent = worldSize * 0.5;
   const apronOffsets = createApronOffsets(spacing, apronRings, apronGrowth);
   const outerHalfExtent =
     worldHalfExtent + (apronOffsets[apronOffsets.length - 1] ?? 0);
-  const size = interiorCells + 1 + apronRings * 2;
   const positions = new Float32Array(size);
 
   // Descending apron below the world, so the axis stays ascending overall.

@@ -306,40 +306,48 @@ export class TerrainChunkBuilder {
 
   private finalize(): TerrainChunk {
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
-    geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
-    geometry.setAttribute("terrainPath", new THREE.BufferAttribute(this.paths, 3));
-    geometry.setAttribute(
-      "terrainEcology",
-      new THREE.BufferAttribute(this.ecologies, 4),
-    );
-    geometry.setAttribute(
-      "terrainEnvironment",
-      new THREE.BufferAttribute(this.environments, 4),
-    );
-    geometry.setAttribute(
-      "terrainBiome",
-      new THREE.BufferAttribute(this.biomes, 3),
-    );
-    geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
+    let waterGeometry: THREE.BufferGeometry | undefined;
+    try {
+      geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
+      geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+      geometry.setAttribute("terrainPath", new THREE.BufferAttribute(this.paths, 3));
+      geometry.setAttribute(
+        "terrainEcology",
+        new THREE.BufferAttribute(this.ecologies, 4),
+      );
+      geometry.setAttribute(
+        "terrainEnvironment",
+        new THREE.BufferAttribute(this.environments, 4),
+      );
+      geometry.setAttribute(
+        "terrainBiome",
+        new THREE.BufferAttribute(this.biomes, 3),
+      );
+      geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
 
-    const waterGeometry = this.waterGeometryBuilder
-      ? this.waterGeometryBuilder.createGeometry()
-      : undefined;
-    this.stage += 1;
-    return new TerrainChunk(
-      this.chunkX,
-      this.chunkZ,
-      this.resolution,
-      geometry,
-      this.material,
-      this.receiveShadow,
-      waterGeometry,
-      waterGeometry ? this.waterMaterial : undefined,
-      waterGeometry ? this.waterBedMaterial : undefined,
-    );
+      waterGeometry = this.waterGeometryBuilder
+        ? this.waterGeometryBuilder.createGeometry()
+        : undefined;
+      const chunk = new TerrainChunk(
+        this.chunkX,
+        this.chunkZ,
+        this.resolution,
+        geometry,
+        this.material,
+        this.receiveShadow,
+        waterGeometry,
+        waterGeometry ? this.waterMaterial : undefined,
+        waterGeometry ? this.waterBedMaterial : undefined,
+      );
+      this.stage += 1;
+      return chunk;
+    } catch (error) {
+      waterGeometry?.dispose();
+      geometry.dispose();
+      throw error;
+    }
   }
 }

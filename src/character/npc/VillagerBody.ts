@@ -23,42 +23,62 @@ export function buildVillagerBody(
   variant: number,
   shadows: boolean,
 ): VillagerBody {
-  const material = assets.createMaterial();
-  const meshes: THREE.Mesh[] = [];
-  const place = (slot: VillagerPartSlot, bone: ActorBoneIndex): void => {
-    const mesh = new THREE.Mesh(assets.geometryFor(variant, slot), material);
-    mesh.castShadow = shadows;
-    mesh.receiveShadow = shadows;
-    rigInstance.attach(bone, mesh);
-    meshes.push(mesh);
-  };
+  const placements: Array<readonly [VillagerPartSlot, ActorBoneIndex]> = [
+    ["pelvis", bones.pelvis],
+    ["chest", bones.chest],
+    ["head", bones.head],
+    ["upperArm", bones.upperArmLeft],
+    ["forearm", bones.forearmLeft],
+    ["upperArm", bones.upperArmRight],
+    ["forearm", bones.forearmRight],
+    ["thigh", bones.thighLeft],
+    ["shin", bones.shinLeft],
+    ["boot", bones.footLeft],
+    ["thigh", bones.thighRight],
+    ["shin", bones.shinRight],
+    ["boot", bones.footRight],
+  ];
 
-  place("pelvis", bones.pelvis);
-  place("chest", bones.chest);
-  place("head", bones.head);
-
-  for (const [upperArm, forearm] of [
-    [bones.upperArmLeft, bones.forearmLeft],
-    [bones.upperArmRight, bones.forearmRight],
-  ] as const) {
-    place("upperArm", upperArm);
-    place("forearm", forearm);
-  }
-  for (const [thigh, shin, foot] of [
-    [bones.thighLeft, bones.shinLeft, bones.footLeft],
-    [bones.thighRight, bones.shinRight, bones.footRight],
-  ] as const) {
-    place("thigh", thigh);
-    place("shin", shin);
-    place("boot", foot);
-  }
-
-  // Cloth bones are optional on a humanoid rig — an imported skeleton has none.
-  // The tabard is simply absent rather than faked onto another joint.
   const tabardBone = bones.skirtFront ?? bones.skirt;
   if (tabardBone !== undefined) {
-    place("tabard", tabardBone);
+    placements.push(["tabard", tabardBone]);
   }
 
-  return { meshes, dispose: () => material.dispose() };
+  // Resolve lazy shared geometry before allocating this actor's material or
+  // attaching anything, so a bad variant cannot leave a partial live body.
+  const geometries = placements.map(([slot]) => assets.geometryFor(variant, slot));
+  const material = assets.createMaterial();
+  const meshes: THREE.Mesh[] = [];
+
+  try {
+    for (let index = 0; index < placements.length; index += 1) {
+      const [, bone] = placements[index];
+      const mesh = new THREE.Mesh(geometries[index], material);
+      mesh.castShadow = shadows;
+      mesh.receiveShadow = shadows;
+      rigInstance.attach(bone, mesh);
+      meshes.push(mesh);
+    }
+  } catch (error) {
+    for (const mesh of meshes) {
+      mesh.removeFromParent();
+    }
+    material.dispose();
+    throw error;
+  }
+
+  let disposed = false;
+  return {
+    meshes,
+    dispose: () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      for (const mesh of meshes) {
+        mesh.removeFromParent();
+      }
+      material.dispose();
+    },
+  };
 }

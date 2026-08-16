@@ -6,7 +6,10 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function assert(condition, message) {
@@ -53,6 +56,7 @@ const resolver = read("src/world/hydrology/WaterChunkInteractionResolver.ts");
 const streamer = read("src/world/TerrainStreamer.ts");
 const chunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
 
+const sample = extractFunction(riverField, "sample");
 const sampleLane = extractFunction(riverField, "sampleLane");
 const resolveSelected = extractFunction(riverField, "resolveSelectedLane");
 
@@ -69,6 +73,24 @@ assert(
   "The selected lane must evaluate both centreline cosines once.",
 );
 assert(
+  resolveSelected.includes("const curvature =") &&
+    resolveSelected.includes("tangentLength * tangentLength * tangentLength") &&
+    resolveSelected.includes("curvature / secondDerivativeReference"),
+  "Bend strength must use geometric curvature rather than raw second derivative.",
+);
+const altitudeRejectIndex = sample.indexOf("height >= this.config.riverMaxAltitude");
+const laneSampleIndex = sample.indexOf("this.sampleLane(");
+assert(
+  altitudeRejectIndex >= 0 && laneSampleIndex > altitudeRejectIndex,
+  "Samples above riverMaxAltitude must reject before any centreline trigonometry.",
+);
+assert(
+  riverField.includes("maximumInfluenceHalfWidth") &&
+    sample.includes("lane.distance > this.maximumInfluenceHalfWidth") &&
+    sample.includes("return clearRiverSample(target)"),
+  "Dry samples outside every possible river influence must skip selected-lane morphology work.",
+);
+assert(
   !riverField.includes("simplex") &&
     !riverField.includes("perlin") &&
     !riverField.includes("valueNoise") &&
@@ -80,6 +102,10 @@ assert(
 assert(
   /const WAKE_SAMPLE_COUNT = 3;/.test(interaction),
   "Stone wakes must keep WAKE_SAMPLE_COUNT = 3.",
+);
+assert(
+  !interaction.includes("waterStoneWakeStrength <= 0"),
+  "Live wake strength must not suppress the CPU wake mask needed to turn the effect back on.",
 );
 assert(
   chunkGeometry.includes('setAttribute("waterData"') &&

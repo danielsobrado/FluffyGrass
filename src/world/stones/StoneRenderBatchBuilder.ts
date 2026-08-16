@@ -222,8 +222,12 @@ export class StoneRenderBatchBuilder {
 
   private finalize(job: StoneRenderBatchBuildJob): StoneRenderBatchGeometry {
     const buffers = job.buffers;
-    if (!buffers || job.vertexCursor !== job.vertexCount) {
-      throw new Error("Stone batch finalized before all vertices were written.");
+    if (
+      !buffers ||
+      job.vertexCursor !== job.vertexCount ||
+      job.indexCursor !== job.indexCount
+    ) {
+      throw new Error("Stone batch finalized before all geometry was written.");
     }
     return {
       geometry: createStoneRenderGeometry(buffers, job),

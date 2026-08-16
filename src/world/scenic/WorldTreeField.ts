@@ -25,6 +25,7 @@ export interface WorldTreeInstance {
 }
 
 const TREE_SEED_SALT = 0x54724565;
+const HASH_UNIT = 1 / 4294967296;
 const normal = new THREE.Vector3();
 const hydrology = createHydrologySample();
 
@@ -43,6 +44,15 @@ export class WorldTreeField {
   }
 
   collect(centerX: number, centerZ: number, radius: number): WorldTreeInstance[] {
+    if (
+      !Number.isFinite(centerX) ||
+      !Number.isFinite(centerZ) ||
+      !Number.isFinite(radius) ||
+      radius <= 0
+    ) {
+      return [];
+    }
+
     const trees: WorldTreeInstance[] = [];
     const minX = Math.floor((centerX - radius) / TREE_CELL_SIZE);
     const maxX = Math.floor((centerX + radius) / TREE_CELL_SIZE);
@@ -68,12 +78,18 @@ export class WorldTreeField {
   }
 
   private sampleCell(cellX: number, cellZ: number): WorldTreeInstance | undefined {
-    const occupancy = hash(cellX, cellZ, this.seed) / 4294967295;
+    const occupancy = hash(cellX, cellZ, this.seed) * HASH_UNIT;
     if (occupancy > TREE_OCCUPANCY) {
       return undefined;
     }
-    const jitterX = (hash(cellX, cellZ, this.seed ^ 0x9e3779b9) / 4294967295 - 0.5) * TREE_CELL_SIZE * 0.62;
-    const jitterZ = (hash(cellX, cellZ, this.seed ^ 0x85ebca6b) / 4294967295 - 0.5) * TREE_CELL_SIZE * 0.62;
+    const jitterX =
+      (hash(cellX, cellZ, this.seed ^ 0x9e3779b9) * HASH_UNIT - 0.5) *
+      TREE_CELL_SIZE *
+      0.62;
+    const jitterZ =
+      (hash(cellX, cellZ, this.seed ^ 0x85ebca6b) * HASH_UNIT - 0.5) *
+      TREE_CELL_SIZE *
+      0.62;
     const x = (cellX + 0.5) * TREE_CELL_SIZE + jitterX;
     const z = (cellZ + 0.5) * TREE_CELL_SIZE + jitterZ;
     const height = this.field.sampleHeight(x, z);
@@ -82,7 +98,10 @@ export class WorldTreeField {
       return undefined;
     }
     this.field.sampleHydrology(x, z, height, hydrology);
-    if (hydrology.waterCoverage > TREE_MAX_WATER_COVERAGE || hydrology.grassMask < 0.85) {
+    if (
+      hydrology.waterCoverage > TREE_MAX_WATER_COVERAGE ||
+      hydrology.grassMask < 0.85
+    ) {
       return undefined;
     }
     const ecology = this.field.sampleEcologyAt(x, z, height);
@@ -95,9 +114,10 @@ export class WorldTreeField {
       return undefined;
     }
 
-    const heightRoll = hash(cellX, cellZ, this.seed ^ 0xc2b2ae35) / 4294967295;
-    const canopyRoll = hash(cellX, cellZ, this.seed ^ 0x27d4eb2f) / 4294967295;
-    const yaw = (hash(cellX, cellZ, this.seed ^ 0x165667b1) / 4294967295) * Math.PI * 2;
+    const heightRoll = hash(cellX, cellZ, this.seed ^ 0xc2b2ae35) * HASH_UNIT;
+    const canopyRoll = hash(cellX, cellZ, this.seed ^ 0x27d4eb2f) * HASH_UNIT;
+    const yaw =
+      hash(cellX, cellZ, this.seed ^ 0x165667b1) * HASH_UNIT * Math.PI * 2;
     return {
       x,
       y: height,
@@ -105,8 +125,8 @@ export class WorldTreeField {
       yaw,
       height: 2.4 + heightRoll * 1.8,
       canopyScale: 0.85 + canopyRoll * 0.55,
-      leanX: (normal.x - 0) * 0.18,
-      leanZ: (normal.z - 0) * 0.18,
+      leanX: normal.x * 0.18,
+      leanZ: normal.z * 0.18,
     };
   }
 }

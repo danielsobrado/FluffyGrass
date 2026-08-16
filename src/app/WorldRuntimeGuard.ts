@@ -3,9 +3,13 @@ import {
   WORLD_ERROR_MESSAGE_MAX_LENGTH,
 } from "./WorldAppTuning";
 
+const FATAL_FRAME_PREFIX = "Drusniel World stopped after an unexpected frame failure.";
+
 export class WorldRuntimeGuard {
   private runtimeError?: string;
   private runtimeErrorBeforeContextLoss?: string;
+  private rendererFaulted = false;
+  private fatalErrorElement?: HTMLPreElement;
   private disposed = false;
 
   constructor(
@@ -13,11 +17,16 @@ export class WorldRuntimeGuard {
     private readonly onResize: () => void,
     private readonly onRendererEnabledChange: (enabled: boolean) => void,
   ) {
-    window.addEventListener("resize", this.handleResize);
-    window.addEventListener("error", this.handleWindowError);
-    window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
-    this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
-    this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
+    try {
+      window.addEventListener("resize", this.handleResize);
+      window.addEventListener("error", this.handleWindowError);
+      window.addEventListener("unhandledrejection", this.handleUnhandledRejection);
+      this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
+      this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
+    } catch (error) {
+      this.unbindEvents();
+      throw error;
+    }
   }
 
   get error(): string | undefined {
@@ -32,7 +41,13 @@ export class WorldRuntimeGuard {
   }
 
   recordSubsystemFailure(subsystem: string, error: unknown): void {
+    if (subsystem === "renderer") {
+      this.rendererFaulted = true;
+    }
     const message = `${subsystem}: ${this.formatError(error)}`;
+    if (subsystem === "frame") {
+      this.publishFatalFrameError(message);
+    }
     if (this.runtimeError === message) {
       return;
     }
@@ -49,6 +64,27 @@ export class WorldRuntimeGuard {
       return;
     }
     this.disposed = true;
+    this.unbindEvents();
+    this.fatalErrorElement?.remove();
+    this.fatalErrorElement = undefined;
+  }
+
+  private publishFatalFrameError(message: string): void {
+    if (this.disposed) {
+      return;
+    }
+    let output = this.fatalErrorElement;
+    if (!output) {
+      output = document.createElement("pre");
+      output.className = "startup-error";
+      output.setAttribute("role", "alert");
+      document.body.appendChild(output);
+      this.fatalErrorElement = output;
+    }
+    output.textContent = `${FATAL_FRAME_PREFIX}\nReload the page to restart.\n\n${message}`;
+  }
+
+  private unbindEvents(): void {
     window.removeEventListener("resize", this.handleResize);
     window.removeEventListener("error", this.handleWindowError);
     window.removeEventListener("unhandledrejection", this.handleUnhandledRejection);
@@ -90,7 +126,9 @@ export class WorldRuntimeGuard {
     if (this.disposed) {
       return;
     }
-    this.onRendererEnabledChange(true);
+    if (!this.rendererFaulted) {
+      this.onRendererEnabledChange(true);
+    }
     if (this.runtimeError === WORLD_CONTEXT_LOST_ERROR) {
       this.runtimeError = this.runtimeErrorBeforeContextLoss;
     }

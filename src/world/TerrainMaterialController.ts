@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
+import { disposeResources } from "../render/ResourceDisposal";
 import { PATH_GRASS_FEATHER } from "./TerrainField";
 import {
   TERRAIN_DETAIL_COLOR,
@@ -16,62 +17,80 @@ import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseT
 const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v5-shore";
 
 export class TerrainMaterialController {
-  readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  readonly material: THREE.MeshLambertMaterial;
   private readonly surfaceNoiseTexture: THREE.DataTexture;
   private readonly palette = new TerrainSurfacePalette();
   private readonly uniforms: Record<string, THREE.IUniform>;
+  private disposed = false;
 
   constructor(
     config: WorldConfig,
     readonly shadows: boolean,
   ) {
-    this.surfaceNoiseTexture = createTerrainSurfaceNoiseTexture(config.seed);
-    this.uniforms = {
-      uTerrainSurfaceNoise: { value: this.surfaceNoiseTexture },
-      uTerrainNoiseWorldSize: { value: config.terrainGroundNoiseWorldSize },
-      uTerrainMesoStrength: { value: config.terrainGroundMesoStrength },
-      uTerrainMicroStrength: { value: config.terrainGroundMicroStrength },
-      uTerrainNormalStrength: { value: config.terrainGroundNormalStrength },
-      uTerrainCanopyDarkening: {
-        value: config.terrainGroundCanopyDarkening,
-      },
-      uTerrainLodDistances: {
-        value: new THREE.Vector4(
-          config.grassUltraNearDistance,
-          config.grassUltraNearTransitionDistance,
-          config.grassNearDistance,
-          config.grassMidDistance,
-        ),
-      },
-      uTerrainPathHalfWidth: {
-        value: new THREE.Vector2(
-          config.pathWidth * 0.5,
-          config.pathBranchWidth * 0.5,
-        ),
-      },
-      uTerrainPathEdge: { value: config.pathEdgeRoughness },
-      uTerrainPathClearance: { value: config.pathGrassClearance },
-      uTerrainPathGrassFeather: { value: PATH_GRASS_FEATHER },
-      uTerrainPathCoreDarkening: { value: config.terrainPathCoreDarkening },
-      uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
-      // Restrained on purpose: the sheen is meant to catch the eye as the
-      // camera swings past the bank, not to turn the shore into chrome.
-      uTerrainWetSheenStrength: { value: 0.55 },
-      uTerrainWetSheenPower: { value: 42 },
-      uTerrainSoilRich: { value: new THREE.Color("#40382b") },
-      uTerrainSoilDry: { value: new THREE.Color("#66513b") },
-      uTerrainPathSoil: { value: new THREE.Color("#574833") },
-      uTerrainPathDust: { value: new THREE.Color("#8d7350") },
-      uTerrainPathGrit: { value: new THREE.Color("#a1968a") },
-      uTerrainBiomeBase: { value: this.palette.base },
-      uTerrainBiomeTip: { value: this.palette.tip },
-      uTerrainBiomeDry: { value: this.palette.dry },
-      uTerrainBiomeShade: { value: this.palette.shade },
-    };
-    this.configureMaterial();
+    const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+    let surfaceNoiseTexture: THREE.DataTexture | undefined;
+    try {
+      surfaceNoiseTexture = createTerrainSurfaceNoiseTexture(config.seed);
+      this.material = material;
+      this.surfaceNoiseTexture = surfaceNoiseTexture;
+      this.uniforms = {
+        uTerrainSurfaceNoise: { value: this.surfaceNoiseTexture },
+        uTerrainNoiseWorldSize: { value: config.terrainGroundNoiseWorldSize },
+        uTerrainMesoStrength: { value: config.terrainGroundMesoStrength },
+        uTerrainMicroStrength: { value: config.terrainGroundMicroStrength },
+        uTerrainNormalStrength: { value: config.terrainGroundNormalStrength },
+        uTerrainCanopyDarkening: {
+          value: config.terrainGroundCanopyDarkening,
+        },
+        uTerrainLodDistances: {
+          value: new THREE.Vector4(
+            config.grassUltraNearDistance,
+            config.grassUltraNearTransitionDistance,
+            config.grassNearDistance,
+            config.grassMidDistance,
+          ),
+        },
+        uTerrainPathHalfWidth: {
+          value: new THREE.Vector2(
+            config.pathWidth * 0.5,
+            config.pathBranchWidth * 0.5,
+          ),
+        },
+        uTerrainPathEdge: { value: config.pathEdgeRoughness },
+        uTerrainPathClearance: { value: config.pathGrassClearance },
+        uTerrainPathGrassFeather: { value: PATH_GRASS_FEATHER },
+        uTerrainPathCoreDarkening: { value: config.terrainPathCoreDarkening },
+        uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
+        uTerrainWetSheenStrength: { value: 0.55 },
+        uTerrainWetSheenPower: { value: 42 },
+        uTerrainSoilRich: { value: new THREE.Color("#40382b") },
+        uTerrainSoilDry: { value: new THREE.Color("#66513b") },
+        uTerrainPathSoil: { value: new THREE.Color("#574833") },
+        uTerrainPathDust: { value: new THREE.Color("#8d7350") },
+        uTerrainPathGrit: { value: new THREE.Color("#a1968a") },
+        uTerrainBiomeBase: { value: this.palette.base },
+        uTerrainBiomeTip: { value: this.palette.tip },
+        uTerrainBiomeDry: { value: this.palette.dry },
+        uTerrainBiomeShade: { value: this.palette.shade },
+      };
+      this.configureMaterial();
+    } catch (error) {
+      try {
+        disposeResources([material, surfaceNoiseTexture]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Terrain material construction cleanup failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {
+    if (this.disposed) {
+      return;
+    }
     this.palette.apply(direction);
     const lod = this.uniforms.uTerrainLodDistances.value as THREE.Vector4;
     lod.z = direction.nearDistance;
@@ -79,8 +98,11 @@ export class TerrainMaterialController {
   }
 
   dispose(): void {
-    this.material.dispose();
-    this.surfaceNoiseTexture.dispose();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    disposeResources([this.material, this.surfaceNoiseTexture]);
   }
 
   private configureMaterial(): void {

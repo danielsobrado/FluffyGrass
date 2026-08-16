@@ -16,7 +16,10 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function fail(message) {
@@ -114,6 +117,8 @@ try {
   // drops the player outside the streamed world, where terrain never arrives.
   const thirdPerson = read("src/controls/ThirdPersonController.ts");
   const fly = read("src/controls/FlyWorldController.ts");
+  const flyController = read("src/controls/FlyController.ts");
+  const inputTarget = read("src/controls/InputTarget.ts");
   for (const [name, source] of [
     ["ThirdPersonController", thirdPerson],
     ["FlyWorldController", fly],
@@ -140,8 +145,41 @@ try {
     "Fly camera bounds must stay owned by FlyWorldController, not WorldApp.",
   );
   assert(
+    /if \(!this\.minimap\.isOpen\(\)\) \{[\s\S]*?this\.controls\.update\(deltaSeconds\);[\s\S]*?\}/.test(
+      app,
+    ),
+    "World controls must not advance while the minimap modal is open.",
+  );
+  assert(
     fly.includes("spawnEyeHeight") && fly.includes("mountainHeight"),
     "FlyWorldController must own its ground clearance and altitude ceiling.",
+  );
+  assert(
+    fly.includes("private worldDisposed = false") &&
+      /update\(deltaSeconds: number\): void \{[\s\S]*?if \(this\.worldDisposed\) \{[\s\S]*?return;[\s\S]*?\}[\s\S]*?super\.update\(deltaSeconds\)/.test(
+        fly,
+      ) &&
+      /dispose\(\): void \{[\s\S]*?if \(this\.worldDisposed\)[\s\S]*?this\.worldDisposed = true;[\s\S]*?super\.dispose\(\)/.test(
+        fly,
+      ) &&
+      /teleport\(x: number, z: number\): void \{[\s\S]*?if \(this\.worldDisposed\)/.test(
+        fly,
+      ) &&
+      /captureLookAt\([\s\S]*?\): void \{[\s\S]*?if \(this\.worldDisposed\)/.test(
+        fly,
+      ),
+    "Disposed fly-world controls must stop terrain sampling and camera mutations through stale references.",
+  );
+  assert(
+    flyController.includes("this.yaw = Math.atan2(-dx, -dz)") &&
+      flyController.includes("exitPointerLockSafely()"),
+    "Fly capture must use the camera -Z yaw convention and cleanup must release pointer lock without aborting teardown.",
+  );
+  assert(
+    /export function exitPointerLockSafely\(\): void \{[\s\S]*?document\.exitPointerLock\(\)[\s\S]*?catch/.test(
+      inputTarget,
+    ),
+    "Pointer-lock release must remain an isolated optional browser operation.",
   );
 
   // The raster must stay incremental. A single-shot build of a 256² map runs
@@ -153,18 +191,68 @@ try {
     "The minimap raster must build under a frame budget.",
   );
   const minimap = read("src/app/WorldMinimap.ts");
+  const rasterConstruction = minimap.indexOf(
+    "const raster = this.raster ?? new WorldMinimapRaster",
+  );
+  const openPublication = minimap.indexOf("this.open = true", rasterConstruction);
   assert(
-    minimap.includes("this.raster ??= new WorldMinimapRaster"),
-    "The minimap must not build its raster until it is first opened.",
+    rasterConstruction >= 0 &&
+      openPublication > rasterConstruction &&
+      /this\.open = true;[\s\S]*?try \{[\s\S]*?this\.update\(\);[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.open = false;[\s\S]*?this\.root\.hidden = true;[\s\S]*?throw error;/.test(
+        minimap,
+      ),
+    "The minimap must stay lazy but build before publishing modal state, and a failed first update must close it again.",
+  );
+  assert(
+    /update\(\): void \{[\s\S]*?try \{[\s\S]*?raster\.advance\(BUILD_BUDGET_MS\)[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.disableAfterFailure\(error\);/.test(
+      minimap,
+    ) &&
+      /private disableAfterFailure\(error: unknown\): void \{[\s\S]*?this\.open = false;[\s\S]*?this\.dispose\(\);/.test(
+        minimap,
+      ) &&
+      /private travelTo\([\s\S]*?try \{[\s\S]*?this\.controls\.teleport[\s\S]*?\} finally \{[\s\S]*?this\.setOpen\(false\);/.test(
+        minimap,
+      ) &&
+      /dispose\(\): void \{[\s\S]*?this\.disposed = true;[\s\S]*?this\.open = false;/.test(
+        minimap,
+      ),
+    "Minimap paint/raster and teleport faults must fail closed so optional UI cannot leave gameplay controls permanently paused.",
   );
   assert(
     minimap.includes('event.code === "KeyM"') &&
       minimap.includes("isTypingTarget"),
     "The map toggle must bind to M and ignore keys typed into controls.",
   );
+  assert(
+    minimap.includes("document.pointerLockElement !== null") &&
+      minimap.includes("exitPointerLockSafely()") &&
+      !minimap.includes("document.exitPointerLock()"),
+    "Opening the map must safely release pointer lock so browser denial cannot leave a half-open map.",
+  );
+  assert(
+    minimap.includes("event.stopPropagation()"),
+    "Keyboard map activation must not bubble into character movement actions.",
+  );
+  assert(
+    minimap.includes(
+      'window.addEventListener("keydown", this.handleKeyDown, true)',
+    ) &&
+      minimap.includes(
+        'window.removeEventListener("keydown", this.handleKeyDown, true)',
+      ) &&
+      minimap.includes("event.target === this.canvas") &&
+      minimap.includes("!this.open ||"),
+    "The open minimap must capture keyboard events before world input while preserving its own activation keys.",
+  );
+  assert(
+    /try \{[\s\S]*?document\.body\.appendChild\(this\.root\);[\s\S]*?window\.addEventListener\("keydown", this\.handleKeyDown, true\);[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.canvas\.removeEventListener\("pointerdown", this\.handlePointerDown\);[\s\S]*?window\.removeEventListener\("keydown", this\.handleKeyDown, true\);[\s\S]*?this\.root\.remove\(\);[\s\S]*?throw error;/.test(
+      minimap,
+    ),
+    "A failed minimap publication must remove any partially bound listeners and its orphaned dialog before construction rethrows.",
+  );
 
   console.log(
-    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded in both control modes · raster budgeted and lazy`,
+    `[navigation] OK · projection round-trips within ${worstError.toExponential(1)} m · teleport bounded · fly capture aligned · pointer release isolated · map publication transactional · map faults fail closed`,
   );
 } catch (error) {
   console.error(`[navigation] ${error?.message ?? error}`);

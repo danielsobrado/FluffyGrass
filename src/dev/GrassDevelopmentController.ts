@@ -1,7 +1,10 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { GrassSystem } from "../grass/GrassSystem";
-import { OctahedralImpostorBaker } from "../grass/impostors/OctahedralImpostorBaker";
+import {
+  OctahedralImpostorBaker,
+  type ImpostorDownloadPanel,
+} from "../grass/impostors/OctahedralImpostorBaker";
 import { GrassQaRunner } from "../qa/GrassQaRunner";
 
 interface GrassDevelopmentDependencies {
@@ -12,17 +15,22 @@ interface GrassDevelopmentDependencies {
   grassSystem: GrassSystem;
 }
 
-interface WindowWithBakeResult extends Window {
+interface WindowWithDevelopmentResults extends Window {
   __FLUFFY_GRASS_IMPOSTOR_BAKE__?: unknown;
+  __FLUFFY_GRASS_QA__?: unknown;
 }
 
 export class GrassDevelopmentController {
+  private readonly abortController = new AbortController();
+  private bakePanel?: ImpostorDownloadPanel;
+  private qaRunner?: GrassQaRunner;
   private started = false;
+  private disposed = false;
 
   constructor(private readonly dependencies: GrassDevelopmentDependencies) {}
 
   async run(): Promise<void> {
-    if (this.started) {
+    if (this.started || this.disposed) {
       return;
     }
     this.started = true;
@@ -31,25 +39,55 @@ export class GrassDevelopmentController {
     if (params.get("grassImpostorBake") === "1") {
       await this.runImpostorBake();
     }
+    if (this.disposed) {
+      return;
+    }
 
     const qaMode = params.get("qa");
     if (qaMode === "grass" || qaMode === "grass-lod") {
       const qaConfig = this.dependencies.grassSystem.getQaConfig();
       const runner = new GrassQaRunner(this.dependencies);
-      await runner.run({
-        warmupSeconds: this.readNonNegativeNumber(
-          params,
-          "warmup",
-          qaConfig.warmupSeconds,
-        ),
-        sampleSeconds: this.readPositiveNumber(
-          params,
-          "duration",
-          qaConfig.sampleSeconds,
-        ),
-        download: params.get("download") === "1",
-      });
+      this.qaRunner = runner;
+      try {
+        await runner.run(
+          {
+            warmupSeconds: this.readNonNegativeNumber(
+              params,
+              "warmup",
+              qaConfig.warmupSeconds,
+            ),
+            sampleSeconds: this.readPositiveNumber(
+              params,
+              "duration",
+              qaConfig.sampleSeconds,
+            ),
+            download: params.get("download") === "1",
+          },
+          this.abortController.signal,
+        );
+      } catch (error) {
+        if (this.qaRunner === runner) {
+          this.qaRunner = undefined;
+          runner.dispose();
+        }
+        throw error;
+      }
     }
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.abortController.abort();
+    this.qaRunner?.dispose();
+    this.qaRunner = undefined;
+    this.bakePanel?.dispose();
+    this.bakePanel = undefined;
+    const windowWithResults = window as WindowWithDevelopmentResults;
+    delete windowWithResults.__FLUFFY_GRASS_IMPOSTOR_BAKE__;
+    delete windowWithResults.__FLUFFY_GRASS_QA__;
   }
 
   private async runImpostorBake(): Promise<void> {
@@ -73,14 +111,23 @@ export class GrassDevelopmentController {
         bounds: target.bounds,
         config: this.dependencies.grassSystem.getImpostorConfig(),
       });
-      baker.createDownloadLinks(result, `grass-impostor-${target.patchId}`);
-      (window as WindowWithBakeResult).__FLUFFY_GRASS_IMPOSTOR_BAKE__ =
+      if (this.disposed) {
+        return;
+      }
+      this.bakePanel?.dispose();
+      this.bakePanel = baker.createDownloadLinks(
+        result,
+        `grass-impostor-${target.patchId}`,
+      );
+      (window as WindowWithDevelopmentResults).__FLUFFY_GRASS_IMPOSTOR_BAKE__ =
         result.metadata;
       console.info("[FluffyGrass] Impostor bake complete", result.metadata);
     } finally {
-      controls.enabled = previousEnabled;
-      controls.autoRotate = previousAutoRotate;
-      this.dependencies.grassSystem.setLodBakeOverride(false);
+      if (!this.disposed) {
+        controls.enabled = previousEnabled;
+        controls.autoRotate = previousAutoRotate;
+        this.dependencies.grassSystem.setLodBakeOverride(false);
+      }
     }
   }
 
