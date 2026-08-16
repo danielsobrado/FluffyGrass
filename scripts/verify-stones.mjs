@@ -45,7 +45,29 @@ function verifyZeroChanceVergeFastPath() {
   }
 }
 
+function verifyStoneSystemConstructionOwnership() {
+  const source = readFileSync(
+    resolve(REPOSITORY_ROOT, "src/world/stones/WorldStoneSystem.ts"),
+    "utf8",
+  );
+  const setup = source.indexOf("applyStoneSurfaceShader(");
+  const registration = source.indexOf("this.clearanceRegistration = registerStoneClearanceField(");
+  const rollback = source.indexOf("this.grainTexture?.dispose();", registration);
+  if (
+    setup < 0 ||
+    registration <= setup ||
+    rollback <= registration ||
+    !source.includes("this.detailMaterial.dispose();") ||
+    !source.includes("this.coarseMaterial.dispose();")
+  ) {
+    throw new Error(
+      "[stones] Stone clearance ownership must publish after local setup and failed setup must release local render resources.",
+    );
+  }
+}
+
 verifyZeroChanceVergeFastPath();
+verifyStoneSystemConstructionOwnership();
 
 const server = await createServer({
   configFile: false,
