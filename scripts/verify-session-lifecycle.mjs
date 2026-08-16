@@ -79,6 +79,7 @@ assert(
 const commitChunkStart = terrainStreamer.indexOf("private commitChunk(chunk: TerrainChunk): void");
 const removeChunkStart = terrainStreamer.indexOf("private removeChunk(", commitChunkStart);
 const commitChunkSource = terrainStreamer.slice(commitChunkStart, removeChunkStart);
+const removeChunkSource = terrainStreamer.slice(removeChunkStart);
 const publishMesh = commitChunkSource.indexOf("this.scene.add(chunk.mesh)");
 const publishCoverage = commitChunkSource.indexOf(
   "this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true)",
@@ -92,13 +93,15 @@ assert(
     publishCoverage > publishMesh &&
     publishMap > publishCoverage &&
     retireExisting > publishMap &&
-    commitChunkSource.includes("chunk.mesh.removeFromParent()") &&
-    commitChunkSource.includes("chunk.waterBedMesh?.removeFromParent()") &&
-    commitChunkSource.includes("chunk.waterMesh?.removeFromParent()") &&
-    commitChunkSource.includes('disposeTerrainResource(chunk, "Unpublished terrain chunk")') &&
-    commitChunkSource.includes("if (!existing)") &&
-    terrainStreamer.includes("private removeChunk(chunk: TerrainChunk, updateCoverage = true)"),
-  "Terrain replacement must publish the new chunk before retiring the last good chunk and must roll back every unpublished mesh on failure.",
+    commitChunkSource.includes("this.removeChunk(chunk, !existing)") &&
+    commitChunkSource.includes("Unpublished terrain chunk rollback failed.") &&
+    removeChunkSource.includes("let firstError: unknown") &&
+    removeChunkSource.includes("const attempt = (cleanup: () => void): void =>") &&
+    removeChunkSource.includes("attempt(() => this.horizon?.setChunkCovered") &&
+    removeChunkSource.includes("attempt(() => this.scene.remove(chunk.mesh))") &&
+    removeChunkSource.includes("attempt(() => chunk.dispose())") &&
+    removeChunkSource.includes("throw firstError"),
+  "Terrain replacement must publish before retiring the last good chunk and attempt every rollback/removal action before surfacing cleanup failure.",
 );
 
 assert(
@@ -218,5 +221,5 @@ for (const [name, source] of [
 }
 
 console.log(
-  "[session-lifecycle] Bootstrap, world/terrain construction and publication, isolated material cleanup, diagnostics, QA, stats, and actor asset ownership verified.",
+  "[session-lifecycle] Bootstrap, world/terrain construction and publication, isolated material/terrain cleanup, diagnostics, QA, stats, and actor asset ownership verified.",
 );
