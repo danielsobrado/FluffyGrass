@@ -48,10 +48,15 @@ assert(
 
 assert(
   statsPanel.includes("let stats: Stats | undefined") &&
+    statsPanel.includes("bindStatsLifetime(stats)") &&
+    statsPanel.includes("const dispose = stats.dispose.bind(stats)") &&
+    statsPanel.includes("const removeDom = stats.dom.remove.bind(stats.dom)") &&
+    statsPanel.includes("stats.dispose = (): void =>") &&
+    statsPanel.includes("stats.dom.remove = (): void =>") &&
     /catch \(error\) \{[\s\S]*?stats\?\.dispose\(\);[\s\S]*?Optional stats panel unavailable/.test(
       statsPanel,
     ),
-  "Stats panel attachment must release a partially initialized profiler before degrading.",
+  "Stats panel attachment, normal DOM removal, and explicit disposal must converge on one idempotent profiler cleanup.",
 );
 
 assert(
