@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { ActorRigInstance } from "../actor/rig/ActorRigInstance";
+import { disposeResources } from "../render/ResourceDisposal";
 import { addDrowCostumeGeometry } from "./DrowCostumeGeometry";
 import {
   humanoidRig,
@@ -65,98 +66,113 @@ export function buildSnowflowCharacter(
   scale: number,
 ): SnowflowCharacterRig {
   const materials = createSnowflowCharacterMaterials();
+  const materialList = Object.values(materials);
   const geometries: THREE.BufferGeometry[] = [];
   const root = namedGroup("drusniel-character");
   const slope = namedGroup("character-slope");
   const heading = namedGroup("character-heading");
+  let rigInstance: ActorRigInstance | undefined;
 
   root.scale.setScalar(scale);
   root.add(slope);
   slope.add(heading);
-  scene.add(root);
 
-  const humanoid = humanoidRig();
-  const rigInstance = new ActorRigInstance(humanoid.definition, heading);
-  const bone = (index: number): THREE.Object3D => rigInstance.getBone(index);
-  const bones = humanoid.bones;
+  try {
+    const humanoid = humanoidRig();
+    rigInstance = new ActorRigInstance(humanoid.definition, heading);
+    const bone = (index: number): THREE.Object3D => rigInstance!.getBone(index);
+    const bones = humanoid.bones;
 
-  const pelvis = bone(bones.pelvis);
-  const torso = bone(bones.chest);
-  const head = bone(bones.head);
+    const pelvis = bone(bones.pelvis);
+    const torso = bone(bones.chest);
+    const head = bone(bones.head);
 
-  buildTorso(torso, pelvis, geometries, materials);
-  buildHead(head, geometries, materials);
-  buildArm(
-    bone(bones.upperArmLeft),
-    bone(bones.forearmLeft),
-    bone(bones.handLeft),
-    geometries,
-    materials,
-    -1,
-  );
-  buildArm(
-    bone(bones.upperArmRight),
-    bone(bones.forearmRight),
-    bone(bones.handRight),
-    geometries,
-    materials,
-    1,
-  );
-  buildLeg(
-    bone(bones.thighLeft),
-    bone(bones.shinLeft),
-    bone(bones.footLeft),
-    geometries,
-    materials,
-  );
-  buildLeg(
-    bone(bones.thighRight),
-    bone(bones.shinRight),
-    bone(bones.footRight),
-    geometries,
-    materials,
-  );
+    buildTorso(torso, pelvis, geometries, materials);
+    buildHead(head, geometries, materials);
+    buildArm(
+      bone(bones.upperArmLeft),
+      bone(bones.forearmLeft),
+      bone(bones.handLeft),
+      geometries,
+      materials,
+      -1,
+    );
+    buildArm(
+      bone(bones.upperArmRight),
+      bone(bones.forearmRight),
+      bone(bones.handRight),
+      geometries,
+      materials,
+      1,
+    );
+    buildLeg(
+      bone(bones.thighLeft),
+      bone(bones.shinLeft),
+      bone(bones.footLeft),
+      geometries,
+      materials,
+    );
+    buildLeg(
+      bone(bones.thighRight),
+      bone(bones.shinRight),
+      bone(bones.footRight),
+      geometries,
+      materials,
+    );
 
-  const rig: SnowflowCharacterRig = {
-    root,
-    slope,
-    heading,
-    rigInstance,
-    humanoid,
-    body: bone(bones.actorRoot),
-    pelvis,
-    torso,
-    neck: bone(bones.neck),
-    head,
-    hood: bone(bones.hood),
-    skirt: bone(bones.skirt),
-    skirtFront: bone(bones.skirtFront),
-    skirtLeft: bone(bones.skirtLeft),
-    skirtRight: bone(bones.skirtRight),
-    cloakBack: bone(bones.cloakBack),
-    cloakLeft: bone(bones.cloakLeft),
-    cloakRight: bone(bones.cloakRight),
-    hairLeft: bone(bones.hairLeft),
-    hairRight: bone(bones.hairRight),
-    leftUpperArm: bone(bones.upperArmLeft),
-    leftForearm: bone(bones.forearmLeft),
-    leftWrist: bone(bones.handLeft),
-    rightUpperArm: bone(bones.upperArmRight),
-    rightForearm: bone(bones.forearmRight),
-    rightWrist: bone(bones.handRight),
-    leftThigh: bone(bones.thighLeft),
-    leftShin: bone(bones.shinLeft),
-    leftFoot: bone(bones.footLeft),
-    rightThigh: bone(bones.thighRight),
-    rightShin: bone(bones.shinRight),
-    rightFoot: bone(bones.footRight),
-    materialSet: materials,
-    materials: Object.values(materials),
-    geometries,
-  };
+    const rig: SnowflowCharacterRig = {
+      root,
+      slope,
+      heading,
+      rigInstance,
+      humanoid,
+      body: bone(bones.actorRoot),
+      pelvis,
+      torso,
+      neck: bone(bones.neck),
+      head,
+      hood: bone(bones.hood),
+      skirt: bone(bones.skirt),
+      skirtFront: bone(bones.skirtFront),
+      skirtLeft: bone(bones.skirtLeft),
+      skirtRight: bone(bones.skirtRight),
+      cloakBack: bone(bones.cloakBack),
+      cloakLeft: bone(bones.cloakLeft),
+      cloakRight: bone(bones.cloakRight),
+      hairLeft: bone(bones.hairLeft),
+      hairRight: bone(bones.hairRight),
+      leftUpperArm: bone(bones.upperArmLeft),
+      leftForearm: bone(bones.forearmLeft),
+      leftWrist: bone(bones.handLeft),
+      rightUpperArm: bone(bones.upperArmRight),
+      rightForearm: bone(bones.forearmRight),
+      rightWrist: bone(bones.handRight),
+      leftThigh: bone(bones.thighLeft),
+      leftShin: bone(bones.shinLeft),
+      leftFoot: bone(bones.footLeft),
+      rightThigh: bone(bones.thighRight),
+      rightShin: bone(bones.shinRight),
+      rightFoot: bone(bones.footRight),
+      materialSet: materials,
+      materials: materialList,
+      geometries,
+    };
 
-  addDrowCostumeGeometry(rig, materials, geometries);
-  return rig;
+    addDrowCostumeGeometry(rig, materials, geometries);
+    scene.add(root);
+    return rig;
+  } catch (error) {
+    root.removeFromParent();
+    try {
+      disposeResources([rigInstance, ...geometries, ...materialList]);
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Character rig construction cleanup failed.",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
 }
 
 function buildTorso(
@@ -413,11 +429,11 @@ function addMesh(
   y: number,
   z: number,
 ): THREE.Mesh {
+  geometries.push(geometry);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
   mesh.castShadow = SHADOW_CASTER;
   mesh.receiveShadow = SHADOW_RECEIVER;
   parent.add(mesh);
-  geometries.push(geometry);
   return mesh;
 }
