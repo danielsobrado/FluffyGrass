@@ -43,6 +43,7 @@ interface FaunaSlot {
   readonly quality: ActorAnimationQuality;
   readonly steering: DeerSteering;
   readonly meshes: readonly THREE.Mesh[];
+  memberKey?: string;
   active: boolean;
   castsShadow: boolean;
 }
@@ -357,6 +358,7 @@ export class WorldFaunaSystem {
           desiredSpeed: 0,
         },
         meshes: actor.meshes,
+        memberKey: member ? faunaMemberKey(member) : undefined,
         active: true,
         castsShadow: this.shadows,
       };
@@ -398,9 +400,17 @@ export class WorldFaunaSystem {
     this.builtX = focus.x;
     this.builtZ = focus.z;
     this.available.length = 0;
+    const occupied = new Set<string>();
+    for (const slot of this.slots) {
+      if (slot.active && slot.memberKey) {
+        occupied.add(slot.memberKey);
+      }
+    }
     for (const herd of this.herds.collect(focus.x, focus.z, this.streamRadius)) {
       for (const member of herd.members) {
-        this.available.push(member);
+        if (!occupied.has(faunaMemberKey(member))) {
+          this.available.push(member);
+        }
       }
     }
     return true;
@@ -441,10 +451,12 @@ export class WorldFaunaSystem {
   private recycle(slot: FaunaSlot, focus: THREE.Vector3): boolean {
     const member = this.takeMember(focus, focus);
     if (member === undefined) {
+      slot.memberKey = undefined;
       slot.active = false;
       slot.actor.object.visible = false;
       return false;
     }
+    slot.memberKey = faunaMemberKey(member);
     slot.active = true;
     slot.actor.object.visible = true;
     slot.actor.respawn(member.x, member.z, this.walkSpeed);
@@ -490,6 +502,10 @@ export class WorldFaunaSystem {
       mesh.castShadow = casts;
     }
   }
+}
+
+function faunaMemberKey(member: WorldFaunaMember): string {
+  return `${member.seed}:${member.x}:${member.z}`;
 }
 
 function disposeActor(actor: DisposableActor, label: string): void {
