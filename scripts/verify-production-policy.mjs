@@ -75,10 +75,12 @@ if (
 const viteConfig = readFileSync(VITE_CONFIG, "utf8");
 if (
   !viteConfig.includes('execFileSync("git", ["rev-parse", "--short=12", "HEAD"]') ||
-  !viteConfig.includes("`v${packageMetadata.version}+${SOURCE_REVISION}`")
+  !viteConfig.includes("`v${packageMetadata.version}+${SOURCE_REVISION}`") ||
+  !viteConfig.includes("STONE_GRAIN_ASSET_PATTERN") ||
+  !viteConfig.includes("perlinnoise.webp?v=${encodeURIComponent(SOURCE_REVISION)}")
 ) {
   fail(
-    "Runtime config cache keys must include the source revision so a deployment cannot reuse stale YAML under an unchanged package version.",
+    "Runtime config and stable public asset cache keys must include the source revision so a deployment cannot reuse stale files under unchanged public URLs.",
   );
 }
 const grassConfigLoader = readFileSync(GRASS_CONFIG_LOADER, "utf8");
