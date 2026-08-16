@@ -1,3 +1,4 @@
+import { fetchConfigText } from "../config/ConfigTextLoader";
 import { FlatConfig } from "../config/FlatConfig";
 import { FlatConfigValueReader } from "../config/FlatConfigValueReader";
 import { validateSpawnConfig } from "./SpawnConfigValidator";
@@ -10,13 +11,7 @@ const CONFIG_URL = "./config/world.yaml";
 
 export class WorldConfigLoader {
   async load(url: string = CONFIG_URL): Promise<WorldConfig> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(
-        `Unable to load world config from ${url}: HTTP ${response.status}.`,
-      );
-    }
-    return this.parse(await response.text());
+    return this.parse(await fetchConfigText(url, "world config"));
   }
 
   /** Parse and validate config source directly; the node verifiers use this. */
