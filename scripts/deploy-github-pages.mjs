@@ -31,9 +31,6 @@ function run(command, args, options = {}) {
     cwd: options.cwd ?? REPOSITORY_ROOT,
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
-    // Node cannot launch Windows command shims such as npm.cmd directly on
-    // every supported Windows runtime. Use cmd.exe for those shims only; native
-    // executables such as git continue to run without an intermediate shell.
     shell: process.platform === "win32" && command.endsWith(".cmd"),
   });
 
@@ -114,10 +111,10 @@ function clearWorktree(directory) {
 
 function installAndBuild() {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  log("Auditing the locked dependency graph...");
+  run(npmCommand, ["audit", "--package-lock-only", "--audit-level=high"]);
   log("Installing locked build dependencies...");
   run(npmCommand, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
-  log("Auditing locked dependencies...");
-  run(npmCommand, ["audit", "--audit-level=high"]);
   log("Building the production site...");
   run(npmCommand, ["run", "build"]);
 
