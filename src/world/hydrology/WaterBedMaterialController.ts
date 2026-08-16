@@ -31,51 +31,66 @@ export class WaterBedMaterialController {
   private readonly bedTexture: THREE.DataTexture;
   private readonly uniforms: Record<string, THREE.IUniform>;
   private readonly detailScale: number;
+  private disposed = false;
 
   constructor(config: WorldConfig, compact = false) {
-    this.bedTexture = createWaterBedTexture(
+    const bedTexture = createWaterBedTexture(
       (config.seed ^ WATER_BED_NOISE_SEED_SALT) >>> 0,
     );
-    this.material = new THREE.MeshLambertMaterial({
-      color: 0xffffff,
-      transparent: false,
-      opacity: 1,
-      alphaTest: 0.01,
-      depthTest: true,
-      depthWrite: true,
-      side: THREE.FrontSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
-    });
-    const detailScale = compact ? WATER_COMPACT_DETAIL_SCALE : 1;
-    this.detailScale = detailScale;
-    this.uniforms = {
-      uWaterTime: { value: 0 },
-      uWaterBedNoise: { value: this.bedTexture },
-      uWaterBedScale: { value: config.waterBedScale },
-      uWaterBedStrength: { value: config.waterBedStrength },
-      uWaterBedRefraction: { value: config.waterBedRefraction },
-      uWaterAlgaeStrength: { value: config.waterAlgaeStrength },
-      uWaterCausticStrength: {
-        value: config.waterCausticStrength * detailScale,
-      },
-      uWaterRiverReferenceDepth: {
-        value: config.riverDepth + config.waterSurfaceOffset,
-      },
-      uWaterPebbleDark: { value: WATER_PEBBLE_DARK_COLOR },
-      uWaterPebbleLight: { value: WATER_PEBBLE_LIGHT_COLOR },
-      uWaterSand: { value: WATER_SAND_COLOR },
-      uWaterAlgae: { value: WATER_ALGAE_COLOR },
-    };
-    this.configureMaterial();
+    let material: THREE.MeshLambertMaterial | undefined;
+    try {
+      material = new THREE.MeshLambertMaterial({
+        color: 0xffffff,
+        transparent: false,
+        opacity: 1,
+        alphaTest: 0.01,
+        depthTest: true,
+        depthWrite: true,
+        side: THREE.FrontSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
+      this.bedTexture = bedTexture;
+      this.material = material;
+      const detailScale = compact ? WATER_COMPACT_DETAIL_SCALE : 1;
+      this.detailScale = detailScale;
+      this.uniforms = {
+        uWaterTime: { value: 0 },
+        uWaterBedNoise: { value: this.bedTexture },
+        uWaterBedScale: { value: config.waterBedScale },
+        uWaterBedStrength: { value: config.waterBedStrength },
+        uWaterBedRefraction: { value: config.waterBedRefraction },
+        uWaterAlgaeStrength: { value: config.waterAlgaeStrength },
+        uWaterCausticStrength: {
+          value: config.waterCausticStrength * detailScale,
+        },
+        uWaterRiverReferenceDepth: {
+          value: config.riverDepth + config.waterSurfaceOffset,
+        },
+        uWaterPebbleDark: { value: WATER_PEBBLE_DARK_COLOR },
+        uWaterPebbleLight: { value: WATER_PEBBLE_LIGHT_COLOR },
+        uWaterSand: { value: WATER_SAND_COLOR },
+        uWaterAlgae: { value: WATER_ALGAE_COLOR },
+      };
+      this.configureMaterial();
+    } catch (error) {
+      material?.dispose();
+      bedTexture.dispose();
+      throw error;
+    }
   }
 
   update(elapsedSeconds: number): void {
-    this.uniforms.uWaterTime.value = elapsedSeconds;
+    if (!this.disposed) {
+      this.uniforms.uWaterTime.value = elapsedSeconds;
+    }
   }
 
   setLiveVisuals(visuals: WaterBedLiveVisuals): void {
+    if (this.disposed) {
+      return;
+    }
     this.uniforms.uWaterBedScale.value = visuals.waterBedScale;
     this.uniforms.uWaterBedStrength.value = visuals.waterBedStrength;
     this.uniforms.uWaterBedRefraction.value = visuals.waterBedRefraction;
@@ -85,6 +100,10 @@ export class WaterBedMaterialController {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.bedTexture.dispose();
     this.material.dispose();
   }
