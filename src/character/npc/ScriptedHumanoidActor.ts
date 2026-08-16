@@ -76,7 +76,7 @@ export class ScriptedHumanoidActor {
 
     let runtime: ActorAnimationRuntime | undefined;
     try {
-      const profile = createHumanoidAnimationProfile({
+      this.profile = createHumanoidAnimationProfile({
         definition: humanoid.definition,
         bones: humanoid.bones,
         landingRecoverySeconds: 0.25,
@@ -92,13 +92,12 @@ export class ScriptedHumanoidActor {
                 ),
               ],
       });
-      runtime = new ActorAnimationRuntime(profile, this.rigInstance);
+      runtime = new ActorAnimationRuntime(this.profile, this.rigInstance);
+      this.runtime = runtime;
       this.input.referenceSpeed = 1;
       this.placeAt(spawnX, spawnZ);
       this.previousPosition.copy(this.worldPosition);
-      runtime.reset(this.input);
-      this.profile = profile;
-      this.runtime = runtime;
+      this.runtime.reset(this.input);
       scene.add(this.root);
     } catch (error) {
       disposeResource(runtime, "Villager animation runtime");
