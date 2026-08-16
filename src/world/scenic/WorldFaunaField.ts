@@ -14,6 +14,7 @@ import {
 } from "./WorldScenicTuning";
 
 const HERD_SEED_SALT = 0x5eed_fa11;
+const HASH_UNIT = 1 / 4294967296;
 const normal = new THREE.Vector3();
 const hydrology = createHydrologySample();
 
@@ -83,15 +84,15 @@ export class WorldFaunaField {
   }
 
   private sampleCell(cellX: number, cellZ: number): WorldFaunaHerd | undefined {
-    if (hash(cellX, cellZ, this.seed) / 4294967295 > HERD_OCCUPANCY) {
+    if (hash(cellX, cellZ, this.seed) * HASH_UNIT > HERD_OCCUPANCY) {
       return undefined;
     }
     const jitterX =
-      (hash(cellX, cellZ, this.seed ^ 0x9e3779b9) / 4294967295 - 0.5) *
+      (hash(cellX, cellZ, this.seed ^ 0x9e3779b9) * HASH_UNIT - 0.5) *
       HERD_CELL_SIZE *
       0.6;
     const jitterZ =
-      (hash(cellX, cellZ, this.seed ^ 0x85ebca6b) / 4294967295 - 0.5) *
+      (hash(cellX, cellZ, this.seed ^ 0x85ebca6b) * HASH_UNIT - 0.5) *
       HERD_CELL_SIZE *
       0.6;
     const anchorX = (cellX + 0.5) * HERD_CELL_SIZE + jitterX;
@@ -138,23 +139,27 @@ export class WorldFaunaField {
     anchorZ: number,
   ): WorldFaunaMember[] {
     const members: WorldFaunaMember[] = [];
-    const stagPick = hash(cellX, cellZ, this.seed ^ 0xc2b2ae35) / 4294967295;
+    const stagPick = hash(cellX, cellZ, this.seed ^ 0xc2b2ae35) * HASH_UNIT;
     const doeCount =
-      1 + Math.floor((hash(cellX, cellZ, this.seed ^ 0x27d4eb2f) / 4294967295) * 3);
+      1 +
+      Math.floor(
+        hash(cellX, cellZ, this.seed ^ 0x27d4eb2f) * HASH_UNIT * 3,
+      );
     const fawnCount = Math.floor(
-      (hash(cellX, cellZ, this.seed ^ 0x165667b1) / 4294967295) * 2.4,
+      hash(cellX, cellZ, this.seed ^ 0x165667b1) * HASH_UNIT * 2.4,
     );
 
     const push = (variant: DeerVariant, index: number): void => {
       const salt = this.seed ^ Math.imul(index + 1, 0x9e3779b9);
-      const angle = (hash(cellX, cellZ, salt) / 4294967295) * Math.PI * 2;
-      const reach = 2 + (hash(cellX, cellZ, salt ^ 0x1b873593) / 4294967295) * 9;
+      const angle = hash(cellX, cellZ, salt) * HASH_UNIT * Math.PI * 2;
+      const reach =
+        2 + hash(cellX, cellZ, salt ^ 0x1b873593) * HASH_UNIT * 9;
       members.push({
         x: anchorX + Math.cos(angle) * reach,
         z: anchorZ + Math.sin(angle) * reach,
         variant,
-        coatValue: hash(cellX, cellZ, salt ^ 0xcc9e2d51) / 4294967295,
-        coatWarmth: hash(cellX, cellZ, salt ^ 0xe6546b64) / 4294967295,
+        coatValue: hash(cellX, cellZ, salt ^ 0xcc9e2d51) * HASH_UNIT,
+        coatWarmth: hash(cellX, cellZ, salt ^ 0xe6546b64) * HASH_UNIT,
         seed: hash(cellX, cellZ, salt ^ 0x2545f491),
       });
     };
