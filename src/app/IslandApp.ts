@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { GrassDevelopmentController } from "../dev/GrassDevelopmentController";
 import { GrassSystem } from "../grass/GrassSystem";
+import { disposeResources } from "../render/ResourceDisposal";
 import { frameCameraToBounds } from "../runtime/CameraFraming";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import {
@@ -15,6 +16,9 @@ const ISLAND_MODEL_PATH = revisionedAssetPath("./island.glb");
 const DECORATIVE_TEXT_MODEL_PATH = revisionedAssetPath("./fluffy_grass_text.glb");
 const MODEL_SCALE = 3;
 const ISLAND_MAX_DELTA_SECONDS = 0.1;
+const ISLAND_GLTF_TIMEOUT_MS = 15_000;
+
+type LoadedGltf = Awaited<ReturnType<GLTFLoader["loadAsync"]>>;
 
 interface IslandRuntimeResources {
   renderer: THREE.WebGLRenderer;
@@ -71,7 +75,7 @@ export class IslandApp {
   }
 
   async initialize(): Promise<void> {
-    const gltf = await this.loader.loadAsync(ISLAND_MODEL_PATH);
+    const gltf = await loadGltfWithTimeout(this.loader, ISLAND_MODEL_PATH);
     const root = gltf.scene;
     if (this.disposed) {
       disposeObjectGeometry(root);
@@ -219,7 +223,10 @@ export class IslandApp {
   }
 
   private async loadDecorativeText(): Promise<void> {
-    const gltf = await this.loader.loadAsync(DECORATIVE_TEXT_MODEL_PATH);
+    const gltf = await loadGltfWithTimeout(
+      this.loader,
+      DECORATIVE_TEXT_MODEL_PATH,
+    );
     const root = gltf.scene;
     if (this.disposed) {
       disposeObjectGeometry(root);
@@ -347,7 +354,7 @@ function createIslandRuntimeResources(
     controls.autoRotateSpeed = -0.5;
     grass = new GrassSystem({ scene });
     terrainMaterial = new THREE.MeshPhongMaterial({ color: "#5e875e" });
-    addIslandLights(scene, profile);
+    addIslandLights(scene, profile, renderer.capabilities.maxTextureSize);
 
     return { renderer, controls, grass, terrainMaterial };
   } catch (error) {
@@ -368,13 +375,77 @@ function disposeIslandRuntimeResources(resources: IslandRuntimeResources): void 
   disposeSafely("Renderer construction", () => resources.renderer.dispose());
 }
 
-function addIslandLights(scene: THREE.Scene, profile: RuntimeProfile): void {
+function addIslandLights(
+  scene: THREE.Scene,
+  profile: RuntimeProfile,
+  maxTextureSize: number,
+): void {
   scene.add(new THREE.AmbientLight(0xffffff, 0.5));
   const sun = new THREE.DirectionalLight(0xffffff, 2);
   sun.position.set(100, 100, 100);
   sun.castShadow = profile.shadows;
-  sun.shadow.mapSize.set(profile.shadowMapSize, profile.shadowMapSize);
+  const shadowMapSize = Math.max(
+    1,
+    Math.min(profile.shadowMapSize, maxTextureSize),
+  );
+  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
   scene.add(sun);
+}
+
+function loadGltfWithTimeout(
+  loader: GLTFLoader,
+  url: string,
+): Promise<LoadedGltf> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutHandle = window.setTimeout(() => {
+      settled = true;
+      reject(
+        new Error(
+          `Unable to load ${url}: request timed out after ${ISLAND_GLTF_TIMEOUT_MS} ms.`,
+        ),
+      );
+    }, ISLAND_GLTF_TIMEOUT_MS);
+
+    try {
+      loader.load(
+        url,
+        (gltf) => {
+          if (settled) {
+            disposeSafely(`Late GLTF geometry ${url}`, () =>
+              disposeObjectGeometry(gltf.scene),
+            );
+            disposeSafely(`Late GLTF materials ${url}`, () =>
+              disposeObjectMaterials(gltf.scene),
+            );
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          resolve(gltf);
+        },
+        undefined,
+        (error) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeoutHandle);
+          reject(
+            error instanceof Error
+              ? error
+              : new Error(`Unable to load ${url}.`),
+          );
+        },
+      );
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timeoutHandle);
+        reject(error);
+      }
+    }
+  });
 }
 
 function disposeSafely(label: string, dispose: () => void): void {
@@ -413,18 +484,16 @@ function disposeObjectMaterials(root: THREE.Object3D): void {
 }
 
 function disposeMaterialResources(materials: Iterable<THREE.Material>): void {
+  const ownedMaterials = [...materials];
   const textures = new Set<THREE.Texture>();
-  for (const material of materials) {
+  for (const material of ownedMaterials) {
     for (const value of Object.values(material)) {
       if (value instanceof THREE.Texture) {
         textures.add(value);
       }
     }
-    material.dispose();
   }
-  for (const texture of textures) {
-    texture.dispose();
-  }
+  disposeResources([...ownedMaterials, ...textures]);
 }
 
 function disposeObjectGeometry(root: THREE.Object3D): void {
@@ -434,7 +503,5 @@ function disposeObjectGeometry(root: THREE.Object3D): void {
       geometries.add(child.geometry);
     }
   });
-  for (const geometry of geometries) {
-    geometry.dispose();
-  }
+  disposeResources([...geometries]);
 }
