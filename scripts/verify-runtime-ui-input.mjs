@@ -21,6 +21,10 @@ const input = read("src/controls/ThirdPersonInput.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 const joystick = read("src/controls/MobileJoystick.ts");
 const fly = read("src/controls/FlyController.ts");
+const download = read("src/app/TextDownload.ts");
+const grassMenu = read("src/app/GrassArtMenu.ts");
+const foliageMenu = read("src/app/DetailFoliageTuningMenu.ts");
+const riverMenu = read("src/app/RiverArtMenu.ts");
 
 assert(
   main.includes('const animationHudEnabled = params.get("diagnostics") === "1"') &&
@@ -132,6 +136,38 @@ assert(
   "Compact flight vertical controls must capture their pointer and clear thrust after release, cancellation, or spontaneous capture loss.",
 );
 
+assert(
+  download.includes("URL.createObjectURL") &&
+    download.includes("anchor.remove()") &&
+    download.includes("window.setTimeout(() => URL.revokeObjectURL(url)") &&
+    /finally \{[\s\S]*?if \(!revokeScheduled\) \{[\s\S]*?URL\.revokeObjectURL\(url\)/.test(
+      download,
+    ),
+  "Tuning downloads must remove their temporary anchor and revoke Blob URLs even when publication or scheduling fails.",
+);
+for (const [name, source] of [
+  ["grass", grassMenu],
+  ["foliage", foliageMenu],
+  ["river", riverMenu],
+]) {
+  assert(
+    source.includes('from "./TextDownload"') &&
+      source.includes("downloadTextFile(") &&
+      !source.includes("URL.createObjectURL") &&
+      !source.includes("requestAnimationFrame(() =>"),
+    `${name} tuning exports must use the shared deterministic download lifecycle.`,
+  );
+}
+assert(
+  riverMenu.includes("const originX = origin.x") &&
+    riverMenu.includes("const originZ = origin.z") &&
+    riverMenu.includes("findWorldVisualLocations(this.host.field, originX, originZ)") &&
+    /this\.locations = await task;[\s\S]*?this\.locationsOriginX = originX;[\s\S]*?this\.locationsOriginZ = originZ;/.test(
+      riverMenu,
+    ),
+  "River QA landmark caching must record the numeric search origin rather than a mutable controller position after await.",
+);
+
 console.log(
-  "[runtime-ui-input] Diagnostics ownership, action/coyote precedence, and transactional compact/fly input verified.",
+  "[runtime-ui-input] Diagnostics ownership, action/coyote precedence, transactional compact/fly input, and tuning UI lifecycle verified.",
 );
