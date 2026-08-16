@@ -17,6 +17,19 @@ Copyright (c) Renaud Rohlinger and contributors
 
 Project and license information: <https://github.com/RenaudRohlinger/stats-gl>.
 
+## KayKit Character Pack: Skeletons
+
+The development-only imported skeleton models under `public/models/skeletons/`
+are derived from **KayKit Character Pack: Skeletons (1.0)** by Kay Lousberg.
+
+- Source: <https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0>
+- License: CC0 1.0 Universal
+- License text: `public/models/skeletons/LICENSE.txt`
+- Asset preparation and provenance notes: `public/models/skeletons/CREDITS.md`
+
+The shipped GLB files remove upstream animation clips and embedded imagery; the
+shared texture atlas is shipped separately as `skeleton_texture.png`.
+
 ## Snowflow procedural character
 
 The Three.js character in `src/character/` is adapted from the procedural
