@@ -64,7 +64,6 @@ export class ScriptedHumanoidActor {
     this.root.name = "villager";
     this.root.scale.setScalar(scale);
     this.root.add(this.heading);
-    scene.add(this.root);
     this.rigInstance = new ActorRigInstance(humanoid.definition, this.heading);
     this.body = buildVillagerBody(
       this.rigInstance,
@@ -94,6 +93,7 @@ export class ScriptedHumanoidActor {
     this.placeAt(spawnX, spawnZ);
     this.previousPosition.copy(this.worldPosition);
     this.runtime.reset(this.input);
+    scene.add(this.root);
   }
 
   get position(): THREE.Vector3 {
