@@ -103,15 +103,19 @@ export class WorldMinimap {
     if (!this.open || this.disposed) {
       return;
     }
-    const raster = this.raster;
-    if (!raster) {
-      return;
+    try {
+      const raster = this.raster;
+      if (!raster) {
+        return;
+      }
+      const advanced = raster.advance(BUILD_BUDGET_MS);
+      if (advanced || !this.terrainPainted) {
+        this.paintTerrain();
+      }
+      this.paint();
+    } catch (error) {
+      this.disableAfterFailure(error);
     }
-    const advanced = raster.advance(BUILD_BUDGET_MS);
-    if (advanced || !this.terrainPainted) {
-      this.paintTerrain();
-    }
-    this.paint();
   }
 
   dispose(): void {
@@ -119,6 +123,7 @@ export class WorldMinimap {
       return;
     }
     this.disposed = true;
+    this.open = false;
     this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
     this.canvas.removeEventListener("keydown", this.handleCanvasKey);
     window.removeEventListener("keydown", this.handleKeyDown, true);
@@ -156,6 +161,17 @@ export class WorldMinimap {
       this.root.hidden = true;
       throw error;
     }
+  }
+
+  private disableAfterFailure(error: unknown): void {
+    this.open = false;
+    this.root.hidden = true;
+    try {
+      this.dispose();
+    } catch (cleanupError) {
+      console.warn("[Drusniel World] Minimap cleanup failed.", cleanupError);
+    }
+    console.warn("[Drusniel World] Minimap disabled after a fault.", error);
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
@@ -214,8 +230,11 @@ export class WorldMinimap {
       v,
       this.worldScratch,
     );
-    this.controls.teleport(destination.x, destination.z);
-    this.setOpen(false);
+    try {
+      this.controls.teleport(destination.x, destination.z);
+    } finally {
+      this.setOpen(false);
+    }
   }
 
   private paintTerrain(): void {
