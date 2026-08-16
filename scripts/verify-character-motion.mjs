@@ -123,6 +123,34 @@ assert(
   "The reused animation pose must have its one-frame jump and landing impulses cleared before it is handed to a character reset.",
 );
 assert(
+  character.includes("if (this.profile.locomotion.isRolling())") &&
+    character.includes("this.profile.facts.rollStarted = false") &&
+    character.includes("else if (pose.rollStarted)") &&
+    !controller.includes("this.characterPose.rollStarted = this.character.isRolling()"),
+  "Roll start must remain an edge trigger and must not be republished for every frame of an active roll.",
+);
+assert(
+  input.includes("try {") &&
+    input.includes("this.bindEvents()") &&
+    input.includes("this.createMobileControls()") &&
+    /catch \(error\) \{[\s\S]*?this\.dispose\(\);[\s\S]*?throw error;/.test(input) &&
+    controller.includes("const character = new SnowflowCharacter(") &&
+    controller.includes("let input: ThirdPersonInput;") &&
+    /catch \(error\) \{[\s\S]*?character\.dispose\(\);[\s\S]*?grassInteractionField\.deactivate\(\);[\s\S]*?throw error;/.test(
+      controller,
+    ) &&
+    controller.includes('disposeControllerResource("Third-person input"') &&
+    controller.includes('disposeControllerResource("Third-person character"'),
+  "Third-person input and controller construction must roll back listeners, mobile controls, and character resources after partial setup failures.",
+);
+assert(
+  character.includes("private disposed = false") &&
+    /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\("animation runtime"[\s\S]*?disposeSafely\("rig instance"/.test(
+      character,
+    ),
+  "Snowflow teardown must be idempotent and continue releasing owned resources after isolated cleanup faults.",
+);
+assert(
   input.includes('from "./MobileJoystick"') &&
     input.includes("new MobileJoystick") &&
     input.includes("this.profile.compact") &&
@@ -147,7 +175,7 @@ verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSi
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Spring recovery, explicit character reset, analogue mobile input, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Roll edges, controller ownership, spring recovery, explicit reset, analogue mobile input, cape inputs, shared geometry, and deformation bounds verified.",
 );
 
 function verifyBounds(
