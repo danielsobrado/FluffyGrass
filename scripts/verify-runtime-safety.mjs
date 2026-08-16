@@ -34,6 +34,8 @@ const stoneField = read("src/world/stones/StoneField.ts");
 const stoneClusterTuning = read("src/world/stones/StoneClusterTuning.ts");
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
+const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
+const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
 const flyController = read("src/controls/FlyController.ts");
@@ -102,6 +104,31 @@ assert(
     world.includes("this.frameObservers.delete(observer)") &&
     world.includes('this.runtimeGuard.recordSubsystemFailure("frame-observer", error)'),
   "A failing optional frame observer must be detached without aborting later frame subsystems.",
+);
+assert(
+  scenicLayer.includes("private treesEnabled = true") &&
+    scenicLayer.includes("private faunaEnabled = true") &&
+    scenicLayer.includes("this.disposeTrees()") &&
+    scenicLayer.includes("this.disposeFauna()") &&
+    scenicLayer.includes("Trees disabled after a fault") &&
+    scenicLayer.includes("Fauna disabled after a fault"),
+  "Tree and fauna failures must stay inside their scenic failure domains.",
+);
+assert(
+  faunaSystem.includes("const rosterRebuilt =") &&
+    /if \(!slot\.active\) \{[\s\S]*?this\.recycle\(slot, focus\)[\s\S]*?continue;/.test(
+      faunaSystem,
+    ) &&
+    !faunaSystem.includes("behaviorClock") &&
+    faunaSystem.includes(
+      "(index / Math.max(count, 1)) * this.behaviorInterval",
+    ) &&
+    faunaSystem.includes('disposeActor(slot.actor, "Deer actor")') &&
+    faunaSystem.includes('disposeActor(villager.actor, "Villager actor")') &&
+    /catch \(error\) \{[\s\S]*?this\.dispose\(\);[\s\S]*?throw error;/.test(
+      faunaSystem,
+    ),
+  "Fauna recycling must reactivate bounded pool slots, keep decisions evenly staggered, and clean partial construction safely.",
 );
 assert(
   viewportSizing.includes("Math.max(1, window.innerWidth)") &&
