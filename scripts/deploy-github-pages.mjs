@@ -111,8 +111,10 @@ function clearWorktree(directory) {
   }
 }
 
-function build() {
+function installAndBuild() {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  log("Installing locked production build dependencies...");
+  run(npmCommand, ["ci", "--no-audit", "--no-fund"]);
   log("Building the production site...");
   run(npmCommand, ["run", "build"]);
 
@@ -123,7 +125,7 @@ function build() {
 
 function deploy() {
   const sourceHead = assertRepositoryState();
-  build();
+  installAndBuild();
   assertSourceStillCurrent(sourceHead);
 
   const deploymentDirectory = mkdtempSync(join(tmpdir(), "fluffygrass-pages-"));
