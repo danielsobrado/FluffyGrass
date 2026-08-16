@@ -25,6 +25,7 @@ interface WindowWithGrassQa extends Window {
 export class GrassQaRunner {
   private readonly metrics = new GrassQaMetrics();
   private readonly downloads = new GrassQaDownloads();
+  private disposed = false;
 
   constructor(private readonly dependencies: GrassQaDependencies) {}
 
@@ -32,7 +33,7 @@ export class GrassQaRunner {
     options: GrassQaOptions,
     signal?: AbortSignal,
   ): Promise<GrassQaReport> {
-    throwIfAborted(signal);
+    this.throwIfUnavailable(signal);
     const { camera, controls } = this.dependencies;
     const previousPosition = camera.position.clone();
     const previousTarget = controls.target.clone();
@@ -50,7 +51,7 @@ export class GrassQaRunner {
 
     try {
       for (const pose of this.createPoses()) {
-        throwIfAborted(signal);
+        this.throwIfUnavailable(signal);
         this.applyPose(pose);
         await this.metrics.sampleFrames(options.warmupSeconds, false, signal);
         const frameDurations = await this.metrics.sampleFrames(
@@ -58,7 +59,7 @@ export class GrassQaRunner {
           true,
           signal,
         );
-        throwIfAborted(signal);
+        this.throwIfUnavailable(signal);
         this.dependencies.renderer.render(
           this.dependencies.scene,
           this.dependencies.camera,
@@ -66,8 +67,9 @@ export class GrassQaRunner {
         const screenshot = await this.downloads.captureScreenshot(
           this.dependencies.renderer,
           pose.name,
+          signal,
         );
-        throwIfAborted(signal);
+        this.throwIfUnavailable(signal);
         const screenshotName = `${pose.name}.png`;
         captures.push({
           name: pose.name,
@@ -87,7 +89,7 @@ export class GrassQaRunner {
       controls.target.copy(previousTarget);
       controls.autoRotate = false;
       controls.enableDamping = false;
-      if (!signal?.aborted) {
+      if (!signal?.aborted && !this.disposed) {
         controls.update();
       }
       controls.enableDamping = previousEnableDamping;
@@ -95,7 +97,7 @@ export class GrassQaRunner {
       controls.enabled = previousEnabled;
     }
 
-    throwIfAborted(signal);
+    this.throwIfUnavailable(signal);
     const report: GrassQaReport = {
       version: 1,
       generatedAt: new Date().toISOString(),
@@ -122,6 +124,15 @@ export class GrassQaRunner {
       this.downloads.triggerPending();
     }
     return report;
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.downloads.dispose();
+    delete (window as WindowWithGrassQa).__FLUFFY_GRASS_QA__;
   }
 
   private createPoses(): GrassQaPose[] {
@@ -185,10 +196,10 @@ export class GrassQaRunner {
     camera.updateMatrixWorld(true);
     controls.update();
   }
-}
 
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw new DOMException("Grass QA aborted.", "AbortError");
+  private throwIfUnavailable(signal?: AbortSignal): void {
+    if (this.disposed || signal?.aborted) {
+      throw new DOMException("Grass QA aborted.", "AbortError");
+    }
   }
 }
