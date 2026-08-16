@@ -3,6 +3,7 @@ import type { DeerVariant } from "../../creatures/deer/DeerGeometry";
 import { createHydrologySample } from "../hydrology/HydrologyField";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
+import { MAX_FAUNA_STREAM_RADIUS } from "./FaunaConfigValidator";
 import {
   HERD_CELL_SIZE,
   HERD_MAX_ROCKINESS,
@@ -57,7 +58,10 @@ export class WorldFaunaField {
     config: WorldConfig,
   ) {
     this.seed = (config.seed ^ HERD_SEED_SALT) >>> 0;
-    this.maxCollectionRadius = config.worldSize * 0.5;
+    this.maxCollectionRadius = Math.min(
+      config.worldSize * 0.5,
+      MAX_FAUNA_STREAM_RADIUS,
+    );
   }
 
   collect(centerX: number, centerZ: number, radius: number): WorldFaunaHerd[] {
