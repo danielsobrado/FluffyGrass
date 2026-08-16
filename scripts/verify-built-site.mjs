@@ -16,7 +16,7 @@ const LOCAL_REFERENCE_PATTERN = /\b(?:src|href)=["']([^"']+)["']/g;
 const ABSOLUTE_LOCAL_REFERENCE_PATTERN = /\b(?:src|href)=["']\/(?!\/)/;
 const ABSOLUTE_CSS_URL_PATTERN = /url\(\s*["']?\/(?!\/)/i;
 const ABSOLUTE_RUNTIME_ASSET_PATTERN =
-  /(["'`])\/(?!\/)[^"'`]*\.(?:glb|gltf|png|jpe?g|webp|svg|ya?ml|json)(?:\?[^"'`]*)?\1/i;
+  /(["'`])\/(?!\/)[^"'`]*\.(?:avif|basis|bin|exr|gif|glb|gltf|hdr|jpe?g|json|ktx2|mp3|ogg|png|svg|wav|webp|ya?ml)(?:\?[^"'`]*)?\1/i;
 const REQUIRED_CSP_DIRECTIVES = Object.freeze([
   "default-src 'self'",
   "base-uri 'none'",
