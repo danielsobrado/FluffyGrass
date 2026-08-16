@@ -25,52 +25,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const runtimeConfig = await new RuntimeConfigLoader().load(
-    `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
-  );
-  const profileParam = params.get("profile");
-  const profile = resolveRuntimeProfile(runtimeConfig, {
-    compact:
-      profileParam === "compact"
-        ? true
-        : profileParam === "desktop"
-          ? false
-          : undefined,
-  });
-  document.documentElement.dataset.viewport = profile.compact
-    ? "compact"
-    : "desktop";
-
-  const sceneMode = params.get("scene") === "island" ? "island" : "world";
-  const flyMode =
-    sceneMode === "world" &&
-    (params.get("control") === "fly" || params.get("view") === "aerial");
-  const animationHudEnabled = params.get("diagnostics") === "1";
-  document.body.dataset.scene = sceneMode;
-  document.body.dataset.control = flyMode ? "fly" : "third-person";
   const uiController = new UiVisibilityController();
-
-  const versionElement = document.querySelector<HTMLElement>("#build-version");
-  const titleElement = document.querySelector<HTMLElement>(".app-title strong");
-  const sceneElement = document.querySelector<HTMLElement>("#scene-mode");
-  const helpElement = document.querySelector<HTMLElement>("#control-help");
-  if (versionElement) {
-    versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
-  }
-  if (titleElement) {
-    titleElement.textContent = `${WORLD_NAME} · ${APP_VERSION}`;
-  }
-  if (sceneElement) {
-    sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
-  }
-  if (helpElement && sceneMode === "world") {
-    helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
-  }
-  document.title =
-    sceneMode === "world"
-      ? `${WORLD_NAME} · ${APP_VERSION}`
-      : `${WORLD_NAME} · Island Regression`;
-
   let app: RunnableApp | undefined;
   let diagnostics: Disposable | undefined;
   let actorProof: Disposable | undefined;
@@ -98,6 +53,54 @@ async function bootstrap(): Promise<void> {
   window.addEventListener("pagehide", handlePageHide);
 
   try {
+    const runtimeConfig = await new RuntimeConfigLoader().load(
+      `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+    );
+    if (disposed) {
+      return;
+    }
+    const profileParam = params.get("profile");
+    const profile = resolveRuntimeProfile(runtimeConfig, {
+      compact:
+        profileParam === "compact"
+          ? true
+          : profileParam === "desktop"
+            ? false
+            : undefined,
+    });
+    document.documentElement.dataset.viewport = profile.compact
+      ? "compact"
+      : "desktop";
+
+    const sceneMode = params.get("scene") === "island" ? "island" : "world";
+    const flyMode =
+      sceneMode === "world" &&
+      (params.get("control") === "fly" || params.get("view") === "aerial");
+    const animationHudEnabled = params.get("diagnostics") === "1";
+    document.body.dataset.scene = sceneMode;
+    document.body.dataset.control = flyMode ? "fly" : "third-person";
+
+    const versionElement = document.querySelector<HTMLElement>("#build-version");
+    const titleElement = document.querySelector<HTMLElement>(".app-title strong");
+    const sceneElement = document.querySelector<HTMLElement>("#scene-mode");
+    const helpElement = document.querySelector<HTMLElement>("#control-help");
+    if (versionElement) {
+      versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
+    }
+    if (titleElement) {
+      titleElement.textContent = `${WORLD_NAME} · ${APP_VERSION}`;
+    }
+    if (sceneElement) {
+      sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
+    }
+    if (helpElement && sceneMode === "world") {
+      helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
+    }
+    document.title =
+      sceneMode === "world"
+        ? `${WORLD_NAME} · ${APP_VERSION}`
+        : `${WORLD_NAME} · Island Regression`;
+
     uiController.initialize();
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
