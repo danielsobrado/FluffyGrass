@@ -16,6 +16,8 @@ function assert(condition, message) {
 }
 
 const island = read("src/app/IslandApp.ts");
+const grassSystem = read("src/grass/GrassSystem.ts");
+const grassGeometry = read("src/grass/GrassGeometryFactory.ts");
 const development = read("src/dev/GrassDevelopmentController.ts");
 const qaRunner = read("src/qa/GrassQaRunner.ts");
 const qaDownloads = read("src/qa/GrassQaDownloads.ts");
@@ -29,6 +31,48 @@ assert(
     island.includes('disposeSafely("Grass system construction"') &&
     island.includes('disposeSafely("Terrain material construction"'),
   "Island renderer, controls, grass, and terrain material must roll back together when construction fails.",
+);
+
+assert(
+  grassSystem.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
+    grassSystem.includes("const meshes = this.meshes.splice(0)") &&
+    grassSystem.includes("const sourceGeometries = this.sourceGeometries.splice(0)") &&
+    grassSystem.includes("this.geometryFactory.disposeInstancedMesh(mesh)") &&
+    grassSystem.includes("this.nearMaterial.material") &&
+    grassSystem.includes("this.midMaterial.material"),
+  "Island grass teardown must detach ownership first and attempt every mesh, shared geometry, and material cleanup.",
+);
+
+assert(
+  /private createPatch\([\s\S]*?let nearMesh: THREE\.InstancedMesh \| undefined;[\s\S]*?let midMesh: THREE\.InstancedMesh \| undefined;[\s\S]*?try \{[\s\S]*?nearMesh = this\.createMesh\([\s\S]*?midMesh = this\.createMesh\([\s\S]*?return \{[\s\S]*?\} catch \(error\) \{[\s\S]*?disposeIslandGrassMesh\(this\.geometryFactory, midMesh\);[\s\S]*?disposeIslandGrassMesh\(this\.geometryFactory, nearMesh\);/.test(
+    grassSystem,
+  ),
+  "Island patch construction must release an unpublished near mesh when mid mesh or bounds creation fails.",
+);
+
+assert(
+  /private createMesh\([\s\S]*?const geometry = this\.geometryFactory\.createInstancedGeometry\([\s\S]*?let mesh: THREE\.InstancedMesh \| undefined;[\s\S]*?try \{[\s\S]*?return mesh;[\s\S]*?\} catch \(error\) \{[\s\S]*?this\.geometryFactory\.disposeInstancedGeometry\(geometry\)/.test(
+    grassSystem,
+  ) &&
+    grassGeometry.includes("disposeInstancedGeometry(") &&
+    grassGeometry.includes("this.disposeInstancedGeometry(geometry, preserveSharedInstanceData)"),
+  "Unpublished island instanced geometry must use the shared borrowed-attribute disposal contract.",
+);
+
+const patchCreation = grassSystem.indexOf("const patch = this.createPatch(bucket, variants, config)");
+const patchOwnership = grassSystem.indexOf(
+  "this.meshes.push(patch.nearMesh, patch.midMesh)",
+  patchCreation,
+);
+const patchSceneAdd = grassSystem.indexOf(
+  "this.dependencies.scene.add(patch.nearMesh, patch.midMesh)",
+  patchCreation,
+);
+assert(
+  patchCreation >= 0 &&
+    patchOwnership > patchCreation &&
+    patchSceneAdd > patchOwnership,
+  "Completed island patches must enter teardown ownership before scene publication can fail.",
 );
 
 assert(
@@ -119,5 +163,5 @@ assert(
 );
 
 console.log(
-  "[island-lifecycle] Transactional island construction, frame containment, and disposable QA/impostor download ownership verified.",
+  "[island-lifecycle] Transactional island/grass construction, frame containment, and disposable QA/impostor ownership verified.",
 );
