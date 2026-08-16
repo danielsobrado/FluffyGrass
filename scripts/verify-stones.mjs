@@ -52,6 +52,9 @@ try {
   const pathVerification = await server.ssrLoadModule(
     "/src/world/stones/StonePathPlacementVerification.ts",
   );
+  const pathFootprintVerification = await server.ssrLoadModule(
+    "/src/world/stones/StonePathFootprintVerification.ts",
+  );
   const edgeVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneWorldEdgeVerification.ts",
   );
@@ -79,6 +82,8 @@ try {
   const clusterSummary = clusterVerification.verifyStoneClusters(configSource);
   const splitSummary = splitVerification.verifyStoneSplitPlacement();
   const pathSummary = pathVerification.verifyStonePathPlacement();
+  const pathFootprintSummary =
+    pathFootprintVerification.verifyStonePathFootprints(configSource);
   const edgeSummary = edgeVerification.verifyStoneWorldEdges(configSource);
   const clusterPerformanceSummary =
     clusterPerformanceVerification.verifyStoneClusterPerformance(
@@ -93,7 +98,7 @@ try {
     systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${splitSummary} · ${pathSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${splitSummary} · ${pathSummary} · ${pathFootprintSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
