@@ -136,12 +136,10 @@ export class GrassGeometryFactory {
     }
   }
 
-  disposeInstancedMesh(
-    mesh: THREE.InstancedMesh,
+  disposeInstancedGeometry(
+    geometry: THREE.InstancedBufferGeometry,
     preserveSharedInstanceData = false,
   ): void {
-    const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
-
     // Base attributes and the index are borrowed from a shared LOD variant.
     // Detach them before disposal so streaming one chunk out cannot invalidate
     // the GPU buffers used by every other chunk.
@@ -156,8 +154,19 @@ export class GrassGeometryFactory {
       }
     }
     geometry.setIndex(null);
+    geometry.dispose();
+  }
+
+  disposeInstancedMesh(
+    mesh: THREE.InstancedMesh,
+    preserveSharedInstanceData = false,
+  ): void {
+    const geometry = mesh.geometry as THREE.InstancedBufferGeometry;
     disposeResources([
-      geometry,
+      {
+        dispose: () =>
+          this.disposeInstancedGeometry(geometry, preserveSharedInstanceData),
+      },
       preserveSharedInstanceData ? undefined : mesh,
     ]);
   }
