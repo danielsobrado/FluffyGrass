@@ -111,6 +111,23 @@ try {
   assert(pathClearance > 0.5, "Spawn must clear the worn path corridor.");
   assert(stoneClearance > 0.5, "Spawn must clear procedural stone footprints.");
 
+  const disabledConfig = { ...config, stonesEnabled: 0 };
+  const disabledTerrain = new TerrainField(disabledConfig);
+  const disabledStones = new StoneField(disabledTerrain, disabledConfig);
+  disabledStones.collectChunkInstances = () => {
+    throw new Error("Disabled spawn clearance touched the stone field.");
+  };
+  const disabledSpawn = new DenseSpawnLocator(
+    disabledTerrain,
+    disabledConfig,
+    disabledStones,
+  ).find();
+  assert(
+    Number.isFinite(disabledSpawn.position.x) &&
+      Number.isFinite(disabledSpawn.position.z),
+    "Disabling stones must retain a viable spawn without stone neighborhood work.",
+  );
+
   console.log(
     `[spawn] Deterministic cached-clearance spawn ${x.toFixed(1)}, ${z.toFixed(1)} verified.`,
   );
