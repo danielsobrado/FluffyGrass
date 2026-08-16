@@ -19,11 +19,35 @@ const SKELETON_MODELS = Object.freeze([
   "skeleton_texture.png",
 ]);
 const CC0_LICENSE_URL = "http://creativecommons.org/publicdomain/zero/1.0/";
+const MIT_PERMISSION =
+  "Permission is hereby granted, free of charge, to any person obtaining a copy";
+const MIT_NOTICE_CONDITION =
+  "The above copyright notice and this permission notice shall be included in all";
+const MIT_WARRANTY =
+  'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR';
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(`[legal-notices] ${message}`);
   }
+}
+
+function section(markdown, heading, nextHeading) {
+  const start = markdown.indexOf(heading);
+  assert(start >= 0, `THIRD_PARTY_NOTICES.md is missing section ${heading}.`);
+  const end = nextHeading ? markdown.indexOf(nextHeading, start + heading.length) : -1;
+  return markdown.slice(start, end >= 0 ? end : undefined);
+}
+
+function assertMitSection(markdown, heading, nextHeading) {
+  const contents = section(markdown, heading, nextHeading);
+  assert(
+    contents.includes("MIT License") &&
+      contents.includes(MIT_PERMISSION) &&
+      contents.includes(MIT_NOTICE_CONDITION) &&
+      contents.includes(MIT_WARRANTY),
+    `${heading} must include the self-contained MIT permission, notice, and warranty terms.`,
+  );
 }
 
 const notice = readFileSync(THIRD_PARTY_NOTICE, "utf8");
@@ -42,6 +66,9 @@ for (const required of [
     `THIRD_PARTY_NOTICES.md is missing required shipped dependency notice: ${required}.`,
   );
 }
+assertMitSection(notice, "## Three.js", "## stats-gl");
+assertMitSection(notice, "## stats-gl", "## KayKit Character Pack: Skeletons");
+assertMitSection(notice, "## Snowflow procedural character");
 
 for (const fileName of ["CREDITS.md", "LICENSE.txt", ...SKELETON_MODELS]) {
   assert(
@@ -64,5 +91,5 @@ assert(
 );
 
 console.log(
-  "[legal-notices] Shipped runtime/model dependency notices and skeleton provenance verified.",
+  "[legal-notices] Self-contained MIT notices, shipped model dependency notices, and skeleton provenance verified.",
 );
