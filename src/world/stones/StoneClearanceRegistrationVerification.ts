@@ -1,3 +1,4 @@
+import type { WorldConfig } from "../WorldConfig";
 import {
   registerStoneClearanceField,
   sampleStoneGrassClearance,
@@ -21,6 +22,16 @@ function createField(clearance: number): StoneField {
   } as StoneField;
 }
 
+function createThrowingConfig(): WorldConfig {
+  return {
+    get worldSize(): number {
+      throw new Error("Synthetic clearance cache construction failure.");
+    },
+    stoneCellSize: 1,
+    stoneGrassClearanceFeather: 0,
+  } as WorldConfig;
+}
+
 export function verifyStoneClearanceRegistration(): string {
   const firstField = createField(0.25);
   const secondField = createField(0.75);
@@ -31,6 +42,33 @@ export function verifyStoneClearanceRegistration(): string {
     assert(
       sampleStoneGrassClearance(0, 0) === 0.25,
       "First owner did not become active.",
+    );
+
+    let registrationFailed = false;
+    try {
+      registerStoneClearanceField(secondField, createThrowingConfig());
+    } catch {
+      registrationFailed = true;
+    }
+    assert(registrationFailed, "Synthetic owned registration failure did not throw.");
+    assert(
+      sampleStoneGrassClearance(0, 0) === 0.25,
+      "Failed owned registration disturbed the previous active field.",
+    );
+
+    let directReplacementFailed = false;
+    try {
+      setStoneClearanceField(secondField, createThrowingConfig());
+    } catch {
+      directReplacementFailed = true;
+    }
+    assert(
+      directReplacementFailed,
+      "Synthetic direct clearance replacement failure did not throw.",
+    );
+    assert(
+      sampleStoneGrassClearance(0, 0) === 0.25,
+      "Failed direct replacement discarded the previous owner stack.",
     );
 
     const second = registerStoneClearanceField(secondField);
@@ -65,7 +103,7 @@ export function verifyStoneClearanceRegistration(): string {
       "A stale owned registration replaced a direct probe registration.",
     );
 
-    return "overlap restore + stale-owner isolation";
+    return "transactional failure isolation + overlap restore + stale-owner isolation";
   } finally {
     setStoneClearanceField(undefined);
   }
