@@ -14,6 +14,7 @@ export class FlyWorldController
   implements WorldController
 {
   private readonly streamingPosition: THREE.Vector3;
+  private worldDisposed = false;
 
   constructor(
     private readonly worldCamera: THREE.PerspectiveCamera,
@@ -33,6 +34,9 @@ export class FlyWorldController
    * fly; the app only owns when it runs.
    */
   update(deltaSeconds: number): void {
+    if (this.worldDisposed) {
+      return;
+    }
     super.update(deltaSeconds);
     if (this.isCaptureLocked()) {
       return;
@@ -49,11 +53,25 @@ export class FlyWorldController
     );
   }
 
+  dispose(): void {
+    if (this.worldDisposed) {
+      return;
+    }
+    this.worldDisposed = true;
+    super.dispose();
+  }
+
   captureLookAt(camera: THREE.Vector3, target: THREE.Vector3): void {
+    if (this.worldDisposed) {
+      return;
+    }
     this.lookAtWorld(camera, target);
   }
 
   teleport(x: number, z: number): void {
+    if (this.worldDisposed) {
+      return;
+    }
     const halfWorld = this.worldConfig.worldSize * 0.5 - 2;
     const clampedX = THREE.MathUtils.clamp(x, -halfWorld, halfWorld);
     const clampedZ = THREE.MathUtils.clamp(z, -halfWorld, halfWorld);
