@@ -42,6 +42,9 @@ assert(
 assert(
   world.includes("private readonly reveal: WorldRevealController;") &&
     !world.includes("private readonly reveal = new WorldRevealController()") &&
+    /try \{[\s\S]*?this\.renderer\.outputColorSpace = THREE\.SRGBColorSpace;[\s\S]*?this\.applyRendererSize\(\);[\s\S]*?this\.field = new TerrainField\(config\)/.test(
+      world,
+    ) &&
     world.includes('disposeConstructionSafely("Scenic layer", () => scenic?.dispose())') &&
     world.includes('disposeConstructionSafely("Minimap", () => minimap?.dispose())') &&
     world.includes('disposeConstructionSafely("World controls", () => controls?.dispose())') &&
@@ -49,7 +52,7 @@ assert(
     world.includes('disposeConstructionSafely("Terrain streamer", () => terrain?.dispose())') &&
     world.includes('disposeConstructionSafely("Environment", () => environment?.dispose())') &&
     world.includes('disposeConstructionSafely("Renderer", () => this.renderer.dispose())'),
-  "World construction must delay the reveal owner and roll back every successfully-created runtime owner when a later constructor step fails.",
+  "World construction must include renderer setup, delay the reveal owner, and roll back every successfully-created runtime owner when a later constructor step fails.",
 );
 
 assert(
