@@ -63,16 +63,28 @@ if (
   !deployScript.includes("must exactly match") ||
   !deployScript.includes('["status", "--porcelain"]') ||
   !deployScript.includes("assertSourceStillCurrent(sourceHead)") ||
+  !deployScript.includes('run(npmCommand, ["run", "build"])') ||
+  !deployScript.includes('existsSync(join(CONFIG.distDirectory, "index.html"))') ||
   !/if \(diff\.status === 0\) \{[\s\S]*?assertSourceStillCurrent\(sourceHead\);[\s\S]*?No deployment changes were detected\./.test(
     deployScript,
   )
 ) {
   fail(
-    "Manual deployment must require a clean synchronized source branch and reject stale builds, including no-op publishes.",
+    "Manual deployment must require a clean synchronized source branch, run the full production build, verify its output, and reject stale builds including no-op publishes.",
   );
 }
 
 const viteConfig = readFileSync(VITE_CONFIG, "utf8");
+if (
+  !viteConfig.includes('const DEPLOYMENT_BASE_PATH = "./"') ||
+  !viteConfig.includes("base: DEPLOYMENT_BASE_PATH") ||
+  !viteConfig.includes("PUBLIC_ASSET_PATH_PATTERN") ||
+  !viteConfig.includes("plugins: [rewriteRootPublicAssetPaths(), includeLegalFiles()]")
+) {
+  fail(
+    "GitHub Pages packaging must keep a relative Vite base and rewrite root public-asset references for repository-subpath deployment.",
+  );
+}
 if (
   !viteConfig.includes('execFileSync("git", ["rev-parse", "--short=12", "HEAD"]') ||
   !viteConfig.includes("`v${packageMetadata.version}+${SOURCE_REVISION}`") ||
@@ -132,4 +144,4 @@ if (!/^engine-strict\s*=\s*true\s*$/m.test(npmConfig)) {
   fail("npm must enforce package.json engine constraints during install.");
 }
 
-console.log("[production-policy] Deployment, cache, dependency, and runtime policies verified.");
+console.log("[production-policy] Deployment, Pages packaging, cache, dependency, and runtime policies verified.");
