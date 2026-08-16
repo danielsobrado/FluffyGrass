@@ -69,6 +69,12 @@ assert(
   "The selected lane must evaluate both centreline cosines once.",
 );
 assert(
+  resolveSelected.includes("const curvature =") &&
+    resolveSelected.includes("tangentLength * tangentLength * tangentLength") &&
+    resolveSelected.includes("curvature / secondDerivativeReference"),
+  "Bend strength must use geometric curvature rather than raw second derivative.",
+);
+assert(
   !riverField.includes("simplex") &&
     !riverField.includes("perlin") &&
     !riverField.includes("valueNoise") &&
