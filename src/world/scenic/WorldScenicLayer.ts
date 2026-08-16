@@ -12,7 +12,8 @@ import { WorldTreeSystem } from "./WorldTreeSystem";
 export class WorldScenicLayer {
   private trees?: WorldTreeSystem;
   private life?: WorldFaunaSystem;
-  private treesEnabled = false;
+  private treesEnabled = true;
+  private faunaEnabled = true;
   private disposed = false;
 
   constructor(
@@ -25,8 +26,8 @@ export class WorldScenicLayer {
   ) {
     try {
       this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
-      this.treesEnabled = true;
     } catch (error) {
+      this.treesEnabled = false;
       console.warn("[Drusniel World] Trees unavailable during initialization.", error);
     }
 
@@ -34,12 +35,14 @@ export class WorldScenicLayer {
       ? config.faunaDeerCompactCount + config.faunaVillagerCompactCount
       : config.faunaDeerDesktopCount + config.faunaVillagerDesktopCount;
     if (config.faunaEnabled < 1 || faunaCount === 0) {
+      this.faunaEnabled = false;
       return;
     }
 
     try {
       this.life = new WorldFaunaSystem(scene, field, config, profile, spawn, shadows);
     } catch (error) {
+      this.faunaEnabled = false;
       console.warn("[Drusniel World] Fauna unavailable during initialization.", error);
     }
   }
@@ -60,7 +63,7 @@ export class WorldScenicLayer {
     }
 
     const life = this.life;
-    if (!life) {
+    if (!this.faunaEnabled || !life) {
       return;
     }
     // Scenic systems are ticked inside the controls subsystem, so faults here
@@ -69,6 +72,7 @@ export class WorldScenicLayer {
       life.update(deltaSeconds, focus);
     } catch (error) {
       console.warn("[Drusniel World] Fauna disabled after a fault.", error);
+      this.faunaEnabled = false;
       this.disposeFauna();
     }
   }
@@ -79,6 +83,7 @@ export class WorldScenicLayer {
     }
     this.disposed = true;
     this.treesEnabled = false;
+    this.faunaEnabled = false;
     this.disposeTrees();
     this.disposeFauna();
   }
