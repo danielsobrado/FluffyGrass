@@ -40,16 +40,16 @@ assert(
     /sky = new WorldSky\([\s\S]*?this\.sky = sky;[\s\S]*?this\.scene\.add\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
       environment,
     ) &&
-    /catch \(error\) \{[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
+    /catch \(error\) \{[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
       environment,
     ),
-  "Environment lights must publish only after sky construction succeeds and roll back on initialization failure.",
+  "Environment lights and shadow resources must publish only after sky construction succeeds and roll back on initialization failure.",
 );
 assert(
-  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
+  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
     environment,
   ),
-  "Environment teardown must be idempotent and remove lights even if sky cleanup fails.",
+  "Environment teardown must release the shadow render target, stay idempotent, and remove lights even if cleanup fails.",
 );
 
-console.log("[environment-lifecycle] Sky and environment ownership rollback verified.");
+console.log("[environment-lifecycle] Sky, shadow, and environment ownership rollback verified.");
