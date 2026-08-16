@@ -59,6 +59,7 @@ export class WorldVisualMatrixRunner {
   private readonly captures: WorldVisualCapture[] = [];
   private locationsRecord: WorldVisualReport["locations"] = {};
   private api?: WorldVisualQaApi;
+  private applying = false;
   private disposed = false;
 
   constructor(private readonly context: WorldVisualMatrixContext) {}
@@ -125,10 +126,26 @@ export class WorldVisualMatrixRunner {
 
   private async apply(index: number): Promise<WorldVisualCapture> {
     this.assertActive();
+    if (this.applying) {
+      throw new Error("A visual matrix capture is already in progress.");
+    }
     const pose = this.poses[index];
     if (!pose) {
       throw new Error(`Visual matrix pose ${index} does not exist.`);
     }
+
+    this.applying = true;
+    try {
+      return await this.capture(pose, index);
+    } finally {
+      this.applying = false;
+    }
+  }
+
+  private async capture(
+    pose: WorldVisualPose,
+    index: number,
+  ): Promise<WorldVisualCapture> {
     const api = this.ensureApi();
     this.context.controls.captureLookAt(pose.camera, pose.target);
     await this.metrics.sampleFrames(
