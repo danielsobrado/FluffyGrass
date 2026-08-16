@@ -101,12 +101,20 @@ assert(
     faunaSystem.includes("slot.actor.object.visible = false"),
   "Unassigned deer pool slots must stay inactive and hidden until a real herd member is available.",
 );
+const poolVariant = faunaSystem.indexOf(
+  "const variant = FAUNA_POOL_VARIANTS[index % FAUNA_POOL_VARIANTS.length];",
+);
+const initialMember = faunaSystem.indexOf(
+  "const member = this.takeMember(spawn, spawn, variant);",
+  poolVariant,
+);
 assert(
-  scenicTuning.includes("FAUNA_POOL_FALLBACK_VARIANTS") &&
+  scenicTuning.includes("FAUNA_POOL_VARIANTS") &&
     scenicTuning.includes('"stag"') &&
     scenicTuning.includes('"fawn"') &&
-    faunaSystem.includes("FAUNA_POOL_FALLBACK_VARIANTS[index % FAUNA_POOL_FALLBACK_VARIANTS.length]"),
-  "Initially unassigned deer pool slots must retain deterministic adult/fawn/stag body capacity instead of collapsing to does.",
+    poolVariant >= 0 &&
+    initialMember > poolVariant,
+  "Deer pool body variants must be deterministic before initial member selection so a local doe-heavy roster cannot permanently collapse pool variety.",
 );
 assert(
   faunaSystem.includes("readonly variant: DeerVariant") &&
