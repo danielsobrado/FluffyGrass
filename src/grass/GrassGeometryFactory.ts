@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../render/ResourceDisposal";
 import type { GrassGeometryConfig } from "./GrassConfig";
 import { SeededRandom } from "./internal/SeededRandom";
 
@@ -65,14 +66,20 @@ export class GrassGeometryFactory {
       bladeCurve: config.bladeCurve,
     };
 
-    return {
-      near: this.createVariants(config, config.variantCount, seed),
-      mid: this.createVariants(
+    let near: THREE.BufferGeometry[] = [];
+    let mid: THREE.BufferGeometry[] = [];
+    try {
+      near = this.createVariants(config, config.variantCount, seed);
+      mid = this.createVariants(
         midConfig,
         config.variantCount,
         seed ^ GEOMETRY_SEED_OFFSET,
-      ),
-    };
+      );
+      return { near, mid };
+    } catch (error) {
+      disposeGrassGeometryResources([...near, ...mid], "LOD variant");
+      throw error;
+    }
   }
 
   createInstancedGeometry(
@@ -87,41 +94,46 @@ export class GrassGeometryFactory {
     biomeValues?: Float32Array,
   ): THREE.InstancedBufferGeometry {
     const geometry = new THREE.InstancedBufferGeometry();
-    if (source.index) {
-      geometry.setIndex(source.index);
-    }
+    try {
+      if (source.index) {
+        geometry.setIndex(source.index);
+      }
 
-    for (const [name, attribute] of Object.entries(source.attributes)) {
-      geometry.setAttribute(name, attribute);
-    }
+      for (const [name, attribute] of Object.entries(source.attributes)) {
+        geometry.setAttribute(name, attribute);
+      }
 
-    geometry.setAttribute(
-      "instanceVariation",
-      sharedAttributes?.variation ??
-        new THREE.InstancedBufferAttribute(variationValues, 4),
-    );
-    const instanceCount = variationValues.length / 4;
-    const resolvedCoverage =
-      coverageValues ?? new Float32Array(instanceCount).fill(1);
-    geometry.setAttribute(
-      "instanceCoverage",
-      sharedAttributes?.coverage ??
-        new THREE.InstancedBufferAttribute(resolvedCoverage, 1),
-    );
-    // One float per instance selects the palette row. Layers that predate
-    // biomes, and the island regression scene, get a zero-filled buffer rather
-    // than an unbound attribute.
-    geometry.setAttribute(
-      "instanceBiome",
-      sharedAttributes?.biome ??
-        new THREE.InstancedBufferAttribute(
-          biomeValues ?? new Float32Array(instanceCount),
-          1,
-        ),
-    );
-    geometry.boundingBox = source.boundingBox?.clone() ?? null;
-    geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
-    return geometry;
+      geometry.setAttribute(
+        "instanceVariation",
+        sharedAttributes?.variation ??
+          new THREE.InstancedBufferAttribute(variationValues, 4),
+      );
+      const instanceCount = variationValues.length / 4;
+      const resolvedCoverage =
+        coverageValues ?? new Float32Array(instanceCount).fill(1);
+      geometry.setAttribute(
+        "instanceCoverage",
+        sharedAttributes?.coverage ??
+          new THREE.InstancedBufferAttribute(resolvedCoverage, 1),
+      );
+      // One float per instance selects the palette row. Layers that predate
+      // biomes, and the island regression scene, get a zero-filled buffer rather
+      // than an unbound attribute.
+      geometry.setAttribute(
+        "instanceBiome",
+        sharedAttributes?.biome ??
+          new THREE.InstancedBufferAttribute(
+            biomeValues ?? new Float32Array(instanceCount),
+            1,
+          ),
+      );
+      geometry.boundingBox = source.boundingBox?.clone() ?? null;
+      geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
+      return geometry;
+    } catch (error) {
+      disposeGrassGeometryResources([geometry], "instanced geometry");
+      throw error;
+    }
   }
 
   disposeInstancedMesh(
@@ -144,10 +156,10 @@ export class GrassGeometryFactory {
       }
     }
     geometry.setIndex(null);
-    geometry.dispose();
-    if (!preserveSharedInstanceData) {
-      mesh.dispose();
-    }
+    disposeResources([
+      geometry,
+      preserveSharedInstanceData ? undefined : mesh,
+    ]);
   }
 
   private createVariants(
@@ -155,9 +167,21 @@ export class GrassGeometryFactory {
     variantCount: number,
     seed: number,
   ): THREE.BufferGeometry[] {
-    return Array.from({ length: variantCount }, (_, variantIndex) =>
-      this.createClump(config, seed + variantIndex * GEOMETRY_SEED_OFFSET),
-    );
+    const variants: THREE.BufferGeometry[] = [];
+    try {
+      for (let variantIndex = 0; variantIndex < variantCount; variantIndex += 1) {
+        variants.push(
+          this.createClump(
+            config,
+            seed + variantIndex * GEOMETRY_SEED_OFFSET,
+          ),
+        );
+      }
+      return variants;
+    } catch (error) {
+      disposeGrassGeometryResources(variants, "partial variant set");
+      throw error;
+    }
   }
 
   private createClump(
@@ -241,27 +265,46 @@ export class GrassGeometryFactory {
     }
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(positions, 3),
+    try {
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setAttribute(
+        "grassProgress",
+        new THREE.Float32BufferAttribute(progressValues, 1),
+      );
+      geometry.setAttribute(
+        "grassPhase",
+        new THREE.Float32BufferAttribute(phaseValues, 1),
+      );
+      geometry.setAttribute(
+        "grassBladeShade",
+        new THREE.Float32BufferAttribute(shadeValues, 1),
+      );
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      return geometry;
+    } catch (error) {
+      disposeGrassGeometryResources([geometry], "clump geometry");
+      throw error;
+    }
+  }
+}
+
+function disposeGrassGeometryResources(
+  resources: Array<{ dispose(): void } | undefined>,
+  label: string,
+): void {
+  try {
+    disposeResources(resources);
+  } catch (cleanupError) {
+    console.warn(
+      `[Drusniel World] Grass ${label} cleanup failed.`,
+      cleanupError,
     );
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setAttribute(
-      "grassProgress",
-      new THREE.Float32BufferAttribute(progressValues, 1),
-    );
-    geometry.setAttribute(
-      "grassPhase",
-      new THREE.Float32BufferAttribute(phaseValues, 1),
-    );
-    geometry.setAttribute(
-      "grassBladeShade",
-      new THREE.Float32BufferAttribute(shadeValues, 1),
-    );
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    return geometry;
   }
 }
