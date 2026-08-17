@@ -1,5 +1,4 @@
 import { GRASS_MAX_BIOMES } from "../grass/biome/GrassBiomeProfile";
-import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
 import { TERRAIN_SURFACE_NOISE_SIZE } from "./terrain/TerrainSurfaceNoiseTexture";
 
 export const TERRAIN_DETAIL_VERTEX = `
@@ -85,6 +84,8 @@ uniform vec3 uTerrainSoilDry;
 uniform vec3 uTerrainPathSoil;
 uniform vec3 uTerrainPathDust;
 uniform vec3 uTerrainPathGrit;
+uniform vec3 uTerrainRockDark;
+uniform vec3 uTerrainRockLight;
 varying vec3 vTerrainWorldPosition;
 varying vec3 vTerrainPath;
 varying vec4 vTerrainEcology;
@@ -92,7 +93,6 @@ varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
-${TERRAIN_ROCK_FUNCTIONS}
 `;
 
 export const TERRAIN_DETAIL_COLOR = `
@@ -374,62 +374,90 @@ diffuseColor.rgb = mix(
 /**
  * Cliff rock, and the material priority the palette above was missing.
  *
- * Everything before this point decides what grows and what washes up; none of
- * it can produce stone, so a steep face ended up wearing whichever soft
- * material won the ecology mix. Rock is laid over the top wherever the ground
- * is too steep for anything to sit on, and it wins outright: geology first,
- * cover second, water last as a modifier. Its appearance lives in
- * TerrainRockShader; this decides only where it applies.
+ * Everything before this point decides what grows and what washes up; none of it
+ * can produce stone, so a steep face ended up wearing whichever soft material
+ * won the ecology mix. Rock is therefore laid over the top wherever the ground
+ * is steep enough that nothing could sit on it, and it wins outright: geology
+ * first, cover second, water last as a modifier.
+ *
+ * Projection matters as much as palette. Sampling by world xz on a near-vertical
+ * face stretches the noise into vertical smears, which is what made the gorge
+ * read as deformed terrain. Cliff faces are projected along the face's own
+ * horizontal tangent instead — two samples, not triplanar's three, because a
+ * wall has only one interesting axis.
  */
-float terrainRockRelief = 0.0;
 if (terrainCliff > 0.001) {
-  vec4 terrainWallNoise = textureGrad(
+  vec4 terrainRockNoise = textureGrad(
     uTerrainSurfaceNoise,
     terrainWallUv + vec2(0.19, 0.63),
     terrainWallDdx,
     terrainWallDdy
   );
-  // Bed index drives the hash lookup, and it is piecewise constant, so zero
-  // gradients pin the fetch to the base level instead of letting the step at
-  // every bed boundary choose a mip.
-  vec2 terrainBed = terrainResolveBed(
-    vTerrainWorldPosition.y,
-    (terrainBaseNoise.r - 0.5) * 1.4
-  );
-  vec4 terrainRockHash = textureGrad(
+
+  /**
+   * Bedding as discrete beds, not a sine wash. What makes rock read as rock is
+   * that it is built of separate beds, each with its own tone, meeting at sharp
+   * partings. The height is quantised, each bed hashed for a tone through the
+   * noise texture, and a thin recessive line cut at every boundary. This is
+   * metre-scale structure: the answer to a melted-looking wall is never another
+   * octave of noise.
+   */
+  float terrainBedWarp = (terrainBaseNoise.r - 0.5) * 1.4;
+  float terrainBedCoord = vTerrainWorldPosition.y * 0.135 + terrainBedWarp * 0.42;
+  float terrainBedIndex = floor(terrainBedCoord);
+  float terrainBedFraction = fract(terrainBedCoord);
+  // Hash lookups: the coordinate is piecewise constant, so an implicit level of
+  // detail would read a mip chosen from the step at every bed boundary. Zero
+  // gradients pin them to the base level, which is what a hash wants.
+  float terrainBedTone = textureGrad(
     uTerrainSurfaceNoise,
-    vec2(terrainBed.x * 0.137 + 0.41, 0.317),
+    vec2(terrainBedIndex * 0.137 + 0.41, 0.317),
     vec2(0.0),
     vec2(0.0)
+  ).r;
+  float terrainParting =
+    smoothstep(0.0, 0.05, terrainBedFraction) *
+    (1.0 - smoothstep(0.93, 1.0, terrainBedFraction));
+
+  // Fractures: wide, sparse, and offset bed by bed, or a joint running unbroken
+  // down a whole cliff reads as a seam in a texture rather than as broken rock.
+  float terrainFractureSeed = textureGrad(
+    uTerrainSurfaceNoise,
+    vec2(terrainBedIndex * 0.211 + 0.77, 0.629),
+    vec2(0.0),
+    vec2(0.0)
+  ).g;
+  float terrainFracture = 1.0 - abs(
+    fract(terrainWallUv.x * 1.49 + terrainFractureSeed * 3.0) * 2.0 - 1.0
   );
-  vec3 terrainRock = terrainResolveRock(
-    terrainWallUv,
-    vTerrainWorldPosition.y,
-    (terrainBaseNoise.r - 0.5) * 1.4,
-    terrainWallNoise,
-    terrainRockHash,
-    terrainWaterProximity,
-    terrainRockRelief
+  terrainFracture = pow(saturate(terrainFracture), 12.0);
+
+  vec3 terrainRock = mix(
+    uTerrainRockDark,
+    uTerrainRockLight,
+    saturate(terrainRockNoise.b * 0.78 + terrainBedTone * 0.52 - 0.14)
   );
+  terrainRock *= 1.0 - terrainFracture * 0.62;
+  terrainRock *= mix(0.72, 1.0, terrainParting);
+
+  /**
+   * Humidity as a modifier, never as a selector. Wet rock is darker and
+   * glossier; it does not become gravel. The gloss half is already handled by
+   * the wet-sheen pass below, which the widened band beneath now reaches.
+   */
+  terrainRock *= 1.0 - terrainWaterProximity * 0.22;
+
   diffuseColor.rgb = mix(diffuseColor.rgb, terrainRock, terrainCliff);
 }
 
 float terrainSurfaceNormalMask = max(
-  max(terrainEcologyMask, terrainCliff),
+  terrainEcologyMask,
   saturate(terrainPathCore + terrainPathShoulder * 0.82)
 );
-/**
- * Rock relief joins the height the normal pass already differentiates, so beds
- * and joints actually catch the light instead of being dark lines painted on a
- * flat face. It is added outside the micro-detail weighting because that fades
- * with distance and a cliff's structure must not: a gorge wall is read from
- * across the gorge, which is well beyond the micro band.
- */
 float terrainMicroHeight = (
   (terrainMicroNoise.b - 0.5) * 0.7 +
   (terrainMicroNoise.a - 0.5) * 0.3
-) * mix(1.0, 0.58, terrainWaterProximity) * terrainMicroWeight +
-  terrainRockRelief * terrainCliff;
+) * mix(1.0, 0.58, terrainWaterProximity);
 
 // The damp margin at the water's edge. terrainWaterProximity is a humidity
 // halo that reaches waterHumidityRadius — tens of metres — which is right for
