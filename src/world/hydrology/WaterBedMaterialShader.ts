@@ -58,10 +58,15 @@ vec3 waterBedViewRay = length(waterBedViewDiff) > 1e-4
   ? normalize(waterBedViewDiff)
   : vec3(0.0, -1.0, 0.0);
 float waterBedGrazing = 1.0 - saturate(abs(waterBedViewRay.y));
+// The phase rate is deliberately uniform. Scaling it by waterBedRiverAmount —
+// which has a spatial gradient wherever a lake meets a river — multiplies that
+// gradient by absolute time, so the wobble's spatial frequency climbs without
+// bound as a session runs. Same defect as the cascade's old scroll; the river's
+// faster water is expressed in amplitude instead, which is time-stable.
 float waterBedWobble = sin(
   dot(vWaterBedWorldPosition.xz, waterBedFlowPerpendicular) * 0.18 +
-  uWaterTime * mix(0.12, 0.34, waterBedRiverAmount)
-);
+  uWaterTime * 0.23
+) * mix(0.62, 1.0, waterBedRiverAmount);
 float bedDepthRatio =
   waterBedDepth / max(0.1, uWaterRiverReferenceDepth);
 float bedChannelCore = smoothstep(0.40, 0.88, waterBedCoverageRaw);

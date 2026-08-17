@@ -84,6 +84,8 @@ uniform vec3 uTerrainSoilDry;
 uniform vec3 uTerrainPathSoil;
 uniform vec3 uTerrainPathDust;
 uniform vec3 uTerrainPathGrit;
+uniform vec3 uTerrainRockDark;
+uniform vec3 uTerrainRockLight;
 varying vec3 vTerrainWorldPosition;
 varying vec3 vTerrainPath;
 varying vec4 vTerrainEcology;
@@ -95,6 +97,48 @@ varying vec3 vTerrainBiomeCanopy;
 
 export const TERRAIN_DETAIL_COLOR = `
 float terrainDistance = distance(cameraPosition, vTerrainWorldPosition);
+
+/**
+ * Slope, from the geometry itself.
+ *
+ * The terrain attributes carry altitude, humidity, water proximity and stone
+ * clearance, but never slope — so nothing here could tell a meadow from a cliff,
+ * and the palette had no rock in it at all. The derivatives of the interpolated
+ * world position give the true face normal for a couple of instructions, which
+ * is cheaper than carrying another vertex stream and cannot fall out of step
+ * with the surface actually being shaded.
+ *
+ * Taken at the top of the function on purpose: derivatives must not sit inside
+ * non-uniform control flow.
+ */
+vec3 terrainFaceNormal = cross(
+  dFdx(vTerrainWorldPosition),
+  dFdy(vTerrainWorldPosition)
+);
+float terrainFaceLength = length(terrainFaceNormal);
+terrainFaceNormal = terrainFaceLength > 1e-8
+  ? terrainFaceNormal / terrainFaceLength
+  : vec3(0.0, 1.0, 0.0);
+if (terrainFaceNormal.y < 0.0) terrainFaceNormal = -terrainFaceNormal;
+float terrainSlope = 1.0 - saturate(terrainFaceNormal.y);
+float terrainCliff = smoothstep(0.38, 0.66, terrainSlope);
+
+/**
+ * Wall-aligned coordinates, resolved here rather than beside the rock below.
+ * The rock samples sit inside a branch, and a texture lookup with an implicit
+ * level of detail is undefined inside non-uniform control flow — which is why
+ * the layers above already use textureGrad. The gradients have to be taken out
+ * here where the branch cannot affect them.
+ */
+vec2 terrainWallTangent = normalize(
+  vec2(-terrainFaceNormal.z, terrainFaceNormal.x) + vec2(1e-5)
+);
+vec2 terrainWallUv = vec2(
+  dot(vTerrainWorldPosition.xz, terrainWallTangent),
+  vTerrainWorldPosition.y
+) * 0.037;
+vec2 terrainWallDdx = dFdx(terrainWallUv);
+vec2 terrainWallDdy = dFdy(terrainWallUv);
 float terrainMicroWeight = 1.0 - smoothstep(
   uTerrainLodDistances.x,
   uTerrainLodDistances.x + uTerrainLodDistances.y,
@@ -269,8 +313,13 @@ float shoreBand = smoothstep(
   1.0,
   terrainWaterProximity
 );
+/**
+ * Shoreline is a depositional material and cannot form on a cliff face. Gating
+ * it on slope is what stops a gorge wall standing inside the humidity radius
+ * from being painted as gravel from top to bottom.
+ */
 float shoreExposure =
-  shoreBand * (1.0 - terrainCoverage * 0.75);
+  shoreBand * (1.0 - terrainCoverage * 0.75) * (1.0 - terrainCliff);
 float shorePatch = clamp(
   0.55 +
   (terrainBaseNoise.r - 0.5) * 0.90 +
@@ -321,6 +370,85 @@ diffuseColor.rgb = mix(
   terrainPathColor,
   saturate(terrainPathCore + terrainPathShoulder * 0.82)
 );
+
+/**
+ * Cliff rock, and the material priority the palette above was missing.
+ *
+ * Everything before this point decides what grows and what washes up; none of it
+ * can produce stone, so a steep face ended up wearing whichever soft material
+ * won the ecology mix. Rock is therefore laid over the top wherever the ground
+ * is steep enough that nothing could sit on it, and it wins outright: geology
+ * first, cover second, water last as a modifier.
+ *
+ * Projection matters as much as palette. Sampling by world xz on a near-vertical
+ * face stretches the noise into vertical smears, which is what made the gorge
+ * read as deformed terrain. Cliff faces are projected along the face's own
+ * horizontal tangent instead — two samples, not triplanar's three, because a
+ * wall has only one interesting axis.
+ */
+if (terrainCliff > 0.001) {
+  vec4 terrainRockNoise = textureGrad(
+    uTerrainSurfaceNoise,
+    terrainWallUv + vec2(0.19, 0.63),
+    terrainWallDdx,
+    terrainWallDdy
+  );
+
+  /**
+   * Bedding as discrete beds, not a sine wash. What makes rock read as rock is
+   * that it is built of separate beds, each with its own tone, meeting at sharp
+   * partings. The height is quantised, each bed hashed for a tone through the
+   * noise texture, and a thin recessive line cut at every boundary. This is
+   * metre-scale structure: the answer to a melted-looking wall is never another
+   * octave of noise.
+   */
+  float terrainBedWarp = (terrainBaseNoise.r - 0.5) * 1.4;
+  float terrainBedCoord = vTerrainWorldPosition.y * 0.135 + terrainBedWarp * 0.42;
+  float terrainBedIndex = floor(terrainBedCoord);
+  float terrainBedFraction = fract(terrainBedCoord);
+  // Hash lookups: the coordinate is piecewise constant, so an implicit level of
+  // detail would read a mip chosen from the step at every bed boundary. Zero
+  // gradients pin them to the base level, which is what a hash wants.
+  float terrainBedTone = textureGrad(
+    uTerrainSurfaceNoise,
+    vec2(terrainBedIndex * 0.137 + 0.41, 0.317),
+    vec2(0.0),
+    vec2(0.0)
+  ).r;
+  float terrainParting =
+    smoothstep(0.0, 0.05, terrainBedFraction) *
+    (1.0 - smoothstep(0.93, 1.0, terrainBedFraction));
+
+  // Fractures: wide, sparse, and offset bed by bed, or a joint running unbroken
+  // down a whole cliff reads as a seam in a texture rather than as broken rock.
+  float terrainFractureSeed = textureGrad(
+    uTerrainSurfaceNoise,
+    vec2(terrainBedIndex * 0.211 + 0.77, 0.629),
+    vec2(0.0),
+    vec2(0.0)
+  ).g;
+  float terrainFracture = 1.0 - abs(
+    fract(terrainWallUv.x * 1.49 + terrainFractureSeed * 3.0) * 2.0 - 1.0
+  );
+  terrainFracture = pow(saturate(terrainFracture), 12.0);
+
+  vec3 terrainRock = mix(
+    uTerrainRockDark,
+    uTerrainRockLight,
+    saturate(terrainRockNoise.b * 0.78 + terrainBedTone * 0.52 - 0.14)
+  );
+  terrainRock *= 1.0 - terrainFracture * 0.62;
+  terrainRock *= mix(0.72, 1.0, terrainParting);
+
+  /**
+   * Humidity as a modifier, never as a selector. Wet rock is darker and
+   * glossier; it does not become gravel. The gloss half is already handled by
+   * the wet-sheen pass below, which the widened band beneath now reaches.
+   */
+  terrainRock *= 1.0 - terrainWaterProximity * 0.22;
+
+  diffuseColor.rgb = mix(diffuseColor.rgb, terrainRock, terrainCliff);
+}
 
 float terrainSurfaceNormalMask = max(
   terrainEcologyMask,

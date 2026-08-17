@@ -1280,6 +1280,19 @@ Recommended future file:
 
 `public/config/actors.yaml`
 
+**Deferred.** Fauna tuning currently lives as `fauna*` keys in
+`public/config/world.yaml`, because `WorldConfigLoader.parse` is a schema-driven
+loop: a numeric key costs one line in `WorldConfig.ts`, one rule in
+`WorldConfigSchema.ts` and one line in the YAML, with no loader, no second
+`await` in `WorldApp.create` and no new `test:config` fixtures. Introduce
+`actors.yaml` when a *second* species family with its own movement profile
+arrives and the key count stops being a handful.
+
+Note also that the quadruped gait cannot become a trot while
+`verify-actor-rig.mjs` requires two planted contacts: four evenly spaced phase
+offsets give exactly two at `dutyFactor = 0.5` and one below it, so a trot's
+~0.4 is structurally excluded. A faster deer is a faster walk.
+
 Potential categories:
 
 - Humanoid movement profile.
@@ -1703,7 +1716,14 @@ This phase is the primary architecture validation gate. Do not continue extendin
 
 ## Phase 13 — Secondary-motion generalization
 
-**Status:** pending
+**Status:** done (quadruped half)
+
+The damped spring moved to `src/actor/math/ActorDampedSpring.ts` so both families
+can use it; `src/character/CharacterSpring.ts` is now an alias and
+`verify-character-motion.mjs` asserts against the real implementation.
+`QuadrupedSecondaryMotion` owns the deer's tail and ears, composing offsets onto
+the bind rotation so the tail's resting droop survives. The player's cloth work
+(crouch/roll/cast tuning) remains pending with those phases.
 
 ### Work
 
@@ -1722,7 +1742,25 @@ This phase is the primary architecture validation gate. Do not continue extendin
 
 ## Phase 14 — Animation LOD for NPCs/animals
 
-**Status:** pending
+**Status:** done
+
+`src/actor/animation/ActorAnimationQuality.ts` holds the Full/Reduced/Minimal/
+Culled policy with a hysteresis band and an accumulated delta; it contains no
+distance or rate of its own, and `verify-architecture.mjs` asserts that.
+`ActorAnimationRuntime.setQuality` gates the pre-IK stages, the IK stages and
+secondary motion *before* the work, leaving the verified pipeline-order strings
+intact. The player is never given a quality object and stays pinned to full.
+
+Thresholds are validated `fauna*` keys in `public/config/world.yaml`;
+`WorldConfigValidator` rejects a non-increasing ladder and
+`verify-config-contracts.mjs` covers that rejection.
+
+Lowering the pose rate is safe because the gait phase comes from
+`input.distanceTravelled`, not from time: a pose generated at 6 Hz still lands at
+the geometrically correct point in the stride.
+
+**Not done:** the distant rigid/simplified LOD geometry swap suggested in §30.
+Cost currently falls away through update rate, IK gating and culling only.
 
 ### Work
 

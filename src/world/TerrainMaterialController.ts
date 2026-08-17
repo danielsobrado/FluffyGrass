@@ -14,7 +14,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v5-shore";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v6-cliff-rock";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -68,6 +68,10 @@ export class TerrainMaterialController {
         uTerrainPathSoil: { value: new THREE.Color("#574833") },
         uTerrainPathDust: { value: new THREE.Color("#8d7350") },
         uTerrainPathGrit: { value: new THREE.Color("#a1968a") },
+        // Cliff rock. Dark, because rock is: an albedo bright enough to read
+        // well on flat ground leaves a gorge wall looking like plaster.
+        uTerrainRockDark: { value: new THREE.Color("#2b2723") },
+        uTerrainRockLight: { value: new THREE.Color("#8a8074") },
         uTerrainBiomeBase: { value: this.palette.base },
         uTerrainBiomeTip: { value: this.palette.tip },
         uTerrainBiomeDry: { value: this.palette.dry },

@@ -2,11 +2,11 @@ import * as THREE from "three";
 import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
 
 export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v10";
-export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v4";
+export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v5";
 export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
 export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_BED_NOISE_SEED_SALT = 0x3b1f7a2d;
-export const WATER_CASCADE_CACHE_KEY = "world-water-cascade-v1";
+export const WATER_CASCADE_CACHE_KEY = "world-water-cascade-v2-sill";
 export const WATER_CASCADE_NOISE_SEED_SALT = 0x51c3ab77;
 /**
  * A falling sheet is brighter than the river it feeds even before it aerates,

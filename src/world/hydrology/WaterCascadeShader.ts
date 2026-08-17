@@ -8,12 +8,15 @@
  */
 export const WATER_CASCADE_VERTEX_DECLARATIONS = `
 attribute vec3 cascade;
+attribute float cascadeCrest;
 varying vec3 vCascade;
+varying float vCascadeCrest;
 varying vec3 vCascadeWorldPosition;
 `;
 
 export const WATER_CASCADE_VERTEX_POSITION = `
 vCascade = cascade;
+vCascadeCrest = cascadeCrest;
 vCascadeWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 `;
 
@@ -28,6 +31,7 @@ uniform vec3 uCascadeWater;
 uniform vec3 uCascadeFoam;
 uniform vec3 uCascadeMist;
 varying vec3 vCascade;
+varying float vCascadeCrest;
 varying vec3 vCascadeWorldPosition;
 `;
 
@@ -44,21 +48,21 @@ float cascadeDetail = 1.0 - smoothstep(
 );
 
 /**
- * Water in free fall keeps accelerating, so the streaks stretch and speed up on
- * the way down. Scrolling at a constant rate is the single thing that most
- * makes a curtain read as a texture on a wall rather than as falling water.
+ * Water in free fall keeps accelerating, so the streaks must stretch and speed
+ * up on the way down — but that belongs in the mapping, never in a scroll rate
+ * multiplied by absolute time. A fall-dependent speed times uCascadeTime
+ * compresses the strands further every second and eventually runs the curtain
+ * upward; a parcel's age goes as the square root of the distance dropped, so
+ * advecting by that age and scrolling at one constant rate is stable for any run
+ * length. Derivation in docs/plans/waterfall-gorge-geology-plan.md, section 0.7.
  *
- * The domain is deliberately many tiles across and only a few tall: that ratio
- * is what turns the noise into vertical strands instead of a cloudy wash. An
- * earlier version scaled both axes by the noise scale and covered less than one
- * tile in each, which is why the sheet came out looking like frosted glass.
+ * The domain stays many tiles across and only a few tall: that ratio is what
+ * turns the noise into vertical strands rather than a cloudy wash.
  */
-float cascadeSpeed = 0.55 + 2.4 * cascadeFall;
-float cascadeStretch = mix(1.0, 3.2, cascadeFall);
+float cascadeAge = sqrt(cascadeFall);
 float cascadeStrandUv = cascadeAcross * 6.0;
 float cascadeFlowUv =
-  cascadeFall * cascadeDrop * uCascadeNoiseScale * 2.6 / cascadeStretch -
-  uCascadeTime * cascadeSpeed;
+  cascadeAge * cascadeDrop * uCascadeNoiseScale * 2.6 - uCascadeTime * 1.55;
 vec4 cascadeNoise = texture2D(uCascadeNoise, vec2(cascadeStrandUv, cascadeFlowUv));
 vec4 cascadeCoarse = texture2D(
   uCascadeNoise,
@@ -70,13 +74,16 @@ vec4 cascadeCoarse = texture2D(
  * fine layer is mixed in only once the fall is under way. Without the coarse
  * layer underneath, every strand is the same width and the curtain stripes.
  */
-float cascadeBreakup = smoothstep(0.1, 0.95, cascadeFall);
+// Per column, or the sheet tears along a contour and cards above it.
+float cascadeTear = (cascadeCoarse.a - 0.5) * 0.42;
+float cascadeBreakup = smoothstep(0.04, 0.72, cascadeFall + cascadeTear);
 float cascadeStrand = mix(cascadeCoarse.r, cascadeNoise.g, 0.4 + 0.45 * cascadeBreakup);
 float cascadeGap = smoothstep(0.28, 0.72, cascadeStrand);
 float cascadeSheet = 1.0 - cascadeBreakup * cascadeGap * 0.85;
 
 // The lip runs thin and bright; the middle aerates; the base is whitewater.
-float cascadeCrest = 1.0 - smoothstep(0.0, 0.12, cascadeFall);
+// Narrow: a wide crest band at high alpha becomes a solid slab at the lip.
+float cascadeCrest = 1.0 - smoothstep(0.0, 0.05, cascadeFall);
 // Broken by the strand noise so the base is a ragged boil, not a painted band.
 float cascadeImpact = saturate(
   smoothstep(0.55, 1.0, cascadeFall) *
@@ -89,8 +96,8 @@ float cascadeImpact = saturate(
  * middle left the curtain a grey pane between a bright crest and a bright foot.
  */
 float cascadeAeration = saturate(
-  0.28 + cascadeBreakup * 0.62 + cascadeImpact * 0.95 +
-  (1.0 - cascadeGap) * 0.24 * cascadeDetail
+  0.1 + cascadeBreakup * 0.66 + cascadeImpact * 0.95 +
+  (1.0 - cascadeGap) * 0.3 * cascadeDetail
 );
 
 vec3 cascadeColor = mix(uCascadeWater, uCascadeFoam, cascadeAeration);
@@ -105,8 +112,11 @@ cascadeColor *= 0.96 + cascadeSheet * 0.16 + cascadeCrest * 0.24;
  * the geometry's rectangle shows. Noise on the edge stops that boundary being a
  * straight line down the sides of the fall.
  */
+// Squared and closed before the mesh edge: a linear ramp leaves a low-alpha
+// skirt that collectively redraws the mesh rectangle.
 float cascadeEdgeNoise = 0.55 + cascadeCoarse.g * 0.3;
-float cascadeEdge = 1.0 - smoothstep(0.36 * cascadeEdgeNoise, 0.98, abs(cascadeAcross));
+float cascadeEdge = 1.0 - smoothstep(0.34 * cascadeEdgeNoise, 0.9, abs(cascadeAcross));
+cascadeEdge *= cascadeEdge;
 /**
  * The gaps between strands have to be genuinely see-through. A curtain that is
  * uniformly semi-opaque is a wall; one you can read the gorge through in the
@@ -117,10 +127,12 @@ float cascadeAlpha = saturate(
   cascadeEdge *
   mix(0.12, 1.0, cascadeSheet)
 );
-// Spray at the base has no surface of its own, so it thins out instead of
-// ending on the cut line where the curtain geometry stops.
+// Base spray has no surface of its own, so it thins rather than ending on a cut.
 cascadeAlpha *= 1.0 - smoothstep(0.82, 1.0, cascadeFall) * 0.55;
-cascadeAlpha = max(cascadeAlpha, cascadeCrest * 0.5 * cascadeEdge);
+cascadeAlpha = max(cascadeAlpha, cascadeCrest * 0.2 * cascadeEdge);
+// Dissolve the sill's line, and thin the sheet where the rock stands proud.
+cascadeAlpha *= smoothstep(0.0, 0.03 + cascadeCoarse.r * 0.14, cascadeFall);
+cascadeAlpha *= mix(1.0, 0.42, saturate(vCascadeCrest));
 
 diffuseColor.rgb = cascadeColor;
 diffuseColor.a *= cascadeAlpha;

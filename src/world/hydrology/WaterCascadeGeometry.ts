@@ -25,6 +25,19 @@ const CASCADE_DESCENT_EXPONENT = 1.75;
 const CASCADE_NECK = 0.22;
 /** Metres the crest row is lifted back over the sheet that feeds the fall. */
 const CASCADE_CREST_LIFT = 0.45;
+const CASCADE_SILL_RELIEF = 1.25;
+
+/**
+ * The rock sill across the lip. A curtain's top edge is a ruled line in the mesh
+ * and no fragment work hides it; water spills over unevenly cut rock instead.
+ */
+function resolveSillProfile(lateral: number): number {
+  return (
+    Math.sin(lateral * 2.3 + 0.7) * 0.36 +
+    Math.sin(lateral * 5.1 - 1.4) * 0.17 +
+    Math.sin(lateral * 9.7 + 2.2) * 0.08
+  );
+}
 
 /**
  * Builds one merged curtain mesh for a set of knickpoints.
@@ -44,6 +57,7 @@ export function createWaterCascadeGeometry(
   const vertexCount = perSite * sites.length;
   const positions = new Float32Array(vertexCount * 3);
   const cascade = new Float32Array(vertexCount * 3);
+  const crest = new Float32Array(vertexCount);
   const indices = new Uint32Array(
     CASCADE_ACROSS_SEGMENTS * CASCADE_DOWN_SEGMENTS * 6 * sites.length,
   );
@@ -64,18 +78,27 @@ export function createWaterCascadeGeometry(
       // overlaps the sheet feeding it. Meeting it exactly leaves a hard
       // horizontal seam right where the eye is drawn.
       const crestLift = down === 0 ? CASCADE_CREST_LIFT : 0;
-      const travel = Math.pow(fall, CASCADE_TRAVEL_EXPONENT) * throwDistance;
       const descent = Math.pow(fall, CASCADE_DESCENT_EXPONENT) * site.drop;
       const halfWidth = site.halfWidth * (1 - CASCADE_NECK * fall);
       for (let across = 0; across < acrossVerts; across += 1) {
         const lateral = (across / CASCADE_ACROSS_SEGMENTS) * 2 - 1;
+        const notch = resolveSillProfile(lateral);
+        // Only where the water leaves the rock; below that it is in free fall.
+        const sill = notch * CASCADE_SILL_RELIEF * Math.max(0, 1 - fall * 3.2);
+        // Water leaving a low notch is already faster, and throws further.
+        const travel =
+          Math.pow(fall, CASCADE_TRAVEL_EXPONENT) *
+          throwDistance *
+          (1 - notch * 0.16);
         positions[vertexOffset] =
           site.x + site.flowSign * (travel - crestLift * 1.4);
-        positions[vertexOffset + 1] = site.lipHeight - descent + crestLift;
+        positions[vertexOffset + 1] =
+          site.lipHeight - descent + crestLift + sill;
         positions[vertexOffset + 2] = site.z + lateral * halfWidth;
         cascade[vertexOffset] = lateral;
         cascade[vertexOffset + 1] = fall;
         cascade[vertexOffset + 2] = site.drop;
+        crest[vertexOffset / 3] = notch;
         vertexOffset += 3;
       }
     }
@@ -100,6 +123,7 @@ export function createWaterCascadeGeometry(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("cascade", new THREE.BufferAttribute(cascade, 3));
+  geometry.setAttribute("cascadeCrest", new THREE.BufferAttribute(crest, 1));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingBox();
   // The plunge reach downstream is where the impact foam lives; the bounds have
