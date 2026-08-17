@@ -4,6 +4,13 @@ import {
   ACTOR_QUALITY_CULLED,
   ACTOR_QUALITY_FULL,
 } from "../../actor/animation/ActorAnimationQuality";
+import { WORLD_SUN_SHADOW_HALF_EXTENT } from "../../app/WorldEnvironmentTuning";
+import { ScriptedHumanoidActor } from "../../character/npc/ScriptedHumanoidActor";
+import {
+  createVillagerAssets,
+  type VillagerAssets,
+} from "../../character/npc/VillagerAssets";
+import { VillagerRoute, type VillagerSteering } from "../../character/npc/VillagerRoute";
 import { createDeerAssets, type DeerAssets } from "../../creatures/deer/DeerAssets";
 import {
   DeerBehavior,
@@ -17,26 +24,18 @@ import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import { WorldTerrainContactSampler } from "../WorldTerrainContactSampler";
+import type { WorldFaunaMember } from "./WorldFaunaField";
 import { WorldFaunaHabitat } from "./WorldFaunaHabitat";
-import { WorldFaunaRoster } from "./WorldFaunaRoster";
+import { faunaMemberKey, WorldFaunaRoster } from "./WorldFaunaRoster";
 import {
   FAUNA_ALERT_RADIUS,
   FAUNA_FAWN_SCALE,
   FAUNA_FLEE_RADIUS,
+  FAUNA_POOL_VARIANTS,
   FAUNA_QUALITY_HYSTERESIS,
   FAUNA_RETIRE_MARGIN,
-} from "./WorldScenicTuning";
-import type { WorldFaunaMember } from "./WorldFaunaField";
-import { ScriptedHumanoidActor } from "../../character/npc/ScriptedHumanoidActor";
-import {
-  createVillagerAssets,
-  type VillagerAssets,
-} from "../../character/npc/VillagerAssets";
-import { VillagerRoute, type VillagerSteering } from "../../character/npc/VillagerRoute";
-import {
   FAUNA_VILLAGER_ROUTE_RADIUS,
 } from "./WorldScenicTuning";
-import { WORLD_SUN_SHADOW_HALF_EXTENT } from "../../app/WorldEnvironmentTuning";
 
 /** One live animal and everything that decides what it does. */
 interface FaunaSlot {
@@ -51,22 +50,6 @@ interface FaunaSlot {
   castsShadow: boolean;
 }
 
-/**
- * The deer population, streamed around the player.
- *
- * Before this, three animals walked fixed circles around wherever the player
- * happened to spawn and stayed there for the entire session. Herds now come from
- * the same kind of seeded lattice the trees use, so they sit on ground that
- * could actually feed them, and the actor pool follows the player: animals that
- * fall too far behind are recycled onto herds ahead rather than accumulating.
- *
- * The pool is allocated once and never grows. Recycling an actor is a teleport
- * and a reset, not a construction, which is what keeps walking across the world
- * from turning into a stream of allocations.
- *
- * Cost is bounded by animation quality rather than by having fewer animals:
- * behaviour keeps running for everything, animation falls away with distance.
- */
 /** One villager and the route it walks. */
 interface VillagerSlot {
   readonly actor: ScriptedHumanoidActor;
@@ -82,6 +65,14 @@ interface FaunaResources {
   readonly habitat: WorldFaunaHabitat;
 }
 
+/**
+ * The deer population, streamed around the player.
+ *
+ * The pool is allocated once and never grows. Recycling an actor is a teleport
+ * and a reset, not a construction, which keeps traversal allocation-free.
+ * Body variants are fixed per slot because swapping a member identity must not
+ * leave a stag mesh representing a fawn or vice versa.
+ */
 export class WorldFaunaSystem {
   private readonly assets: DeerAssets;
   private readonly villagerAssets: VillagerAssets;
@@ -103,12 +94,11 @@ export class WorldFaunaSystem {
     spawn: THREE.Vector3,
     shadows: boolean,
   ) {
-    const resources = createFaunaResources(field, config);
+    const resources = createFaunaResources(field);
     this.assets = resources.assets;
     this.villagerAssets = resources.villagerAssets;
     this.habitat = resources.habitat;
     this.roster = new WorldFaunaRoster(field, config);
-    this.roster.refresh(spawn.x, spawn.z, true);
     this.walkSpeed = config.faunaDeerWalkSpeed;
     this.behaviorInterval = 1 / config.faunaBehaviorHz;
     this.shadows = shadows;
@@ -124,6 +114,9 @@ export class WorldFaunaSystem {
         field.sampleHeight(x, z);
       const contact = new WorldTerrainContactSampler(field);
 
+      if (count > 0) {
+        this.rebuildRoster(spawn, true);
+      }
       for (let index = 0; index < count; index += 1) {
         this.slots.push(
           this.createSlot(scene, index, count, spawn, sampleHeight, contact),
@@ -171,11 +164,11 @@ export class WorldFaunaSystem {
     const centerZ = spawn.z + Math.sin(angle) * radius;
     const actor = new ScriptedHumanoidActor(
       scene,
-      1, // scale
+      1,
       centerX,
       centerZ,
       this.villagerAssets,
-      0, // variant
+      0,
       this.shadows,
       sampleHeight,
       contact,
@@ -230,8 +223,6 @@ export class WorldFaunaSystem {
         this.applyQuality(slot);
       }
 
-      // Behaviour decides on its own staggered clock internally. Calling it per
-      // frame keeps proximity reactions immediate even when animation is culled.
       slot.behavior.update(
         deltaSeconds,
         slot.actor.position.x,
@@ -260,22 +251,29 @@ export class WorldFaunaSystem {
         this.applyVillagerQuality(villager);
       }
       if (villager.quality.shouldUpdate(deltaSeconds)) {
-        villager.actor.update(villager.quality.takeAccumulatedSeconds(), villager.steering);
+        villager.actor.update(
+          villager.quality.takeAccumulatedSeconds(),
+          villager.steering,
+        );
       }
     }
   }
 
-  private rebuildRoster(focus: THREE.Vector3): boolean {
+  private rebuildRoster(focus: THREE.Vector3, force = false): boolean {
     const occupied = new Set<string>();
     for (const slot of this.slots) {
       if (slot.active && slot.memberKey) {
         occupied.add(slot.memberKey);
       }
     }
-    // The roster tracks which members are available; we mark occupied ones
-    // so they won't be reassigned to another slot until recycled.
-    this.roster.refresh(focus.x, focus.z);
-    return true;
+    return this.roster.refresh(focus.x, focus.z, force, occupied);
+  }
+
+  private takeMember(
+    focus: THREE.Vector3,
+    variant?: DeerVariant,
+  ): WorldFaunaMember | undefined {
+    return this.roster.take(focus, variant);
   }
 
   dispose(): void {
@@ -291,7 +289,6 @@ export class WorldFaunaSystem {
       disposeActor(villager.actor, "Villager actor");
     }
     this.villagers.length = 0;
-    // Last: every actor was drawing these buffers a moment ago.
     disposeResource(() => this.assets.dispose(), "Deer assets");
     disposeResource(() => this.villagerAssets.dispose(), "Villager assets");
   }
@@ -304,10 +301,8 @@ export class WorldFaunaSystem {
     sampleHeight: (x: number, z: number) => number,
     contact: WorldTerrainContactSampler,
   ): FaunaSlot {
-    // The pool is built from the herds around the player's own spawn, so the
-    // first thing anybody sees is a herd rather than an empty meadow filling in.
-    const member = this.roster.take(spawn);
-    const variant = member?.variant ?? "doe";
+    const variant = FAUNA_POOL_VARIANTS[index % FAUNA_POOL_VARIANTS.length];
+    const member = this.takeMember(spawn, variant);
     setDeerCoatTint(
       this.tint,
       member?.coatValue ?? 0.5,
@@ -331,7 +326,6 @@ export class WorldFaunaSystem {
         walkSpeed: this.walkSpeed,
         seed,
         decisionIntervalSeconds: this.behaviorInterval,
-        // Staggered across the complete pool so decisions stay evenly spread.
         decisionPhaseSeconds:
           (index / Math.max(count, 1)) * this.behaviorInterval,
         alertRadius: FAUNA_ALERT_RADIUS,
@@ -380,7 +374,7 @@ export class WorldFaunaSystem {
   }
 
   private recycle(slot: FaunaSlot, focus: THREE.Vector3): void {
-    const member = this.roster.take(focus);
+    const member = this.takeMember(focus, slot.variant);
     if (member === undefined) {
       slot.memberKey = undefined;
       slot.active = false;
@@ -420,14 +414,6 @@ export class WorldFaunaSystem {
     }
   }
 
-  /**
-   * Applies one level change: what to solve, whether to draw, whether to cast.
-   *
-   * Done on transitions only. A shadow flag written every frame for every animal
-   * is pure overhead, and the sun's shadow box only covers a few metres around
-   * the player anyway — past that edge a caster contributes nothing but the cost
-   * of being walked in the shadow pass.
-   */
   private applyQuality(slot: FaunaSlot): void {
     const level = slot.quality.getLevel();
     const culled = level === ACTOR_QUALITY_CULLED;
@@ -437,9 +423,6 @@ export class WorldFaunaSystem {
       slot.quality.runsSecondaryMotion(),
     );
 
-    // The sun's shadow box only reaches a few metres around the player, so an
-    // animal outside it casts nothing whatever this flag says — leaving it on
-    // buys an identical image for the cost of walking it in the shadow pass.
     const casts =
       this.shadows &&
       slot.active &&
@@ -477,10 +460,7 @@ export class WorldFaunaSystem {
   }
 }
 
-function createFaunaResources(
-  field: TerrainField,
-  _config: WorldConfig,
-): FaunaResources {
+function createFaunaResources(field: TerrainField): FaunaResources {
   const assets = createDeerAssets();
   let villagerAssets: VillagerAssets | undefined;
   try {
@@ -495,10 +475,6 @@ function createFaunaResources(
     disposeResource(() => assets.dispose(), "Deer assets");
     throw error;
   }
-}
-
-function faunaMemberKey(member: WorldFaunaMember): string {
-  return `${member.seed}:${member.x}:${member.z}`;
 }
 
 interface DisposableActor {
