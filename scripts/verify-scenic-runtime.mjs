@@ -21,6 +21,7 @@ function assert(condition, message) {
 const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
 const scenicTuning = read("src/world/scenic/WorldScenicTuning.ts");
 const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
+const faunaRoster = read("src/world/scenic/WorldFaunaRoster.ts");
 const faunaField = read("src/world/scenic/WorldFaunaField.ts");
 const faunaConfigValidator = read("src/world/scenic/FaunaConfigValidator.ts");
 const worldConfigLoader = read("src/world/WorldConfigLoader.ts");
@@ -73,7 +74,7 @@ assert(
 );
 assert(
   faunaSystem.includes("interface FaunaResources") &&
-    faunaSystem.includes("const resources = createFaunaResources(field, config)") &&
+    faunaSystem.includes("const resources = createFaunaResources(field)") &&
     faunaSystem.includes("function createFaunaResources(") &&
     faunaSystem.includes("const assets = createDeerAssets()") &&
     faunaSystem.includes("villagerAssets = createVillagerAssets()") &&
@@ -112,7 +113,8 @@ assert(
   faunaSystem.includes("memberKey?: string") &&
     faunaSystem.includes("const occupied = new Set<string>()") &&
     faunaSystem.includes("occupied.add(slot.memberKey)") &&
-    faunaSystem.includes("!occupied.has(faunaMemberKey(member))") &&
+    faunaSystem.includes("this.roster.refresh(focus.x, focus.z, force, occupied)") &&
+    faunaRoster.includes("!occupied.has(faunaMemberKey(member))") &&
     faunaSystem.includes("slot.memberKey = faunaMemberKey(member)") &&
     faunaSystem.includes("slot.memberKey = undefined"),
   "A deterministic herd member must be owned by at most one live deer slot across roster rebuilds.",
@@ -127,7 +129,7 @@ const poolVariant = faunaSystem.indexOf(
   "const variant = FAUNA_POOL_VARIANTS[index % FAUNA_POOL_VARIANTS.length];",
 );
 const initialMember = faunaSystem.indexOf(
-  "const member = this.takeMember(spawn, spawn, variant);",
+  "const member = this.takeMember(spawn, variant);",
   poolVariant,
 );
 assert(
@@ -140,24 +142,33 @@ assert(
 );
 assert(
   faunaSystem.includes("readonly variant: DeerVariant") &&
-    faunaSystem.includes("member.variant !== variant") &&
-    faunaSystem.includes("this.takeMember(focus, focus, slot.variant)") &&
+    faunaRoster.includes("variant !== undefined && member.variant !== variant") &&
+    faunaSystem.includes("this.takeMember(focus, slot.variant)") &&
     faunaSystem.includes("this.applyMemberCoat(slot, member)") &&
-    faunaSystem.includes("member.seed,") &&
-    !faunaSystem.includes("let canReactivate"),
+    faunaSystem.includes("member.seed,"),
   "Recycled deer must preserve their built body variant, refresh coat identity, and let every inactive variant search the rebuilt roster.",
 );
 const takeMemberStart = faunaSystem.indexOf("private takeMember(");
-const recycleStart = faunaSystem.indexOf("private recycle(", takeMemberStart);
-const takeMemberSource = faunaSystem.slice(takeMemberStart, recycleStart);
+const disposeStart = faunaSystem.indexOf("  dispose(): void", takeMemberStart);
+const takeMemberSource = faunaSystem.slice(takeMemberStart, disposeStart);
+const rosterTakeStart = faunaRoster.indexOf("  take(\n");
+const rosterTakeSource = faunaRoster.slice(rosterTakeStart);
 assert(
   faunaSystem.includes("if (count > 0) {") &&
-    faunaSystem.includes("this.rebuildRoster(spawn);") &&
+    faunaSystem.includes("this.rebuildRoster(spawn, true);") &&
     takeMemberStart >= 0 &&
-    recycleStart > takeMemberStart &&
+    disposeStart > takeMemberStart &&
     !takeMemberSource.includes("rebuildRoster(") &&
-    !takeMemberSource.includes("this.builtX"),
+    rosterTakeStart >= 0 &&
+    !rosterTakeSource.includes("this.refresh("),
   "Fauna roster generation must stay explicit and movement-gated; member selection must not trigger hidden terrain sampling.",
+);
+assert(
+  faunaRoster.includes("return false;") &&
+    faunaRoster.includes("return true;") &&
+    faunaSystem.includes("if (rosterRebuilt) {") &&
+    faunaSystem.includes("this.recycle(slot, focus)"),
+  "Inactive slots must retry only when the movement-gated roster actually rebuilds.",
 );
 assert(
   deerBehavior.includes("this.random = normalizeSeed(seed)") &&
