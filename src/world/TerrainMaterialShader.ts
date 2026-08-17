@@ -91,6 +91,7 @@ varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
+${TERRAIN_ROCK_FUNCTIONS}
 `;
 
 export const TERRAIN_DETAIL_COLOR = `
