@@ -1,4 +1,5 @@
 import { GRASS_MAX_BIOMES } from "../grass/biome/GrassBiomeProfile";
+import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
 import { TERRAIN_SURFACE_NOISE_SIZE } from "./terrain/TerrainSurfaceNoiseTexture";
 
 export const TERRAIN_DETAIL_VERTEX = `
