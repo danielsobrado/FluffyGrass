@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import type { WorldConfig } from "../world/WorldConfig";
 import {
+  exitPointerLockSafely,
   isEditableInputTarget,
   requestPointerLockSafely,
 } from "./InputTarget";
@@ -66,9 +67,19 @@ export class FlyController {
     this.spawnPitch = spawn.pitch;
     this.previousTouchAction = canvas.style.touchAction;
     this.reset();
-    this.bindEvents();
-    if (profile.compact) {
-      this.createMobileControls();
+
+    try {
+      this.bindEvents();
+      if (profile.compact) {
+        this.createMobileControls();
+      }
+    } catch (error) {
+      this.unbindEvents();
+      this.clearTransientInput();
+      this.mobileControls?.remove();
+      this.mobileControls = undefined;
+      this.canvas.style.touchAction = this.previousTouchAction;
+      throw error;
     }
   }
 
@@ -159,7 +170,7 @@ export class FlyController {
     const dx = target.x - position.x;
     const dy = target.y - position.y;
     const dz = target.z - position.z;
-    this.yaw = Math.atan2(dx, dz);
+    this.yaw = Math.atan2(-dx, -dz);
     this.pitch = THREE.MathUtils.clamp(
       Math.atan2(dy, Math.hypot(dx, dz)),
       -Math.PI * 0.48,
@@ -193,28 +204,9 @@ export class FlyController {
       return;
     }
     this.disposed = true;
-    window.removeEventListener("keydown", this.handleKeyDown);
-    window.removeEventListener("keyup", this.handleKeyUp);
-    window.removeEventListener("blur", this.handleWindowBlur);
-    window.removeEventListener("mousemove", this.handleMouseMove);
-    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-    this.canvas.removeEventListener("click", this.handleCanvasClick);
-    this.canvas.removeEventListener("wheel", this.handleWheel);
-    this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
+    this.unbindEvents();
     if (document.pointerLockElement === this.canvas) {
-      document.exitPointerLock();
-    }
-
-    if (this.usesPointerEvents) {
-      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
-      window.removeEventListener("pointermove", this.handlePointerMove);
-      window.removeEventListener("pointerup", this.handlePointerUp);
-      window.removeEventListener("pointercancel", this.handlePointerUp);
-    } else {
-      this.canvas.removeEventListener("touchstart", this.handleTouchStart);
-      window.removeEventListener("touchmove", this.handleTouchMove);
-      window.removeEventListener("touchend", this.handleTouchEnd);
-      window.removeEventListener("touchcancel", this.handleTouchEnd);
+      exitPointerLockSafely();
     }
 
     this.clearTransientInput();
@@ -264,6 +256,29 @@ export class FlyController {
     this.canvas.style.touchAction = "none";
   }
 
+  private unbindEvents(): void {
+    window.removeEventListener("keydown", this.handleKeyDown);
+    window.removeEventListener("keyup", this.handleKeyUp);
+    window.removeEventListener("blur", this.handleWindowBlur);
+    window.removeEventListener("mousemove", this.handleMouseMove);
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    this.canvas.removeEventListener("click", this.handleCanvasClick);
+    this.canvas.removeEventListener("wheel", this.handleWheel);
+    this.canvas.removeEventListener("contextmenu", this.handleContextMenu);
+
+    if (this.usesPointerEvents) {
+      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+      window.removeEventListener("pointermove", this.handlePointerMove);
+      window.removeEventListener("pointerup", this.handlePointerUp);
+      window.removeEventListener("pointercancel", this.handlePointerUp);
+    } else {
+      this.canvas.removeEventListener("touchstart", this.handleTouchStart);
+      window.removeEventListener("touchmove", this.handleTouchMove);
+      window.removeEventListener("touchend", this.handleTouchEnd);
+      window.removeEventListener("touchcancel", this.handleTouchEnd);
+    }
+  }
+
   private createMobileControls(): void {
     const controls = document.createElement("div");
     controls.className = "mobile-flight-controls";
@@ -288,14 +303,17 @@ export class FlyController {
       "[data-flight-vertical]",
     )) {
       const value = Number(button.dataset.flightVertical);
-      const activate = (event: Event): void => {
+      const activate = (event: PointerEvent): void => {
         event.preventDefault();
         event.stopPropagation();
+        if (!button.hasPointerCapture(event.pointerId)) {
+          button.setPointerCapture(event.pointerId);
+        }
         this.inputEventCount += 1;
         this.lastInputType = "button";
         this.verticalTouch = value;
       };
-      const deactivate = (event: Event): void => {
+      const deactivate = (event: PointerEvent): void => {
         event.preventDefault();
         event.stopPropagation();
         if (this.verticalTouch === value) {
@@ -305,7 +323,11 @@ export class FlyController {
       button.addEventListener("pointerdown", activate);
       button.addEventListener("pointerup", deactivate);
       button.addEventListener("pointercancel", deactivate);
-      button.addEventListener("pointerleave", deactivate);
+      button.addEventListener("lostpointercapture", () => {
+        if (this.verticalTouch === value) {
+          this.verticalTouch = 0;
+        }
+      });
     }
     document.body.appendChild(controls);
     this.mobileControls = controls;

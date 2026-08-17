@@ -1,5 +1,4 @@
 import type { WorldConfig } from "../world/WorldConfig";
-import { WORLD_CONFIG_SCHEMA } from "../world/WorldConfigSchema";
 import { validateWorldConfig } from "../world/WorldConfigValidator";
 
 export const RIVER_TUNING_STORAGE_KEY = "fluffygrass:river-tuning:v2";
@@ -51,6 +50,7 @@ export function readRiverDevelopmentOverrides(): RiverDevelopmentOverrides {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return sanitizeRiverDevelopmentOverrides(parsed);
   } catch {
+    clearRiverDevelopmentOverrides();
     return {};
   }
 }
@@ -91,10 +91,10 @@ export function applyRiverDevelopmentConfig(
   }
 }
 
-export function serializeWorldConfigYaml(config: WorldConfig): string {
-  return (Object.keys(WORLD_CONFIG_SCHEMA) as (keyof WorldConfig)[])
-    .map((key) => `${key}: ${formatYamlNumber(config[key])}`)
-    .join("\n");
+export function serializeRiverConfigYaml(config: WorldConfig): string {
+  return RIVER_DEVELOPMENT_OVERRIDE_KEYS.map(
+    (key) => `${key}: ${formatYamlNumber(config[key])}`,
+  ).join("\n");
 }
 
 function sanitizeRiverDevelopmentOverrides(

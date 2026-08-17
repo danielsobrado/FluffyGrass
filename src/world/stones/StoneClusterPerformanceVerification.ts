@@ -1,7 +1,11 @@
 import { TerrainField } from "../TerrainField";
 import { WorldConfigLoader } from "../WorldConfigLoader";
+import type { WorldConfig } from "../WorldConfig";
 import { StoneField } from "./StoneField";
-import { stoneSourceCellCacheLimit } from "./StoneClusterTuning";
+import {
+  STONE_CELL_SOURCE_MARGIN,
+  stoneSourceCellCacheLimit,
+} from "./StoneClusterTuning";
 
 export interface StonePerformanceBaseline {
   readonly seed: number;
@@ -26,6 +30,7 @@ function assert(condition: boolean, message: string): asserts condition {
 
 function collectMetrics(
   stones: StoneField,
+  config: WorldConfig,
   chunkMin: number,
   chunkMax: number,
 ): Omit<StonePerformanceBaseline, "seed"> {
@@ -41,6 +46,13 @@ function collectMetrics(
       includeSmallRoots += includeSmall.length;
       maxRootsInChunk = Math.max(maxRootsInChunk, includeSmall.length);
       for (const instance of includeSmall) {
+        assert(
+          instance.clearRadius + config.stoneGrassClearanceFeather <
+            config.stoneCellSize,
+          `Stone clearance reach ${(
+            instance.clearRadius + config.stoneGrassClearanceFeather
+          ).toFixed(3)} exceeds its ${config.stoneCellSize} m cache cell.`,
+        );
         detailedTrianglePotential +=
           stones.getVariant(instance.archetype, instance.variantIndex, true)
             .indices.length / 3;
@@ -66,6 +78,63 @@ function collectMetrics(
   };
 }
 
+function maximumColdRawCandidates(config: WorldConfig): number {
+  const sourceCellsAxis =
+    config.chunkSize / config.stoneCellSize + 2 * STONE_CELL_SOURCE_MARGIN;
+  const sourceCenterSpan = (sourceCellsAxis - 1) * config.stoneCellSize;
+  const baseMacroAxis =
+    Math.ceil(sourceCenterSpan / config.stoneClusterSpacing) + 1;
+  const descriptorAndConflictMargin = 4;
+  const rawAxis = baseMacroAxis + descriptorAndConflictMargin;
+  return rawAxis * rawAxis;
+}
+
+function verifyColdSampling(config: WorldConfig): number {
+  const maximum = maximumColdRawCandidates(config);
+  let observed = 0;
+  const scratch: ReturnType<StoneField["collectChunkInstances"]> = [];
+  for (const [chunkX, chunkZ] of [
+    [0, 0],
+    [1, 0],
+    [-1, 1],
+  ] as const) {
+    const terrain = new TerrainField(config);
+    const stones = new StoneField(terrain, config);
+    stones.collectChunkInstances(chunkX, chunkZ, true, scratch);
+    const samples = stones.getClusterField().getFullTerrainSampleCount();
+    observed = Math.max(observed, samples);
+    assert(
+      samples <= maximum,
+      `Cold chunk ${chunkX}:${chunkZ} sampled ${samples} full macro candidates; ceiling ${maximum}.`,
+    );
+  }
+  return observed;
+}
+
+function verifyDisabledClusterSampling(config: WorldConfig): void {
+  for (const disabled of [
+    { stoneDensity: 0 },
+    { stoneClusterChance: 0 },
+  ] as const) {
+    const disabledConfig = { ...config, ...disabled };
+    const terrain = new TerrainField(disabledConfig);
+    const stones = new StoneField(terrain, disabledConfig);
+    const clusterField = stones.getClusterField();
+    for (let gridZ = -2; gridZ <= 2; gridZ += 1) {
+      for (let gridX = -2; gridX <= 2; gridX += 1) {
+        assert(
+          !clusterField.getDescriptor(gridX, gridZ).active,
+          "Disabled cluster controls produced an active descriptor.",
+        );
+      }
+    }
+    assert(
+      clusterField.getFullTerrainSampleCount() === 0,
+      "Disabled cluster controls performed full terrain/ecology sampling.",
+    );
+  }
+}
+
 export function verifyStoneClusterPerformance(
   configSource: string,
   baseline: StonePerformanceBaseline,
@@ -75,6 +144,7 @@ export function verifyStoneClusterPerformance(
     config.seed === baseline.seed,
     `Baseline seed ${baseline.seed} does not match shipped config seed ${config.seed}.`,
   );
+  verifyDisabledClusterSampling(config);
   const terrain = new TerrainField(config);
   const stones = new StoneField(terrain, config);
   assert(
@@ -86,7 +156,13 @@ export function verifyStoneClusterPerformance(
       ),
     "Cell cache is smaller than the desktop source-cell ring.",
   );
-  const metrics = collectMetrics(stones, baseline.chunkMin, baseline.chunkMax);
+  const coldSamples = verifyColdSampling(config);
+  const metrics = collectMetrics(
+    stones,
+    config,
+    baseline.chunkMin,
+    baseline.chunkMax,
+  );
   assert(
     metrics.includeSmallRoots <= baseline.includeSmallRoots,
     `includeSmallRoots rose from ${baseline.includeSmallRoots} to ${metrics.includeSmallRoots}.`,
@@ -110,6 +186,6 @@ export function verifyStoneClusterPerformance(
   return (
     `roots ${metrics.includeSmallRoots}/${metrics.farRoots} · ` +
     `tris ${metrics.detailedTrianglePotential}/${metrics.coarseTrianglePotential} · ` +
-    `peak ${metrics.maxRootsInChunk}`
+    `peak ${metrics.maxRootsInChunk} · cold macro samples ${coldSamples}`
   );
 }

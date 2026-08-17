@@ -30,7 +30,10 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function fail(message) {

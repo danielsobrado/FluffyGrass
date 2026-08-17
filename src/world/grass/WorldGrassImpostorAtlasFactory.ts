@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type {
   GrassGeometryConfig,
   GrassImpostorConfig,
@@ -157,29 +158,44 @@ export class WorldGrassImpostorAtlasFactory {
       }
     }
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.name = "world-grass-subpatch-hemi-octahedral-atlas";
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.premultiplyAlpha = true;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = true;
-    texture.needsUpdate = true;
+    let texture: THREE.CanvasTexture | undefined;
+    let geometry: THREE.BufferGeometry | undefined;
+    try {
+      texture = new THREE.CanvasTexture(canvas);
+      texture.name = "world-grass-subpatch-hemi-octahedral-atlas";
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.premultiplyAlpha = true;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = true;
+      texture.needsUpdate = true;
+      geometry = this.createGeometry(cardRadius, subpatchCenters);
 
-    return {
-      texture,
-      geometry: this.createGeometry(cardRadius, subpatchCenters),
-      centerHeight,
-      radius: boundsRadius,
-      cardRadius,
-      viewsPerAxis: config.viewsPerAxis,
-      subpatchesPerAxis: IMPOSTOR_SUBPATCHES_PER_AXIS,
-      frameResolution: config.frameResolution,
-      padding: config.padding,
-      atlasSize,
-    };
+      return {
+        texture,
+        geometry,
+        centerHeight,
+        radius: boundsRadius,
+        cardRadius,
+        viewsPerAxis: config.viewsPerAxis,
+        subpatchesPerAxis: IMPOSTOR_SUBPATCHES_PER_AXIS,
+        frameResolution: config.frameResolution,
+        padding: config.padding,
+        atlasSize,
+      };
+    } catch (error) {
+      try {
+        disposeResources([geometry, texture]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Grass impostor atlas cleanup failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
   }
 
   private partitionBlades(
@@ -500,23 +516,35 @@ export class WorldGrassImpostorAtlasFactory {
     }
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(positions, 3),
-    );
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setAttribute(
-      "grassSubpatchOffset",
-      new THREE.Float32BufferAttribute(subpatchOffsets, 2),
-    );
-    geometry.setAttribute(
-      "grassSubpatchIndex",
-      new THREE.Float32BufferAttribute(subpatchIndices, 1),
-    );
-    geometry.setIndex(indices);
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    return geometry;
+    try {
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setAttribute(
+        "grassSubpatchOffset",
+        new THREE.Float32BufferAttribute(subpatchOffsets, 2),
+      );
+      geometry.setAttribute(
+        "grassSubpatchIndex",
+        new THREE.Float32BufferAttribute(subpatchIndices, 1),
+      );
+      geometry.setIndex(indices);
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      return geometry;
+    } catch (error) {
+      try {
+        geometry.dispose();
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Grass impostor geometry cleanup failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
   }
 
   private encodeDataColor(

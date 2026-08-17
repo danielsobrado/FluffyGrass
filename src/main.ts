@@ -25,82 +25,125 @@ async function bootstrap(): Promise<void> {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const runtimeConfig = await new RuntimeConfigLoader().load(
-    `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
-  );
-  const profileParam = params.get("profile");
-  const profile = resolveRuntimeProfile(runtimeConfig, {
-    compact:
-      profileParam === "compact"
-        ? true
-        : profileParam === "desktop"
-          ? false
-          : undefined,
-  });
-  document.documentElement.dataset.viewport = profile.compact
-    ? "compact"
-    : "desktop";
-
-  const sceneMode = params.get("scene") === "island" ? "island" : "world";
-  const flyMode =
-    sceneMode === "world" &&
-    (params.get("control") === "fly" || params.get("view") === "aerial");
-  document.body.dataset.scene = sceneMode;
-  document.body.dataset.control = flyMode ? "fly" : "third-person";
   const uiController = new UiVisibilityController();
-  uiController.initialize();
-
-  const versionElement = document.querySelector<HTMLElement>("#build-version");
-  const titleElement = document.querySelector<HTMLElement>(".app-title strong");
-  const sceneElement = document.querySelector<HTMLElement>("#scene-mode");
-  const helpElement = document.querySelector<HTMLElement>("#control-help");
-  if (versionElement) {
-    versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
-  }
-  if (titleElement) {
-    titleElement.textContent = `${WORLD_NAME} · ${APP_VERSION}`;
-  }
-  if (sceneElement) {
-    sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
-  }
-  if (helpElement && sceneMode === "world") {
-    helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
-  }
-  document.title =
-    sceneMode === "world"
-      ? `${WORLD_NAME} · ${APP_VERSION}`
-      : `${WORLD_NAME} · Island Regression`;
-
   let app: RunnableApp | undefined;
   let diagnostics: Disposable | undefined;
   let actorProof: Disposable | undefined;
   let animationHud: Disposable | undefined;
+  let visualMatrix: Disposable | undefined;
+  let disposed = false;
+
+  const disposeRuntime = (): void => {
+    disposeRuntimeSafely(
+      app,
+      uiController,
+      diagnostics,
+      actorProof,
+      animationHud,
+      visualMatrix,
+    );
+  };
+  const handlePageHide = (event: PageTransitionEvent): void => {
+    if (event.persisted || disposed) {
+      return;
+    }
+    disposed = true;
+    disposeRuntime();
+  };
+  window.addEventListener("pagehide", handlePageHide);
+
   try {
+    const runtimeConfig = await new RuntimeConfigLoader().load(
+      `./config/runtime.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+    );
+    if (disposed) {
+      return;
+    }
+    const profileParam = params.get("profile");
+    const profile = resolveRuntimeProfile(runtimeConfig, {
+      compact:
+        profileParam === "compact"
+          ? true
+          : profileParam === "desktop"
+            ? false
+            : undefined,
+    });
+    document.documentElement.dataset.viewport = profile.compact
+      ? "compact"
+      : "desktop";
+
+    const sceneMode = params.get("scene") === "island" ? "island" : "world";
+    const flyMode =
+      sceneMode === "world" &&
+      (params.get("control") === "fly" || params.get("view") === "aerial");
+    const animationHudEnabled = params.get("diagnostics") === "1";
+    document.body.dataset.scene = sceneMode;
+    document.body.dataset.control = flyMode ? "fly" : "third-person";
+
+    const versionElement = document.querySelector<HTMLElement>("#build-version");
+    const titleElement = document.querySelector<HTMLElement>(".app-title strong");
+    const sceneElement = document.querySelector<HTMLElement>("#scene-mode");
+    const helpElement = document.querySelector<HTMLElement>("#control-help");
+    if (versionElement) {
+      versionElement.textContent = `${APP_VERSION} · ${BUILD_LABEL}`;
+    }
+    if (titleElement) {
+      titleElement.textContent = `${WORLD_NAME} · ${APP_VERSION}`;
+    }
+    if (sceneElement) {
+      sceneElement.textContent = resolveSceneLabel(sceneMode, flyMode);
+    }
+    if (helpElement && sceneMode === "world") {
+      helpElement.textContent = flyMode ? FLY_HELP : THIRD_PERSON_HELP;
+    }
+    document.title =
+      sceneMode === "world"
+        ? `${WORLD_NAME} · ${APP_VERSION}`
+        : `${WORLD_NAME} · Island Regression`;
+
+    uiController.initialize();
     if (sceneMode === "island") {
       const { IslandApp } = await import("./app/IslandApp");
+      if (disposed) {
+        return;
+      }
       const island = new IslandApp(canvas, profile);
       app = island;
       await island.initialize();
+      if (disposed) {
+        return;
+      }
     } else {
       const { WorldApp } = await import("./app/WorldApp");
+      if (disposed) {
+        return;
+      }
       const world = await WorldApp.create(canvas, profile);
       app = world;
+      if (disposed) {
+        disposeRuntime();
+        return;
+      }
       const character = world.getThirdPersonCharacter();
-      if (character) {
+      if (character && animationHudEnabled) {
         const { AnimationBlendingHud } = await import(
           "./runtime/AnimationBlendingHud"
         );
+        if (disposed) {
+          return;
+        }
         const hud = new AnimationBlendingHud();
-        hud.attachCharacter(character);
-        const detachObserver = world.addFrameObserver((delta) => {
-          hud.update(delta);
-        });
+        let detachObserver: (() => void) | undefined;
         animationHud = {
           dispose: () => {
-            detachObserver();
+            detachObserver?.();
             hud.dispose();
           },
         };
+        hud.attachCharacter(character);
+        detachObserver = world.addFrameObserver((delta) => {
+          hud.update(delta);
+        });
       }
       const diagnosticsEnabled =
         params.get("diagnostics") === "1" ||
@@ -110,6 +153,9 @@ async function bootstrap(): Promise<void> {
         const { WorldDiagnosticsController } = await import(
           "./runtime/WorldDiagnosticsController"
         );
+        if (disposed) {
+          return;
+        }
         diagnostics = WorldDiagnosticsController.attach(world, {
           gpuTiming: params.get("gpuTiming") === "1",
           statsPanelEnabled: params.get("stats") === "1",
@@ -119,36 +165,58 @@ async function bootstrap(): Promise<void> {
         const { WorldVisualMatrixRunner } = await import(
           "./qa/WorldVisualMatrixRunner"
         );
-        void new WorldVisualMatrixRunner(world.attachVisualMatrix()).start();
+        if (disposed) {
+          return;
+        }
+        const runner = new WorldVisualMatrixRunner(world.attachVisualMatrix());
+        visualMatrix = runner;
+        void runner.start();
       }
       if (params.get("actorProof") === "1") {
         const { ActorExtensibilityProof } = await import(
           "./dev/ActorExtensibilityProof"
         );
+        if (disposed) {
+          return;
+        }
         actorProof = ActorExtensibilityProof.attach(world);
       }
     }
 
+    if (disposed) {
+      disposeRuntime();
+      return;
+    }
     app.start();
-    let disposed = false;
-    window.addEventListener("pagehide", (event) => {
-      if (event.persisted || disposed) {
-        return;
-      }
-      disposed = true;
-      animationHud?.dispose();
-      actorProof?.dispose();
-      diagnostics?.dispose();
-      uiController.dispose();
-      app?.dispose();
-    });
   } catch (error) {
-    animationHud?.dispose();
-    actorProof?.dispose();
-    diagnostics?.dispose();
-    app?.dispose();
-    uiController.dispose();
+    disposed = true;
+    window.removeEventListener("pagehide", handlePageHide);
+    disposeRuntime();
     throw error;
+  }
+}
+
+function disposeRuntimeSafely(
+  app: RunnableApp | undefined,
+  uiController: UiVisibilityController,
+  diagnostics: Disposable | undefined,
+  actorProof: Disposable | undefined,
+  animationHud: Disposable | undefined,
+  visualMatrix: Disposable | undefined,
+): void {
+  disposeSafely("Animation HUD", () => animationHud?.dispose());
+  disposeSafely("Actor proof", () => actorProof?.dispose());
+  disposeSafely("Visual matrix", () => visualMatrix?.dispose());
+  disposeSafely("Diagnostics", () => diagnostics?.dispose());
+  disposeSafely("UI controller", () => uiController.dispose());
+  disposeSafely("Application", () => app?.dispose());
+}
+
+function disposeSafely(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[${WORLD_NAME}] ${label} cleanup failed.`, error);
   }
 }
 

@@ -212,13 +212,34 @@ export function classifyStoneClusterProcess(
   return "compact";
 }
 
+/**
+ * Upland bedrock exposure, shared by every stone population.
+ *
+ * Thin soil and stripped slopes put more rock at the surface with altitude, and
+ * the shipped world had no altitude term anywhere: stones landed at index
+ * 0.82-0.89 through the p50-p90 height bands, slightly rarer on the hills than
+ * on the flats. Knees sit low in the normalised range because the grass
+ * altitude span covers ground far higher than ordinary rolling country — at
+ * 0.16..0.62 an average hilltop earned almost none of the boost.
+ */
+export function uplandGeologyBoost(
+  height: number,
+  grassMinAltitude: number,
+  grassMaxAltitude: number,
+): number {
+  const span = Math.max(1, grassMaxAltitude - grassMinAltitude);
+  const altitude = clamp01((height - grassMinAltitude) / span);
+  return 1 + 0.85 * smoothstep(altitude, 0.12, 0.4);
+}
+
 export function singletonProbability(
   geologyPotential: number,
   surfaceRockiness: number,
   singletonChance: number,
+  uplandBoost = 1,
 ): number {
   const suitability = geologyPotential * (0.25 + 0.75 * surfaceRockiness);
-  return singletonChance * lerp(0.35, 1, clamp01(suitability));
+  return singletonChance * lerp(0.35, 1, clamp01(suitability)) * uplandBoost;
 }
 
 export function clusterRoleCounts(budget: number): {

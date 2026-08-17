@@ -11,7 +11,10 @@ const MAX_COMPACT_TOTAL_NEAR_TRIANGLES = 600_000;
 const PHASE_SAMPLES = 64;
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function fail(message) {

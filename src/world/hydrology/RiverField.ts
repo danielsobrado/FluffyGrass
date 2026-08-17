@@ -82,6 +82,27 @@ export function createRiverLaneCenter(): RiverLaneCenter {
   return { centerZ: 0, halfWidth: 0, discharge: 0, flowSign: 1 };
 }
 
+function clearRiverSample(target: RiverSample): RiverSample {
+  target.coverage = 0;
+  target.bank = 0;
+  target.proximity = 0;
+  target.flowX = 0;
+  target.flowZ = 0;
+  target.morphology = 0;
+  target.bend = 0;
+  target.lateral = 0;
+  target.localHalfWidth = 0;
+  target.bedDepth = 0;
+  target.incisionDepth = 0;
+  // Corridor identity clears with the rest, or a knickpoint keeps resolving
+  // against whichever lane the scratch sample last held.
+  target.discharge = 0;
+  target.centerZ = 0;
+  target.laneIndex = 0;
+  target.flowSign = 1;
+  return target;
+}
+
 export function resolveHydrologyRiverMinimumSeparation(
   config: WorldConfig,
 ): number {
@@ -198,6 +219,7 @@ function createLane(): RiverLane {
 export class RiverField {
   private readonly primaryFrequency: number;
   private readonly secondaryFrequency: number;
+  private readonly maximumInfluenceHalfWidth: number;
   /**
    * Direct-mapped on the low index bits. A sample only ever needs the two
    * adjacent lanes around z, which always land in different slots, so a row
@@ -213,6 +235,13 @@ export class RiverField {
   constructor(private readonly config: WorldConfig) {
     this.primaryFrequency = TWO_PI / (config.riverSpacing * 1.7);
     this.secondaryFrequency = TWO_PI / (config.riverSpacing * 0.63);
+    this.maximumInfluenceHalfWidth =
+      config.riverWidth * RIVER_GLOBAL_MAX_WIDTH_SCALE * 0.5 +
+      Math.max(
+        RIVER_EDGE_FEATHER,
+        config.riverBankWidth,
+        config.waterHumidityRadius,
+      );
   }
 
   sample(
@@ -221,11 +250,17 @@ export class RiverField {
     height: number,
     target: RiverSample,
   ): RiverSample {
+    if (height >= this.config.riverMaxAltitude) {
+      return clearRiverSample(target);
+    }
     const lowerIndex = Math.floor(z / this.config.riverSpacing);
     this.sampleLane(lowerIndex, x, z, this.laneA);
     this.sampleLane(lowerIndex + 1, x, z, this.laneB);
     const lane =
       this.laneA.distance <= this.laneB.distance ? this.laneA : this.laneB;
+    if (lane.distance > this.maximumInfluenceHalfWidth) {
+      return clearRiverSample(target);
+    }
     this.resolveSelectedLane(lane, height, target);
     return target;
   }
@@ -324,7 +359,11 @@ export class RiverField {
             this.secondaryFrequency *
             this.secondaryFrequency),
     );
-    const bend = clamp(secondDerivative / secondDerivativeReference, -1, 1);
+    const tangentLength = Math.sqrt(1 + firstDerivative * firstDerivative);
+    const curvature =
+      secondDerivative /
+      (tangentLength * tangentLength * tangentLength);
+    const bend = clamp(curvature / secondDerivativeReference, -1, 1);
 
     const side =
       lane.signedDistance > 0 ? 1 : lane.signedDistance < 0 ? -1 : 0;
@@ -393,7 +432,6 @@ export class RiverField {
       target.bank *
       (1 - target.coverage);
 
-    const tangentLength = Math.sqrt(1 + firstDerivative * firstDerivative);
     const flowSign = lane.shape.flowSign;
     target.flowX = flowSign / tangentLength;
     target.flowZ = (flowSign * firstDerivative) / tangentLength;

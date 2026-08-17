@@ -216,6 +216,7 @@ export function getGrassWindNoiseTexture(): THREE.DataTexture {
 }
 
 export function disposeGrassWindNoiseTexture(): void {
-  sharedTexture?.dispose();
+  const texture = sharedTexture;
   sharedTexture = undefined;
+  texture?.dispose();
 }

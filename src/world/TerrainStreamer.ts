@@ -62,37 +62,63 @@ export class TerrainStreamer {
     private readonly compact: boolean,
     shadows: boolean,
   ) {
-    this.materialController = new TerrainMaterialController(config, shadows);
-    this.waterMaterialController =
-      config.waterEnabled >= 1
-        ? new WaterMaterialController(config, compact)
+    let materialController: TerrainMaterialController | undefined;
+    let waterMaterialController: WaterMaterialController | undefined;
+    let waterBedMaterialController: WaterBedMaterialController | undefined;
+    let horizon: WorldHorizonShell | undefined;
+    let cascades: WorldCascadeSystem | undefined;
+
+    try {
+      materialController = new TerrainMaterialController(config, shadows);
+      this.materialController = materialController;
+      waterMaterialController =
+        config.waterEnabled >= 1
+          ? new WaterMaterialController(config, compact)
+          : undefined;
+      this.waterMaterialController = waterMaterialController;
+      waterBedMaterialController = config.waterEnabled >= 1
+        ? new WaterBedMaterialController(config, compact)
         : undefined;
-    this.waterBedMaterialController = config.waterEnabled >= 1
-      ? new WaterBedMaterialController(config, compact)
-      : undefined;
-    this.surfaceField = new TerrainSurfaceField(config);
-    this.waterInteractionField = new WaterInteractionField(config);
-    this.horizon = config.horizonEnabled >= 1
-      ? new WorldHorizonShell(scene, field, config, compact)
-      : undefined;
-    this.cascades =
-      config.waterEnabled >= 1 && config.waterfallEnabled >= 1
-        ? new WorldCascadeSystem(
-            scene,
-            field,
-            config,
-            (compact ? config.terrainRadiusCompact : config.terrainRadiusDesktop) *
-              config.chunkSize,
-            compact,
-          )
+      this.waterBedMaterialController = waterBedMaterialController;
+      this.surfaceField = new TerrainSurfaceField(config);
+      this.waterInteractionField = new WaterInteractionField(config);
+      horizon = config.horizonEnabled >= 1
+        ? new WorldHorizonShell(scene, field, config, compact)
         : undefined;
+      this.horizon = horizon;
+      cascades =
+        config.waterEnabled >= 1 && config.waterfallEnabled >= 1
+          ? new WorldCascadeSystem(
+              scene,
+              field,
+              config,
+              (compact
+                ? config.terrainRadiusCompact
+                : config.terrainRadiusDesktop) * config.chunkSize,
+              compact,
+            )
+          : undefined;
+      this.cascades = cascades;
+    } catch (error) {
+      disposeTerrainResource(cascades, "Water cascades");
+      disposeTerrainResource(horizon, "Horizon shell");
+      disposeTerrainResource(waterBedMaterialController, "Water bed material");
+      disposeTerrainResource(waterMaterialController, "Water material");
+      disposeTerrainResource(materialController, "Terrain material");
+      throw error;
+    }
   }
 
   update(
     position: THREE.Vector3,
     buildDeadline = Number.POSITIVE_INFINITY,
   ): void {
-    if (this.disposed) {
+    if (
+      this.disposed ||
+      !Number.isFinite(position.x) ||
+      !Number.isFinite(position.y) ||
+      !Number.isFinite(position.z)
+    ) {
       return;
     }
     const waterTime = performance.now() * 0.001;
@@ -134,17 +160,21 @@ export class TerrainStreamer {
     }
     this.disposed = true;
     for (const chunk of this.chunks.values()) {
-      this.removeChunk(chunk);
+      try {
+        this.removeChunk(chunk);
+      } catch (error) {
+        console.warn("[Drusniel World] Terrain chunk cleanup failed.", error);
+      }
     }
     this.chunks.clear();
     this.queue.length = 0;
     this.activeBuild = undefined;
     this.desired.clear();
-    this.materialController.dispose();
-    this.waterMaterialController?.dispose();
-    this.waterBedMaterialController?.dispose();
-    this.horizon?.dispose();
-    this.cascades?.dispose();
+    disposeTerrainResource(this.cascades, "Water cascades");
+    disposeTerrainResource(this.horizon, "Horizon shell");
+    disposeTerrainResource(this.waterBedMaterialController, "Water bed material");
+    disposeTerrainResource(this.waterMaterialController, "Water material");
+    disposeTerrainResource(this.materialController, "Terrain material");
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {
@@ -309,31 +339,86 @@ export class TerrainStreamer {
       return;
     }
 
-    const existing = this.chunks.get(chunk.key);
-    if (existing) {
-      this.removeChunk(existing);
-    }
-    this.chunks.set(chunk.key, chunk);
-    this.scene.add(chunk.mesh);
-    if (chunk.waterBedMesh) {
-      this.scene.add(chunk.waterBedMesh);
-    }
-    if (chunk.waterMesh) {
-      this.scene.add(chunk.waterMesh);
-    }
-    this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true);
+    this.commitChunk(chunk);
     this.activeBuild = undefined;
   }
 
-  private removeChunk(chunk: TerrainChunk): void {
-    this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false);
-    this.scene.remove(chunk.mesh);
+  private commitChunk(chunk: TerrainChunk): void {
+    const existing = this.chunks.get(chunk.key);
+    try {
+      this.scene.add(chunk.mesh);
+      if (chunk.waterBedMesh) {
+        this.scene.add(chunk.waterBedMesh);
+      }
+      if (chunk.waterMesh) {
+        this.scene.add(chunk.waterMesh);
+      }
+      this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, true);
+      this.chunks.set(chunk.key, chunk);
+    } catch (error) {
+      try {
+        this.removeChunk(chunk, !existing);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Unpublished terrain chunk rollback failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
+
+    if (!existing) {
+      return;
+    }
+    try {
+      this.removeChunk(existing, false);
+    } catch (error) {
+      console.warn("[Drusniel World] Replaced terrain chunk cleanup failed.", error);
+    }
+  }
+
+  private removeChunk(chunk: TerrainChunk, updateCoverage = true): void {
+    let firstError: unknown;
+    let failed = false;
+    const attempt = (cleanup: () => void): void => {
+      try {
+        cleanup();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    };
+
+    if (updateCoverage) {
+      attempt(() => this.horizon?.setChunkCovered(chunk.chunkX, chunk.chunkZ, false));
+    }
+    attempt(() => this.scene.remove(chunk.mesh));
     if (chunk.waterBedMesh) {
-      this.scene.remove(chunk.waterBedMesh);
+      attempt(() => this.scene.remove(chunk.waterBedMesh!));
     }
     if (chunk.waterMesh) {
-      this.scene.remove(chunk.waterMesh);
+      attempt(() => this.scene.remove(chunk.waterMesh!));
     }
-    chunk.dispose();
+    attempt(() => chunk.dispose());
+
+    if (failed) {
+      throw firstError;
+    }
+  }
+}
+
+function disposeTerrainResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }

@@ -18,6 +18,67 @@ const baseline = JSON.parse(
   ),
 );
 
+function verifyZeroChanceVergeFastPath() {
+  const source = readFileSync(
+    resolve(REPOSITORY_ROOT, "src/world/stones/StoneField.ts"),
+    "utf8",
+  );
+  const start = source.indexOf("private generateCell(");
+  const end = source.indexOf("private resolveCluster(", start);
+  if (start < 0 || end <= start) {
+    throw new Error("[stones] Unable to inspect StoneField.generateCell().");
+  }
+  const generateCell = source.slice(start, end);
+  const guard = generateCell.indexOf("if (this.config.stoneVergeChance > 0)");
+  const geology = generateCell.indexOf(
+    "this.clusterField.sampleGeologyPotential(",
+  );
+  const placement = generateCell.indexOf("this.addVergeStones(");
+  if (guard < 0 || geology <= guard || placement <= geology) {
+    throw new Error(
+      "[stones] stoneVergeChance=0 must reject before verge geology and placement work.",
+    );
+  }
+}
+
+function verifyStoneSystemConstructionOwnership() {
+  const source = readFileSync(
+    resolve(REPOSITORY_ROOT, "src/world/stones/WorldStoneSystem.ts"),
+    "utf8",
+  );
+  const helper = source.indexOf("function createStoneRuntimeResources(");
+  const helperEnd = source.indexOf("function createGrainTexture()", helper);
+  if (helper < 0 || helperEnd <= helper) {
+    throw new Error(
+      "[stones] Unable to inspect transactional stone render-resource setup.",
+    );
+  }
+  const setup = source.slice(helper, helperEnd);
+  const shaderSetup = setup.indexOf("applyStoneSurfaceShader(");
+  const registration = setup.indexOf(
+    "clearanceRegistration = registerStoneClearanceField(",
+  );
+  const rollback = setup.indexOf("disposeResources([", registration);
+  if (
+    !source.includes("const resources = createStoneRuntimeResources(") ||
+    shaderSetup < 0 ||
+    registration <= shaderSetup ||
+    rollback <= registration ||
+    !setup.includes("clearanceRegistration,") ||
+    !setup.includes("grainTexture,") ||
+    !setup.includes("detailMaterial,") ||
+    !setup.includes("coarseMaterial,") ||
+    !setup.includes("Stone construction cleanup failed.")
+  ) {
+    throw new Error(
+      "[stones] Stone render resources and global clearance ownership must publish as one transaction and roll back every acquired resource on failure.",
+    );
+  }
+}
+
+verifyZeroChanceVergeFastPath();
+verifyStoneSystemConstructionOwnership();
+
 const server = await createServer({
   configFile: false,
   root: REPOSITORY_ROOT,
@@ -40,8 +101,26 @@ try {
   const growthVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneGrowthVerification.ts",
   );
+  const clearanceRegistrationVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneClearanceRegistrationVerification.ts",
+  );
+  const clusterConfigVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneClusterConfigVerification.ts",
+  );
   const clusterVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneClusterVerification.ts",
+  );
+  const splitVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneSplitPlacementVerification.ts",
+  );
+  const pathVerification = await server.ssrLoadModule(
+    "/src/world/stones/StonePathPlacementVerification.ts",
+  );
+  const pathFootprintVerification = await server.ssrLoadModule(
+    "/src/world/stones/StonePathFootprintVerification.ts",
+  );
+  const edgeVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneWorldEdgeVerification.ts",
   );
   const clusterPerformanceVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneClusterPerformanceVerification.ts",
@@ -62,7 +141,16 @@ try {
     configSource,
   );
   const growthSummary = growthVerification.verifyStoneGrowthField();
+  const clearanceRegistrationSummary =
+    clearanceRegistrationVerification.verifyStoneClearanceRegistration();
+  const clusterConfigSummary =
+    clusterConfigVerification.verifyStoneClusterConfig(configSource);
   const clusterSummary = clusterVerification.verifyStoneClusters(configSource);
+  const splitSummary = splitVerification.verifyStoneSplitPlacement();
+  const pathSummary = pathVerification.verifyStonePathPlacement();
+  const pathFootprintSummary =
+    pathFootprintVerification.verifyStonePathFootprints(configSource);
+  const edgeSummary = edgeVerification.verifyStoneWorldEdges(configSource);
   const clusterPerformanceSummary =
     clusterPerformanceVerification.verifyStoneClusterPerformance(
       configSource,
@@ -76,7 +164,7 @@ try {
     systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clusterSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clearanceRegistrationSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${splitSummary} · ${pathSummary} · ${pathFootprintSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);

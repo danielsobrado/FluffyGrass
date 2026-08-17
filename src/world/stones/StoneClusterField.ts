@@ -47,6 +47,7 @@ import {
   STONE_STRIKE_SEED_XOR,
   STRIKE_PERIOD,
   trimOldestCacheEntries,
+  uplandGeologyBoost,
   type StoneClusterProcess,
   type StoneMacroCoord,
 } from "./StoneClusterTuning";
@@ -78,6 +79,20 @@ const STONE_CLUSTER_SUITABILITY_KNEE_HIGH = 0.24;
  */
 const STONE_CLUSTER_BUDGET_KNEE_LOW = 0.08;
 const STONE_CLUSTER_BUDGET_KNEE_HIGH = 0.45;
+
+/**
+ * How much a walking way suppresses macro formations around it.
+ *
+ * At the original 0.9 the disturbance field left a hole in the geology roughly
+ * 40 m either side of every path: measured against the ground available, stones
+ * landed at index 0.38 in the 6-15 m band and 0.17 in the 15-40 m band, while
+ * the kicked-aside verge sat at 18.1. A trail therefore read as a tidy kerb of
+ * pebbles inside an unnaturally clean corridor. Paths should sweep their own
+ * surface clear — which the separate clearance and verge passes already do —
+ * not sterilise the country they cross.
+ */
+const STONE_CLUSTER_PATH_SUPPRESSION = 0.55;
+
 
 export interface StoneClusterCandidate {
   readonly gridX: number;
@@ -264,8 +279,19 @@ export class StoneClusterField {
     const centerZ =
       (gridZ + 0.5 + rng.fork("center-z").signed(jitter)) * spacing;
     const geologyPotential = this.sampleGeologyPotential(centerX, centerZ);
-    if (!(geologyPotential > 0)) {
-      return quietCandidate(gridX, gridZ, seed, centerX, centerZ, 0);
+    if (
+      !(geologyPotential > 0) ||
+      this.config.stoneDensity <= 0 ||
+      this.config.stoneClusterChance <= 0
+    ) {
+      return quietCandidate(
+        gridX,
+        gridZ,
+        seed,
+        centerX,
+        centerZ,
+        geologyPotential,
+      );
     }
 
     this.fullTerrainSamples += 1;
@@ -308,12 +334,15 @@ export class StoneClusterField {
     const exposure = ecology.exposure;
     const disturbance = ecology.disturbance;
     const surfaceRockiness = ecology.rockiness;
-    const biome = sampleGrassBiome(centerX, centerZ, this.biomeScratch);
-    const biomeIndex = pickGrassBiomeIndex(centerX, centerZ, biome);
     const suitability = clamp01(
       geologyPotential *
         (0.18 + 0.82 * surfaceRockiness) *
-        (1 - 0.9 * disturbance),
+        (1 - STONE_CLUSTER_PATH_SUPPRESSION * disturbance) *
+        uplandGeologyBoost(
+          height,
+          this.config.grassMinAltitude,
+          this.config.grassMaxAltitude,
+        ),
     );
     const densityResponse =
       1 -
@@ -358,19 +387,11 @@ export class StoneClusterField {
         landformGradientZ: landformSnapshot.gradientZ,
         suitability,
         process,
-        biomeIndex,
-        paletteKey: BIOME_PALETTE[biomeIndex] ?? BIOME_PALETTE[0],
-        mossBase: clusterEnvironmentMossBase(
-          height,
-          moisture,
-          exposure,
-          surfaceRockiness,
-          this.config.grassMinAltitude,
-          this.config.grassMaxAltitude,
-        ),
       };
     }
 
+    const biome = sampleGrassBiome(centerX, centerZ, this.biomeScratch);
+    const biomeIndex = pickGrassBiomeIndex(centerX, centerZ, biome);
     const priority =
       suitability * (1 - CLUSTER_PRIORITY_RANDOM_SHARE) +
       rng.fork("priority").next() * CLUSTER_PRIORITY_RANDOM_SHARE;

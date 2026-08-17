@@ -5,6 +5,7 @@ import {
   type DetailFoliageTuning,
   type DetailFoliageTuningKey,
 } from "../world/grass/DetailFoliageTuning";
+import { downloadTextFile } from "./TextDownload";
 
 const EXPORT_STATUS_MS = 1800;
 
@@ -217,19 +218,11 @@ export class DetailFoliageTuningMenu {
         .catch(() => undefined);
     }
 
-    const url = URL.createObjectURL(
-      new Blob([yaml], { type: "application/yaml;charset=utf-8" }),
+    downloadTextFile(
+      "detail-foliage-tuning.yaml",
+      yaml,
+      "application/yaml;charset=utf-8",
     );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "detail-foliage-tuning.yaml";
-    anchor.hidden = true;
-    document.body.appendChild(anchor);
-    anchor.click();
-    requestAnimationFrame(() => {
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    });
   };
 
   private showExportStatus(button: HTMLButtonElement, status: string): void {

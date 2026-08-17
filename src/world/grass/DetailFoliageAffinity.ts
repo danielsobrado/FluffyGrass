@@ -125,6 +125,17 @@ function lerp(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
 }
 
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  if (value <= edge0) {
+    return 0;
+  }
+  if (value >= edge1) {
+    return 1;
+  }
+  const amount = (value - edge0) / (edge1 - edge0);
+  return amount * amount * (3 - 2 * amount);
+}
+
 function preference(value: number, target: number, tolerance: number): number {
   return clamp01(1 - Math.abs(value - target) / tolerance);
 }
@@ -175,9 +186,7 @@ function edgeBoost(
     return 1 + pathFringe * tuning.pathFringeStrength * edge;
   }
   if (key === "seed-head") {
-    return (
-      1 + pathFringe * habitatDryness * tuning.pathFringeStrength * edge
-    );
+    return 1 + pathFringe * habitatDryness * tuning.pathFringeStrength * edge;
   }
   return 1;
 }
@@ -192,64 +201,14 @@ function adjustedWeight(
 ): number {
   const species = GRASS_ACCENT_SPECIES[entry.speciesIndex];
   const habitatScore = scoreDetailFoliageHabitat(entry.speciesIndex, ecology);
-  const weight =
-    entry.weight * lerp(1, habitatScore, tuning.ecologyStrength);
+  const weight = entry.weight * lerp(1, habitatScore, tuning.ecologyStrength);
   if (!(weight > 0) || !Number.isFinite(weight) || !species) {
     return 0;
   }
-  return weight * edgeBoost(species.key, pathFringe, stoneFringe, habitatDryness, tuning);
-}
-
-function pickWeightedEntry(
-  profile: GrassBiomeProfile,
-  ecology: WorldEcologySample,
-  habitatDryness: number,
-  pathFringe: number,
-  stoneFringe: number,
-  tuning: DetailFoliageTuning,
-  roll: number,
-  dominantCategory: GrassAccentCategory | undefined,
-): GrassBiomeAccentSpecies | undefined {
-  let total = 0;
-  for (const entry of profile.accentSpecies) {
-    const weight = companionScaledWeight(
-      entry,
-      ecology,
-      habitatDryness,
-      pathFringe,
-      stoneFringe,
-      tuning,
-      dominantCategory,
-    );
-    if (weight > 0) {
-      total += weight;
-    }
-  }
-  if (total <= 0) {
-    return undefined;
-  }
-  let target = clamp01(roll) * total;
-  let lastPositive: GrassBiomeAccentSpecies | undefined;
-  for (const entry of profile.accentSpecies) {
-    const weight = companionScaledWeight(
-      entry,
-      ecology,
-      habitatDryness,
-      pathFringe,
-      stoneFringe,
-      tuning,
-      dominantCategory,
-    );
-    if (weight <= 0) {
-      continue;
-    }
-    lastPositive = entry;
-    target -= weight;
-    if (target <= 0) {
-      return entry;
-    }
-  }
-  return lastPositive;
+  return (
+    weight *
+    edgeBoost(species.key, pathFringe, stoneFringe, habitatDryness, tuning)
+  );
 }
 
 function companionScaledWeight(
@@ -284,56 +243,83 @@ function companionScaledWeight(
   );
 }
 
-function pickTintRow(
+function pickWeightedEntry(
   profile: GrassBiomeProfile,
-  speciesIndex: number,
   ecology: WorldEcologySample,
   habitatDryness: number,
   pathFringe: number,
   stoneFringe: number,
   tuning: DetailFoliageTuning,
   roll: number,
-  fallback: number,
-): number {
+  dominantCategory: GrassAccentCategory | undefined,
+): GrassBiomeAccentSpecies | undefined {
   let total = 0;
   for (const entry of profile.accentSpecies) {
-    if (entry.speciesIndex !== speciesIndex) {
-      continue;
-    }
-    const weight = adjustedWeight(
+    const weight = companionScaledWeight(
       entry,
       ecology,
       habitatDryness,
       pathFringe,
       stoneFringe,
       tuning,
+      dominantCategory,
     );
     if (weight > 0) {
       total += weight;
     }
   }
   if (total <= 0) {
-    return fallback;
+    return undefined;
   }
+
   let target = clamp01(roll) * total;
-  let lastPositive = fallback;
+  let lastPositive: GrassBiomeAccentSpecies | undefined;
   for (const entry of profile.accentSpecies) {
-    if (entry.speciesIndex !== speciesIndex) {
-      continue;
-    }
-    const weight = adjustedWeight(
+    const weight = companionScaledWeight(
       entry,
       ecology,
       habitatDryness,
       pathFringe,
       stoneFringe,
       tuning,
+      dominantCategory,
     );
     if (weight <= 0) {
       continue;
     }
-    lastPositive = entry.tintRow;
+    lastPositive = entry;
     target -= weight;
+    if (target <= 0) {
+      return entry;
+    }
+  }
+  return lastPositive;
+}
+
+function pickTintRow(
+  profile: GrassBiomeProfile,
+  speciesIndex: number,
+  roll: number,
+  fallback: number,
+): number {
+  let total = 0;
+  for (const entry of profile.accentSpecies) {
+    if (entry.speciesIndex === speciesIndex && entry.weight > 0) {
+      total += entry.weight;
+    }
+  }
+  if (total <= 0) {
+    return fallback;
+  }
+
+  let target = clamp01(roll) * total;
+  let lastPositive = fallback;
+  for (const entry of profile.accentSpecies) {
+    if (entry.speciesIndex !== speciesIndex || entry.weight <= 0) {
+      continue;
+    }
+    lastPositive = entry.tintRow;
+    target -= entry.weight;
     if (target <= 0) {
       return entry.tintRow;
     }
@@ -342,7 +328,7 @@ function pickTintRow(
 }
 
 export function detailFoliageCorrelation(tuning: DetailFoliageTuning): number {
-  return clamp01(tuning.colonyStrength);
+  return smoothstep(0, 0.75, clamp01(tuning.colonyStrength));
 }
 
 export function detailFoliageDominantProbability(
@@ -398,7 +384,11 @@ export function detailFoliageMaturity(
   const spatialMaturity = clamp01(
     0.75 * distribution.maturityRoll + 0.25 * distribution.core,
   );
-  return lerp(individual, 0.7 * spatialMaturity + 0.3 * individual, correlation);
+  return lerp(
+    individual,
+    0.7 * spatialMaturity + 0.3 * individual,
+    correlation,
+  );
 }
 
 export function detailFoliageVariantRow(
@@ -430,6 +420,7 @@ export function pickDetailFoliageWeightedIndex(
   if (total <= 0) {
     return -1;
   }
+
   let target = clamp01(roll) * total;
   let lastPositive = -1;
   for (let index = 0; index < weights.length; index += 1) {
@@ -479,6 +470,10 @@ export function resolveDetailFoliageSelection(
     pDominant;
   let selected = dominant;
   if (!useDominant) {
+    const companionRoll = detailFoliageChannel01(
+      candidateHash,
+      DETAIL_FOLIAGE_COMPANION_PICK_SALT,
+    );
     const companion = pickWeightedEntry(
       profile,
       ecology,
@@ -486,7 +481,7 @@ export function resolveDetailFoliageSelection(
       pathFringe,
       stoneFringe,
       tuning,
-      detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_COMPANION_PICK_SALT),
+      companionRoll,
       GRASS_ACCENT_SPECIES[dominant.speciesIndex]?.category,
     );
     selected =
@@ -498,7 +493,7 @@ export function resolveDetailFoliageSelection(
         pathFringe,
         stoneFringe,
         tuning,
-        detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_COMPANION_PICK_SALT),
+        companionRoll,
         undefined,
       ) ??
       dominant;
@@ -517,11 +512,6 @@ export function resolveDetailFoliageSelection(
   const colonyTintRow = pickTintRow(
     profile,
     selected.speciesIndex,
-    ecology,
-    habitatDryness,
-    pathFringe,
-    stoneFringe,
-    tuning,
     distribution.tintRoll,
     selected.tintRow,
   );
@@ -534,11 +524,6 @@ export function resolveDetailFoliageSelection(
     target.tintRow = pickTintRow(
       profile,
       selected.speciesIndex,
-      ecology,
-      habitatDryness,
-      pathFringe,
-      stoneFringe,
-      tuning,
       detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_INDEPENDENT_TINT_SALT),
       selected.tintRow,
     );

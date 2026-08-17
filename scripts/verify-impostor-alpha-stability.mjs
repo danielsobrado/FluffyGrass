@@ -8,7 +8,10 @@ const TERRAIN_DITHER_SAMPLES = 4096;
 const MAX_TERRAIN_COVERAGE_ERROR = 0.002;
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function fail(message) {

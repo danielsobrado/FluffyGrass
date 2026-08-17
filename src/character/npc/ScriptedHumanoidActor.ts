@@ -48,6 +48,7 @@ export class ScriptedHumanoidActor {
   private previousSpeed = 0;
   private facing = 0;
   private speed = 0;
+  private disposed = false;
 
   constructor(
     scene: THREE.Scene,
@@ -64,7 +65,6 @@ export class ScriptedHumanoidActor {
     this.root.name = "villager";
     this.root.scale.setScalar(scale);
     this.root.add(this.heading);
-    scene.add(this.root);
     this.rigInstance = new ActorRigInstance(humanoid.definition, this.heading);
     this.body = buildVillagerBody(
       this.rigInstance,
@@ -73,27 +73,39 @@ export class ScriptedHumanoidActor {
       variant,
       shadows,
     );
-    this.profile = createHumanoidAnimationProfile({
-      definition: humanoid.definition,
-      bones: humanoid.bones,
-      landingRecoverySeconds: 0.25,
-      ikStages:
-        terrainContact === undefined
-          ? undefined
-          : [
-              createHumanoidContactIk(
-                humanoid.definition,
-                humanoid.bones,
-                terrainContact,
-                this.heading,
-              ),
-            ],
-    });
-    this.runtime = new ActorAnimationRuntime(this.profile, this.rigInstance);
-    this.input.referenceSpeed = 1;
-    this.placeAt(spawnX, spawnZ);
-    this.previousPosition.copy(this.worldPosition);
-    this.runtime.reset(this.input);
+
+    let runtime: ActorAnimationRuntime | undefined;
+    try {
+      this.profile = createHumanoidAnimationProfile({
+        definition: humanoid.definition,
+        bones: humanoid.bones,
+        landingRecoverySeconds: 0.25,
+        ikStages:
+          terrainContact === undefined
+            ? undefined
+            : [
+                createHumanoidContactIk(
+                  humanoid.definition,
+                  humanoid.bones,
+                  terrainContact,
+                  this.heading,
+                ),
+              ],
+      });
+      runtime = new ActorAnimationRuntime(this.profile, this.rigInstance);
+      this.runtime = runtime;
+      this.input.referenceSpeed = 1;
+      this.placeAt(spawnX, spawnZ);
+      this.previousPosition.copy(this.worldPosition);
+      this.runtime.reset(this.input);
+      scene.add(this.root);
+    } catch (error) {
+      disposeResource(runtime, "Villager animation runtime");
+      disposeResource(this.rigInstance, "Villager rig instance");
+      disposeResource(this.body, "Villager body");
+      this.root.removeFromParent();
+      throw error;
+    }
   }
 
   get position(): THREE.Vector3 {
@@ -118,6 +130,9 @@ export class ScriptedHumanoidActor {
   }
 
   update(deltaSeconds: number, steering: VillagerSteering): void {
+    if (this.disposed) {
+      return;
+    }
     const delta = THREE.MathUtils.clamp(
       Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
       0,
@@ -150,13 +165,14 @@ export class ScriptedHumanoidActor {
   }
 
   dispose(): void {
-    this.runtime.dispose();
-    this.rigInstance.dispose();
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.root.removeFromParent();
-    // Only what this villager owns. The rig definition it shares with the
-    // player is immutable and owned by nobody, and its geometry belongs to the
-    // shared library.
-    this.body.dispose();
+    disposeResource(this.runtime, "Villager animation runtime");
+    disposeResource(this.rigInstance, "Villager rig instance");
+    disposeResource(this.body, "Villager body");
   }
 
   /**
@@ -210,5 +226,19 @@ export class ScriptedHumanoidActor {
     this.input.facing = this.facing;
     this.root.position.copy(this.worldPosition);
     this.heading.rotation.y = this.facing;
+  }
+}
+
+function disposeResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }

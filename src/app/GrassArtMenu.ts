@@ -3,6 +3,7 @@ import {
   type GrassArtDirection,
   type GrassArtDirectionKey,
 } from "../grass/GrassArtDirection";
+import { downloadTextFile } from "./TextDownload";
 
 type NumericSetting =
   | "densityScale"
@@ -251,19 +252,11 @@ export class GrassArtMenu {
         .catch(() => undefined);
     }
 
-    const url = URL.createObjectURL(
-      new Blob([yaml], { type: "application/yaml;charset=utf-8" }),
+    downloadTextFile(
+      `grass-preset-${this.current.key}.yaml`,
+      yaml,
+      "application/yaml;charset=utf-8",
     );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `grass-preset-${this.current.key}.yaml`;
-    anchor.hidden = true;
-    document.body.appendChild(anchor);
-    anchor.click();
-    requestAnimationFrame(() => {
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    });
   };
 
   private showExportStatus(button: HTMLButtonElement, status: string): void {

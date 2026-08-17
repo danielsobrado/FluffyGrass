@@ -81,23 +81,34 @@ export class WorldHorizonShell {
     const radius = compact
       ? config.terrainRadiusCompact
       : config.terrainRadiusDesktop;
-    this.coverage = new WorldHorizonCoverage(config.worldSize, config.chunkSize);
-    this.materialController = new WorldHorizonMaterial(
-      radius * config.chunkSize,
-      (radius + 1) * config.chunkSize,
-      this.coverage,
-    );
+    let coverage: WorldHorizonCoverage | undefined;
+    let materialController: WorldHorizonMaterial | undefined;
 
-    const vertexCount = this.axis.size * this.axis.size;
-    const cells = this.axis.size - 1;
-    this.heights = new Float32Array(vertexCount);
-    this.positions = new Float32Array(vertexCount * 3);
-    this.normals = new Float32Array(vertexCount * 3);
-    this.colors = new Float32Array(vertexCount * 3);
-    this.indices =
-      vertexCount <= 65535
-        ? new Uint16Array(cells * cells * 6)
-        : new Uint32Array(cells * cells * 6);
+    try {
+      coverage = new WorldHorizonCoverage(config.worldSize, config.chunkSize);
+      this.coverage = coverage;
+      materialController = new WorldHorizonMaterial(
+        radius * config.chunkSize,
+        (radius + 1) * config.chunkSize,
+        this.coverage,
+      );
+      this.materialController = materialController;
+
+      const vertexCount = this.axis.size * this.axis.size;
+      const cells = this.axis.size - 1;
+      this.heights = new Float32Array(vertexCount);
+      this.positions = new Float32Array(vertexCount * 3);
+      this.normals = new Float32Array(vertexCount * 3);
+      this.colors = new Float32Array(vertexCount * 3);
+      this.indices =
+        vertexCount <= 65535
+          ? new Uint16Array(cells * cells * 6)
+          : new Uint32Array(cells * cells * 6);
+    } catch (error) {
+      disposeHorizonResource(materialController, "Horizon material");
+      disposeHorizonResource(coverage, "Horizon coverage");
+      throw error;
+    }
   }
 
   /** Updates exact ownership when a streamed terrain chunk enters or leaves. */
@@ -153,8 +164,7 @@ export class WorldHorizonShell {
   getDiagnostics(): WorldHorizonDiagnostics {
     const cells = this.axis.size - 1;
     const total = this.heights.length * 2 + cells * cells;
-    const done =
-      this.nextHeight + this.nextVertex + this.nextCell;
+    const done = this.nextHeight + this.nextVertex + this.nextCell;
     return {
       triangles: this.mesh ? cells * cells * 2 : 0,
       complete: this.stage === COMPLETE_STAGE,
@@ -172,8 +182,8 @@ export class WorldHorizonShell {
       this.mesh.geometry.dispose();
       this.mesh = undefined;
     }
-    this.materialController.dispose();
-    this.coverage.dispose();
+    disposeHorizonResource(this.materialController, "Horizon material");
+    disposeHorizonResource(this.coverage, "Horizon coverage");
   }
 
   /**
@@ -349,25 +359,46 @@ export class WorldHorizonShell {
 
   private finalize(): void {
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
-    geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
-    geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    // The sink displaces vertices downward in the vertex shader, which the
-    // bounds computed from the source positions do not know about.
-    if (geometry.boundingSphere) {
-      geometry.boundingSphere.radius += WORLD_HORIZON_SINK_DEPTH;
-    }
+    let mesh: THREE.Mesh | undefined;
+    try {
+      geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
+      geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+      geometry.setIndex(new THREE.BufferAttribute(this.indices, 1));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      // The sink displaces vertices downward in the vertex shader, which the
+      // bounds computed from the source positions do not know about.
+      if (geometry.boundingSphere) {
+        geometry.boundingSphere.radius += WORLD_HORIZON_SINK_DEPTH;
+      }
 
-    const mesh = new THREE.Mesh(geometry, this.materialController.material);
-    mesh.name = "world-horizon-shell";
-    mesh.receiveShadow = false;
-    mesh.castShadow = false;
-    mesh.renderOrder = WORLD_HORIZON_RENDER_ORDER;
-    this.mesh = mesh;
-    this.scene.add(mesh);
-    this.stage = COMPLETE_STAGE;
+      mesh = new THREE.Mesh(geometry, this.materialController.material);
+      mesh.name = "world-horizon-shell";
+      mesh.receiveShadow = false;
+      mesh.castShadow = false;
+      mesh.renderOrder = WORLD_HORIZON_RENDER_ORDER;
+      this.scene.add(mesh);
+      this.mesh = mesh;
+      this.stage = COMPLETE_STAGE;
+    } catch (error) {
+      mesh?.removeFromParent();
+      geometry.dispose();
+      throw error;
+    }
+  }
+}
+
+function disposeHorizonResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }

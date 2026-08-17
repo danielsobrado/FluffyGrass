@@ -1,8 +1,13 @@
 import type { WorldConfig } from "../../src/world/WorldConfig";
 import { validateWorldConfig } from "../../src/world/WorldConfigValidator";
+import {
+  CLUSTER_INFLUENCE_SEPARATION_RATIO,
+  maxNormalizedReach,
+} from "../../src/world/stones/StoneClusterTuning";
 
 const EXPORT_STATUS_MS = 1800;
 const REBUILD_DEBOUNCE_MS = 120;
+const GEOMETRY_EPSILON = 1e-6;
 
 export const STONE_CLUSTER_QUERY_KEYS = [
   "stoneDensity",
@@ -31,11 +36,12 @@ interface ControlSpec {
   readonly min: number;
   readonly max: number;
   readonly step: number;
+  readonly integer?: boolean;
 }
 
 const DISTRIBUTION: readonly ControlSpec[] = [
-  { key: "stoneDensity", label: "Formation density", min: 0.05, max: 0.4, step: 0.01 },
-  { key: "stoneClusterChance", label: "Formation chance", min: 0.2, max: 1, step: 0.02 },
+  { key: "stoneDensity", label: "Formation density", min: 0, max: 0.4, step: 0.01 },
+  { key: "stoneClusterChance", label: "Formation chance", min: 0, max: 1, step: 0.02 },
   { key: "stoneSingletonChance", label: "Singleton chance", min: 0, max: 0.25, step: 0.01 },
   { key: "stoneClusterSpacing", label: "Formation spacing", min: 40, max: 96, step: 2 },
   { key: "stoneClusterCenterJitter", label: "Center jitter", min: 0, max: 0.35, step: 0.01 },
@@ -50,8 +56,8 @@ const FOOTPRINT: readonly ControlSpec[] = [
 ];
 
 const COMPOSITION: readonly ControlSpec[] = [
-  { key: "stoneClusterBudgetMin", label: "Members min", min: 4, max: 8, step: 1 },
-  { key: "stoneClusterBudgetMax", label: "Members max", min: 4, max: 12, step: 1 },
+  { key: "stoneClusterBudgetMin", label: "Members min", min: 4, max: 8, step: 1, integer: true },
+  { key: "stoneClusterBudgetMax", label: "Members max", min: 4, max: 12, step: 1, integer: true },
   { key: "stoneClusterCoreRatio", label: "Core", min: 0.2, max: 0.6, step: 0.01 },
   { key: "stoneClusterShoulderRatio", label: "Shoulder", min: 0.5, max: 0.9, step: 0.01 },
   { key: "stoneClusterDensityResponse", label: "Density response", min: 1, max: 12, step: 0.25 },
@@ -68,39 +74,57 @@ const ALL_CONTROLS: readonly ControlSpec[] = [
   ...CONTEXT,
 ];
 
-function copyTuning(config: WorldConfig): Pick<WorldConfig, StoneClusterTuningKey> {
-  const tuning = {} as Pick<WorldConfig, StoneClusterTuningKey>;
-  for (const key of STONE_CLUSTER_QUERY_KEYS) {
-    tuning[key] = config[key];
-  }
-  return tuning;
-}
+const CONTROL_BY_KEY = new Map(
+  ALL_CONTROLS.map((spec) => [spec.key, spec] as const),
+);
 
 function formatValue(spec: ControlSpec, value: number): string {
-  if (spec.step >= 1) {
-    return String(Math.round(value));
+  return spec.step >= 1 ? String(Math.round(value)) : value.toFixed(2);
+}
+
+function validateControlValue(spec: ControlSpec, raw: string): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < spec.min || value > spec.max) {
+    throw new Error(
+      `Invalid ${spec.key}=${raw}; expected a number in [${spec.min}, ${spec.max}].`,
+    );
   }
-  const digits = spec.step < 0.05 ? 2 : 2;
-  return value.toFixed(digits);
+  if (spec.integer && !Number.isInteger(value)) {
+    throw new Error(`Invalid ${spec.key}=${raw}; expected an integer.`);
+  }
+  return value;
+}
+
+function downloadYaml(source: string): void {
+  const url = URL.createObjectURL(
+    new Blob([source], { type: "application/yaml;charset=utf-8" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "stone-cluster-tuning.yaml";
+  anchor.hidden = true;
+  document.body.appendChild(anchor);
+  anchor.click();
+  requestAnimationFrame(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  });
 }
 
 export function readStoneClusterQueryOverrides(
   params: URLSearchParams,
 ): Partial<Pick<WorldConfig, StoneClusterTuningKey>> {
   const overrides: Partial<Pick<WorldConfig, StoneClusterTuningKey>> = {};
-  const specs = ALL_CONTROLS;
-  for (const spec of specs) {
-    const raw = params.get(spec.key);
+  for (const key of STONE_CLUSTER_QUERY_KEYS) {
+    const raw = params.get(key);
     if (raw === null) {
       continue;
     }
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value < spec.min || value > spec.max) {
-      throw new Error(
-        `Invalid ${spec.key}=${raw}; expected a number in [${spec.min}, ${spec.max}].`,
-      );
+    const spec = CONTROL_BY_KEY.get(key);
+    if (!spec) {
+      throw new Error(`Missing tuning control specification for ${key}.`);
     }
-    overrides[spec.key] = value;
+    overrides[key] = validateControlValue(spec, raw);
   }
   for (const key of params.keys()) {
     if (
@@ -117,10 +141,14 @@ export function readStoneClusterQueryOverrides(
   return overrides;
 }
 
-export function normalizeStoneClusterTuning(
-  config: WorldConfig,
-): WorldConfig {
+export function normalizeStoneClusterTuning(config: WorldConfig): WorldConfig {
   const next = { ...config };
+  if (!Number.isInteger(next.stoneClusterBudgetMin)) {
+    throw new Error("stoneClusterBudgetMin must be an integer.");
+  }
+  if (!Number.isInteger(next.stoneClusterBudgetMax)) {
+    throw new Error("stoneClusterBudgetMax must be an integer.");
+  }
   if (next.stoneClusterBudgetMin > next.stoneClusterBudgetMax) {
     next.stoneClusterBudgetMax = next.stoneClusterBudgetMin;
   }
@@ -139,40 +167,38 @@ export function normalizeStoneClusterTuning(
       next.stoneClusterShoulderRatio + 0.01,
     );
   }
-  const halo = next.stoneClusterHaloRatio;
+
   const spacing = next.stoneClusterSpacing;
-  const queryEpsilon = 1e-6;
-  const haloBound = spacing * 0.5;
-  const threeByThreeBound =
-    spacing * 1.5 -
-    next.stoneCellSize * 0.5 -
-    next.stoneClusterCenterJitter * spacing -
-    queryEpsilon;
-  const safeInfluence = Math.max(
-    0,
-    Math.min(haloBound, threeByThreeBound) - queryEpsilon,
+  const jitter = next.stoneClusterCenterJitter;
+  const normalizedReach = maxNormalizedReach(next.stoneClusterHaloRatio);
+  const circularRadiusLimit =
+    (spacing * 0.5 - GEOMETRY_EPSILON) /
+    Math.max(next.stoneClusterHaloRatio, GEOMETRY_EPSILON);
+  const queryInfluenceLimit =
+    spacing * (1.5 - jitter) - next.stoneCellSize * 0.5 - GEOMETRY_EPSILON;
+  const conflictInfluenceLimit =
+    (spacing * (2 - 2 * jitter) - GEOMETRY_EPSILON) /
+    (2 * CLUSTER_INFLUENCE_SEPARATION_RATIO);
+  const authoredRadiusLimit =
+    Math.min(queryInfluenceLimit, conflictInfluenceLimit) /
+    Math.max(normalizedReach, GEOMETRY_EPSILON);
+  const integerRadiusLimit = Math.floor(
+    Math.min(circularRadiusLimit, authoredRadiusLimit),
   );
-  const safeRadiusMax = safeInfluence / Math.max(halo, queryEpsilon);
-  next.stoneClusterRadiusMax = Math.min(next.stoneClusterRadiusMax, safeRadiusMax);
+  next.stoneClusterRadiusMax = Math.min(
+    next.stoneClusterRadiusMax,
+    integerRadiusLimit,
+  );
   if (!(next.stoneClusterRadiusMin < next.stoneClusterRadiusMax)) {
-    next.stoneClusterRadiusMin = Math.max(
-      4,
-      next.stoneClusterRadiusMax - 1,
-    );
+    next.stoneClusterRadiusMin = Math.max(4, next.stoneClusterRadiusMax - 1);
   }
-  if (next.stoneClusterRadiusMin > next.stoneClusterRadiusMax - 1) {
-    next.stoneClusterRadiusMin = Math.max(
-      4,
-      next.stoneClusterRadiusMax - 1,
-    );
-  }
+
   validateWorldConfig(next);
   return next;
 }
 
 export class StoneClusterTuningMenu {
   private readonly root: HTMLDetailsElement;
-  private readonly yamlSnapshot: Pick<WorldConfig, StoneClusterTuningKey>;
   private readonly inputs = new Map<StoneClusterTuningKey, HTMLInputElement>();
   private readonly outputs = new Map<StoneClusterTuningKey, HTMLOutputElement>();
   private current: WorldConfig;
@@ -185,7 +211,6 @@ export class StoneClusterTuningMenu {
     private readonly onChange: (config: WorldConfig, immediate: boolean) => void,
     private readonly probeUrl: (config: WorldConfig) => string,
   ) {
-    this.yamlSnapshot = copyTuning(initial);
     this.current = { ...initial };
     this.root = document.createElement("details");
     this.root.className = "stone-cluster-menu";
@@ -199,7 +224,6 @@ export class StoneClusterTuningMenu {
     this.addSection("Footprint", FOOTPRINT);
     this.addSection("Composition", COMPOSITION, true);
     this.addSection("Context", CONTEXT, true);
-
     this.addButton("Apply now", () => this.commit(true));
     this.addButton("Reset YAML", this.resetToYaml);
     this.addButton("Export YAML", this.exportYaml);
@@ -263,7 +287,11 @@ export class StoneClusterTuningMenu {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.addEventListener("click", handler);
+    button.addEventListener("click", () => {
+      if (!this.disposed) {
+        handler();
+      }
+    });
     this.root.appendChild(button);
   }
 
@@ -274,10 +302,7 @@ export class StoneClusterTuningMenu {
       if (!input) {
         continue;
       }
-      const value = Number(input.value);
-      if (Number.isFinite(value)) {
-        next[spec.key] = value;
-      }
+      next[spec.key] = validateControlValue(spec, input.value);
     }
     return next;
   }
@@ -304,25 +329,33 @@ export class StoneClusterTuningMenu {
   };
 
   private readonly resetToYaml = (): void => {
-    this.current = { ...this.current, ...this.yamlSnapshot };
-    this.syncControls();
-    this.commit(true);
+    const next = new URLSearchParams(window.location.search);
+    for (const key of STONE_CLUSTER_QUERY_KEYS) {
+      next.delete(key);
+    }
+    window.location.search = next.toString();
   };
 
   private readonly exportYaml = async (): Promise<void> => {
-    const block = STONE_CLUSTER_QUERY_KEYS.map(
+    const yaml = `${STONE_CLUSTER_QUERY_KEYS.map(
       (key) => `${key}: ${this.current[key]}`,
-    ).join("\n");
+    ).join("\n")}\n`;
+    let copied = false;
     try {
-      await navigator.clipboard.writeText(`${block}\n`);
-      this.setStatus("YAML copied");
+      await navigator.clipboard.writeText(yaml);
+      copied = true;
     } catch {
-      this.setStatus(block);
+      copied = false;
     }
+    if (this.disposed) {
+      return;
+    }
+    downloadYaml(yaml);
+    this.setStatus(copied ? "YAML copied + downloaded" : "YAML downloaded");
   };
 
   private readonly copyProbeUrl = async (): Promise<void> => {
-    const url = this.probeUrl(this.current);
+    const url = new URL(this.probeUrl(this.current), window.location.href).toString();
     try {
       await navigator.clipboard.writeText(url);
       this.setStatus("Probe URL copied");
@@ -344,6 +377,9 @@ export class StoneClusterTuningMenu {
   }
 
   private setStatus(message: string): void {
+    if (this.disposed) {
+      return;
+    }
     window.clearTimeout(this.exportResetHandle);
     const existing = this.root.querySelector(".stone-cluster-status");
     const status =

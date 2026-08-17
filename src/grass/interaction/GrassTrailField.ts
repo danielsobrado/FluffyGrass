@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 
 /**
  * Persistent grass crush map.
@@ -227,6 +228,7 @@ class GrassTrailField {
     }
     this.renderer = renderer;
     const pendingTargets: THREE.WebGLRenderTarget[] = [];
+    let pendingGeometry: THREE.PlaneGeometry | undefined;
     try {
       const size = this.targetSize();
       const type = resolveTargetType(renderer);
@@ -273,16 +275,40 @@ class GrassTrailField {
           },
         },
       });
-      this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
+      pendingGeometry = new THREE.PlaneGeometry(2, 2);
+      this.quad = new THREE.Mesh(pendingGeometry, this.material);
+      pendingGeometry = undefined;
       this.quad.frustumCulled = false;
       this.scene.add(this.quad);
       this.enabled = true;
       this.primeTargets();
     } catch (error) {
-      for (const target of pendingTargets) {
-        target.dispose();
+      try {
+        disposeResources(pendingTargets);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Pending grass trail target cleanup failed.",
+          cleanupError,
+        );
       }
-      this.releaseTargets();
+      if (pendingGeometry) {
+        try {
+          pendingGeometry.dispose();
+        } catch (cleanupError) {
+          console.warn(
+            "[Drusniel World] Pending grass trail geometry cleanup failed.",
+            cleanupError,
+          );
+        }
+      }
+      try {
+        this.releaseTargets();
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Grass trail attach cleanup failed.",
+          cleanupError,
+        );
+      }
       this.renderer = undefined;
       throw error;
     }
@@ -346,6 +372,10 @@ class GrassTrailField {
     const targets = this.targets;
     const material = this.material;
     if (!renderer || !targets || !material || !this.enabled || !this.hasFocus) {
+      this.resetPendingFrame();
+      return;
+    }
+    if (renderer.getContext().isContextLost()) {
       this.resetPendingFrame();
       return;
     }
@@ -440,11 +470,11 @@ class GrassTrailField {
   }
 
   dispose(): void {
-    this.releaseTargets();
     this.renderer = undefined;
     this.enabled = false;
     this.hasFocus = false;
     this.resetPendingFrame();
+    this.releaseTargets();
   }
 
   private targetSize(): number {
@@ -457,19 +487,20 @@ class GrassTrailField {
   }
 
   private releaseTargets(): void {
-    if (this.quad) {
-      this.scene.remove(this.quad);
-      this.quad.geometry.dispose();
-      this.quad = undefined;
-    }
-    this.material?.dispose();
+    const quad = this.quad;
+    const material = this.material;
+    const targets = this.targets;
+    this.quad = undefined;
     this.material = undefined;
-    for (const target of this.targets ?? []) {
-      target.dispose();
-    }
     this.targets = undefined;
     this.readTarget = 0;
     this.enabled = false;
+    disposeResources([
+      { dispose: () => quad?.removeFromParent() },
+      quad?.geometry,
+      material,
+      ...(targets ?? []),
+    ]);
   }
 
   /**

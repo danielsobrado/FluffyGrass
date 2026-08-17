@@ -9,7 +9,6 @@ import {
 } from "./CapeMotionTuning";
 
 const TWO_PI = Math.PI * 2;
-const COMPACT_VIEWPORT_MODE = "compact";
 
 interface CapePanelState {
   readonly geometry: THREE.BufferGeometry;
@@ -32,17 +31,11 @@ export class CapeMotionGeometry {
     left: THREE.Object3D,
     right: THREE.Object3D,
   ) {
-    // Compact keeps the spring-driven panel rotations but does not rewrite the
-    // indexed position buffers every frame. This is the only character path
-    // that continuously mutates GPU vertex data, and avoiding it prevents
-    // transient oversized cloak triangles on mobile WebGL drivers.
-    this.panels = usesDynamicCapeVertices()
-      ? [
-          ...collectPanels(back, 0, 1, 0.55),
-          ...collectPanels(left, Math.PI * 0.7, 0.88, 1),
-          ...collectPanels(right, Math.PI * 1.3, 0.88, 1),
-        ]
-      : [];
+    this.panels = [
+      ...collectPanels(back, 0, 1, 0.55),
+      ...collectPanels(left, Math.PI * 0.7, 0.88, 1),
+      ...collectPanels(right, Math.PI * 1.3, 0.88, 1),
+    ];
   }
 
   update(
@@ -51,9 +44,6 @@ export class CapeMotionGeometry {
     bendZ: number,
     flutterAmplitude: number,
   ): void {
-    if (this.panels.length === 0) {
-      return;
-    }
     if (!this.shouldUpdate(bendX, bendZ, flutterAmplitude)) {
       return;
     }
@@ -116,13 +106,6 @@ export class CapeMotionGeometry {
         CAPE_GEOMETRY_UPDATE_EPSILON
     );
   }
-}
-
-function usesDynamicCapeVertices(): boolean {
-  return (
-    typeof document === "undefined" ||
-    document.documentElement.dataset.viewport !== COMPACT_VIEWPORT_MODE
-  );
 }
 
 function collectPanels(

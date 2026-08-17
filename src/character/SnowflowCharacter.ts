@@ -39,6 +39,13 @@ export interface SnowflowCharacterPose {
   rollStarted?: boolean;
 }
 
+interface SnowflowCharacterResources {
+  rig: SnowflowCharacterRig;
+  profile: HumanoidAnimationProfile;
+  runtime: ActorAnimationRuntime;
+  cloth: SnowflowClothMotion;
+}
+
 /**
  * The player character.
  *
@@ -63,6 +70,7 @@ export class SnowflowCharacter {
     this.worldVelocity,
     this.groundNormal,
   );
+  private disposed = false;
 
   constructor(
     scene: THREE.Scene,
@@ -70,34 +78,22 @@ export class SnowflowCharacter {
     landingRecoverySeconds: number,
     terrainContact?: ActorTerrainContactSampler,
   ) {
-    this.rig = buildSnowflowCharacter(scene, scale);
-    addDrowCharacterFeatures(this.rig);
-    // The cloth module reads the same landing impulses the locomotion layer
-    // does, so the facts object is created first and shared by both.
-    const facts = createHumanoidLocomotionFacts();
-    this.cloth = new SnowflowClothMotion(this.rig, facts);
-    this.profile = createHumanoidAnimationProfile({
-      definition: this.rig.humanoid.definition,
-      bones: this.rig.humanoid.bones,
+    const resources = createSnowflowCharacterResources(
+      scene,
+      scale,
       landingRecoverySeconds,
-      facts,
-      secondaryMotion: [this.cloth],
-      ikStages:
-        terrainContact === undefined
-          ? undefined
-          : [
-              createHumanoidContactIk(
-                this.rig.humanoid.definition,
-                this.rig.humanoid.bones,
-                terrainContact,
-                this.rig.heading,
-              ),
-            ],
-    });
-    this.runtime = new ActorAnimationRuntime(this.profile, this.rig.rigInstance);
+      terrainContact,
+    );
+    this.rig = resources.rig;
+    this.profile = resources.profile;
+    this.runtime = resources.runtime;
+    this.cloth = resources.cloth;
   }
 
   update(deltaSeconds: number, pose: SnowflowCharacterPose): void {
+    if (this.disposed) {
+      return;
+    }
     const delta = THREE.MathUtils.clamp(
       Number.isFinite(deltaSeconds) ? deltaSeconds : 0,
       0,
@@ -117,6 +113,9 @@ export class SnowflowCharacter {
   }
 
   reset(pose: SnowflowCharacterPose): void {
+    if (this.disposed) {
+      return;
+    }
     this.rig.root.position.copy(pose.position);
     this.rig.heading.rotation.y = pose.facing;
     this.updateSlope(pose.grounded ? pose.groundNormal : UP, 0, true);
@@ -133,15 +132,12 @@ export class SnowflowCharacter {
   }
 
   dispose(): void {
-    this.runtime.dispose();
-    this.rig.rigInstance.dispose();
-    this.rig.root.removeFromParent();
-    for (const geometry of this.rig.geometries) {
-      geometry.dispose();
+    if (this.disposed) {
+      return;
     }
-    for (const material of this.rig.materials) {
-      material.dispose();
-    }
+    this.disposed = true;
+    disposeSafely("animation runtime", () => this.runtime.dispose());
+    disposeSnowflowRig(this.rig);
   }
 
   getState(): string {
@@ -149,7 +145,9 @@ export class SnowflowCharacter {
   }
 
   setCrouch(crouched: boolean): void {
-    this.profile.facts.crouched = crouched;
+    if (!this.disposed) {
+      this.profile.facts.crouched = crouched;
+    }
   }
 
   isCrouched(): boolean {
@@ -157,7 +155,9 @@ export class SnowflowCharacter {
   }
 
   triggerRoll(): void {
-    this.profile.facts.rollStarted = true;
+    if (!this.disposed) {
+      this.profile.facts.rollStarted = true;
+    }
   }
 
   isRolling(): boolean {
@@ -165,6 +165,9 @@ export class SnowflowCharacter {
   }
 
   setLookTarget(target: THREE.Vector3 | null): void {
+    if (this.disposed) {
+      return;
+    }
     if (target === null) {
       this.profile.lookIk.clear();
     } else {
@@ -180,15 +183,21 @@ export class SnowflowCharacter {
   }
 
   setLookDirection(dirX: number, dirY: number, dirZ: number): void {
-    this.profile.lookIk.setLookDirection(dirX, dirY, dirZ);
+    if (!this.disposed) {
+      this.profile.lookIk.setLookDirection(dirX, dirY, dirZ);
+    }
   }
 
   clearLookTarget(): void {
-    this.profile.lookIk.clear();
+    if (!this.disposed) {
+      this.profile.lookIk.clear();
+    }
   }
 
   setAdditiveWeight(name: string, weight: number): void {
-    this.profile.additive.setWeight(name, weight);
+    if (!this.disposed) {
+      this.profile.additive.setWeight(name, weight);
+    }
   }
 
   getAdditiveWeight(name: string): number {
@@ -200,7 +209,9 @@ export class SnowflowCharacter {
     targetWeight: number,
     durationSeconds: number,
   ): void {
-    this.profile.additive.fadeTo(name, targetWeight, durationSeconds);
+    if (!this.disposed) {
+      this.profile.additive.fadeTo(name, targetWeight, durationSeconds);
+    }
   }
 
   getLocomotionBlendWeights() {
@@ -210,7 +221,9 @@ export class SnowflowCharacter {
   setExplicitLocomotionWeights(
     weights: { idle?: number; walk?: number; run?: number } | null,
   ): void {
-    this.profile.locomotion.setExplicitWeights(weights);
+    if (!this.disposed) {
+      this.profile.locomotion.setExplicitWeights(weights);
+    }
   }
 
   private syncAnimationInput(pose: SnowflowCharacterPose): void {
@@ -231,7 +244,9 @@ export class SnowflowCharacter {
     this.profile.facts.landed = pose.landed;
     this.profile.facts.landingImpact = pose.landingImpact;
     this.profile.facts.crouched = pose.crouched === true;
-    if (pose.rollStarted) {
+    if (this.profile.locomotion.isRolling()) {
+      this.profile.facts.rollStarted = false;
+    } else if (pose.rollStarted) {
       this.profile.facts.rollStarted = true;
     }
   }
@@ -257,5 +272,63 @@ export class SnowflowCharacter {
     }
     const blend = 1 - Math.exp(-9 * deltaSeconds);
     this.rig.slope.quaternion.slerp(this.desiredSlope, blend);
+  }
+}
+
+function createSnowflowCharacterResources(
+  scene: THREE.Scene,
+  scale: number,
+  landingRecoverySeconds: number,
+  terrainContact?: ActorTerrainContactSampler,
+): SnowflowCharacterResources {
+  const rig = buildSnowflowCharacter(scene, scale);
+  let cloth: SnowflowClothMotion | undefined;
+  try {
+    addDrowCharacterFeatures(rig);
+    const facts = createHumanoidLocomotionFacts();
+    cloth = new SnowflowClothMotion(rig, facts);
+    const profile = createHumanoidAnimationProfile({
+      definition: rig.humanoid.definition,
+      bones: rig.humanoid.bones,
+      landingRecoverySeconds,
+      facts,
+      secondaryMotion: [cloth],
+      ikStages:
+        terrainContact === undefined
+          ? undefined
+          : [
+              createHumanoidContactIk(
+                rig.humanoid.definition,
+                rig.humanoid.bones,
+                terrainContact,
+                rig.heading,
+              ),
+            ],
+    });
+    const runtime = new ActorAnimationRuntime(profile, rig.rigInstance);
+    return { rig, profile, runtime, cloth };
+  } catch (error) {
+    disposeSafely("cloth construction", () => cloth?.dispose());
+    disposeSnowflowRig(rig);
+    throw error;
+  }
+}
+
+function disposeSnowflowRig(rig: SnowflowCharacterRig): void {
+  disposeSafely("rig instance", () => rig.rigInstance.dispose());
+  disposeSafely("character root", () => rig.root.removeFromParent());
+  for (const geometry of rig.geometries) {
+    disposeSafely("character geometry", () => geometry.dispose());
+  }
+  for (const material of rig.materials) {
+    disposeSafely("character material", () => material.dispose());
+  }
+}
+
+function disposeSafely(label: string, dispose: () => void): void {
+  try {
+    dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] Snowflow ${label} cleanup failed.`, error);
   }
 }

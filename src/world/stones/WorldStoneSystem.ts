@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { WorldConfig } from "../WorldConfig";
 import {
   registerStoneClearanceField,
@@ -35,6 +36,14 @@ interface ActiveStoneBuild {
   readonly job: StoneRenderBatchBuildJob;
 }
 
+interface StoneRuntimeResources {
+  readonly detailMaterial: THREE.MeshLambertMaterial;
+  readonly coarseMaterial: THREE.MeshLambertMaterial;
+  readonly builder: StoneRenderBatchBuilder;
+  readonly clearanceRegistration: StoneClearanceRegistration;
+  readonly grainTexture?: THREE.Texture;
+}
+
 export interface StoneDiagnostics {
   /** Active render batches; retained for compatibility with existing diagnostics. */
   activeChunks: number;
@@ -54,12 +63,8 @@ export class WorldStoneSystem {
   private readonly desired = new Map<string, StoneBatchRequest>();
   /** Negative cache prevents deterministic empty batches rebuilding on every move. */
   private readonly emptySignatures = new Map<string, string>();
-  private readonly detailMaterial = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-  });
-  private readonly coarseMaterial = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-  });
+  private readonly detailMaterial: THREE.MeshLambertMaterial;
+  private readonly coarseMaterial: THREE.MeshLambertMaterial;
   private readonly mossExposureDirection = new THREE.Vector3();
   private readonly builder: StoneRenderBatchBuilder;
   private readonly clearanceRegistration: StoneClearanceRegistration;
@@ -81,10 +86,6 @@ export class WorldStoneSystem {
     private readonly receiveShadows: boolean,
   ) {
     this.enabled = config.stonesEnabled >= 1;
-    this.detailMaterial.name = "world-stone-detail-material";
-    this.detailMaterial.dithering = true;
-    this.coarseMaterial.name = "world-stone-coarse-material";
-    this.coarseMaterial.dithering = false;
     this.coarseShaderMinimumDistance = Math.max(
       config.stoneGrowthDetailStrength > 0
         ? config.stoneGrowthDetailFadeDistance
@@ -106,31 +107,31 @@ export class WorldStoneSystem {
         Math.sin(azimuth) * horizontal,
       )
       .normalize();
-    this.builder = new StoneRenderBatchBuilder(
+
+    const resources = createStoneRuntimeResources(
       stoneField,
       config,
       this.mossExposureDirection,
+      this.enabled,
     );
-    this.clearanceRegistration = registerStoneClearanceField(
-      this.enabled ? stoneField : undefined,
-      this.enabled ? config : undefined,
-    );
-
-    if (this.enabled && config.stoneGrainStrength > 0) {
-      this.grainTexture = this.createGrainTexture();
-    }
-    if (this.enabled) {
-      applyStoneSurfaceShader(
-        this.detailMaterial,
-        config,
-        this.grainTexture,
-      );
-      applyStoneCoarseSurfaceShader(this.coarseMaterial);
-    }
+    this.detailMaterial = resources.detailMaterial;
+    this.coarseMaterial = resources.coarseMaterial;
+    this.builder = resources.builder;
+    this.clearanceRegistration = resources.clearanceRegistration;
+    this.grainTexture = resources.grainTexture;
   }
 
   update(position: THREE.Vector3, buildDeadline: number): void {
-    if (this.disposed || !this.enabled) return;
+    if (
+      this.disposed ||
+      !this.enabled ||
+      !Number.isFinite(position.x) ||
+      !Number.isFinite(position.y) ||
+      !Number.isFinite(position.z)
+    ) {
+      return;
+    }
+    this.lastBuildMs = 0;
 
     const chunkX = Math.floor(position.x / this.config.chunkSize);
     const chunkZ = Math.floor(position.z / this.config.chunkSize);
@@ -166,29 +167,18 @@ export class WorldStoneSystem {
     }
     this.disposed = true;
     this.activeBuild = undefined;
-    for (const batch of this.batches.values()) {
-      this.removeBatch(batch);
-    }
+    const batches = Array.from(this.batches.values());
     this.batches.clear();
     this.queue.length = 0;
     this.desired.clear();
     this.emptySignatures.clear();
-    this.clearanceRegistration.dispose();
-    this.detailMaterial.dispose();
-    this.coarseMaterial.dispose();
-    this.grainTexture?.dispose();
-  }
-
-  private createGrainTexture(): THREE.Texture {
-    const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
-    texture.name = "world-stone-grain";
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = true;
-    return texture;
+    disposeResources([
+      ...batches.map((batch) => ({ dispose: () => this.removeBatch(batch) })),
+      this.clearanceRegistration,
+      this.detailMaterial,
+      this.coarseMaterial,
+      this.grainTexture,
+    ]);
   }
 
   private reconcile(): void {
@@ -311,6 +301,9 @@ export class WorldStoneSystem {
 
       const wanted = this.desired.get(active.request.key);
       if (!wanted || wanted.signature !== active.request.signature) {
+        if (progress.result) {
+          disposeStoneResource(progress.result.geometry, "Stale stone batch");
+        }
         this.activeBuild = undefined;
         continue;
       }
@@ -340,43 +333,72 @@ export class WorldStoneSystem {
     result: ReturnType<StoneRenderBatchBuilder["build"]>,
   ): void {
     const existing = this.batches.get(request.key);
-    if (existing) {
-      this.removeBatch(existing);
-      this.batches.delete(existing.key);
-    }
-
     if (!result) {
+      if (existing) {
+        this.removeBatch(existing);
+        this.batches.delete(existing.key);
+      }
       this.emptySignatures.set(request.key, request.signature);
       return;
     }
 
-    this.emptySignatures.delete(request.key);
-    const useDetailMaterial =
-      result.hasDetailedGeometry || !this.isCoarseShaderSafe(request);
-    const mesh = new THREE.Mesh(
-      result.geometry,
-      useDetailMaterial ? this.detailMaterial : this.coarseMaterial,
-    );
-    mesh.name = `world-stones-${request.key}`;
-    mesh.position.set(result.originX, result.originY, result.originZ);
-    const localShadowDetail =
-      this.receiveShadows && result.hasDetailedGeometry;
-    mesh.castShadow = localShadowDetail;
-    mesh.receiveShadow = localShadowDetail;
-    mesh.matrixAutoUpdate = false;
-    mesh.matrixWorldAutoUpdate = false;
-    mesh.updateMatrix();
+    let batch: StoneBatch | undefined;
+    try {
+      const useDetailMaterial =
+        result.hasDetailedGeometry || !this.isCoarseShaderSafe(request);
+      const mesh = new THREE.Mesh(
+        result.geometry,
+        useDetailMaterial ? this.detailMaterial : this.coarseMaterial,
+      );
+      mesh.name = `world-stones-${request.key}`;
+      mesh.position.set(result.originX, result.originY, result.originZ);
+      const localShadowDetail =
+        this.receiveShadows && result.hasDetailedGeometry;
+      mesh.castShadow = localShadowDetail;
+      mesh.receiveShadow = localShadowDetail;
+      mesh.matrixAutoUpdate = false;
+      mesh.matrixWorldAutoUpdate = false;
+      mesh.updateMatrix();
+      sceneAddAndUpdate(this.scene, mesh);
 
-    const batch: StoneBatch = {
-      key: request.key,
-      signature: request.signature,
-      mesh,
-      triangles: result.triangles,
-      stones: result.stones,
-    };
-    this.batches.set(batch.key, batch);
-    this.scene.add(mesh);
-    mesh.updateMatrixWorld(true);
+      batch = {
+        key: request.key,
+        signature: request.signature,
+        mesh,
+        triangles: result.triangles,
+        stones: result.stones,
+      };
+      this.batches.set(batch.key, batch);
+      this.emptySignatures.delete(request.key);
+    } catch (error) {
+      if (batch && this.batches.get(batch.key) === batch) {
+        if (existing) {
+          this.batches.set(existing.key, existing);
+        } else {
+          this.batches.delete(batch.key);
+        }
+      }
+      try {
+        disposeResources([
+          { dispose: () => batch?.mesh.removeFromParent() },
+          result.geometry,
+        ]);
+      } catch (cleanupError) {
+        console.warn(
+          "[Drusniel World] Unpublished stone batch cleanup failed.",
+          cleanupError,
+        );
+      }
+      throw error;
+    }
+
+    if (existing) {
+      try {
+        this.removeBatch(existing);
+      } catch (error) {
+        console.warn("[Drusniel World] Replaced stone batch cleanup failed.", error);
+      }
+    }
   }
 
   private isCoarseShaderSafe(request: StoneBatchRequest): boolean {
@@ -386,7 +408,105 @@ export class WorldStoneSystem {
   }
 
   private removeBatch(batch: StoneBatch): void {
-    this.scene.remove(batch.mesh);
-    batch.mesh.geometry.dispose();
+    disposeResources([
+      { dispose: () => this.scene.remove(batch.mesh) },
+      batch.mesh.geometry,
+    ]);
+  }
+}
+
+function createStoneRuntimeResources(
+  stoneField: StoneField,
+  config: WorldConfig,
+  mossExposureDirection: THREE.Vector3,
+  enabled: boolean,
+): StoneRuntimeResources {
+  let detailMaterial: THREE.MeshLambertMaterial | undefined;
+  let coarseMaterial: THREE.MeshLambertMaterial | undefined;
+  let grainTexture: THREE.Texture | undefined;
+  let clearanceRegistration: StoneClearanceRegistration | undefined;
+  try {
+    detailMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    detailMaterial.name = "world-stone-detail-material";
+    detailMaterial.dithering = true;
+    coarseMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    coarseMaterial.name = "world-stone-coarse-material";
+    coarseMaterial.dithering = false;
+    const builder = new StoneRenderBatchBuilder(
+      stoneField,
+      config,
+      mossExposureDirection,
+    );
+
+    if (enabled && config.stoneGrainStrength > 0) {
+      grainTexture = createGrainTexture();
+    }
+    if (enabled) {
+      applyStoneSurfaceShader(detailMaterial, config, grainTexture);
+      applyStoneCoarseSurfaceShader(coarseMaterial);
+    }
+
+    clearanceRegistration = registerStoneClearanceField(
+      enabled ? stoneField : undefined,
+      enabled ? config : undefined,
+    );
+    return {
+      detailMaterial,
+      coarseMaterial,
+      builder,
+      clearanceRegistration,
+      grainTexture,
+    };
+  } catch (error) {
+    try {
+      disposeResources([
+        clearanceRegistration,
+        grainTexture,
+        detailMaterial,
+        coarseMaterial,
+      ]);
+    } catch (cleanupError) {
+      console.warn(
+        "[Drusniel World] Stone construction cleanup failed.",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
+}
+
+function createGrainTexture(): THREE.Texture {
+  const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
+  texture.name = "world-stone-grain";
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  return texture;
+}
+
+function sceneAddAndUpdate(scene: THREE.Scene, mesh: THREE.Mesh): void {
+  scene.add(mesh);
+  try {
+    mesh.updateMatrixWorld(true);
+  } catch (error) {
+    mesh.removeFromParent();
+    throw error;
+  }
+}
+
+function disposeStoneResource(
+  resource: { dispose(): void } | undefined,
+  label: string,
+): void {
+  if (!resource) {
+    return;
+  }
+  try {
+    resource.dispose();
+  } catch (error) {
+    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
   }
 }

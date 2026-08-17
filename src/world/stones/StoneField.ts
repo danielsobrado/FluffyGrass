@@ -32,6 +32,7 @@ import {
   packLatticeKey,
   resolveOverlapPush,
   singletonProbability,
+  uplandGeologyBoost,
   smoothstep,
   SPLIT_CORE_OFFSET_FACTOR,
   SPLIT_GAP_MAX,
@@ -50,6 +51,14 @@ import {
   SCALE_BANDS,
   stoneMossBase,
 } from "./StonePlacementProfile";
+import {
+  selectPathDistance,
+  selectStoneVergePath,
+  stoneVergeInsideSourceNeighborhood,
+  STONE_PATH_DISTANCE_PLATEAU,
+  type StoneVergePathChannel,
+} from "./StonePathPlacement";
+import { resolveSplitHalfDistance } from "./StoneSplitPlacement";
 
 /**
  * Deterministic world-space stone placement.
@@ -149,7 +158,8 @@ const CLEAR_SCALE_CUTOFF = 0.5;
 const MAX_ENVIRONMENT_MOSS = 0.66;
 /** Slope gates on the terrain normal's Y component. */
 const SLOPE_REJECT_NY = 0.62;
-const PATH_DISTANCE_PLATEAU = 24;
+/** Source displacement plus one cell of verified base clearance reach. */
+const CLEARANCE_SOURCE_CELL_MARGIN = STONE_CELL_SOURCE_MARGIN + 1;
 const VERGE_BAND = 1.6;
 const VERGE_STEP_PASSES = 4;
 const VERGE_MAX_PER_CELL = 7;
@@ -223,14 +233,6 @@ export class StoneField {
     return resolved;
   }
 
-  /**
-   * Pre-generated mesh for an instance; built lazily, cached forever.
-   *
-   * `detailed` selects the chipped close-range form. Both come from the same
-   * recipe and differ only by a handful of shallow corner facets, so a stone
-   * keeps its identity across the swap — and the swap happens at the detail
-   * radius, by which distance those facets are far below a pixel.
-   */
   getVariant(
     archetype: StoneArchetypeId,
     variantIndex: number,
@@ -253,10 +255,6 @@ export class StoneField {
     return mesh;
   }
 
-  /**
-   * Every stone whose root lies inside the chunk. `includeSmall` false drops
-   * the nestling classes for far chunks where they are sub-pixel anyway.
-   */
   collectChunkInstances(
     chunkX: number,
     chunkZ: number,
@@ -298,21 +296,25 @@ export class StoneField {
     return out;
   }
 
-  /**
-   * How much grass survives at (x, z): 1 clear of every stone, 0 under one.
-   * `extraRadius` widens the cleared band by the footprint of whatever is
-   * being placed, mirroring {@link TerrainField.samplePathGrassMask}.
-   */
   sampleGrassClearance(x: number, z: number, extraRadius = 0): number {
     if (!this.enabled) {
       return 1;
+    }
+    let sourceMargin = CLEARANCE_SOURCE_CELL_MARGIN;
+    if (extraRadius !== 0) {
+      if (!Number.isFinite(extraRadius) || extraRadius < 0) {
+        throw new Error(
+          "Stone clearance extraRadius must be a non-negative finite number.",
+        );
+      }
+      sourceMargin += Math.ceil(extraRadius / this.cellSize);
     }
     const feather = this.config.stoneGrassClearanceFeather;
     const centerCellX = Math.floor(x / this.cellSize);
     const centerCellZ = Math.floor(z / this.cellSize);
     let mask = 1;
-    for (let dz = -1; dz <= 1; dz += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dz = -sourceMargin; dz <= sourceMargin; dz += 1) {
+      for (let dx = -sourceMargin; dx <= sourceMargin; dx += 1) {
         const instances = this.getCellInstances(
           centerCellX + dx,
           centerCellZ + dz,
@@ -542,17 +544,19 @@ export class StoneField {
     }
     this.cellSingletons.set(cellKey, singletons);
 
-    const geologyPotential = this.clusterField.sampleGeologyPotential(
-      centerX,
-      centerZ,
-    );
-    this.addVergeStones(
-      random.fork("verge"),
-      originX,
-      originZ,
-      geologyPotential,
-      instances,
-    );
+    if (this.config.stoneVergeChance > 0) {
+      const geologyPotential = this.clusterField.sampleGeologyPotential(
+        centerX,
+        centerZ,
+      );
+      this.addVergeStones(
+        random.fork("verge"),
+        originX,
+        originZ,
+        geologyPotential,
+        instances,
+      );
+    }
     return instances;
   }
 
@@ -657,26 +661,36 @@ export class StoneField {
     const memberRng = StoneRandom.fromSeed(descriptor.seed).fork(
       stoneClusterMemberLabel(spec.index),
     );
-    const desiredGap =
-      memberRng.fork("split-gap").range(SPLIT_GAP_MIN, SPLIT_GAP_MAX) +
-      anchor.footprintRadius * 1.05;
+    const scale =
+      anchor.instance.scale * memberRng.fork("scale-jitter").range(0.62, 0.92);
+    const variant = this.getVariant(
+      anchor.instance.archetype,
+      anchor.instance.variantIndex,
+    );
+    const footprint = variant.metrics.footprintRadius * scale;
+    const crackGap = memberRng
+      .fork("split-gap")
+      .range(SPLIT_GAP_MIN, SPLIT_GAP_MAX);
+    const desiredDistance = resolveSplitHalfDistance(
+      anchor.footprintRadius,
+      footprint,
+      crackGap,
+    );
     if (
-      desiredGap >
+      desiredDistance >
       descriptor.majorRadius *
         this.config.stoneClusterCoreRatio *
         SPLIT_CORE_OFFSET_FACTOR
     ) {
       return undefined;
     }
-    const splitAngle = memberRng.fork("split-angle");
     const breakAngle =
-      descriptor.strike + Math.PI * 0.5 + splitAngle.signed(0.35);
-    const x = anchor.instance.x + Math.cos(breakAngle) * desiredGap;
-    const z = anchor.instance.z + Math.sin(breakAngle) * desiredGap;
-    if (!this.insideWorld(x, z)) {
-      return undefined;
-    }
-    if (!this.insideInfluence(descriptor, x, z)) {
+      descriptor.strike +
+      Math.PI * 0.5 +
+      memberRng.fork("split-angle").signed(0.35);
+    const x = anchor.instance.x + Math.cos(breakAngle) * desiredDistance;
+    const z = anchor.instance.z + Math.sin(breakAngle) * desiredDistance;
+    if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
       return undefined;
     }
     const height = this.field.sampleHeight(x, z);
@@ -690,16 +704,7 @@ export class StoneField {
     if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }
-    const scale =
-      anchor.instance.scale * memberRng.fork("scale-jitter").range(0.62, 0.92);
-    const variant = this.getVariant(
-      anchor.instance.archetype,
-      anchor.instance.variantIndex,
-    );
-    const footprint = variant.metrics.footprintRadius * scale;
-    if (
-      this.pathBlocks(x, z, height, scale, anchor.instance.archetype, footprint)
-    ) {
+    if (this.pathBlocks(x, z, height, scale, footprint)) {
       return undefined;
     }
     if (this.overlapsAny(x, z, footprint, others)) {
@@ -713,10 +718,12 @@ export class StoneField {
       anchor.instance.archetype,
       anchor.instance.variantIndex,
       scale,
-      descriptor.strike + Math.PI + splitAngle.signed(0.4),
+      descriptor.strike +
+        Math.PI +
+        memberRng.fork("split-yaw").signed(0.4),
       descriptor.paletteKey,
-      spec.valueScale,
-      this.memberMoss(descriptor, spec),
+      anchor.instance.valueScale,
+      anchor.instance.moss,
       variant,
       "secondary",
     );
@@ -748,10 +755,7 @@ export class StoneField {
     );
     let x = root.x;
     let z = root.z;
-    if (!this.insideWorld(x, z)) {
-      return { corrected: false };
-    }
-    if (!this.insideInfluence(descriptor, x, z)) {
+    if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
       return { corrected: false };
     }
     const sampled = this.samplePlacement(
@@ -765,7 +769,7 @@ export class StoneField {
       return { corrected: false };
     }
     let { height, normal, footprint, variant } = sampled;
-    if (this.pathBlocks(x, z, height, spec.scale, spec.archetype, footprint)) {
+    if (this.pathBlocks(x, z, height, spec.scale, footprint)) {
       return { corrected: false };
     }
 
@@ -789,10 +793,7 @@ export class StoneField {
       x = pushed.x;
       z = pushed.z;
       corrected = true;
-      if (!this.insideWorld(x, z)) {
-        return { corrected: true };
-      }
-      if (!this.insideInfluence(descriptor, x, z)) {
+      if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
         return { corrected: true };
       }
       const resampled = this.samplePlacement(
@@ -809,7 +810,7 @@ export class StoneField {
       normal = resampled.normal;
       footprint = resampled.footprint;
       variant = resampled.variant;
-      if (this.pathBlocks(x, z, height, spec.scale, spec.archetype, footprint)) {
+      if (this.pathBlocks(x, z, height, spec.scale, footprint)) {
         return { corrected: true };
       }
       if (this.overlapsAny(x, z, footprint, accepted)) {
@@ -854,6 +855,10 @@ export class StoneField {
     centerZ: number,
     instances: StoneInstance[],
   ): boolean {
+    const activationRoll = random.next();
+    if (activationRoll >= this.config.stoneSingletonChance) {
+      return false;
+    }
     const height = this.field.sampleHeight(centerX, centerZ);
     const ecology = this.field.sampleEcologyAt(centerX, centerZ, height);
     const geologyPotential = this.clusterField.sampleGeologyPotential(
@@ -864,8 +869,13 @@ export class StoneField {
       geologyPotential,
       ecology.rockiness,
       this.config.stoneSingletonChance,
+      uplandGeologyBoost(
+        height,
+        this.config.grassMinAltitude,
+        this.config.grassMaxAltitude,
+      ),
     );
-    if (!random.chance(probability)) {
+    if (activationRoll >= probability) {
       return false;
     }
     const x = originX + random.fork("x").range(0.2, 0.8) * this.cellSize;
@@ -893,16 +903,7 @@ export class StoneField {
     if (!sampled) {
       return false;
     }
-    if (
-      this.pathBlocks(
-        x,
-        z,
-        sampled.height,
-        scale,
-        archetype,
-        sampled.footprint,
-      )
-    ) {
+    if (this.pathBlocks(x, z, sampled.height, scale, sampled.footprint)) {
       return false;
     }
     const biomeSample = sampleGrassBiome(x, z);
@@ -931,9 +932,10 @@ export class StoneField {
         archetype,
         variantIndex,
         scale,
-        this.clusterField.sampleStrike(x, z) + random.signed(0.42),
+        this.clusterField.sampleStrike(x, z) +
+          random.fork("yaw").signed(0.42),
         BIOME_PALETTE[biomeIndex],
-        random.range(0.92, 1.06),
+        random.fork("value").range(0.92, 1.06),
         moss,
         sampled.variant,
       ),
@@ -948,8 +950,12 @@ export class StoneField {
     geologyPotential: number,
     instances: StoneInstance[],
   ): void {
-    const clearance =
+    const mainClearance =
       this.config.pathWidth * 0.5 +
+      this.config.pathEdgeRoughness +
+      this.config.pathGrassClearance;
+    const branchClearance =
+      this.config.pathBranchWidth * 0.5 +
       this.config.pathEdgeRoughness +
       this.config.pathGrassClearance;
     const centerX = originX + this.cellSize * 0.5;
@@ -959,13 +965,18 @@ export class StoneField {
       return;
     }
     this.field.samplePathDistances(centerX, centerZ, this.pathScratch);
-    const centerDistance = this.pathScratch.x;
-    if (
-      Math.abs(Math.abs(centerDistance) - PATH_DISTANCE_PLATEAU) < 0.01 ||
-      Math.abs(centerDistance) > clearance + VERGE_BAND + this.cellSize * 0.8
-    ) {
+    const selectedPath = selectStoneVergePath(
+      this.pathScratch.x,
+      this.pathScratch.y,
+      mainClearance,
+      branchClearance,
+      VERGE_BAND + this.cellSize * 0.8,
+    );
+    if (!selectedPath) {
       return;
     }
+    const channel = selectedPath.channel;
+    const clearance = selectedPath.clearance;
     const ecology = this.field.sampleEcologyAt(centerX, centerZ, centerHeight);
     const regionalStonePotential =
       0.45 * geologyPotential + 0.55 * ecology.rockiness;
@@ -983,7 +994,7 @@ export class StoneField {
         continue;
       }
       if (!haveCenterTangent) {
-        if (!this.samplePathTangent(centerX, centerZ)) {
+        if (!this.samplePathTangent(centerX, centerZ, channel)) {
           return;
         }
         alongX = this.tangentScratch.x;
@@ -998,14 +1009,18 @@ export class StoneField {
         continue;
       }
       this.field.samplePathDistances(sampleX, sampleZ, this.pathScratch);
-      const distance = this.pathScratch.x;
+      const distance = selectPathDistance(
+        channel,
+        this.pathScratch.x,
+        this.pathScratch.y,
+      );
       if (
-        Math.abs(Math.abs(distance) - PATH_DISTANCE_PLATEAU) < 0.01 ||
+        Math.abs(Math.abs(distance) - STONE_PATH_DISTANCE_PLATEAU) < 0.01 ||
         Math.abs(distance) > clearance + VERGE_BAND + this.cellSize
       ) {
         continue;
       }
-      if (!this.samplePathTangent(sampleX, sampleZ)) {
+      if (!this.samplePathTangent(sampleX, sampleZ, channel)) {
         continue;
       }
       const alongTangentX = this.tangentScratch.x;
@@ -1039,24 +1054,51 @@ export class StoneField {
         x += stepAcrossX * travel;
         z += stepAcrossZ * travel;
         this.field.samplePathDistances(x, z, this.pathScratch);
-        currentDistance = this.pathScratch.x;
-        if (Math.abs(Math.abs(currentDistance) - PATH_DISTANCE_PLATEAU) < 0.01) {
+        currentDistance = selectPathDistance(
+          channel,
+          this.pathScratch.x,
+          this.pathScratch.y,
+        );
+        if (
+          Math.abs(Math.abs(currentDistance) - STONE_PATH_DISTANCE_PLATEAU) <
+          0.01
+        ) {
           break;
         }
-        const stepTangent = this.samplePathTangent(x, z);
-        if (!stepTangent) {
+        if (!this.samplePathTangent(x, z, channel)) {
           break;
         }
         stepAcrossX = this.tangentScratch.z;
         stepAcrossZ = -this.tangentScratch.x;
       }
+      this.field.samplePathDistances(x, z, this.pathScratch);
+      currentDistance = selectPathDistance(
+        channel,
+        this.pathScratch.x,
+        this.pathScratch.y,
+      );
       const landed = Math.abs(currentDistance);
       const bandMin = clearance + footprint + 0.05;
       const bandMax = clearance + footprint + VERGE_BAND + 0.6;
-      if (!(landed >= bandMin && landed <= bandMax)) {
-        continue;
-      }
-      if (!this.insideWorld(x, z)) {
+      const otherDistance = selectPathDistance(
+        channel === "main" ? "branch" : "main",
+        this.pathScratch.x,
+        this.pathScratch.y,
+      );
+      const otherClearance =
+        channel === "main" ? branchClearance : mainClearance;
+      if (
+        !(landed >= bandMin && landed <= bandMax) ||
+        Math.abs(otherDistance) - otherClearance - footprint < 0.05 ||
+        !stoneVergeInsideSourceNeighborhood(
+          centerX,
+          centerZ,
+          x,
+          z,
+          this.cellSize,
+        ) ||
+        !this.insideWorld(x, z)
+      ) {
         continue;
       }
       const stoneHeight = this.field.sampleHeight(x, z);
@@ -1068,7 +1110,10 @@ export class StoneField {
       for (const existing of instances) {
         const offsetX = existing.x - x;
         const offsetZ = existing.z - z;
-        const minimum = (existing.clearRadius + footprint) * 0.85 + 0.2;
+        const existingFootprint =
+          this.getVariant(existing.archetype, existing.variantIndex).metrics
+            .footprintRadius * existing.scale;
+        const minimum = (existingFootprint + footprint) * 0.85 + 0.2;
         if (offsetX * offsetX + offsetZ * offsetZ < minimum * minimum) {
           blocked = true;
           break;
@@ -1114,16 +1159,36 @@ export class StoneField {
     }
   }
 
-  private samplePathTangent(x: number, z: number): boolean {
+  private samplePathTangent(
+    x: number,
+    z: number,
+    channel: StoneVergePathChannel,
+  ): boolean {
     const step = 0.6;
     this.field.samplePathDistances(x + step, z, this.pathScratch);
-    const east = this.pathScratch.x;
+    const east = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     this.field.samplePathDistances(x - step, z, this.pathScratch);
-    const west = this.pathScratch.x;
+    const west = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     this.field.samplePathDistances(x, z + step, this.pathScratch);
-    const north = this.pathScratch.x;
+    const north = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     this.field.samplePathDistances(x, z - step, this.pathScratch);
-    const south = this.pathScratch.x;
+    const south = selectPathDistance(
+      channel,
+      this.pathScratch.x,
+      this.pathScratch.y,
+    );
     const gradientX = (east - west) / (2 * step);
     const gradientZ = (north - south) / (2 * step);
     const length = Math.hypot(gradientX, gradientZ);
@@ -1164,7 +1229,6 @@ export class StoneField {
     z: number,
     height: number,
     scale: number,
-    archetype: StoneArchetypeId,
     footprint: number,
   ): boolean {
     const visibility = this.field.samplePathVisibility(height);
@@ -1188,11 +1252,7 @@ export class StoneField {
       this.config.pathGrassClearance;
     const mainMargin = Math.abs(distances.x) - mainClear - footprint;
     const branchMargin = Math.abs(distances.y) - branchClear - footprint;
-    const margin = Math.min(mainMargin, branchMargin);
-    if (margin < 0.35) {
-      return !(archetype === "pebble" && margin > -0.2);
-    }
-    return false;
+    return Math.min(mainMargin, branchMargin) < 0.35;
   }
 
   private findOverlap(

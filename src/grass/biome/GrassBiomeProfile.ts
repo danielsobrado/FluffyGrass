@@ -7,6 +7,7 @@ import {
 } from "./GrassAccentSpecies";
 
 export const GRASS_MAX_BIOMES = 8;
+export const GRASS_MAX_ACCENT_PROFILE_ENTRIES = 16;
 
 export type GrassBiomePaletteSource = "art" | "profile";
 
@@ -152,6 +153,11 @@ function assertAccentSpecies(
     value === undefined ? DEFAULT_ACCENT_SPECIES_SOURCE : value;
   if (!Array.isArray(source) || source.length === 0) {
     fail(`${label} must be a non-empty array when present.`);
+  }
+  if (source.length > GRASS_MAX_ACCENT_PROFILE_ENTRIES) {
+    fail(
+      `${label} must contain at most ${GRASS_MAX_ACCENT_PROFILE_ENTRIES} entries, got ${source.length}.`,
+    );
   }
   return Object.freeze(
     source.map((entry, position) => {

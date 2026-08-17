@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { disposeResources } from "../../render/ResourceDisposal";
 import type { GrassGeometryConfig } from "../../grass/GrassConfig";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
 import type { WorldConfig } from "../WorldConfig";
@@ -92,46 +93,51 @@ export class WorldGrassPatchGeometryFactory {
     const midSortedDithers: Float32Array[] = [];
     const bladeVariants: WorldGrassBladeSpec[][] = [];
 
-    // Only the mid geometry is built. The near clump variant used to be
-    // generated alongside it, but the streamed near clump mesh is gone and,
-    // at grassMidBladeFraction 1 with unit mid scales, the two geometries held
-    // exactly the same blade set anyway.
-    for (let variant = 0; variant < variantCount; variant += 1) {
-      const specs = this.createBladeSpecs(
-        nearBladesPerPatch,
-        world.grassPatchSize,
-        world.grassUnderlayerFraction,
-        seed + variant * VARIANT_SEED_STEP,
-        grass,
-      );
-      bladeVariants.push(specs);
-      // lodRank selects *which* blades the mid layer keeps when it is allowed
-      // fewer than the source set; the dither order decides in what order they
-      // are written, which is what makes the draw truncatable. The two are
-      // independent, so both are applied.
-      const midSpecs = [...specs]
-        .sort((left, right) => left.lodRank - right.lodRank)
-        .slice(0, midBladesPerPatch)
-        .sort(
-          (left, right) =>
-            resolveMidBladeDither(right, midDitherSeed) -
-            resolveMidBladeDither(left, midDitherSeed),
+    try {
+      // Only the mid geometry is built. The near clump variant used to be
+      // generated alongside it, but the streamed near clump mesh is gone and,
+      // at grassMidBladeFraction 1 with unit mid scales, the two geometries held
+      // exactly the same blade set anyway.
+      for (let variant = 0; variant < variantCount; variant += 1) {
+        const specs = this.createBladeSpecs(
+          nearBladesPerPatch,
+          world.grassPatchSize,
+          world.grassUnderlayerFraction,
+          seed + variant * VARIANT_SEED_STEP,
+          grass,
         );
-      mid.push(this.createGeometry(midSpecs, grass, true));
-      midSortedDithers.push(
-        Float32Array.from(midSpecs, (spec) =>
-          resolveMidBladeDither(spec, midDitherSeed),
-        ),
-      );
-    }
+        bladeVariants.push(specs);
+        // lodRank selects *which* blades the mid layer keeps when it is allowed
+        // fewer than the source set; the dither order decides in what order they
+        // are written, which is what makes the draw truncatable. The two are
+        // independent, so both are applied.
+        const midSpecs = [...specs]
+          .sort((left, right) => left.lodRank - right.lodRank)
+          .slice(0, midBladesPerPatch)
+          .sort(
+            (left, right) =>
+              resolveMidBladeDither(right, midDitherSeed) -
+              resolveMidBladeDither(left, midDitherSeed),
+          );
+        mid.push(this.createGeometry(midSpecs, grass, true));
+        midSortedDithers.push(
+          Float32Array.from(midSpecs, (spec) =>
+            resolveMidBladeDither(spec, midDitherSeed),
+          ),
+        );
+      }
 
-    return {
-      mid,
-      midSortedDithers,
-      bladeVariants,
-      nearBladesPerPatch,
-      midBladesPerPatch,
-    };
+      return {
+        mid,
+        midSortedDithers,
+        bladeVariants,
+        nearBladesPerPatch,
+        midBladesPerPatch,
+      };
+    } catch (error) {
+      disposePatchGeometries(mid, "partial patch variants");
+      throw error;
+    }
   }
 
   private createBladeSpecs(
@@ -249,27 +255,46 @@ export class WorldGrassPatchGeometryFactory {
     }
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(positions, 3),
+    try {
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setAttribute(
+        "grassProgress",
+        new THREE.Float32BufferAttribute(progressValues, 1),
+      );
+      geometry.setAttribute(
+        "grassPhase",
+        new THREE.Float32BufferAttribute(phaseValues, 1),
+      );
+      geometry.setAttribute(
+        "grassBladeShade",
+        new THREE.Float32BufferAttribute(shadeValues, 1),
+      );
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      return geometry;
+    } catch (error) {
+      disposePatchGeometries([geometry], "patch geometry");
+      throw error;
+    }
+  }
+}
+
+function disposePatchGeometries(
+  geometries: THREE.BufferGeometry[],
+  label: string,
+): void {
+  try {
+    disposeResources(geometries);
+  } catch (cleanupError) {
+    console.warn(
+      `[Drusniel World] Grass ${label} cleanup failed.`,
+      cleanupError,
     );
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setAttribute(
-      "grassProgress",
-      new THREE.Float32BufferAttribute(progressValues, 1),
-    );
-    geometry.setAttribute(
-      "grassPhase",
-      new THREE.Float32BufferAttribute(phaseValues, 1),
-    );
-    geometry.setAttribute(
-      "grassBladeShade",
-      new THREE.Float32BufferAttribute(shadeValues, 1),
-    );
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    return geometry;
   }
 }

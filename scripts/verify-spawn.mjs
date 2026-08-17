@@ -5,7 +5,6 @@ import { createServer } from "vite";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
-const CLEARANCE_RADIUS_SCALE = 0.5;
 const EPSILON = 1e-9;
 
 function assert(condition, message) {
@@ -39,37 +38,49 @@ try {
   const { DenseSpawnLocator } = await server.ssrLoadModule(
     "/src/world/DenseSpawnLocator.ts",
   );
+  const { CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE } = await server.ssrLoadModule(
+    "/src/world/SpawnTuning.ts",
+  );
   const { TerrainField } = await server.ssrLoadModule(
     "/src/world/TerrainField.ts",
+  );
+  const { StoneClearanceCache } = await server.ssrLoadModule(
+    "/src/world/stones/StoneClearanceCache.ts",
   );
   const { StoneField } = await server.ssrLoadModule(
     "/src/world/stones/StoneField.ts",
   );
-  const { WORLD_CONFIG_SCHEMA } = await server.ssrLoadModule(
-    "/src/world/WorldConfigSchema.ts",
-  );
-  const { validateWorldConfig } = await server.ssrLoadModule(
-    "/src/world/WorldConfigValidator.ts",
+  const { WorldConfigLoader } = await server.ssrLoadModule(
+    "/src/world/WorldConfigLoader.ts",
   );
 
   const source = readFileSync(
     resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
     "utf8",
   );
-  const config = Object.fromEntries(
-    source
-      .split(/\r?\n/)
-      .map((line) => line.replace(/#.*/, "").trim())
-      .filter(Boolean)
-      .map((line) => {
-        const separator = line.indexOf(":");
-        return [line.slice(0, separator).trim(), Number(line.slice(separator + 1))];
-      }),
+  const loader = new WorldConfigLoader();
+  const config = loader.parse(source);
+  const oversizedCharacterScale =
+    (config.stoneCellSize + 1) / CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE;
+  const oversizedSource = source.replace(
+    `characterScale: ${config.characterScale}`,
+    `characterScale: ${oversizedCharacterScale}`,
   );
-  for (const key of Object.keys(WORLD_CONFIG_SCHEMA)) {
-    assert(Number.isFinite(config[key]), `World config is missing ${key}.`);
+  let rejectedOversizedClearance = false;
+  try {
+    loader.parse(oversizedSource);
+  } catch (error) {
+    rejectedOversizedClearance = /spawn stone-clearance radius/i.test(
+      error instanceof Error ? error.message : String(error),
+    );
   }
-  validateWorldConfig(config);
+  assert(
+    rejectedOversizedClearance,
+    "Stone-enabled spawn config accepted an unbounded character clearance radius.",
+  );
+  loader.parse(
+    oversizedSource.replace("stonesEnabled: 1", "stonesEnabled: 0"),
+  );
 
   const locate = () => {
     const terrain = new TerrainField(config);
@@ -92,25 +103,42 @@ try {
   const normal = new THREE.Vector3();
   first.terrain.sampleNormal(x, z, normal);
   const suitability = first.terrain.sampleGrassSuitability(x, z, height, normal);
-  const clearanceRadius = config.characterScale * CLEARANCE_RADIUS_SCALE;
+  const clearanceRadius =
+    config.characterScale * CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE;
   const pathClearance = first.terrain.samplePathGrassMask(
     x,
     z,
     height,
     clearanceRadius,
   );
-  const stoneClearance = first.stones.sampleGrassClearance(
-    x,
-    z,
-    clearanceRadius,
-  );
+  const stoneClearance = new StoneClearanceCache(
+    first.stones,
+    config,
+  ).sample(x, z, clearanceRadius);
 
   assert(suitability > 0.25, "Spawn must remain on viable grass terrain.");
   assert(pathClearance > 0.5, "Spawn must clear the worn path corridor.");
   assert(stoneClearance > 0.5, "Spawn must clear procedural stone footprints.");
 
+  const disabledConfig = { ...config, stonesEnabled: 0 };
+  const disabledTerrain = new TerrainField(disabledConfig);
+  const disabledStones = new StoneField(disabledTerrain, disabledConfig);
+  disabledStones.collectChunkInstances = () => {
+    throw new Error("Disabled spawn clearance touched the stone field.");
+  };
+  const disabledSpawn = new DenseSpawnLocator(
+    disabledTerrain,
+    disabledConfig,
+    disabledStones,
+  ).find();
+  assert(
+    Number.isFinite(disabledSpawn.position.x) &&
+      Number.isFinite(disabledSpawn.position.z),
+    "Disabling stones must retain a viable spawn without stone neighborhood work.",
+  );
+
   console.log(
-    `[spawn] Deterministic clear spawn ${x.toFixed(1)}, ${z.toFixed(1)} verified.`,
+    `[spawn] Deterministic cached-clearance spawn ${x.toFixed(1)}, ${z.toFixed(1)} verified.`,
   );
 } finally {
   await server.close();

@@ -6,7 +6,10 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function assert(condition, message) {
@@ -23,6 +26,7 @@ const islandGrass = read("src/grass/GrassSystem.ts");
 const seededRandom = read("src/grass/internal/SeededRandom.ts");
 const interactionField = read("src/grass/interaction/GrassInteractionField.ts");
 const trailField = read("src/grass/interaction/GrassTrailField.ts");
+const windNoise = read("src/grass/wind/WindNoiseTexture.ts");
 const qualityGovernor = read("src/runtime/GrassQualityGovernor.ts");
 const diagnosticsController = read("src/runtime/WorldDiagnosticsController.ts");
 const workloadProbe = read("src/runtime/GrassWorkloadProbe.ts");
@@ -34,6 +38,8 @@ const stoneField = read("src/world/stones/StoneField.ts");
 const stoneClusterTuning = read("src/world/stones/StoneClusterTuning.ts");
 const nearField = read("src/world/grass/WorldNearGrassField.ts");
 const tileField = read("src/world/grass/WorldSingleBladeTileField.ts");
+const scenicLayer = read("src/world/scenic/WorldScenicLayer.ts");
+const faunaSystem = read("src/world/scenic/WorldFaunaSystem.ts");
 const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const thirdPersonInput = read("src/controls/ThirdPersonInput.ts");
 const flyController = read("src/controls/FlyController.ts");
@@ -60,6 +66,11 @@ assert(
     !world.includes('import { RiverArtMenu }') &&
     !world.includes('import { applyRiverDevelopmentConfig }'),
   "River tuning must remain opt-in and outside the default bundle path.",
+);
+assert(
+  world.includes("Optional river tuning unavailable.") &&
+    /try \{[\s\S]*?await app\.attachRiverArtMenu\(\);[\s\S]*?\} catch \(error\) \{/.test(world),
+  "Optional river tuning failures must not abort the world startup path.",
 );
 assert(
   main.includes('statsPanelEnabled: params.get("stats") === "1"') &&
@@ -93,6 +104,37 @@ assert(
   "World runtime must be idempotent, frame-safe, and keep optional diagnostics off the default path.",
 );
 assert(
+  world.includes("this.notifyFrameObservers(deltaSeconds)") &&
+    world.includes("this.frameObservers.delete(observer)") &&
+    world.includes('this.runtimeGuard.recordSubsystemFailure("frame-observer", error)'),
+  "A failing optional frame observer must be detached without aborting later frame subsystems.",
+);
+assert(
+  scenicLayer.includes("private treesEnabled = true") &&
+    scenicLayer.includes("private faunaEnabled = true") &&
+    scenicLayer.includes("this.disposeTrees()") &&
+    scenicLayer.includes("this.disposeFauna()") &&
+    scenicLayer.includes("Trees disabled after a fault") &&
+    scenicLayer.includes("Fauna disabled after a fault"),
+  "Tree and fauna failures must stay inside their scenic failure domains.",
+);
+assert(
+  faunaSystem.includes("const rosterRebuilt =") &&
+    /if \(!slot\.active\) \{[\s\S]*?this\.recycle\(slot, focus\)[\s\S]*?continue;/.test(
+      faunaSystem,
+    ) &&
+    !faunaSystem.includes("behaviorClock") &&
+    faunaSystem.includes(
+      "(index / Math.max(count, 1)) * this.behaviorInterval",
+    ) &&
+    faunaSystem.includes('disposeActor(slot.actor, "Deer actor")') &&
+    faunaSystem.includes('disposeActor(villager.actor, "Villager actor")') &&
+    /catch \(error\) \{[\s\S]*?this\.dispose\(\);[\s\S]*?throw error;/.test(
+      faunaSystem,
+    ),
+  "Fauna recycling must reactivate bounded pool slots, keep decisions evenly staggered, and clean partial construction safely.",
+);
+assert(
   viewportSizing.includes("Math.max(1, window.innerWidth)") &&
     viewportSizing.includes("Math.max(1, window.innerHeight)") &&
     viewportSizing.includes("Number.isFinite(devicePixelRatio)") &&
@@ -115,10 +157,23 @@ assert(
   "Island rendering must clamp resumed or invalid frame deltas before updating grass animation.",
 );
 assert(
-  /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.grass\.dispose\(\);[\s\S]*?grassTrailField\.dispose\(\);[\s\S]*?\}/.test(
+  /else if \(subsystem === "stones"\) \{[\s\S]*?this\.stonesEnabled = false;[\s\S]*?this\.disposeSafely\("Stone system"/.test(
     world,
-  ),
-  "A failed grass frame must disable and release both grass rendering and trail resources.",
+  ) &&
+    /else if \(subsystem === "grass"\) \{[\s\S]*?this\.grassEnabled = false;[\s\S]*?this\.disposeGrassResources\(\);[\s\S]*?\}/.test(
+      world,
+    ) &&
+    /private disposeGrassResources\(\): void \{[\s\S]*?this\.disposeSafely\("Grass system"[\s\S]*?this\.grass\.dispose\(\)[\s\S]*?this\.disposeSafely\("Grass trail field"[\s\S]*?grassTrailField\.dispose\(\)/.test(
+      world,
+    ),
+  "Failed stone and grass frames must isolate cleanup faults while releasing their owned resources.",
+);
+assert(
+  world.includes("private disposeSafely(label: string, dispose: () => void): void") &&
+    world.includes('this.disposeSafely("Runtime guard"') &&
+    world.includes('this.disposeSafely("Scenic layer"') &&
+    world.includes('this.disposeSafely("Renderer"'),
+  "World teardown must continue releasing later owners when an earlier cleanup fails.",
 );
 assert(
   /await import\(\s*"\.\.\/dev\/GrassDevelopmentController"\s*\)/.test(island) &&
@@ -128,8 +183,9 @@ assert(
     island.includes("disposeObjectMaterials") &&
     island.includes("disposeMaterialResources") &&
     island.includes("value instanceof THREE.Texture") &&
-    island.includes("texture.dispose()"),
-  "Island QA code must stay lazy and loaded assets must release geometry, materials, and textures.",
+    island.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
+    island.includes("disposeResources([...ownedMaterials, ...textures])"),
+  "Island QA code must stay lazy and loaded assets must release geometry, materials, and textures through complete resource disposal.",
 );
 assert(
   islandGrass.includes("private disposed = false") &&
@@ -173,14 +229,31 @@ assert(
   "Grass interaction state must reject invalid configuration and runtime input.",
 );
 assert(
-  trailField.includes("validateConfig(next)") &&
+  trailField.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
+    trailField.includes("validateConfig(next)") &&
     trailField.includes("areFinite(") &&
     trailField.includes("Number.isFinite(deltaSeconds)") &&
     trailField.includes("renderer.setRenderTarget(previousRenderTarget)") &&
     trailField.includes("this.resetPendingFrame()") &&
     trailField.includes("const pendingTargets: THREE.WebGLRenderTarget[] = []") &&
-    trailField.includes("for (const target of pendingTargets)"),
-  "Grass trail feedback must reject invalid inputs, restore renderer state, and release partially allocated render targets after failures.",
+    trailField.includes("let pendingGeometry: THREE.PlaneGeometry | undefined") &&
+    trailField.includes("Pending grass trail target cleanup failed.") &&
+    trailField.includes("Grass trail attach cleanup failed.") &&
+    /private releaseTargets\(\): void \{[\s\S]*?const quad = this\.quad;[\s\S]*?this\.quad = undefined;[\s\S]*?this\.material = undefined;[\s\S]*?this\.targets = undefined;[\s\S]*?disposeResources\(\[/.test(
+      trailField,
+    ) &&
+    /new WorldRuntimeGuard\([\s\S]*?\(enabled\) => \{[\s\S]*?this\.rendererEnabled = enabled;[\s\S]*?if \(enabled && !useFlyControls\) \{[\s\S]*?this\.disposeSafely\("Grass trail context restore"[\s\S]*?grassTrailField\.configure\(\{\}\)/.test(
+      world,
+    ),
+  "Grass trail feedback must reject invalid inputs, restore renderer state, roll back partial attachment, clear singleton ownership before complete resource disposal, and rebuild neutral feedback targets after WebGL restoration.",
+);
+const windOwnershipClear = windNoise.indexOf("sharedTexture = undefined;");
+const windDispose = windNoise.indexOf("texture?.dispose();", windOwnershipClear);
+assert(
+  windNoise.includes("const texture = sharedTexture;") &&
+    windOwnershipClear >= 0 &&
+    windDispose > windOwnershipClear,
+  "Shared grass wind ownership must clear before texture disposal so cleanup failure cannot poison recreation.",
 );
 assert(
   qualityGovernor.includes("Number.isFinite(deltaSeconds)") &&

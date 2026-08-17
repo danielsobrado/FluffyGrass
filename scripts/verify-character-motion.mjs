@@ -6,7 +6,10 @@ const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
 function read(relativePath) {
-  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
 }
 
 function fail(message) {
@@ -123,6 +126,50 @@ assert(
   "The reused animation pose must have its one-frame jump and landing impulses cleared before it is handed to a character reset.",
 );
 assert(
+  character.includes("if (this.profile.locomotion.isRolling())") &&
+    character.includes("this.profile.facts.rollStarted = false") &&
+    character.includes("else if (pose.rollStarted)") &&
+    !controller.includes("this.characterPose.rollStarted = this.character.isRolling()"),
+  "Roll start must remain an edge trigger and must not be republished for every frame of an active roll.",
+);
+assert(
+  controller.includes("private readonly rollDirection = new THREE.Vector3") &&
+    controller.includes("let rolling = this.character.isRolling()") &&
+    controller.includes("this.rollDirection.copy(this.movement)") &&
+    controller.includes("this.desiredVelocity") &&
+    controller.includes(".copy(this.rollDirection)") &&
+    controller.includes("this.config.characterRollInitialSpeedMultiplier") &&
+    controller.includes("this.config.characterRollSustainSpeedMultiplier") &&
+    controller.includes("rolling || hasMovement"),
+  "A dodge roll must lock its launch direction and sustain configured velocity independently of later movement input.",
+);
+assert(
+  input.includes("try {") &&
+    input.includes("this.bindEvents()") &&
+    input.includes("this.createMobileControls()") &&
+    /catch \(error\) \{[\s\S]*?this\.dispose\(\);[\s\S]*?throw error;/.test(input) &&
+    controller.includes("const character = new SnowflowCharacter(") &&
+    controller.includes("let input: ThirdPersonInput;") &&
+    /catch \(error\) \{[\s\S]*?character\.dispose\(\);[\s\S]*?grassInteractionField\.deactivate\(\);[\s\S]*?throw error;/.test(
+      controller,
+    ) &&
+    controller.includes('disposeControllerResource("Third-person input"') &&
+    controller.includes('disposeControllerResource("Third-person character"'),
+  "Third-person input and controller construction must roll back listeners, mobile controls, and character resources after partial setup failures.",
+);
+assert(
+  character.includes("private disposed = false") &&
+    character.includes("const resources = createSnowflowCharacterResources(") &&
+    character.includes("disposeSnowflowRig(this.rig)") &&
+    /function createSnowflowCharacterResources\([\s\S]*?const rig = buildSnowflowCharacter\(scene, scale\);[\s\S]*?catch \(error\) \{[\s\S]*?cloth\?\.dispose\(\)[\s\S]*?disposeSnowflowRig\(rig\);[\s\S]*?throw error;/.test(
+      character,
+    ) &&
+    /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\("animation runtime"[\s\S]*?disposeSnowflowRig\(this\.rig\)/.test(
+      character,
+    ),
+  "Snowflow construction and teardown must transactionally own the published rig and remain idempotent after isolated cleanup faults.",
+);
+assert(
   input.includes('from "./MobileJoystick"') &&
     input.includes("new MobileJoystick") &&
     input.includes("this.profile.compact") &&
@@ -147,7 +194,7 @@ verifyBounds(flutterStrength, boundsPadding, minimumBend, maximumBend, maximumSi
 verifySpringRecovery();
 
 console.log(
-  "[character-motion] Spring recovery, explicit character reset, analogue mobile input, cape inputs, idle-update guard, shared geometry, and conservative deformation bounds verified.",
+  "[character-motion] Roll edges and sustained direction, controller and Snowflow ownership, spring recovery, explicit reset, analogue mobile input, cape inputs, shared geometry, and deformation bounds verified.",
 );
 
 function verifyBounds(

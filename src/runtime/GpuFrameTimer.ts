@@ -95,12 +95,11 @@ export class GpuFrameTimer {
     }
 
     const query = this.activeQuery;
-    this.activeQuery = undefined;
     try {
       this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);
+      this.activeQuery = undefined;
       this.inFlight.push(query);
     } catch (error) {
-      this.safeDeleteQuery(query);
       this.disableAfterFailure(error);
     }
   }
@@ -195,6 +194,7 @@ export class GpuFrameTimer {
 
   private releaseQueries(): void {
     if (this.activeQuery) {
+      this.safeEndActiveQuery();
       this.safeDeleteQuery(this.activeQuery);
       this.activeQuery = undefined;
     }
@@ -202,6 +202,17 @@ export class GpuFrameTimer {
       this.safeDeleteQuery(query);
     }
     this.inFlight.length = 0;
+  }
+
+  private safeEndActiveQuery(): void {
+    if (!this.gl || !this.extension) {
+      return;
+    }
+    try {
+      this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);
+    } catch {
+      // Lost or already-reset contexts own the remaining query state.
+    }
   }
 
   private safeDeleteQuery(query: WebGLQuery): void {

@@ -162,7 +162,10 @@ assert(
 );
 assert(
   geometry.includes("new ActorRigInstance(humanoid.definition") &&
-    geometry.includes("rigInstance.getBone") &&
+    // Transactional construction made the local `ActorRigInstance | undefined`,
+    // so the by-index lookup now carries a non-null assertion. Resolution is
+    // still by index off the shared instance, which is what this guards.
+    geometry.includes("rigInstance!.getBone(index)") &&
     !/position\.set\(side \* 0\.215/.test(geometry) &&
     !/pelvis\.position\.y = 0\.9/.test(geometry) &&
     !geometry.includes("getObjectByName"),

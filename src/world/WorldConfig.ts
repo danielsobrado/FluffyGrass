@@ -218,6 +218,8 @@ export interface WorldConfig {
   characterScale: number;
   characterWalkSpeed: number;
   characterRunSpeed: number;
+  characterRollInitialSpeedMultiplier: number;
+  characterRollSustainSpeedMultiplier: number;
   characterAcceleration: number;
   characterDeceleration: number;
   characterTurnRate: number;

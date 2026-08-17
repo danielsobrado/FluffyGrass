@@ -1,6 +1,7 @@
 import * as THREE from "three";
+import { CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE } from "./SpawnTuning";
+import { StoneClearanceCache } from "./stones/StoneClearanceCache";
 import { StoneField } from "./stones/StoneField";
-import { sampleStoneGrassClearance } from "./stones/StoneClearance";
 import type { WorldConfig } from "./WorldConfig";
 import type { TerrainField } from "./TerrainField";
 
@@ -9,7 +10,6 @@ const COARSE_STEP_MULTIPLIER = 4;
 const REFINE_CANDIDATE_COUNT = 8;
 const CLEAR_SPAWN_SEARCH_RADIUS_STEPS = 2;
 const CLEAR_SPAWN_STEP_SCALE = 0.5;
-const CHARACTER_CLEARANCE_RADIUS_SCALE = 0.5;
 const AREA_SAMPLE_OFFSETS = [
   [0, 0],
   [1, 0],
@@ -33,15 +33,18 @@ interface SpawnCandidate {
 
 export class DenseSpawnLocator {
   private readonly normal = new THREE.Vector3();
-  private readonly stones?: StoneField;
+  private readonly stoneClearance?: StoneClearanceCache;
 
   constructor(
     private readonly field: TerrainField,
     private readonly config: WorldConfig,
     stones?: StoneField,
   ) {
-    this.stones =
-      stones ?? (config.stonesEnabled >= 1 ? new StoneField(field, config) : undefined);
+    const stoneField =
+      config.stonesEnabled >= 1 ? stones ?? new StoneField(field, config) : undefined;
+    this.stoneClearance = stoneField
+      ? new StoneClearanceCache(stoneField, config)
+      : undefined;
   }
 
   find(): DenseWorldSpawn {
@@ -173,7 +176,7 @@ export class DenseSpawnLocator {
     searchRadius: number,
   ): SpawnCandidate | undefined {
     const clearanceRadius =
-      this.config.characterScale * CHARACTER_CLEARANCE_RADIUS_SCALE;
+      this.config.characterScale * CHARACTER_SPAWN_CLEARANCE_RADIUS_SCALE;
     const step = this.config.spawnSearchStep * CLEAR_SPAWN_STEP_SCALE;
     let best: SpawnCandidate | undefined;
 
@@ -204,14 +207,12 @@ export class DenseSpawnLocator {
           height,
           clearanceRadius,
         );
-        const stoneClearance = this.stones
-          ? sampleStoneGrassClearance(
-              candidateX,
-              candidateZ,
-              clearanceRadius,
-              this.stones,
-            )
-          : 1;
+        const stoneClearance =
+          this.stoneClearance?.sample(
+            candidateX,
+            candidateZ,
+            clearanceRadius,
+          ) ?? 1;
         const clearance = Math.min(pathClearance, stoneClearance);
         if (clearance <= 0.5) {
           continue;

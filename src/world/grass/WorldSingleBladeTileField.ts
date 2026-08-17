@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { GrassNearMaterial } from "../../grass/materials/GrassNearMaterial";
+import { resolveNearGrassTileRadius } from "./NearGrassStreamingLimits";
 import {
   WorldSingleBladeTileFactory,
   type WorldSingleBladeTile,
@@ -134,6 +135,7 @@ export class WorldSingleBladeTileField {
     private readonly tileSize: number,
     private readonly options: Readonly<WorldSingleBladeTileFieldOptions>,
   ) {
+    resolveNearGrassTileRadius(options.visibilityRadius, tileSize);
     this.visibilityRadius = options.visibilityRadius;
     this.lodNearDistance = options.lodNearDistance;
     this.lodTransitionDistance = options.lodTransitionDistance;
@@ -145,6 +147,7 @@ export class WorldSingleBladeTileField {
     if (radius === this.visibilityRadius) {
       return;
     }
+    resolveNearGrassTileRadius(radius, this.tileSize);
     this.visibilityRadius = radius;
     this.centerTileX = Number.NaN;
     this.centerTileZ = Number.NaN;
@@ -208,7 +211,11 @@ export class WorldSingleBladeTileField {
     focus: THREE.Vector3,
     buildDeadline = Number.POSITIVE_INFINITY,
   ): void {
-    if (!this.enabled) {
+    if (
+      !this.enabled ||
+      !Number.isFinite(focus.x) ||
+      !Number.isFinite(focus.z)
+    ) {
       return;
     }
     const tileX = Math.floor(focus.x / this.tileSize);
@@ -334,9 +341,9 @@ export class WorldSingleBladeTileField {
   }
 
   private reconcile(focus: THREE.Vector3): void {
-    const offset = Math.max(
-      1,
-      Math.ceil(this.visibilityRadius / this.tileSize),
+    const offset = resolveNearGrassTileRadius(
+      this.visibilityRadius,
+      this.tileSize,
     );
     const requests = this.requests;
     requests.length = 0;

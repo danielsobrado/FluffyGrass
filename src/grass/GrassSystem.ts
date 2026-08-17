@@ -1,5 +1,6 @@
 import type { GUI } from "dat.gui";
 import * as THREE from "three";
+import { disposeResources } from "../render/ResourceDisposal";
 import type {
   GrassConfig,
   GrassImpostorConfig,
@@ -231,24 +232,26 @@ export class GrassSystem {
       return;
     }
     this.disposed = true;
-    for (const mesh of this.meshes) {
-      this.dependencies.scene.remove(mesh);
-      this.geometryFactory.disposeInstancedMesh(mesh);
-    }
-    this.meshes.length = 0;
-
-    for (const geometry of this.sourceGeometries) {
-      geometry.dispose();
-    }
-    this.sourceGeometries.length = 0;
-
-    this.nearMaterial.material.dispose();
-    this.midMaterial.material.dispose();
+    const meshes = this.meshes.splice(0);
+    const sourceGeometries = this.sourceGeometries.splice(0);
     this.patchGrid?.clear();
     this.patchGrid = undefined;
     this.lodController = undefined;
     this.worldBounds.makeEmpty();
     this.config = undefined;
+
+    disposeResources([
+      ...meshes.map((mesh) => ({
+        dispose: () =>
+          disposeResources([
+            { dispose: () => this.dependencies.scene.remove(mesh) },
+            { dispose: () => this.geometryFactory.disposeInstancedMesh(mesh) },
+          ]),
+      })),
+      ...sourceGeometries,
+      this.nearMaterial.material,
+      this.midMaterial.material,
+    ]);
   }
 
   private async createGrass(surface: THREE.Mesh): Promise<void> {
@@ -280,10 +283,10 @@ export class GrassSystem {
 
     for (const bucket of buckets.values()) {
       const patch = this.createPatch(bucket, variants, config);
+      this.meshes.push(patch.nearMesh, patch.midMesh);
+      this.dependencies.scene.add(patch.nearMesh, patch.midMesh);
       this.patchGrid.register(patch);
       this.worldBounds.union(patch.bounds);
-      this.dependencies.scene.add(patch.nearMesh, patch.midMesh);
-      this.meshes.push(patch.nearMesh, patch.midMesh);
     }
 
     console.info(
@@ -320,51 +323,59 @@ export class GrassSystem {
       this.hashPatch(bucket.gridX, bucket.gridZ, config.distribution.seed) %
       config.geometry.variantCount;
     const variationValues = this.createVariationValues(bucket.placements);
-    const nearMesh = this.createMesh(
-      `grass-near-${bucket.id}`,
-      variants.near[variantIndex],
-      bucket.placements,
-      variationValues,
-      this.nearMaterial.material,
-    );
-    const midMesh = this.createMesh(
-      `grass-mid-${bucket.id}`,
-      variants.mid[variantIndex],
-      bucket.placements,
-      variationValues,
-      this.midMaterial.material,
-    );
-    midMesh.visible = false;
+    let nearMesh: THREE.InstancedMesh | undefined;
+    let midMesh: THREE.InstancedMesh | undefined;
+    try {
+      nearMesh = this.createMesh(
+        `grass-near-${bucket.id}`,
+        variants.near[variantIndex],
+        bucket.placements,
+        variationValues,
+        this.nearMaterial.material,
+      );
+      midMesh = this.createMesh(
+        `grass-mid-${bucket.id}`,
+        variants.mid[variantIndex],
+        bucket.placements,
+        variationValues,
+        this.midMaterial.material,
+      );
+      midMesh.visible = false;
 
-    const bounds = new THREE.Box3();
-    if (nearMesh.boundingBox) {
-      bounds.copy(nearMesh.boundingBox);
-    }
-    if (midMesh.boundingBox) {
-      bounds.union(midMesh.boundingBox);
-    }
-    bounds.expandByScalar(
-      config.wind.strength +
-        config.wind.flutterStrength +
-        config.geometry.bladeLeanMax,
-    );
-    const boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
+      const bounds = new THREE.Box3();
+      if (nearMesh.boundingBox) {
+        bounds.copy(nearMesh.boundingBox);
+      }
+      if (midMesh.boundingBox) {
+        bounds.union(midMesh.boundingBox);
+      }
+      bounds.expandByScalar(
+        config.wind.strength +
+          config.wind.flutterStrength +
+          config.geometry.bladeLeanMax,
+      );
+      const boundingSphere = bounds.getBoundingSphere(new THREE.Sphere());
 
-    return {
-      id: bucket.id,
-      gridX: bucket.gridX,
-      gridZ: bucket.gridZ,
-      bounds,
-      boundingSphere,
-      nearMesh,
-      midMesh,
-      instanceCount: bucket.placements.length,
-      lod: GrassLodLevel.Near,
-      distance: 0,
-      inFrustum: true,
-      nearCoverage: 1,
-      midDistanceFade: 1,
-    };
+      return {
+        id: bucket.id,
+        gridX: bucket.gridX,
+        gridZ: bucket.gridZ,
+        bounds,
+        boundingSphere,
+        nearMesh,
+        midMesh,
+        instanceCount: bucket.placements.length,
+        lod: GrassLodLevel.Near,
+        distance: 0,
+        inFrustum: true,
+        nearCoverage: 1,
+        midDistanceFade: 1,
+      };
+    } catch (error) {
+      disposeIslandGrassMesh(this.geometryFactory, midMesh);
+      disposeIslandGrassMesh(this.geometryFactory, nearMesh);
+      throw error;
+    }
   }
 
   private createMesh(
@@ -378,24 +389,41 @@ export class GrassSystem {
       sourceGeometry,
       variationValues,
     );
-    const mesh = new THREE.InstancedMesh(
-      geometry,
-      material,
-      placements.length,
-    );
-    mesh.name = name;
-    mesh.receiveShadow = true;
-    mesh.castShadow = false;
-    mesh.frustumCulled = false;
+    let mesh: THREE.InstancedMesh | undefined;
+    try {
+      mesh = new THREE.InstancedMesh(
+        geometry,
+        material,
+        placements.length,
+      );
+      mesh.name = name;
+      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.frustumCulled = false;
 
-    placements.forEach((placement, index) => {
-      mesh.setMatrixAt(index, placement.matrix);
-    });
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingBox();
-    mesh.computeBoundingSphere();
-    return mesh;
+      placements.forEach((placement, index) => {
+        mesh!.setMatrixAt(index, placement.matrix);
+      });
+      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      return mesh;
+    } catch (error) {
+      if (mesh) {
+        disposeIslandGrassMesh(this.geometryFactory, mesh);
+      } else {
+        try {
+          this.geometryFactory.disposeInstancedGeometry(geometry);
+        } catch (cleanupError) {
+          console.warn(
+            "[FluffyGrass] Unpublished grass geometry cleanup failed.",
+            cleanupError,
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   private createVariationValues(placements: GrassPlacement[]): Float32Array {
@@ -424,5 +452,22 @@ export class GrassSystem {
     if (this.disposed) {
       throw new Error("GrassSystem has been disposed.");
     }
+  }
+}
+
+function disposeIslandGrassMesh(
+  geometryFactory: GrassGeometryFactory,
+  mesh: THREE.InstancedMesh | undefined,
+): void {
+  if (!mesh) {
+    return;
+  }
+  try {
+    geometryFactory.disposeInstancedMesh(mesh);
+  } catch (cleanupError) {
+    console.warn(
+      "[FluffyGrass] Unpublished grass mesh cleanup failed.",
+      cleanupError,
+    );
   }
 }
