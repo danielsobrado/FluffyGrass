@@ -23,11 +23,19 @@ import {
   FAUNA_ALERT_RADIUS,
   FAUNA_FAWN_SCALE,
   FAUNA_FLEE_RADIUS,
-  FAUNA_POOL_VARIANTS,
   FAUNA_QUALITY_HYSTERESIS,
   FAUNA_RETIRE_MARGIN,
 } from "./WorldScenicTuning";
-import { WorldVillagerGroup } from "./WorldVillagerGroup";
+import type { WorldFaunaMember } from "./WorldFaunaField";
+import { ScriptedHumanoidActor } from "../../character/npc/ScriptedHumanoidActor";
+import {
+  createVillagerAssets,
+  type VillagerAssets,
+} from "../../character/npc/VillagerAssets";
+import { VillagerRoute, type VillagerSteering } from "../../character/npc/VillagerRoute";
+import {
+  FAUNA_VILLAGER_ROUTE_RADIUS,
+} from "./WorldScenicTuning";
 import { WORLD_SUN_SHADOW_HALF_EXTENT } from "../../app/WorldEnvironmentTuning";
 
 /** One live animal and everything that decides what it does. */
@@ -43,29 +51,6 @@ interface FaunaSlot {
   castsShadow: boolean;
 }
 
-<<<<<<< Updated upstream
-/** One villager and the route it walks. */
-interface VillagerSlot {
-  readonly actor: ScriptedHumanoidActor;
-  readonly route: VillagerRoute;
-  readonly quality: ActorAnimationQuality;
-  readonly steering: VillagerSteering;
-  castsShadow: boolean;
-}
-
-interface DisposableActor {
-  dispose(): void;
-}
-
-interface FaunaResources {
-  readonly assets: DeerAssets;
-  readonly villagerAssets: VillagerAssets;
-  readonly habitat: WorldFaunaHabitat;
-  readonly herds: WorldFaunaField;
-}
-
-=======
->>>>>>> Stashed changes
 /**
  * The deer population, streamed around the player.
  *
@@ -82,9 +67,25 @@ interface FaunaResources {
  * Cost is bounded by animation quality rather than by having fewer animals:
  * behaviour keeps running for everything, animation falls away with distance.
  */
+/** One villager and the route it walks. */
+interface VillagerSlot {
+  readonly actor: ScriptedHumanoidActor;
+  readonly route: VillagerRoute;
+  readonly quality: ActorAnimationQuality;
+  readonly steering: VillagerSteering;
+  castsShadow: boolean;
+}
+
+interface FaunaResources {
+  readonly assets: DeerAssets;
+  readonly villagerAssets: VillagerAssets;
+  readonly habitat: WorldFaunaHabitat;
+}
+
 export class WorldFaunaSystem {
   private readonly assets: DeerAssets;
-  private readonly villagers: WorldVillagerGroup;
+  private readonly villagerAssets: VillagerAssets;
+  private readonly villagers: VillagerSlot[] = [];
   private readonly habitat: WorldFaunaHabitat;
   private readonly roster: WorldFaunaRoster;
   private readonly slots: FaunaSlot[] = [];
@@ -102,19 +103,12 @@ export class WorldFaunaSystem {
     spawn: THREE.Vector3,
     shadows: boolean,
   ) {
-<<<<<<< Updated upstream
     const resources = createFaunaResources(field, config);
     this.assets = resources.assets;
     this.villagerAssets = resources.villagerAssets;
     this.habitat = resources.habitat;
-    this.herds = resources.herds;
-    this.streamRadius = config.faunaStreamRadius;
-=======
-    this.assets = createDeerAssets();
-    this.habitat = new WorldFaunaHabitat(field);
     this.roster = new WorldFaunaRoster(field, config);
     this.roster.refresh(spawn.x, spawn.z, true);
->>>>>>> Stashed changes
     this.walkSpeed = config.faunaDeerWalkSpeed;
     this.behaviorInterval = 1 / config.faunaBehaviorHz;
     this.shadows = shadows;
@@ -130,10 +124,6 @@ export class WorldFaunaSystem {
         field.sampleHeight(x, z);
       const contact = new WorldTerrainContactSampler(field);
 
-<<<<<<< Updated upstream
-      if (count > 0) {
-        this.rebuildRoster(spawn);
-      }
       for (let index = 0; index < count; index += 1) {
         this.slots.push(
           this.createSlot(scene, index, count, spawn, sampleHeight, contact),
@@ -180,19 +170,16 @@ export class WorldFaunaSystem {
     const centerX = spawn.x + Math.cos(angle) * radius;
     const centerZ = spawn.z + Math.sin(angle) * radius;
     const actor = new ScriptedHumanoidActor(
-=======
-    this.villagers = new WorldVillagerGroup(
->>>>>>> Stashed changes
       scene,
-      config,
-      profile,
-      spawn,
-      shadows,
+      1, // scale
+      centerX,
+      centerZ,
+      this.villagerAssets,
+      0, // variant
+      this.shadows,
       sampleHeight,
       contact,
-      () => this.createQuality(),
     );
-<<<<<<< Updated upstream
     try {
       actor.setReferenceSpeed(this.config.faunaVillagerWalkSpeed);
       return {
@@ -222,20 +209,7 @@ export class WorldFaunaSystem {
       return;
     }
     const rosterRebuilt =
-      this.slots.length > 0 ? this.rebuildRoster(focus) : false;
-=======
-  }
-
-  update(deltaSeconds: number, focus: THREE.Vector3): void {
-    if (this.disposed) {
-      return;
-    }
-    this.villagers.update(deltaSeconds, focus);
-    if (this.slots.length === 0) {
-      return;
-    }
-    this.roster.refresh(focus.x, focus.z);
->>>>>>> Stashed changes
+      this.slots.length > 0 ? this.refreshRoster(focus) : false;
 
     for (const slot of this.slots) {
       if (!slot.active) {
@@ -274,6 +248,26 @@ export class WorldFaunaSystem {
       slot.actor.update(slot.quality.takeAccumulatedSeconds(), slot.steering);
     }
 
+    for (const villager of this.villagers) {
+      villager.route.update(
+        deltaSeconds,
+        villager.actor.position.x,
+        villager.actor.position.z,
+        villager.steering,
+      );
+      villager.actor.setReferenceSpeed(villager.steering.desiredSpeed);
+      if (villager.quality.setDistance(villager.actor.position.distanceTo(focus))) {
+        this.applyVillagerQuality(villager);
+      }
+      if (villager.quality.shouldUpdate(deltaSeconds)) {
+        villager.actor.update(villager.quality.takeAccumulatedSeconds(), villager.steering);
+      }
+    }
+  }
+
+  private refreshRoster(focus: THREE.Vector3): boolean {
+    this.roster.refresh(focus.x, focus.z);
+    return true;
   }
 
   dispose(): void {
@@ -285,7 +279,6 @@ export class WorldFaunaSystem {
       disposeActor(slot.actor, "Deer actor");
     }
     this.slots.length = 0;
-<<<<<<< Updated upstream
     for (const villager of this.villagers) {
       disposeActor(villager.actor, "Villager actor");
     }
@@ -293,11 +286,6 @@ export class WorldFaunaSystem {
     // Last: every actor was drawing these buffers a moment ago.
     disposeResource(() => this.assets.dispose(), "Deer assets");
     disposeResource(() => this.villagerAssets.dispose(), "Villager assets");
-=======
-    this.villagers.dispose();
-    // Last: every animal was drawing these buffers a moment ago.
-    this.assets.dispose();
->>>>>>> Stashed changes
   }
 
   private createSlot(
@@ -308,15 +296,10 @@ export class WorldFaunaSystem {
     sampleHeight: (x: number, z: number) => number,
     contact: WorldTerrainContactSampler,
   ): FaunaSlot {
-<<<<<<< Updated upstream
-    const variant = FAUNA_POOL_VARIANTS[index % FAUNA_POOL_VARIANTS.length];
-    const member = this.takeMember(spawn, spawn, variant);
-=======
     // The pool is built from the herds around the player's own spawn, so the
     // first thing anybody sees is a herd rather than an empty meadow filling in.
     const member = this.roster.take(spawn);
     const variant = member?.variant ?? "doe";
->>>>>>> Stashed changes
     setDeerCoatTint(
       this.tint,
       member?.coatValue ?? 0.5,
@@ -388,84 +371,13 @@ export class WorldFaunaSystem {
     });
   }
 
-<<<<<<< Updated upstream
-  /**
-   * Refreshes the pool of places a recycled animal could go.
-   *
-   * Guarded on focus movement the same way trees and litter are: collecting
-   * herds is a terrain-sampling pass, and doing it every frame would pay for a
-   * decision that only changes when the player has actually gone somewhere.
-   */
-  private rebuildRoster(focus: THREE.Vector3): boolean {
-    if (
-      Number.isFinite(this.builtX) &&
-      Math.abs(focus.x - this.builtX) < FAUNA_REBUILD_STEP &&
-      Math.abs(focus.z - this.builtZ) < FAUNA_REBUILD_STEP
-    ) {
-      return false;
-    }
-    this.builtX = focus.x;
-    this.builtZ = focus.z;
-    this.available.length = 0;
-    const occupied = new Set<string>();
-    for (const slot of this.slots) {
-      if (slot.active && slot.memberKey) {
-        occupied.add(slot.memberKey);
-      }
-    }
-    for (const herd of this.herds.collect(focus.x, focus.z, this.streamRadius)) {
-      for (const member of herd.members) {
-        if (!occupied.has(faunaMemberKey(member))) {
-          this.available.push(member);
-        }
-      }
-    }
-    return true;
-  }
-
-  private takeMember(
-    focus: THREE.Vector3,
-    _spawn: THREE.Vector3,
-    variant?: DeerVariant,
-  ): WorldFaunaMember | undefined {
-    // Nearest first, so a limited pool of animals is always spent on the herds
-    // the player can actually see. Taking them in cell order instead scatters
-    // the whole population across the streaming radius and leaves the meadow in
-    // front of the player empty while ten deer stand about beyond the fog.
-    //
-    // Never closer than the minimum, though: an animal fading in at ten metres
-    // is worse than an empty meadow.
-    let bestIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < this.available.length; index += 1) {
-      const member = this.available[index];
-      if (variant !== undefined && member.variant !== variant) {
-        continue;
-      }
-      const distance = Math.hypot(member.x - focus.x, member.z - focus.z);
-      if (distance < FAUNA_SPAWN_MIN_PLAYER_DISTANCE || distance >= bestDistance) {
-        continue;
-      }
-      bestDistance = distance;
-      bestIndex = index;
-    }
-    if (bestIndex < 0) {
-      return undefined;
-    }
-    return this.available.splice(bestIndex, 1)[0];
-  }
-
-  private recycle(slot: FaunaSlot, focus: THREE.Vector3): boolean {
-    const member = this.takeMember(focus, focus, slot.variant);
-=======
   private recycle(slot: FaunaSlot, focus: THREE.Vector3): void {
     const member = this.roster.take(focus);
->>>>>>> Stashed changes
     if (member === undefined) {
       slot.memberKey = undefined;
       slot.active = false;
       slot.actor.object.visible = false;
-      return false;
+      return;
     }
     slot.memberKey = faunaMemberKey(member);
     slot.active = true;
@@ -484,7 +396,6 @@ export class WorldFaunaSystem {
     slot.steering.targetZ = member.z;
     slot.steering.desiredSpeed = 0;
     this.applyQuality(slot);
-    return true;
   }
 
   private applyMemberCoat(slot: FaunaSlot, member: WorldFaunaMember): void {
@@ -534,11 +445,33 @@ export class WorldFaunaSystem {
       mesh.castShadow = casts;
     }
   }
+
+  private applyVillagerQuality(villager: VillagerSlot): void {
+    const level = villager.quality.getLevel();
+    const culled = level === ACTOR_QUALITY_CULLED;
+    villager.actor.object.visible = !culled;
+    villager.actor.setQuality(
+      villager.quality.runsIk(),
+      villager.quality.runsSecondaryMotion(),
+    );
+
+    const casts =
+      this.shadows &&
+      level === ACTOR_QUALITY_FULL &&
+      this.config.faunaFullDistance <= WORLD_SUN_SHADOW_HALF_EXTENT * 2;
+    if (casts === villager.castsShadow) {
+      return;
+    }
+    villager.castsShadow = casts;
+    for (const mesh of villager.actor.meshes) {
+      mesh.castShadow = casts;
+    }
+  }
 }
 
 function createFaunaResources(
   field: TerrainField,
-  config: WorldConfig,
+  _config: WorldConfig,
 ): FaunaResources {
   const assets = createDeerAssets();
   let villagerAssets: VillagerAssets | undefined;
@@ -548,7 +481,6 @@ function createFaunaResources(
       assets,
       villagerAssets,
       habitat: new WorldFaunaHabitat(field),
-      herds: new WorldFaunaField(field, config),
     };
   } catch (error) {
     disposeResource(() => villagerAssets?.dispose(), "Villager assets");
@@ -561,6 +493,10 @@ function faunaMemberKey(member: WorldFaunaMember): string {
   return `${member.seed}:${member.x}:${member.z}`;
 }
 
+interface DisposableActor {
+  dispose(): void;
+}
+
 function disposeActor(actor: DisposableActor, label: string): void {
   disposeResource(() => actor.dispose(), label);
 }
@@ -569,6 +505,6 @@ function disposeResource(dispose: () => void, label: string): void {
   try {
     dispose();
   } catch (error) {
-    console.warn(`[Drusniel World] ${label} cleanup failed.`, error);
+    console.warn(`[World Fauna] ${label} cleanup failed.`, error);
   }
 }

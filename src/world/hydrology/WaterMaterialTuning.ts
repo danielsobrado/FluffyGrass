@@ -8,19 +8,35 @@ export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_BED_NOISE_SEED_SALT = 0x3b1f7a2d;
 export const WATER_CASCADE_CACHE_KEY = "world-water-cascade-v2-sill";
 export const WATER_CASCADE_NOISE_SEED_SALT = 0x51c3ab77;
-/**
- * A falling sheet is brighter than the river it feeds even before it aerates,
- * because it is thin and scattering from every side rather than absorbing over
- * a depth. Whitewater at the base runs close to foam, and the mist above the
- * plunge is lighter still and nearly colourless.
- */
-export const WATER_CASCADE_WATER_COLOR = new THREE.Color("#8fb9c2");
-export const WATER_CASCADE_FOAM_COLOR = new THREE.Color("#e8f2ee");
-export const WATER_CASCADE_MIST_COLOR = new THREE.Color("#f2f6f7");
 export const WATER_SHALLOW_COLOR = new THREE.Color("#55949d");
 export const WATER_DEEP_COLOR = new THREE.Color("#244f63");
 export const WATER_REFLECTION_COLOR = new THREE.Color("#a8cad5");
 export const WATER_FOAM_COLOR = new THREE.Color("#d8e7df");
+
+/**
+ * The curtain's palette is derived from the river's, never declared beside it.
+ *
+ * A waterfall is the same water as the reach that feeds it. It is brighter
+ * because it is thin and full of entrained air, scattering from every side
+ * instead of absorbing over a depth — not because it is a different colour.
+ * Giving it its own turquoise, as this file used to, is most of why the fall and
+ * the river read as two adjacent effects rather than one system: the eye can
+ * find the exact line where one palette stops and the other starts.
+ *
+ * So clear falling water is the shallow river tone carrying more sky, its
+ * whitewater is the river's own foam, and the mist above the plunge is that
+ * foam thinned toward colourless. Cloned because material controllers own their
+ * uniform values and must not be able to mutate the shared basis.
+ */
+export const WATER_CASCADE_WATER_COLOR = WATER_SHALLOW_COLOR.clone().lerp(
+  WATER_REFLECTION_COLOR,
+  0.3,
+);
+export const WATER_CASCADE_FOAM_COLOR = WATER_FOAM_COLOR.clone();
+export const WATER_CASCADE_MIST_COLOR = WATER_FOAM_COLOR.clone().lerp(
+  new THREE.Color("#ffffff"),
+  0.45,
+);
 export const WATER_SPECULAR_COLOR = new THREE.Color("#e4f4f5");
 /**
  * Bed cobbles are permanently submerged, so they carry wet-rock reflectance —
