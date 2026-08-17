@@ -20,6 +20,9 @@
  * height alongside the colour and the caller folds it into the normal it
  * already perturbs.
  */
+const PRIMARY_JOINT_UV_FREQUENCY = 1.49;
+const SECONDARY_JOINT_UV_FREQUENCY = 6.49;
+
 export const TERRAIN_ROCK_FUNCTIONS = `
 uniform vec3 uTerrainRockBase;
 uniform vec3 uTerrainRockWarm;
@@ -32,11 +35,11 @@ vec2 terrainResolveBed(float height, float warp) {
 }
 
 /**
- * Joints in two scales. One spacing reads as a ruled pattern, but generic
- * high-frequency crack noise is worse because it turns a cliff into gravel.
+ * Joints in two scales. wallUv is already world-scaled by the terrain shader,
+ * so these frequencies are in that UV space rather than raw world frequency.
  */
-float terrainResolveJoint(float along, float seed, float spacing, float sharpness) {
-  float ridge = 1.0 - abs(fract(along * spacing + seed * 3.0) * 2.0 - 1.0);
+float terrainResolveJoint(float along, float seed, float frequency, float sharpness) {
+  float ridge = 1.0 - abs(fract(along * frequency + seed * 3.0) * 2.0 - 1.0);
   return pow(clamp(ridge, 0.0, 1.0), sharpness);
 }
 
@@ -59,9 +62,18 @@ vec3 terrainResolveRock(
   float parting =
     smoothstep(0.0, 0.05, bed.y) * (1.0 - smoothstep(0.93, 1.0, bed.y));
 
-  float primaryJoint = terrainResolveJoint(wallUv.x, hashNoise.g, 0.055, 12.0);
-  float secondaryJoint =
-    terrainResolveJoint(wallUv.x, hashNoise.b, 0.24, 7.0) * 0.45;
+  float primaryJoint = terrainResolveJoint(
+    wallUv.x,
+    hashNoise.g,
+    ${PRIMARY_JOINT_UV_FREQUENCY.toFixed(2)},
+    12.0
+  );
+  float secondaryJoint = terrainResolveJoint(
+    wallUv.x,
+    hashNoise.b,
+    ${SECONDARY_JOINT_UV_FREQUENCY.toFixed(2)},
+    7.0
+  ) * 0.45;
   float joint = max(primaryJoint, secondaryJoint);
 
   // Lithology leads; reversing these weights is what produced the marbled wall.
