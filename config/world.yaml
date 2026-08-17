@@ -135,16 +135,16 @@ detailScale: 0.0055
 # Procedural hydrology. River corridors carve the terrain; deterministic basin
 # cells create lowland lakes. Humidity reaches farther than the visible water.
 waterEnabled: 1
-riverWidth: 12
+riverWidth: 21
 riverBankWidth: 4.5
-riverDepth: 1.6
-riverSpacing: 520
+riverDepth: 3
+riverSpacing: 640
 riverMeander: 105
 riverMaxAltitude: 72
 # Channel morphology — reload required while tuning.
 riverWidthVariation: 0.08
 riverBendBankAsymmetry: 0.04
-riverDepthVariation: 0.16
+riverDepthVariation: 0.22
 riverBendChannelShift: 0.20
 waterHumidityRadius: 34
 lakeSpacing: 480
@@ -181,9 +181,17 @@ waterStoneWakeLength: 4.2
 # Riverbed seen through the sheet: cobbles, sand, and algae, displaced along the
 # view ray to their real depth and bent by the wave slope so they swim about.
 waterBedStrength: 0.78
-waterBedScale: 0.38
+waterBedScale: 0.78
 waterBedRefraction: 0.55
 waterAlgaeStrength: 0.55
+
+# Deterministic knickpoints. Small rivers break over ledges often, major rivers
+# rarely; the cascade itself is drawn as its own geometry so it keeps a vertical
+# silhouette no matter what the terrain LOD does with the few metres of ledge.
+waterfallEnabled: 1
+waterfallScale: 1
+waterfallFoamStrength: 1
+waterfallMistStrength: 0.85
 
 # Bare walking ways worn through the grass.
 pathWidth: 3
