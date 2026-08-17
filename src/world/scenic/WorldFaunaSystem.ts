@@ -168,7 +168,7 @@ export class WorldFaunaSystem {
       centerX,
       centerZ,
       this.villagerAssets,
-      0,
+      index,
       this.shadows,
       sampleHeight,
       contact,
