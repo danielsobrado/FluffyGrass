@@ -330,6 +330,44 @@ What it has already established:
   curtain read as foam with no water in it. A clean lip is green-grey and
   translucent; only broken and landing water goes white.
 
+### 0.10 Correction: the gorge is real, and it is vertical
+
+Section 0.9 below concluded from a slope histogram that there was almost no
+steep ground. **That inference was wrong**, and the cross-section says why.
+Carved section at the pose, sampled every metre across the channel:
+
+```
+ -34..-10 m   plateau ~12.0 m
+ -10 -> -7 m   12.06 -> -0.48    12.5 m of drop in 3 m
+  -7 .. +7 m  floor ~ -2.4 m     14 m wide
+  +7 -> +10 m  -1.46 -> 11.43    12.9 m of rise in 3 m
+ +10..+34 m   plateau ~12.2 m
+```
+
+Steepest rise across one metre is **5.65 m** — slope 0.83, comfortably past the
+0.66 at which rock applies in full. The knickpoint there drops 13.27 m and the
+local half width is 6.92 m, so `resolveRiverFallStep` concentrates the whole
+step into the 3.45 m between half width and corridor. That is a genuine slot.
+
+The histogram was not false, it was answering the wrong question. A ±60 m box
+around a gorge some 20 m wide is mostly plateau, and two 3 m walls in a 120 m
+span is 5% of the samples — which is precisely the 4.73% measured. "How much of
+this area is steep" is not "is there a cliff".
+
+So macro geology is **not** the blocking item, and the terrain does not need
+reshaping. Two real problems remain, both narrower and both surgical:
+
+- **Ecology cannot see the wall.** `TerrainLandformField` measures on an 8 m
+  lattice, and its slope at this very spot reads 0.023 while the ground drops
+  12.5 m in 3 m. Grass is therefore planted down a vertical cliff. This is the
+  actual cause of the walls reading as meadow, and it is a slope-signal problem,
+  not a geology one.
+- **The wall is about one sample wide.** At near resolution the terrain samples
+  every 2.67 m, so a 3 m wall spans barely one quad; at mid (5.3 m) and far
+  (10.7 m) it is narrower than a single sample and collapses into a ramp. This
+  is the same reasoning that justified giving the cascade its own geometry, and
+  it applies to the gorge walls at range.
+
 ### 0.9 Measured: there is almost no gorge to shade
 
 The cliff rock from Phase 1 is in the world and compiles, and the walls still
