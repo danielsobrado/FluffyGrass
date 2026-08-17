@@ -1,5 +1,4 @@
 import { GRASS_MAX_BIOMES } from "../grass/biome/GrassBiomeProfile";
-import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
 import { TERRAIN_SURFACE_NOISE_SIZE } from "./terrain/TerrainSurfaceNoiseTexture";
 
 export const TERRAIN_DETAIL_VERTEX = `
@@ -92,7 +91,6 @@ varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
-${TERRAIN_ROCK_FUNCTIONS}
 `;
 
 export const TERRAIN_DETAIL_COLOR = `
@@ -389,9 +387,8 @@ if (terrainCliff > 0.001) {
     terrainWallDdx,
     terrainWallDdy
   );
-  // Bed index drives the hash lookup, and it is piecewise constant, so zero
-  // gradients pin the fetch to the base level instead of letting the step at
-  // every bed boundary choose a mip.
+  // The bed index is piecewise constant, so zero gradients pin the hash fetch
+  // to the base level instead of letting the step at each boundary pick a mip.
   vec2 terrainBed = terrainResolveBed(
     vTerrainWorldPosition.y,
     (terrainBaseNoise.r - 0.5) * 1.4
@@ -420,10 +417,9 @@ float terrainSurfaceNormalMask = max(
 );
 /**
  * Rock relief joins the height the normal pass already differentiates, so beds
- * and joints actually catch the light instead of being dark lines painted on a
- * flat face. It is added outside the micro-detail weighting because that fades
- * with distance and a cliff's structure must not: a gorge wall is read from
- * across the gorge, which is well beyond the micro band.
+ * and joints catch the light instead of being dark lines painted on a flat
+ * face. Added outside the micro weighting because that fades with distance and
+ * a cliff's structure must not: a gorge wall is read from across the gorge.
  */
 float terrainMicroHeight = (
   (terrainMicroNoise.b - 0.5) * 0.7 +
@@ -484,14 +480,16 @@ float terrainHeightDdy = dFdy(terrainMicroHeight);
 vec3 terrainGradient = sign(terrainDeterminant) * (
   terrainHeightDdx * terrainR1 + terrainHeightDdy * terrainR2
 );
+// Micro detail fades with distance; cliff relief does not.
+float terrainReliefWeight = max(terrainMicroWeight, terrainCliff);
 if (
-  terrainMicroWeight > 0.001 &&
+  terrainReliefWeight > 0.001 &&
   terrainSurfaceNormalMask > 0.001 &&
   abs(terrainDeterminant) > 1e-8
 ) {
   normal = normalize(
     abs(terrainDeterminant) * normal -
-      terrainGradient * uTerrainNormalStrength * terrainMicroWeight *
+      terrainGradient * uTerrainNormalStrength * terrainReliefWeight *
         terrainSurfaceNormalMask * 0.12
   );
 }

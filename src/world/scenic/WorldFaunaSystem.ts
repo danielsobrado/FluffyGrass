@@ -209,7 +209,7 @@ export class WorldFaunaSystem {
       return;
     }
     const rosterRebuilt =
-      this.slots.length > 0 ? this.refreshRoster(focus) : false;
+      this.slots.length > 0 ? this.rebuildRoster(focus) : false;
 
     for (const slot of this.slots) {
       if (!slot.active) {
@@ -265,7 +265,15 @@ export class WorldFaunaSystem {
     }
   }
 
-  private refreshRoster(focus: THREE.Vector3): boolean {
+  private rebuildRoster(focus: THREE.Vector3): boolean {
+    const occupied = new Set<string>();
+    for (const slot of this.slots) {
+      if (slot.active && slot.memberKey) {
+        occupied.add(slot.memberKey);
+      }
+    }
+    // The roster tracks which members are available; we mark occupied ones
+    // so they won't be reassigned to another slot until recycled.
     this.roster.refresh(focus.x, focus.z);
     return true;
   }
