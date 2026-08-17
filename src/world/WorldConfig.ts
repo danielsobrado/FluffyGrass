@@ -141,6 +141,12 @@ export interface WorldConfig {
   waterBedScale: number;
   waterBedRefraction: number;
   waterAlgaeStrength: number;
+  /** Deterministic knickpoints along river corridors. 0 disables all falls. */
+  waterfallEnabled: number;
+  /** Multiplies every drop height, so the whole world's relief tunes together. */
+  waterfallScale: number;
+  waterfallFoamStrength: number;
+  waterfallMistStrength: number;
   pathWidth: number;
   pathBranchWidth: number;
   pathSpacing: number;

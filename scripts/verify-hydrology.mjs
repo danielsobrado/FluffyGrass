@@ -669,9 +669,20 @@ try {
 
   const CROSS_FLOW_OFFSET = 0.75;
   const CROSS_FLOW_BASELINE_P95 = 0.3353356786874997;
-  // 5% over the pre-R1 baseline, plus a small allowance for the wet-set change
-  // that local width variation introduces at the same sample grid.
-  const CROSS_FLOW_P95_LIMIT = CROSS_FLOW_BASELINE_P95 * 1.05 + 0.01;
+  /**
+   * Re-baselined when rivers gained a discharge hierarchy. The old limit was
+   * captured when every lane was 12 m wide; lanes now reach 41 m, and this
+   * probe steps a fixed 0.75 m perpendicular to the flow, so its two samples
+   * also separate along the channel and the reading now carries the long-profile
+   * gradient as well as any cross-channel tilt.
+   *
+   * The tilt this guard exists to catch went the right way: taking the surface
+   * from the river's own centreline instead of from each sample's local ground
+   * dropped the measured p95 from 0.400 to 0.364 even as the channels tripled in
+   * width. What remains is the clamp holding the sheet above bars that stand
+   * proud of the centreline surface. 0.385 keeps roughly a 5% guard over that.
+   */
+  const CROSS_FLOW_P95_LIMIT = 0.385;
   const crossFlowSlopes = [];
   const crossHydrology = createHydrologySample();
   const leftHydrology = createHydrologySample();
@@ -702,6 +713,13 @@ try {
         leftHydrology.riverCoverage < 0.35 ||
         rightHydrology.riverCoverage < 0.35
       ) {
+        continue;
+      }
+      // A knickpoint face is a near-vertical water surface on purpose. This
+      // guard exists to catch a sheet ramping bank to bank on an ordinary
+      // reach, so measuring it across a waterfall would only ever report the
+      // waterfall working.
+      if (leftHydrology.riverFallFace > 0.01 || rightHydrology.riverFallFace > 0.01) {
         continue;
       }
       const slope =
@@ -737,8 +755,9 @@ try {
   waterController.material.onBeforeCompile(shader, {});
   assert(
     shader.vertexShader.includes("attribute vec4 waterData") &&
+      shader.vertexShader.includes("attribute vec4 waterContext") &&
       shader.vertexShader.includes("attribute vec2 waterInteraction"),
-    "Water shader must consume hydrology and stone-interaction attributes.",
+    "Water shader must consume hydrology, river/lake context, and stone-interaction attributes.",
   );
   for (const token of [
     "waterFlowDirection",
@@ -755,8 +774,14 @@ try {
     "waterGlint",
     "waterStoneFoam",
     "waterLocalFlowSpeed",
-    "waterRiffleEnergy",
+    "waterResolveRiffleFoam",
     "uWaterShoreFoamWeight",
+    "waterResolveRegime",
+    "waterResolveBankSides",
+    "waterResolveLakeExposure",
+    "waterResolveLakeSlope",
+    "waterResolveRiverPhases",
+    "waterStreakStretch",
   ]) {
     assert(shader.fragmentShader.includes(token), `Water shader is missing ${token}.`);
   }

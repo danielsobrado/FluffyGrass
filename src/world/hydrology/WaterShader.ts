@@ -1,5 +1,15 @@
 import { WATER_FLOW_FRAGMENT_FUNCTIONS } from "./WaterFlowShader";
+import { WATER_FOAM_FRAGMENT_FUNCTIONS } from "./WaterFoamShader";
+import { WATER_REGIME_FRAGMENT_FUNCTIONS } from "./WaterRegimeShader";
+import { WATER_WAVE_FRAGMENT_FUNCTIONS } from "./WaterWaveShader";
 import {
+  WATER_BEND_DARKEN,
+  WATER_BEND_FLOW_GAIN,
+  WATER_BEND_FLOW_LOSS,
+  WATER_BEND_LIGHTEN,
+  WATER_REGIME_INNER_BANK_WEIGHT,
+  WATER_REGIME_MORPHOLOGY_WEIGHT,
+  WATER_REGIME_OUTER_BANK_WEIGHT,
   WATER_RIVER_BANK_FLOW_SCALE,
   WATER_RIVER_POOL_FREQUENCY_SCALE,
   WATER_RIVER_RIFFLE_FREQUENCY_SCALE,
@@ -10,8 +20,10 @@ import {
 
 export const WATER_VERTEX_DECLARATIONS = `
 attribute vec4 waterData;
+attribute vec4 waterContext;
 attribute vec2 waterInteraction;
 varying vec4 vWaterData;
+varying vec4 vWaterContext;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
 varying vec3 vWaterWorldNormal;
@@ -19,6 +31,7 @@ varying vec3 vWaterWorldNormal;
 
 export const WATER_VERTEX_POSITION = `
 vWaterData = waterData;
+vWaterContext = waterContext;
 vWaterInteraction = waterInteraction;
 vWaterWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vWaterWorldNormal = (modelMatrix * vec4(objectNormal, 0.0)).xyz;
@@ -54,10 +67,14 @@ uniform vec3 uWaterAbsorption;
 uniform vec3 uWaterSunDirection;
 uniform float uWaterFresnelF0;
 varying vec4 vWaterData;
+varying vec4 vWaterContext;
 varying vec2 vWaterInteraction;
 varying vec3 vWaterWorldPosition;
 varying vec3 vWaterWorldNormal;
 ${WATER_FLOW_FRAGMENT_FUNCTIONS}
+${WATER_REGIME_FRAGMENT_FUNCTIONS}
+${WATER_WAVE_FRAGMENT_FUNCTIONS}
+${WATER_FOAM_FRAGMENT_FUNCTIONS}
 `;
 
 export const WATER_SURFACE_FRAGMENT = `
@@ -91,12 +108,37 @@ float waterShallowEnergy = 1.0 - smoothstep(0.68, 1.02, waterRiverDepthRatio);
 float waterSurfaceSlopeEnergy = saturate(
   (1.0 - waterGeometricNormal.y) * 6.0
 );
+
+// Everything the hydrology already knew about this vertex, packed once.
+float waterBend = vWaterContext.x;
+float waterLateral = vWaterContext.y;
+float waterMorphology = vWaterContext.z;
+float waterLakeDistance = vWaterContext.w;
+vec2 waterBanks = waterResolveBankSides(waterBend, waterLateral, waterRiverAmount);
+float waterOuterBank = waterBanks.x;
+float waterInnerBank = waterBanks.y;
+float waterLakeAmount = 1.0 - waterRiverAmount;
+float waterOpenLake =
+  waterResolveLakeExposure(waterLakeDistance) * waterLakeAmount;
+float waterLakeShore =
+  waterResolveLakeShoreBand(waterLakeDistance) * waterLakeAmount;
+
+/**
+ * The pool -> run -> riffle -> rapid continuum is river-only. A lake margin
+ * gets just as shallow as a riffle does, and without the coverage gate every
+ * lake edge would start behaving like fast water.
+ */
 float waterEnergy01 = saturate(
   (
     waterShallowEnergy * ${WATER_RIVER_SHALLOW_ENERGY_WEIGHT} +
-    waterSurfaceSlopeEnergy * ${WATER_RIVER_SLOPE_ENERGY_WEIGHT}
-  ) * waterChannelCore
+    waterSurfaceSlopeEnergy * ${WATER_RIVER_SLOPE_ENERGY_WEIGHT} +
+    saturate(-waterMorphology) * ${WATER_REGIME_MORPHOLOGY_WEIGHT}
+  ) * waterChannelCore * waterRiverAmount +
+  waterInnerBank * ${WATER_REGIME_INNER_BANK_WEIGHT} -
+  waterOuterBank * ${WATER_REGIME_OUTER_BANK_WEIGHT}
 );
+vec4 waterRegime = waterResolveRegime(waterEnergy01);
+float waterStreakStretch = waterResolveStreakStretch(waterRegime);
 float waterLocalFlowScale = mix(
   uWaterRiverPoolFlowScale,
   uWaterRiverRiffleFlowScale,
@@ -107,6 +149,10 @@ waterLocalFlowScale *= mix(
   1.0,
   waterChannelCore
 );
+// Outer bank carries the current; the inner bank slackens over its gravel bar.
+waterLocalFlowScale *=
+  1.0 + waterOuterBank * ${WATER_BEND_FLOW_GAIN} -
+  waterInnerBank * ${WATER_BEND_FLOW_LOSS};
 float waterLocalFlowSpeed = uWaterFlowSpeed * waterLocalFlowScale;
 float waterRiverFrequencyScale = mix(
   ${WATER_RIVER_POOL_FREQUENCY_SCALE},
@@ -122,7 +168,8 @@ if (waterDetailWeight > 0.001) {
     waterFlowDirection,
     waterTime,
     uWaterFlowNoiseScale,
-    mix(uWaterFlowSpeed * 0.2, waterLocalFlowSpeed, waterRiverAmount)
+    mix(uWaterFlowSpeed * 0.2, waterLocalFlowSpeed, waterRiverAmount),
+    mix(1.0, waterStreakStretch, waterRiverAmount)
   );
 }
 vec2 waterNoiseOffset = (waterFlowNoise.rg * 2.0 - 1.0) *
@@ -134,58 +181,39 @@ vec2 waterWavePosition = waterPosition +
 
 vec2 waterLakeSlope = vec2(0.0);
 if (waterRiverAmount < 0.98) {
-  vec2 waterLakeDirectionA = normalize(vec2(0.86, 0.51));
-  vec2 waterLakeDirectionB = normalize(vec2(-0.39, 0.92));
-  vec2 waterLakeDirectionC = normalize(vec2(0.21, -0.98));
-  float waterLakePhaseA = dot(waterWavePosition, waterLakeDirectionA) * waterScale * 1.12 + waterTime * 0.46;
-  float waterLakePhaseB = dot(waterWavePosition, waterLakeDirectionB) * waterScale * 1.83 - waterTime * 0.31;
-  float waterLakePhaseC = dot(waterWavePosition, waterLakeDirectionC) * waterScale * 2.71 + waterTime * 0.22;
-  waterLakeSlope =
-    waterLakeDirectionA * cos(waterLakePhaseA) * 0.52 +
-    waterLakeDirectionB * cos(waterLakePhaseB) * 0.31 +
-    waterLakeDirectionC * cos(waterLakePhaseC) * 0.17;
+  waterLakeSlope = waterResolveLakeSlope(
+    waterWavePosition,
+    waterScale,
+    waterTime,
+    saturate(waterOpenLake + waterRiverAmount),
+    waterLakeShore
+  );
 }
 
-float waterRiverPhaseA = 0.0;
-float waterRiverPhaseB = 0.0;
-float waterRiverPhaseC = 0.0;
+vec3 waterRiverPhases = vec3(0.0);
 vec2 waterRiverSlope = vec2(0.0);
 if (waterRiverAmount > 0.02) {
-  waterRiverPhaseA =
-    dot(waterWavePosition, waterFlowPerpendicular) *
-      waterScale * waterRiverFrequencyScale * 2.85 +
-    dot(waterWavePosition, waterFlowDirection) *
-      waterScale * waterRiverFrequencyScale * 0.34 -
-    waterTime * waterLocalFlowSpeed * 2.2;
-  waterRiverPhaseB =
-    dot(waterWavePosition, waterFlowPerpendicular) *
-      waterScale * waterRiverFrequencyScale * 5.1 -
-    dot(waterWavePosition, waterFlowDirection) *
-      waterScale * waterRiverFrequencyScale * 0.18 -
-    waterTime * waterLocalFlowSpeed * 3.65;
-  waterRiverPhaseC =
-    dot(waterWavePosition, waterFlowDirection) *
-      waterScale * waterRiverFrequencyScale * 1.35 +
-    dot(waterWavePosition, waterFlowPerpendicular) *
-      waterScale * waterRiverFrequencyScale * 0.72 -
-    waterTime * waterLocalFlowSpeed * 1.15;
-  waterRiverSlope =
-    waterFlowPerpendicular *
-      (cos(waterRiverPhaseA) * 0.64 + cos(waterRiverPhaseB) * 0.27) +
-    waterFlowDirection * cos(waterRiverPhaseC) * 0.16;
+  waterRiverPhases = waterResolveRiverPhases(
+    waterWavePosition,
+    waterFlowDirection,
+    waterFlowPerpendicular,
+    waterScale,
+    waterRiverFrequencyScale,
+    waterStreakStretch,
+    waterTime,
+    waterLocalFlowSpeed,
+    (waterFlowNoise.g - 0.5) * waterRegime.w * 4.6
+  );
+  waterRiverSlope = waterResolveRiverSlope(
+    waterRiverPhases,
+    waterFlowDirection,
+    waterFlowPerpendicular
+  );
 }
 
-vec2 waterMicroSlope = vec2(0.0);
-if (waterDetailWeight > 0.001) {
-  vec2 waterMicroDirectionA = normalize(vec2(0.94, -0.34));
-  vec2 waterMicroDirectionB = normalize(vec2(-0.62, -0.78));
-  float waterMicroPhaseA = dot(waterWavePosition, waterMicroDirectionA) * waterScale * 7.4 + waterTime * 1.34;
-  float waterMicroPhaseB = dot(waterWavePosition, waterMicroDirectionB) * waterScale * 10.1 - waterTime * 1.08;
-  waterMicroSlope =
-    (waterMicroDirectionA * cos(waterMicroPhaseA) * 0.16 +
-      waterMicroDirectionB * cos(waterMicroPhaseB) * 0.11) *
-    waterDetailWeight;
-}
+vec2 waterMicroSlope = waterDetailWeight > 0.001
+  ? waterResolveMicroSlope(waterWavePosition, waterScale, waterTime, waterDetailWeight)
+  : vec2(0.0);
 
 float waterStoneObstacle = saturate(vWaterInteraction.x);
 float waterStoneWake = saturate(vWaterInteraction.y) * (1.0 - waterStoneObstacle);
@@ -221,6 +249,11 @@ vec3 waterAbsorption = (vec3(1.0) - uWaterAbsorption) / max(0.01, uWaterDepthFad
 vec3 waterTransmittance = exp(-waterAbsorption * waterDepth);
 vec3 waterSurfaceColor = uWaterShallow * waterTransmittance +
   uWaterDeep * (1.0 - waterTransmittance);
+// A bend is asymmetric water: the cut bank runs deep and dark, the point bar
+// on the inside is shallow enough that its gravel lifts the tone.
+waterSurfaceColor *=
+  1.0 - waterOuterBank * ${WATER_BEND_DARKEN} +
+  waterInnerBank * ${WATER_BEND_LIGHTEN};
 
 if (waterRiverAmount > 0.02) {
   float waterFlowSheen = 0.5 + 0.5 * sin(
@@ -240,6 +273,9 @@ float waterFresnel = uWaterFresnelF0 +
   (1.0 - uWaterFresnelF0) * pow(1.0 - waterFacing, 5.0);
 float waterFresnelVisual = saturate(waterFresnel * uWaterFresnelStrength);
 waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterFresnelVisual * 0.42);
+// Open lake water is doing far less to break up the sky than its own margin is,
+// so it holds a more coherent reflection and reads as a larger body of water.
+waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterOpenLake * 0.07);
 vec3 waterSunPlusView = uWaterSunDirection + waterViewDirection;
 vec3 waterHalfVector = length(waterSunPlusView) > 1e-4
   ? normalize(waterSunPlusView)
@@ -256,33 +292,38 @@ waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterGlint * 0.16);
 float waterPoolTint =
   waterRiverAmount *
   waterChannelCore *
+  waterRegime.x *
   smoothstep(1.05, 1.26, waterRiverDepthRatio);
 float waterRiffleTint =
   waterRiverAmount *
   waterChannelCore *
   waterShallowEnergy *
-  waterEnergy01;
+  saturate(waterRegime.z + waterRegime.w);
 waterSurfaceColor *=
   1.0 - waterPoolTint * 0.03 +
   waterRiffleTint * 0.02;
 
-float waterShoreBand =
-  (1.0 - smoothstep(0.16, 0.66, waterCoverageRaw)) *
-  smoothstep(0.025, 0.11, waterCoverageRaw);
-waterShoreBand *= 1.0 - smoothstep(0.28, 0.9, waterDepth);
+float waterShoreBand = waterResolveShoreFoam(
+  waterCoverageRaw,
+  waterDepth,
+  waterRiverAmount,
+  waterLakeAmount,
+  waterEnergy01,
+  waterOuterBank,
+  uWaterLakeWaveStrength
+);
 float waterRiverFoam = 0.0;
-float waterRiffleEnergy =
-  waterRiverAmount *
-  waterChannelCore *
-  waterDetailWeight *
-  waterShallowEnergy *
-  smoothstep(0.50, 0.86, waterEnergy01);
 if (waterRiverAmount > 0.02 && waterDetailWeight > 0.001) {
-  float waterRifflePattern = 0.5 + 0.5 * sin(
-    waterRiverPhaseA * 1.43 + sin(waterRiverPhaseB) * 0.86 +
-    (waterFlowNoise.g - 0.5) * 2.2
+  waterRiverFoam = waterResolveRiffleFoam(
+    waterRiverPhases,
+    waterRegime,
+    waterFlowNoise.g,
+    waterRiverAmount,
+    waterChannelCore,
+    waterDetailWeight,
+    waterShallowEnergy,
+    waterInnerBank
   );
-  waterRiverFoam = smoothstep(0.82, 0.97, waterRifflePattern) * waterRiffleEnergy;
 }
 float waterStoneFoam = waterStoneActivity * (0.62 + waterFlowNoise.b * 0.38);
 float waterFoamAmount = saturate(
@@ -295,6 +336,7 @@ float waterFoamAmount = saturate(
 waterSurfaceColor = mix(waterSurfaceColor, uWaterFoam, waterFoamAmount);
 roughnessFactor = clamp(
   roughnessFactor + waterRiverAmount * waterDetailWeight * 0.035 +
+    waterRegime.w * waterDetailWeight * 0.07 +
     waterStoneActivity * 0.08 + waterFoamAmount * 0.48 - waterGlint * 0.025,
   0.02,
   0.75
@@ -306,10 +348,12 @@ float waterTransmittanceLuma = dot(
   vec3(0.2126, 0.7152, 0.0722)
 );
 // The shallow floor decides how much sheet sits over a gravel bar. At 0.16 a
-// riffle was 89% raw bed and the water itself became invisible; the bed still
-// reads through at 0.26, but as something under water.
+// riffle was 89% raw bed and the water vanished; 0.26 left a 12 m channel that
+// is under a metre deep nearly everywhere reading as wet gravel; 0.42 washed
+// the shallows out to a flat pale sheet. 0.34 keeps the cobbles legible while
+// the water still reads as the surface it is.
 float waterAlpha = uWaterOpacity * waterCoverage *
-  mix(0.26, 0.88, 1.0 - waterTransmittanceLuma);
+  mix(0.34, 0.88, 1.0 - waterTransmittanceLuma);
 waterAlpha = mix(waterAlpha, min(1.0, waterAlpha + 0.22), waterFoamAmount);
 diffuseColor.a *= waterAlpha;
 `;

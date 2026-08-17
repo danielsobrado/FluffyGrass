@@ -14,6 +14,7 @@ import {
   HydrologyField,
   type HydrologySample,
 } from "./hydrology/HydrologyField";
+import type { CascadeSite } from "./hydrology/WaterCascadeSites";
 import type { WorldConfig } from "./WorldConfig";
 
 const COLOR_GRASS = new THREE.Color("#466f3a");
@@ -151,7 +152,9 @@ export class TerrainField {
 
   constructor(private readonly config: WorldConfig) {
     this.worldHalfExtent = config.worldSize * 0.5;
-    this.hydrology = new HydrologyField(config);
+    this.hydrology = new HydrologyField(config, (x, z) =>
+      this.sampleRawHeight(x, z),
+    );
     this.ecology = new WorldEcologyField(config);
     this.landform = new TerrainLandformField(
       (x, z) => this.sampleHeight(x, z),
@@ -190,6 +193,16 @@ export class TerrainField {
   }
 
   sampleHeight(x: number, z: number): number {
+    return this.hydrology.carveHeight(x, z, this.sampleRawHeight(x, z));
+  }
+
+  /**
+   * Terrain before any hydrology carving. Hydrology itself needs this to read
+   * the elevation of a river's centreline, so it must stay free of the carve
+   * that `sampleHeight` applies — otherwise resolving a water level would
+   * recurse back into the field that is asking for it.
+   */
+  sampleRawHeight(x: number, z: number): number {
     const mountainScale = this.config.mountainScale;
     const detailScale = this.config.detailScale;
     const seed = this.config.seed;
@@ -220,7 +233,18 @@ export class TerrainField {
       rolling +
       micro +
       ridges * mountainMask * this.config.mountainHeight;
-    return this.hydrology.carveHeight(x, z, rawHeight);
+    return rawHeight;
+  }
+
+  /** Knickpoints inside an area, for the cascade curtains that render them. */
+  forEachCascade(
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number,
+    visit: (site: CascadeSite) => void,
+  ): void {
+    this.hydrology.forEachCascade(minX, maxX, minZ, maxZ, visit);
   }
 
   sampleHydrology(

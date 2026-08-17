@@ -1,15 +1,19 @@
 import { WATER_BED_FRAGMENT_FUNCTIONS } from "./WaterBedShader";
+import { WATER_REGIME_FRAGMENT_FUNCTIONS } from "./WaterRegimeShader";
 import { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./WaterMaterialTuning";
 
 export const WATER_BED_VERTEX_DECLARATIONS = `
 attribute vec4 waterData;
+attribute vec4 waterContext;
 varying vec4 vWaterBedData;
+varying vec4 vWaterBedContext;
 varying vec3 vWaterBedWorldPosition;
 `;
 
 export const WATER_BED_VERTEX_POSITION = `
 transformed.y -= max(0.0, waterData.y);
 vWaterBedData = waterData;
+vWaterBedContext = waterContext;
 vWaterBedWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 `;
 
@@ -28,7 +32,9 @@ uniform vec3 uWaterPebbleLight;
 uniform vec3 uWaterSand;
 uniform vec3 uWaterAlgae;
 varying vec4 vWaterBedData;
+varying vec4 vWaterBedContext;
 varying vec3 vWaterBedWorldPosition;
+${WATER_REGIME_FRAGMENT_FUNCTIONS}
 ${WATER_BED_FRAGMENT_FUNCTIONS}
 `;
 
@@ -59,14 +65,22 @@ float waterBedWobble = sin(
 float bedDepthRatio =
   waterBedDepth / max(0.1, uWaterRiverReferenceDepth);
 float bedChannelCore = smoothstep(0.40, 0.88, waterBedCoverageRaw);
+// Depth alone put nearly the whole channel in one class, because a 12 m river
+// is shallow almost everywhere. Folding in the meander's own morphology is what
+// makes pools and riffles alternate along the reach instead of by cross-section.
+float bedMorphology = vWaterBedContext.z;
 float bedRiffle =
-  waterBedRiverAmount *
-  bedChannelCore *
-  (1.0 - smoothstep(0.68, 1.02, bedDepthRatio));
+  waterBedRiverAmount * bedChannelCore *
+  saturate(
+    (1.0 - smoothstep(0.68, 1.02, bedDepthRatio)) * 0.68 +
+    saturate(-bedMorphology) * 0.32
+  );
 float bedPool =
-  waterBedRiverAmount *
-  bedChannelCore *
-  smoothstep(1.05, 1.24, bedDepthRatio);
+  waterBedRiverAmount * bedChannelCore *
+  saturate(
+    smoothstep(1.05, 1.24, bedDepthRatio) * 0.68 +
+    saturate(bedMorphology) * 0.32
+  );
 float bedBank =
   waterBedRiverAmount *
   (1.0 - smoothstep(0.42, 0.86, waterBedCoverageRaw));
@@ -76,6 +90,14 @@ vec2 waterBedPosition = vWaterBedWorldPosition.xz +
   waterBedFlowPerpendicular * waterBedWobble * waterBedDepth *
     uWaterBedRefraction * 0.018;
 
+// The same packed hydrology the surface reads, so bed and sheet agree about
+// which part of the river they are on instead of each guessing from depth.
+vec2 waterBedBanks = waterResolveBankSides(
+  vWaterBedContext.x,
+  vWaterBedContext.y,
+  waterBedRiverAmount
+);
+float waterBedStill = (1.0 - waterBedRiverAmount) * bedChannelCore;
 float waterBedRelief = 0.0;
 vec3 waterBedColor = waterSampleRiverBed(
   waterBedPosition,
@@ -86,6 +108,7 @@ vec3 waterBedColor = waterSampleRiverBed(
   bedPool,
   bedBank,
   bedChannelCore,
+  vec3(waterBedBanks, waterBedStill),
   waterBedRelief
 );
 waterBedColor *= 0.96 + waterBedRelief * 0.06;

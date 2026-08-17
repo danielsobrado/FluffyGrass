@@ -92,7 +92,7 @@ try {
     assert(
       world.riverWidthVariation === 0.08 &&
         world.riverBendBankAsymmetry === 0.04 &&
-        world.riverDepthVariation === 0.16 &&
+        world.riverDepthVariation === 0.22 &&
         world.riverBendChannelShift === 0.2 &&
         world.waterRiverPoolFlowScale === 0.8 &&
         world.waterRiverRiffleFlowScale === 1.2 &&
@@ -251,7 +251,9 @@ try {
       () =>
         load(
           worldLoader,
-          worldSource.replace("riverWidth: 12", "riverWidth: 9"),
+          // The narrowest lane is now a fraction of the nominal width, so the
+          // far-LOD floor bites at a much larger configured value than before.
+          worldSource.replace("riverWidth: 21", "riverWidth: 16"),
         ),
       /far-terrain LOD sampling/i,
       "River width must remain visible on the coarsest terrain grid.",
@@ -268,7 +270,7 @@ try {
             "riverBendBankAsymmetry: 0.07",
           ),
         ),
-      /1\.18 safety envelope/,
+      /2\.3 safety envelope/,
       "Combined river width tuning must stay inside the global safety envelope.",
     );
     await expectReject(

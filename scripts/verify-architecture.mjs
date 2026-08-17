@@ -11,14 +11,31 @@ const WORLD_APP_MAX_LINES = 620;
 const TERRAIN_STREAMER_MAX_LINES = 340;
 const HYDROLOGY_FIELD_MAX_LINES = 340;
 const HYDROLOGY_CONFIG_VALIDATOR_MAX_LINES = 120;
-const WATER_CHUNK_GEOMETRY_MAX_LINES = 180;
+// Raised from 180 when the packed hydrology context joined waterData and
+// waterInteraction. Packing per-vertex water attributes is this module's stated
+// job, so a fourth attribute belongs here rather than in a new owner.
+const WATER_CHUNK_GEOMETRY_MAX_LINES = 200;
 const WATER_INTERACTION_MAX_LINES = 120;
 const WATER_FLOW_NOISE_MAX_LINES = 220;
 const WATER_FLOW_SHADER_MAX_LINES = 100;
+const WATER_REGIME_SHADER_MAX_LINES = 120;
+const WATER_WAVE_SHADER_MAX_LINES = 140;
+const WATER_FOAM_SHADER_MAX_LINES = 100;
+const WATERFALL_FIELD_MAX_LINES = 180;
+const WATERFALL_TUNING_MAX_LINES = 80;
+const RIVER_LONG_PROFILE_MAX_LINES = 100;
+const WATER_CASCADE_SITES_MAX_LINES = 100;
+const WATER_CASCADE_GEOMETRY_MAX_LINES = 140;
+const WATER_CASCADE_SHADER_MAX_LINES = 140;
+const WATER_CASCADE_MATERIAL_MAX_LINES = 120;
+const WORLD_CASCADE_SYSTEM_MAX_LINES = 120;
 const WATER_BED_SHADER_MAX_LINES = 100;
 const WATER_BED_TEXTURE_MAX_LINES = 220;
 const WATER_BED_MATERIAL_MAX_LINES = 180;
-const WATER_BED_MATERIAL_SHADER_MAX_LINES = 140;
+// Raised from 140 when the bed started reading the same packed hydrology
+// context as the surface, so both passes agree about which part of the river
+// they are on. The composition itself still lives in WaterBedShader.
+const WATER_BED_MATERIAL_SHADER_MAX_LINES = 160;
 const WATER_MATERIAL_MAX_LINES = 220;
 const WATER_SHADER_MAX_LINES = 360;
 const STONE_GEOMETRY_MAX_LINES = 340;
@@ -68,6 +85,17 @@ const waterChunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
 const waterInteraction = read("src/world/hydrology/WaterInteractionField.ts");
 const waterFlowNoise = read("src/world/hydrology/WaterFlowNoiseTexture.ts");
 const waterFlowShader = read("src/world/hydrology/WaterFlowShader.ts");
+const waterRegimeShader = read("src/world/hydrology/WaterRegimeShader.ts");
+const waterWaveShader = read("src/world/hydrology/WaterWaveShader.ts");
+const waterFoamShader = read("src/world/hydrology/WaterFoamShader.ts");
+const waterfallField = read("src/world/hydrology/WaterfallField.ts");
+const waterfallTuning = read("src/world/hydrology/WaterfallTuning.ts");
+const riverLongProfile = read("src/world/hydrology/RiverLongProfile.ts");
+const cascadeSites = read("src/world/hydrology/WaterCascadeSites.ts");
+const cascadeGeometry = read("src/world/hydrology/WaterCascadeGeometry.ts");
+const cascadeShader = read("src/world/hydrology/WaterCascadeShader.ts");
+const cascadeMaterial = read("src/world/hydrology/WaterCascadeMaterialController.ts");
+const cascadeSystem = read("src/world/hydrology/WorldCascadeSystem.ts");
 const waterBedShader = read("src/world/hydrology/WaterBedShader.ts");
 const waterBedTexture = read("src/world/hydrology/WaterBedTexture.ts");
 const waterBedMaterial = read("src/world/hydrology/WaterBedMaterialController.ts");
@@ -212,6 +240,7 @@ assert(
     waterChunkGeometry.includes("createIndices") &&
     waterChunkGeometry.includes("WATER_VISIBLE_COVERAGE_THRESHOLD") &&
     waterChunkGeometry.includes('"waterData"') &&
+    waterChunkGeometry.includes('"waterContext"') &&
     waterChunkGeometry.includes('"waterInteraction"') &&
     waterChunkGeometry.includes("box.min.y -= maxDepth"),
   "Water chunk geometry must own packed attributes and sparse wet-cell topology.",
@@ -267,6 +296,63 @@ assert(
   "Flow-noise GLSL helpers must stay separate from the physical material controller.",
 );
 assert(
+  lineCount(waterRegimeShader) <= WATER_REGIME_SHADER_MAX_LINES &&
+    lineCount(waterWaveShader) <= WATER_WAVE_SHADER_MAX_LINES &&
+    lineCount(waterFoamShader) <= WATER_FOAM_SHADER_MAX_LINES &&
+    waterRegimeShader.includes("waterResolveRegime") &&
+    waterRegimeShader.includes("waterResolveBankSides") &&
+    waterRegimeShader.includes("waterResolveLakeExposure") &&
+    waterWaveShader.includes("waterResolveLakeSlope") &&
+    waterWaveShader.includes("waterResolveRiverPhases") &&
+    waterWaveShader.includes("waterResolveMicroSlope") &&
+    waterFoamShader.includes("waterResolveShoreFoam") &&
+    waterFoamShader.includes("waterResolveRiffleFoam") &&
+    !waterRegimeShader.includes("THREE.") &&
+    !waterWaveShader.includes("THREE.") &&
+    !waterFoamShader.includes("THREE."),
+  "Water regimes, wave structure, and foam must stay separate GLSL modules outside the surface composition.",
+);
+/**
+ * A waterfall is the one case where separate geometry is justified: the shared
+ * terrain heightfield is 10.67 m per sample at its coarsest, so a ledge carved
+ * into it flattens into a ramp at distance. Placement stays deterministic and
+ * field-side; the curtain that renders it stays independent of chunk LOD.
+ */
+assert(
+  lineCount(waterfallField) <= WATERFALL_FIELD_MAX_LINES &&
+    lineCount(waterfallTuning) <= WATERFALL_TUNING_MAX_LINES &&
+    lineCount(riverLongProfile) <= RIVER_LONG_PROFILE_MAX_LINES &&
+    lineCount(cascadeSites) <= WATER_CASCADE_SITES_MAX_LINES &&
+    lineCount(cascadeGeometry) <= WATER_CASCADE_GEOMETRY_MAX_LINES &&
+    lineCount(cascadeShader) <= WATER_CASCADE_SHADER_MAX_LINES &&
+    lineCount(cascadeMaterial) <= WATER_CASCADE_MATERIAL_MAX_LINES &&
+    lineCount(cascadeSystem) <= WORLD_CASCADE_SYSTEM_MAX_LINES,
+  "Waterfall placement, siting, geometry, shading and lifecycle must stay bounded modules.",
+);
+assert(
+  waterfallField.includes("resolveKnickpoint") &&
+    !waterfallField.includes("THREE.") &&
+    !cascadeSites.includes("THREE.") &&
+    !riverLongProfile.includes("THREE.") &&
+    riverLongProfile.includes("resolveRiverSurface") &&
+    cascadeSites.includes("collectCascadeSites") &&
+    cascadeGeometry.includes("BufferGeometry") &&
+    cascadeGeometry.includes("boundingSphere") &&
+    !cascadeShader.includes("THREE.") &&
+    cascadeMaterial.includes("onBeforeCompile") &&
+    cascadeMaterial.includes("noiseTexture.dispose()") &&
+    cascadeSystem.includes("this.scene.remove") &&
+    cascadeSystem.includes("geometry.dispose()"),
+  "Knickpoint placement must stay free of rendering, and the cascade mesh must own its own disposal.",
+);
+assert(
+  hydrologyField.includes("forEachCascade") &&
+    terrainStreamer.includes("WorldCascadeSystem") &&
+    terrainStreamer.includes("this.cascades?.dispose()") &&
+    !terrainChunk.includes("Cascade"),
+  "Cascades must be streamed beside the chunk ring rather than built into per-chunk terrain.",
+);
+assert(
   lineCount(waterBedTexture) <= WATER_BED_TEXTURE_MAX_LINES &&
     waterBedTexture.includes("periodicWorleyPebble") &&
     waterBedTexture.includes("createWaterBedTexture") &&
@@ -309,6 +395,9 @@ assert(
     waterMaterial.includes("onBeforeCompile") &&
     waterMaterial.includes("depthWrite: false") &&
     waterShader.includes('from "./WaterFlowShader"') &&
+    waterShader.includes('from "./WaterRegimeShader"') &&
+    waterShader.includes('from "./WaterWaveShader"') &&
+    waterShader.includes('from "./WaterFoamShader"') &&
     waterShader.includes("WATER_SURFACE_FRAGMENT") &&
     waterShader.includes("waterSampleAdvectedNoise") &&
     waterShader.includes("waterTransmittance") &&
@@ -317,7 +406,7 @@ assert(
     waterShader.includes("waterLightingNormal") &&
     waterShader.includes("gl_FrontFacing") &&
     !waterShader.includes("waterCaustic") &&
-    !waterMaterial.includes("waterRiverPhaseA"),
+    !waterMaterial.includes("waterRiverPhases"),
   "Physical water lifecycle, flow helpers, and surface GLSL must stay split and free of riverbed compositing.",
 );
 

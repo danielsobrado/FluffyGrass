@@ -21,6 +21,9 @@ const bedShader = read("src/world/hydrology/WaterBedMaterialShader.ts");
 const bedMaterial = read("src/world/hydrology/WaterBedMaterialController.ts");
 const bedFunctions = read("src/world/hydrology/WaterBedShader.ts");
 const tuning = read("src/world/hydrology/WaterMaterialTuning.ts");
+const regimeShader = read("src/world/hydrology/WaterRegimeShader.ts");
+const waveShader = read("src/world/hydrology/WaterWaveShader.ts");
+const foamShader = read("src/world/hydrology/WaterFoamShader.ts");
 const streamer = read("src/world/TerrainStreamer.ts");
 const chunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
 
@@ -97,12 +100,36 @@ assert(
 );
 assert(
   waterShader.includes("waterLocalFlowSpeed") &&
-    waterShader.includes("waterRiffleEnergy") &&
+    waterShader.includes("waterResolveRiffleFoam") &&
     waterShader.includes("uWaterShoreFoamWeight") &&
     waterShader.includes("waterPoolTint") &&
     waterMaterial.includes("uWaterRiverReferenceDepth") &&
     waterMaterial.includes("forceSinglePass = true"),
   "Local river energy, foam hierarchy, and restrained tint must stay on the existing surface pass.",
+);
+/**
+ * Calm, flowing and turbulent water are weights inside one material, never
+ * separate materials. Separate lake/river/rapid materials are exactly where
+ * layered water setups grow seams, and our hydrology already carries enough
+ * context to avoid needing them.
+ */
+assert(
+  waterShader.includes("waterResolveRegime") &&
+    waterShader.includes("waterResolveBankSides") &&
+    waterShader.includes("waterResolveLakeExposure") &&
+    waterShader.includes("waterStreakStretch") &&
+    !waterShader.includes("if (waterRegime") &&
+    !waterMaterial.includes("lakeMaterial") &&
+    !waterMaterial.includes("rapidMaterial") &&
+    !waterMaterial.includes("new THREE.MeshPhysicalMaterial(\n      {"),
+  "Pool/run/riffle/rapid, bank asymmetry and lake zones must be blended weights on one material.",
+);
+assert(
+  regimeShader.includes("waterResolveRegime") &&
+    waveShader.includes("stretch") &&
+    foamShader.includes("shoreEnergy") &&
+    foamShader.includes("cutoff"),
+  "Regime weights, anisotropic streak stretch, and energy-weighted foam must own their own modules.",
 );
 assert(
   tuning.includes("WATER_MATERIAL_CACHE_KEY") &&

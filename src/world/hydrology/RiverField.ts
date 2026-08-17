@@ -13,6 +13,10 @@ import {
   RIVER_MORPH_PRIMARY_WEIGHT,
   RIVER_MORPH_SECONDARY_WEIGHT,
   RIVER_SECONDARY_AMPLITUDE,
+  resolveRiverDischarge,
+  resolveRiverDischargeBankScale,
+  resolveRiverDischargeDepthScale,
+  resolveRiverDischargeWidthScale,
   RIVER_SHELF_DEPTH_SHARE,
   RIVER_SHELF_START,
 } from "./RiverTuning";
@@ -37,6 +41,14 @@ export interface RiverSample {
   localHalfWidth: number;
   bedDepth: number;
   incisionDepth: number;
+  /** How much water this corridor carries, 0 for a stream and 1 for a major river. */
+  discharge: number;
+  /** World z of the winning lane's centreline at this x. */
+  centerZ: number;
+  /** Identity of the winning lane, so knickpoints can key on the corridor. */
+  laneIndex: number;
+  /** Which way downstream runs along x, before the sheet gradient settles it. */
+  flowSign: number;
 }
 
 export function createRiverSample(): RiverSample {
@@ -52,7 +64,22 @@ export function createRiverSample(): RiverSample {
     localHalfWidth: 0,
     bedDepth: 0,
     incisionDepth: 0,
+    discharge: 0,
+    centerZ: 0,
+    laneIndex: 0,
+    flowSign: 1,
   };
+}
+
+export interface RiverLaneCenter {
+  centerZ: number;
+  halfWidth: number;
+  discharge: number;
+  flowSign: number;
+}
+
+export function createRiverLaneCenter(): RiverLaneCenter {
+  return { centerZ: 0, halfWidth: 0, discharge: 0, flowSign: 1 };
 }
 
 export function resolveHydrologyRiverMinimumSeparation(
@@ -113,11 +140,20 @@ interface RiverLaneShape {
   amplitude: number;
   baseHalfWidth: number;
   flowSign: number;
+  /**
+   * Resolved once per lane so a corridor keeps one identity for its whole
+   * length. Sampling size per segment would give a river that swells and
+   * shrinks as you walk along it.
+   */
+  discharge: number;
+  baseDepth: number;
+  bankWidth: number;
 }
 
 /** One lane evaluated at the sampled x, keeping the phases the winner needs. */
 interface RiverLane {
   shape: RiverLaneShape;
+  centerZ: number;
   signedDistance: number;
   distance: number;
   primaryPhase: number;
@@ -139,12 +175,16 @@ function createLaneShape(): RiverLaneShape {
     amplitude: 0,
     baseHalfWidth: 0,
     flowSign: 1,
+    discharge: 0,
+    baseDepth: 0,
+    bankWidth: 0,
   };
 }
 
 function createLane(): RiverLane {
   return {
     shape: createLaneShape(),
+    centerZ: 0,
     signedDistance: 0,
     distance: 0,
     primaryPhase: 0,
@@ -190,6 +230,35 @@ export class RiverField {
     return target;
   }
 
+  /**
+   * Lane indices whose corridor can reach a z band, meanders included. Callers
+   * that place things along a river — cascade curtains, crossings — need the
+   * candidate corridors without sampling the whole area.
+   */
+  forEachLaneNear(minZ: number, maxZ: number, visit: (index: number) => void): void {
+    const reach =
+      this.config.riverMeander * RIVER_MAX_MEANDER_SCALE * (1 + RIVER_SECONDARY_AMPLITUDE) +
+      this.config.riverSpacing * RIVER_LATERAL_OFFSET * 0.5;
+    const first = Math.floor((minZ - reach) / this.config.riverSpacing);
+    const last = Math.ceil((maxZ + reach) / this.config.riverSpacing);
+    for (let index = first; index <= last; index += 1) visit(index);
+  }
+
+  /** Where one lane's centreline sits at an x, and how wide it runs there. */
+  resolveLaneCenter(index: number, x: number, target: RiverLaneCenter): RiverLaneCenter {
+    const shape = this.resolveLaneShape(index);
+    const primarySin = Math.sin(x * this.primaryFrequency + shape.phasePrimary);
+    const secondarySin = Math.sin(x * this.secondaryFrequency + shape.phaseSecondary);
+    target.centerZ =
+      shape.laneOffset +
+      primarySin * shape.amplitude +
+      secondarySin * shape.amplitude * RIVER_SECONDARY_AMPLITUDE;
+    target.halfWidth = shape.baseHalfWidth;
+    target.discharge = shape.discharge;
+    target.flowSign = shape.flowSign;
+    return target;
+  }
+
   private sampleLane(
     index: number,
     x: number,
@@ -208,6 +277,7 @@ export class RiverField {
     const signedDistance = z - centerZ;
 
     target.shape = shape;
+    target.centerZ = centerZ;
     target.signedDistance = signedDistance;
     target.distance = Math.abs(signedDistance);
     target.primaryPhase = primaryPhase;
@@ -284,7 +354,7 @@ export class RiverField {
         smoothstep(
           lane.distance,
           localHalfWidth,
-          localHalfWidth + this.config.riverBankWidth,
+          localHalfWidth + lane.shape.bankWidth,
         )) *
       altitudeMask;
     target.proximity =
@@ -316,9 +386,9 @@ export class RiverField {
     const section = clamp((shelf + channel) * edgeMask, 0, 1);
     const depthScale = 1 + this.config.riverDepthVariation * morphology;
     const bedDepth =
-      this.config.riverDepth * section * depthScale * altitudeMask;
+      lane.shape.baseDepth * section * depthScale * altitudeMask;
     const shoulderIncision =
-      this.config.riverDepth *
+      lane.shape.baseDepth *
       RIVER_BANK_INCISION_SCALE *
       target.bank *
       (1 - target.coverage);
@@ -333,6 +403,10 @@ export class RiverField {
     target.localHalfWidth = localHalfWidth;
     target.bedDepth = bedDepth;
     target.incisionDepth = bedDepth + shoulderIncision;
+    target.discharge = lane.shape.discharge;
+    target.centerZ = lane.centerZ;
+    target.laneIndex = lane.shape.index;
+    target.flowSign = flowSign;
   }
 
   private resolveLaneShape(index: number): RiverLaneShape {
@@ -349,15 +423,25 @@ export class RiverField {
       RIVER_BASE_MAX_WIDTH_SCALE,
       hash(index, seed + 1361),
     );
+    const discharge = resolveRiverDischarge(hash(index, seed + 1381));
 
     shape.index = index;
+    shape.discharge = discharge;
+    shape.baseDepth =
+      this.config.riverDepth * resolveRiverDischargeDepthScale(discharge);
+    shape.bankWidth =
+      this.config.riverBankWidth * resolveRiverDischargeBankScale(discharge);
     shape.laneOffset = index * this.config.riverSpacing + lateralOffset;
     shape.phasePrimary = hash(index, seed + 1301) * TWO_PI;
     shape.phaseSecondary = hash(index, seed + 1307) * TWO_PI;
     shape.amplitude =
       this.config.riverMeander *
       lerp(0.72, RIVER_MAX_MEANDER_SCALE, hash(index, seed + 1319));
-    shape.baseHalfWidth = this.config.riverWidth * baseWidthScale * 0.5;
+    shape.baseHalfWidth =
+      this.config.riverWidth *
+      baseWidthScale *
+      resolveRiverDischargeWidthScale(discharge) *
+      0.5;
     shape.flowSign = hash(index, seed + 1373) < 0.5 ? -1 : 1;
     return shape;
   }

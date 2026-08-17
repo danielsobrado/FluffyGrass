@@ -52,6 +52,9 @@ const interaction = read("src/world/hydrology/WaterInteractionField.ts");
 const resolver = read("src/world/hydrology/WaterChunkInteractionResolver.ts");
 const streamer = read("src/world/TerrainStreamer.ts");
 const chunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
+const regimeShader = read("src/world/hydrology/WaterRegimeShader.ts");
+const waveShader = read("src/world/hydrology/WaterWaveShader.ts");
+const foamShader = read("src/world/hydrology/WaterFoamShader.ts");
 
 const sampleLane = extractFunction(riverField, "sampleLane");
 const resolveSelected = extractFunction(riverField, "resolveSelectedLane");
@@ -95,20 +98,41 @@ assert(
   chunkGeometry.includes("new THREE.BufferAttribute(this.interactions, 2)"),
   "waterInteraction must remain two floats.",
 );
+/**
+ * Morphology, bend, lateral position, and lake position used to be barred from
+ * the GPU entirely. They now reach it, but only through one packed vertex
+ * attribute the hydrology had already computed — never through a second field,
+ * a second sampler, or a second material. That is what this contract protects.
+ */
 assert(
-  !waterShader.includes("riverMorphology") &&
-    !waterShader.includes("riverBend") &&
-    !waterShader.includes("riverLateral") &&
-    !chunkGeometry.includes("riverMorphology") &&
-    !chunkGeometry.includes("riverBend") &&
-    !chunkGeometry.includes("riverLateral"),
-  "Morphology, bend, and lateral must stay CPU-only in this pass.",
+  chunkGeometry.includes('"waterContext"') &&
+    chunkGeometry.includes("new THREE.BufferAttribute(this.context, 4)") &&
+    chunkGeometry.includes("hydrology.riverBend") &&
+    chunkGeometry.includes("hydrology.riverLateral") &&
+    chunkGeometry.includes("hydrology.riverMorphology") &&
+    chunkGeometry.includes("hydrology.lakeNormalizedDistance"),
+  "River and lake context must reach the surface as one packed four-float attribute.",
+);
+assert(
+  waterShader.includes("attribute vec4 waterContext") &&
+    waterShader.includes("varying vec4 vWaterContext") &&
+    !waterShader.includes("attribute vec4 waterBend") &&
+    !waterShader.includes("attribute vec4 waterMorphology"),
+  "The surface must read that context from a single varying rather than growing new attributes.",
 );
 assert(
   hydrologyField.includes("riverMorphology") &&
     hydrologyField.includes("riverBend") &&
-    hydrologyField.includes("riverLateral"),
-  "CPU hydrology samples must expose morphology semantics for QA.",
+    hydrologyField.includes("riverLateral") &&
+    hydrologyField.includes("lakeNormalizedDistance"),
+  "CPU hydrology samples must expose morphology and lake-position semantics for QA.",
+);
+assert(
+  regimeShader.includes("waterResolveRegime") &&
+    !regimeShader.includes("texture2D") &&
+    !waveShader.includes("texture2D") &&
+    !foamShader.includes("texture2D"),
+  "Regime, wave, and foam helpers must stay arithmetic; no regime may add a texture fetch.",
 );
 
 const surfaceSamplerCount = countMatches(

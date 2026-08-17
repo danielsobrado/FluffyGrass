@@ -9,6 +9,7 @@ import { TerrainMaterialController } from "./TerrainMaterialController";
 import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfaceField } from "./terrain/TerrainSurfaceField";
 import { WorldHorizonShell } from "./horizon/WorldHorizonShell";
+import { WorldCascadeSystem } from "./hydrology/WorldCascadeSystem";
 
 interface ChunkRequest {
   key: string;
@@ -46,6 +47,7 @@ export class TerrainStreamer {
    * the focus, and the shell guarantees something is present everywhere else.
    */
   private readonly horizon?: WorldHorizonShell;
+  private readonly cascades?: WorldCascadeSystem;
   private centerChunkX = Number.NaN;
   private centerChunkZ = Number.NaN;
   private activeBuild?: TerrainChunkBuilder;
@@ -73,6 +75,17 @@ export class TerrainStreamer {
     this.horizon = config.horizonEnabled >= 1
       ? new WorldHorizonShell(scene, field, config, compact)
       : undefined;
+    this.cascades =
+      config.waterEnabled >= 1 && config.waterfallEnabled >= 1
+        ? new WorldCascadeSystem(
+            scene,
+            field,
+            config,
+            (compact ? config.terrainRadiusCompact : config.terrainRadiusDesktop) *
+              config.chunkSize,
+            compact,
+          )
+        : undefined;
   }
 
   update(
@@ -98,6 +111,7 @@ export class TerrainStreamer {
     // nothing underneath it, so ground the player is standing on keeps first
     // claim on the frame and the shell fills in from whatever is left.
     this.horizon?.update(position, buildDeadline);
+    this.cascades?.update(position, waterTime);
   }
 
   getDiagnostics(): TerrainDiagnostics {
@@ -130,6 +144,7 @@ export class TerrainStreamer {
     this.waterMaterialController?.dispose();
     this.waterBedMaterialController?.dispose();
     this.horizon?.dispose();
+    this.cascades?.dispose();
   }
 
   setGrassArtDirection(direction: GrassArtDirection): void {

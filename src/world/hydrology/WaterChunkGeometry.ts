@@ -13,6 +13,7 @@ export class WaterChunkGeometryBuilder {
   private readonly positions: Float32Array;
   private readonly normals: Float32Array;
   private readonly data: Float32Array;
+  private readonly context: Float32Array;
   private readonly interactions: Float32Array;
   private readonly stoneClearances: Float32Array;
   private readonly interactionResolver: WaterChunkInteractionResolver;
@@ -26,6 +27,7 @@ export class WaterChunkGeometryBuilder {
     this.positions = new Float32Array(vertexCount * 3);
     this.normals = new Float32Array(vertexCount * 3);
     this.data = new Float32Array(vertexCount * 4);
+    this.context = new Float32Array(vertexCount * 4);
     this.interactions = new Float32Array(vertexCount * 2);
     this.stoneClearances = new Float32Array(vertexCount);
     this.interactionResolver = new WaterChunkInteractionResolver(
@@ -62,6 +64,13 @@ export class WaterChunkGeometryBuilder {
     );
     this.data[dataOffset + 2] = hydrology.flowX * hydrology.riverCoverage;
     this.data[dataOffset + 3] = hydrology.flowZ * hydrology.riverCoverage;
+    // Hydrology already resolved every one of these; packing them here is what
+    // lets one surface pass tell a bend from a straight and a cove from open
+    // water, without a second material or another field.
+    this.context[dataOffset] = hydrology.riverBend;
+    this.context[dataOffset + 1] = hydrology.riverLateral;
+    this.context[dataOffset + 2] = hydrology.riverMorphology;
+    this.context[dataOffset + 3] = hydrology.lakeNormalizedDistance;
     this.stoneClearances[index] = stoneClearance;
     this.maxCoverage = Math.max(this.maxCoverage, hydrology.waterCoverage);
   }
@@ -84,6 +93,10 @@ export class WaterChunkGeometryBuilder {
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
     geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
     geometry.setAttribute("waterData", new THREE.BufferAttribute(this.data, 4));
+    geometry.setAttribute(
+      "waterContext",
+      new THREE.BufferAttribute(this.context, 4),
+    );
     geometry.setAttribute(
       "waterInteraction",
       new THREE.BufferAttribute(this.interactions, 2),

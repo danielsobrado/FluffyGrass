@@ -104,6 +104,10 @@ export function createWorldVisualPoses(
     acrossChannel("w0-river-inside-bend", locations.riverInsideBend, 7.5, 1.7),
     acrossChannel("w0-river-outside-bend", locations.riverOutsideBend, 7.5, 1.7),
     acrossChannel("w0-river-straight-cross", locations.riverStraight, 8, 1.8),
+    // Looking back upstream at the fall, from the plunge reach it lands in.
+    alongFlow("w0-waterfall", locations.waterfall, false, 22, 6),
+    alongFlow("w0-waterfall-close", locations.waterfall, false, 11, 3.2),
+    grazingAlongFlow("w0-waterfall-wide", locations.waterfall, false, 34, 9),
     look("w13-character-in-front", locations.shore, 5.2, 1.85, 0.95, 0.05),
     look("w13-character-submerged", locations.waistDeep, 4.8, 1.7, 0.8, 0.2),
     topDown("w13-cape-over-bed", locations.kneeDeep, 4.2),

@@ -40,6 +40,8 @@ export interface WorldVisualPoint {
   riverMorphology: number;
   riverBend: number;
   riverLateral: number;
+  riverFallDrop: number;
+  riverFallStep: number;
 }
 
 export interface WorldVisualLocations {
@@ -65,6 +67,7 @@ export interface WorldVisualLocations {
   riverStraight: WorldVisualPoint;
   riverInsideBend: WorldVisualPoint;
   riverOutsideBend: WorldVisualPoint;
+  waterfall: WorldVisualPoint;
 }
 
 const SEARCH_RADIUS = 480;
@@ -127,6 +130,7 @@ export async function findWorldVisualLocations(
     riverStraight: undefined,
     riverInsideBend: undefined,
     riverOutsideBend: undefined,
+    waterfall: undefined,
   };
 
   for (let z = originZ - SEARCH_RADIUS; z <= originZ + SEARCH_RADIUS; z += SEARCH_STEP) {
@@ -154,6 +158,7 @@ export async function findWorldVisualLocations(
       consider(best, "riverStraight", point, riverStraightScore(point));
       consider(best, "riverInsideBend", point, riverInsideBendScore(point));
       consider(best, "riverOutsideBend", point, riverOutsideBendScore(point));
+      consider(best, "waterfall", point, waterfallScore(point));
     }
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
@@ -198,6 +203,7 @@ export async function findWorldVisualLocations(
       best.riverInsideBend?.point ?? best.riverMedium?.point ?? origin,
     riverOutsideBend:
       best.riverOutsideBend?.point ?? best.riverMedium?.point ?? origin,
+    waterfall: best.waterfall?.point ?? best.riverMedium?.point ?? origin,
   };
 }
 
@@ -241,6 +247,8 @@ function samplePoint(
     riverMorphology: hydrology.riverMorphology,
     riverBend: hydrology.riverBend,
     riverLateral: hydrology.riverLateral,
+    riverFallDrop: hydrology.riverFallDrop,
+    riverFallStep: hydrology.riverFallStep,
   };
 }
 
@@ -486,4 +494,16 @@ function riverOutsideBendScore(point: WorldVisualPoint): number {
     return 0;
   }
   return point.riverCoverage * Math.abs(point.riverBend) * (1 - Math.abs(absLateral - 0.6));
+}
+
+/**
+ * Somewhere in the plunge reach below a knickpoint, looking back at it. The
+ * face itself is only a few metres long, so a 16 m search grid steps clean over
+ * it; the settled reach below is tens of metres and always gets sampled.
+ */
+function waterfallScore(point: WorldVisualPoint): number {
+  if (point.riverFallDrop <= 0 || point.riverCoverage < 0.2) return 0;
+  const settled = point.riverFallStep / point.riverFallDrop;
+  if (settled < 0.75) return 0;
+  return point.riverFallDrop * settled;
 }
