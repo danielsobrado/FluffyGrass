@@ -14,7 +14,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v7-rock-relief";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v8-rock-joints";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
