@@ -330,6 +330,46 @@ What it has already established:
   curtain read as foam with no water in it. A clean lip is green-grey and
   translucent; only broken and landing water goes white.
 
+### 0.9 Measured: there is almost no gorge to shade
+
+The cliff rock from Phase 1 is in the world and compiles, and the walls still
+render as grass and soil. Sampling the real field code around the waterfall pose
+(focus 198 / 4 / 585, ±60 m) says why.
+
+**Rendered face slope**, taken at the near-LOD spacing of 2.67 m — which is what
+the shader's own derivatives see:
+
+| face slope | share of samples |
+|---|---|
+| < 0.1 (flat) | **93.57%** |
+| 0.1 – 0.38 | 1.89% |
+| ≥ 0.38 (rock begins) | 4.73% |
+| ≥ 0.66 (rock full) | 2.17% |
+
+Peak is 0.787, so genuinely steep ground exists — but it is a thin band along the
+incision, and it is mostly under water or behind grass. The large "walls" filling
+the frame are below 0.1: they are hillsides, not cliffs. The gorge reads as a
+gorge because the channel is full of water, not because the terrain is steep.
+
+**And ecology cannot see the incision at all.** `TerrainLandformField` samples on
+an 8 m lattice with a ring measurement, so a cut roughly 16 m wide and a few
+metres deep smooths away: `landform.slope` peaks at **0.023** over the same area.
+Nothing in the ecology chain knows a gorge exists, which is why grass is planted
+down what walls there are.
+
+Two consequences worth stating plainly:
+
+- The rock material is not wrong; it has nearly nothing to apply to. Further
+  albedo, joint and relief work will keep paying almost nothing until the
+  terrain has real relief. **Macro geology is now the blocking item, not a
+  Phase 2 nicety.**
+- Lowering the cliff threshold is not the fix. It would paint rock across
+  ordinary rolling meadow everywhere in the world to catch a band near the
+  river.
+
+This is measured, not inferred, and it supersedes the assumption in the opening
+brief that the walls were "steep enough now".
+
 ## Phasing
 
 The review's ordering puts rendering before performance. This plan inverts that
