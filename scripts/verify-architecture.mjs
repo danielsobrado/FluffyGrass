@@ -36,7 +36,8 @@ const WATER_FOAM_SHADER_MAX_LINES = 100;
 const WATERFALL_FIELD_MAX_LINES = 180;
 const WATERFALL_TUNING_MAX_LINES = 80;
 const RIVER_LONG_PROFILE_MAX_LINES = 100;
-const WATER_CASCADE_SITES_MAX_LINES = 100;
+const WATER_CASCADE_SITES_MAX_LINES = 115;
+const WATER_CASCADE_SILL_MAX_LINES = 80;
 const WATER_CASCADE_GEOMETRY_MAX_LINES = 140;
 const WATER_CASCADE_SHADER_MAX_LINES = 140;
 const WATER_CASCADE_MATERIAL_MAX_LINES = 120;
@@ -105,6 +106,7 @@ const waterfallTuning = read("src/world/hydrology/WaterfallTuning.ts");
 const riverLongProfile = read("src/world/hydrology/RiverLongProfile.ts");
 const cascadeSites = read("src/world/hydrology/WaterCascadeSites.ts");
 const cascadeGeometry = read("src/world/hydrology/WaterCascadeGeometry.ts");
+const cascadeSill = read("src/world/hydrology/WaterCascadeSill.ts");
 const cascadeShader = read("src/world/hydrology/WaterCascadeShader.ts");
 const cascadeMaterial = read("src/world/hydrology/WaterCascadeMaterialController.ts");
 const cascadeSystem = read("src/world/hydrology/WorldCascadeSystem.ts");
@@ -341,6 +343,7 @@ assert(
     lineCount(riverLongProfile) <= RIVER_LONG_PROFILE_MAX_LINES &&
     lineCount(cascadeSites) <= WATER_CASCADE_SITES_MAX_LINES &&
     lineCount(cascadeGeometry) <= WATER_CASCADE_GEOMETRY_MAX_LINES &&
+    lineCount(cascadeSill) <= WATER_CASCADE_SILL_MAX_LINES &&
     lineCount(cascadeShader) <= WATER_CASCADE_SHADER_MAX_LINES &&
     lineCount(cascadeMaterial) <= WATER_CASCADE_MATERIAL_MAX_LINES &&
     lineCount(cascadeSystem) <= WORLD_CASCADE_SYSTEM_MAX_LINES,
@@ -350,6 +353,8 @@ assert(
   waterfallField.includes("resolveKnickpoint") &&
     !waterfallField.includes("THREE.") &&
     !cascadeSites.includes("THREE.") &&
+    !cascadeSill.includes("THREE.") &&
+    cascadeSill.includes("sampleCascadeSill") &&
     !riverLongProfile.includes("THREE.") &&
     riverLongProfile.includes("resolveRiverSurface") &&
     cascadeSites.includes("collectCascadeSites") &&

@@ -1,6 +1,10 @@
 import type { WorldConfig } from "../WorldConfig";
 import { createRiverLaneCenter, type RiverField } from "./RiverField";
 import type { WaterfallField } from "./WaterfallField";
+import {
+  CASCADE_SILL_SAMPLES,
+  sampleCascadeSill,
+} from "./WaterCascadeSill";
 import { WATERFALL_CELL_LENGTH } from "./WaterfallTuning";
 
 /** A knickpoint resolved into everything a cascade curtain needs to be built. */
@@ -12,6 +16,8 @@ export interface CascadeSite {
   flowSign: number;
   lipHeight: number;
   discharge: number;
+  /** Rock height across the lip, relative to the centreline. */
+  sill: Float32Array;
 }
 
 export interface CascadeQueryBounds {
@@ -78,6 +84,14 @@ export function collectCascadeSites(
       if (lipHeight > config.riverMaxAltitude) continue;
 
       visit({
+        sill: sampleCascadeSill(
+          sampleRawHeight,
+          knickpoint.lipX,
+          centerZ,
+          laneCenter.halfWidth,
+          laneCenter.flowSign,
+          new Float32Array(CASCADE_SILL_SAMPLES),
+        ),
         x: knickpoint.lipX,
         z: centerZ,
         drop: knickpoint.drop,

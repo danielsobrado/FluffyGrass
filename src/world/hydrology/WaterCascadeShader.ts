@@ -71,10 +71,10 @@ vec4 cascadeCoarse = texture2D(
 
 /**
  * Strands. The sheet leaves the lip whole and pulls apart as it falls, so the
- * fine layer is mixed in only once the fall is under way. Without the coarse
+ * fine layer is mixed in only once the fall is under way; without the coarse
  * layer underneath, every strand is the same width and the curtain stripes.
+ * The tear height is jittered per column, or the sheet parts along a contour.
  */
-// Per column, or the sheet tears along a contour and cards above it.
 float cascadeTear = (cascadeCoarse.a - 0.5) * 0.42;
 float cascadeBreakup = smoothstep(0.04, 0.72, cascadeFall + cascadeTear);
 float cascadeStrand = mix(cascadeCoarse.r, cascadeNoise.g, 0.4 + 0.45 * cascadeBreakup);
@@ -109,19 +109,15 @@ cascadeColor *= 0.96 + cascadeSheet * 0.16 + cascadeCrest * 0.24;
 
 /**
  * The curtain has to lose its own silhouette at both edges and at the base, or
- * the geometry's rectangle shows. Noise on the edge stops that boundary being a
- * straight line down the sides of the fall.
+ * the geometry's rectangle shows. Noise breaks the boundary, and the falloff is
+ * squared and closed before the mesh edge: a linear ramp leaves a skirt of
+ * low-alpha fragments that collectively redraw the rectangle anyway.
  */
-// Squared and closed before the mesh edge: a linear ramp leaves a low-alpha
-// skirt that collectively redraws the mesh rectangle.
 float cascadeEdgeNoise = 0.55 + cascadeCoarse.g * 0.3;
 float cascadeEdge = 1.0 - smoothstep(0.34 * cascadeEdgeNoise, 0.9, abs(cascadeAcross));
 cascadeEdge *= cascadeEdge;
-/**
- * The gaps between strands have to be genuinely see-through. A curtain that is
- * uniformly semi-opaque is a wall; one you can read the gorge through in the
- * gaps, with dense white water between them, is a waterfall.
- */
+// The gaps must be genuinely see-through: a uniformly semi-opaque curtain is a
+// wall, one you can read the gorge through between dense strands is a waterfall.
 float cascadeAlpha = saturate(
   (0.16 + cascadeAeration * 0.95 * uCascadeFoamStrength) *
   cascadeEdge *
@@ -132,7 +128,10 @@ cascadeAlpha *= 1.0 - smoothstep(0.82, 1.0, cascadeFall) * 0.55;
 cascadeAlpha = max(cascadeAlpha, cascadeCrest * 0.2 * cascadeEdge);
 // Dissolve the sill's line, and thin the sheet where the rock stands proud.
 cascadeAlpha *= smoothstep(0.0, 0.03 + cascadeCoarse.r * 0.14, cascadeFall);
-cascadeAlpha *= mix(1.0, 0.42, saturate(vCascadeCrest));
+// Sill height here, in units of the height at which rock stands clear of the
+// sheet: below zero runs heavier, above one is dry rock the fall parts around.
+cascadeAlpha *= saturate(1.0 - vCascadeCrest) * (1.0 - vCascadeCrest * 0.35) *
+  (1.0 + saturate(-vCascadeCrest) * 0.3);
 
 diffuseColor.rgb = cascadeColor;
 diffuseColor.a *= cascadeAlpha;

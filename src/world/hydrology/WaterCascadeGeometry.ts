@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { CascadeSite } from "./WaterCascadeSites";
 import {
+  CASCADE_SILL_DRY_HEIGHT,
+  resolveCascadeSill,
+} from "./WaterCascadeSill";
+import {
   WATERFALL_FACE_LENGTH,
   WATERFALL_PLUNGE_LENGTH,
 } from "./WaterfallTuning";
@@ -27,25 +31,6 @@ const CASCADE_NECK = 0.22;
 const CASCADE_CREST_LIFT = 0.45;
 const CASCADE_SILL_RELIEF = 1.25;
 
-/**
- * The rock sill across the lip. A curtain's top edge is a ruled line in the mesh
- * and no fragment work hides it; water spills over unevenly cut rock instead.
- */
-function resolveSillProfile(lateral: number): number {
-  return (
-    Math.sin(lateral * 2.3 + 0.7) * 0.36 +
-    Math.sin(lateral * 5.1 - 1.4) * 0.17 +
-    Math.sin(lateral * 9.7 + 2.2) * 0.08
-  );
-}
-
-/**
- * Builds one merged curtain mesh for a set of knickpoints.
- *
- * `cascade.xyz` carries (across, fall, drop): position across the lip in
- * [-1,1], progress down the fall in [0,1], and the fall's own height so the
- * shader can scale streak speed and impact foam with it.
- */
 export function createWaterCascadeGeometry(
   sites: readonly CascadeSite[],
 ): THREE.BufferGeometry | undefined {
@@ -82,14 +67,19 @@ export function createWaterCascadeGeometry(
       const halfWidth = site.halfWidth * (1 - CASCADE_NECK * fall);
       for (let across = 0; across < acrossVerts; across += 1) {
         const lateral = (across / CASCADE_ACROSS_SEGMENTS) * 2 - 1;
-        const notch = resolveSillProfile(lateral);
+        // Taken from the rock rather than invented: the sheet leaves lower
+        // where the channel has notched the sill, and dries out entirely where
+        // the rock stands proud, which is what parts a wide fall into chutes.
+        const notch = resolveCascadeSill(site.sill, lateral);
         // Only where the water leaves the rock; below that it is in free fall.
-        const sill = notch * CASCADE_SILL_RELIEF * Math.max(0, 1 - fall * 3.2);
+        const sill =
+          Math.max(-CASCADE_SILL_RELIEF, Math.min(CASCADE_SILL_RELIEF, notch)) *
+          Math.max(0, 1 - fall * 3.2);
         // Water leaving a low notch is already faster, and throws further.
         const travel =
           Math.pow(fall, CASCADE_TRAVEL_EXPONENT) *
           throwDistance *
-          (1 - notch * 0.16);
+          (1 - Math.max(-1, Math.min(1, notch)) * 0.16);
         positions[vertexOffset] =
           site.x + site.flowSign * (travel - crestLift * 1.4);
         positions[vertexOffset + 1] =
@@ -98,7 +88,7 @@ export function createWaterCascadeGeometry(
         cascade[vertexOffset] = lateral;
         cascade[vertexOffset + 1] = fall;
         cascade[vertexOffset + 2] = site.drop;
-        crest[vertexOffset / 3] = notch;
+        crest[vertexOffset / 3] = notch / CASCADE_SILL_DRY_HEIGHT;
         vertexOffset += 3;
       }
     }
