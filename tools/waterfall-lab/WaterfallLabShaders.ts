@@ -127,21 +127,53 @@ void main() {
   float groundDetail = labFbm(groundPoint, 3);
   float grain = mix(groundDetail, wallDetail, cliff);
 
-  // Sedimentary banding. Warped, or the strata read as wallpaper stripes.
+  /**
+   * Bedding, as discrete beds rather than as a sine wash.
+   *
+   * A sine band gives a cliff that undulates like marble; what makes rock read
+   * as rock is that it is built of separate beds, each with its own tone and
+   * hardness, meeting at sharp partings. So the height is quantised, each bed
+   * is given a hashed tone, and a thin recessive line is cut at every boundary.
+   * This is macro structure — the answer to a melted-looking wall is never
+   * another octave of noise, which only makes a smoother kind of mush.
+   */
   float bandWarp = labFbm(vWorldPosition * 0.045, 2) * 3.4;
-  float strata = sin(vWorldPosition.y * 0.72 + bandWarp) * 0.5 + 0.5;
-  strata = mix(0.5, strata, cliff * uRockDetail);
+  // Warped hard along the bed, so the beds undulate, pinch and thicken instead
+  // of running dead level across the whole gorge like courses of masonry.
+  float bedCoord = vWorldPosition.y * 0.135 + bandWarp * 0.42;
+  float bedIndex = floor(bedCoord);
+  float bedFraction = fract(bedCoord);
+  float bedTone = labHash(vec3(bedIndex, 3.1, 7.7));
+  float parting =
+    smoothstep(0.0, 0.05, bedFraction) *
+    (1.0 - smoothstep(0.93, 1.0, bedFraction));
+  float strata = mix(0.5, bedTone, cliff * uRockDetail);
 
-  // Vertical joints: the fracture planes that make a cliff read as broken rock
-  // rather than as a lump. Ridged, so they are lines and not blobs.
+  /**
+   * Vertical fractures. Wide, sparse and offset bed by bed, because a joint
+   * that runs unbroken down a whole cliff reads as a seam in a texture. These
+   * are the hard transitions between rock masses.
+   */
+  float fractureSeed = labHash(vec3(bedIndex, 11.3, 2.9));
+  float fracture =
+    1.0 - abs(fract(wallUv.x * 0.055 + fractureSeed * 3.0) * 2.0 - 1.0);
+  fracture = pow(clamp(fracture, 0.0, 1.0), 12.0) * cliff * uRockDetail;
   float jointNoise = labFbm(vec3(wallUv.x * 0.16, vWorldPosition.y * 0.02, 3.7), 2);
   float joint = 1.0 - abs(fract(wallUv.x * 0.09 + jointNoise * 1.7) * 2.0 - 1.0);
   joint = pow(clamp(joint, 0.0, 1.0), 9.0) * cliff * uRockDetail;
 
-  vec3 rockDark = vec3(0.085, 0.079, 0.072);
-  vec3 rockLight = vec3(0.365, 0.338, 0.296);
-  vec3 rock = mix(rockDark, rockLight, clamp(grain * 1.15 + strata * 0.45 - 0.18, 0.0, 1.0));
-  rock *= 1.0 - joint * 0.55;
+  vec3 rockDark = vec3(0.062, 0.057, 0.052);
+  vec3 rockLight = vec3(0.355, 0.328, 0.286);
+  // Structure leads, grain follows. Letting the bed tone dominate outright
+  // flattened the wall into stripes, so the two are kept closer in weight.
+  vec3 rock = mix(
+    rockDark,
+    rockLight,
+    clamp(grain * 0.78 + strata * 0.52 - 0.14, 0.0, 1.0)
+  );
+  rock *= 1.0 - joint * 0.4;
+  rock *= 1.0 - fracture * 0.62;
+  rock *= mix(0.72, 1.0, parting);
   // Cavity shading. Without it the macro forms read as painted-on shading only.
   rock *= 1.0 - vShelter * 0.35;
 
@@ -163,6 +195,24 @@ void main() {
   vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
   float diffuse = clamp(dot(normal, uSunDirection), 0.0, 1.0);
   vec3 lighting = uSunColor * diffuse + labHemisphere(normal);
+
+  /**
+   * Gorge bounce.
+   *
+   * In a slot, the shaded wall is lit almost entirely by light thrown off the
+   * sunlit wall facing it. Leaving it to the sky term alone crushes it to a
+   * flat near-black mass — every bed and fracture above is still there and
+   * simply cannot be seen. Real gorges are dark on that side but never
+   * featureless, so surfaces turned away from the sun horizontally get a warm
+   * fill at a fraction of the direct term.
+   */
+  vec3 sunHorizontal = normalize(vec3(uSunDirection.x, 0.0, uSunDirection.z));
+  float bounce = clamp(dot(normal, -sunHorizontal), 0.0, 1.0);
+  // Kept low. At 0.19 this recovered the shaded wall's detail and destroyed the
+  // gorge's contrast along with it — both walls went pale and the depth the
+  // lighting split was there to create disappeared.
+  lighting += uSunColor * vec3(1.0, 0.93, 0.82) * bounce * 0.085;
+
   vec3 color = albedo * lighting;
 
   // Wet rock shines; wet rock does not turn pale. Specular only, no albedo lift.
@@ -176,11 +226,14 @@ void main() {
 
 export const CURTAIN_VERTEX = `
 attribute vec3 cascade;
+attribute float crest;
 varying vec3 vCascade;
+varying float vCrest;
 varying vec3 vWorldPosition;
 
 void main() {
   vCascade = cascade;
+  vCrest = crest;
   vec4 world = modelMatrix * vec4(position, 1.0);
   vWorldPosition = world.xyz;
   gl_Position = projectionMatrix * viewMatrix * world;
@@ -212,6 +265,7 @@ uniform float uCoreThreshold;
 uniform vec3 uWaterColor;
 uniform vec3 uFoamColor;
 varying vec3 vCascade;
+varying float vCrest;
 varying vec3 vWorldPosition;
 
 void main() {
@@ -321,6 +375,13 @@ void main() {
   float lipNoise = labFbm(vec3(across * 6.5, 1.7, 0.0), 2);
   alpha *= smoothstep(0.0, 0.03 + lipNoise * 0.14, fall);
 
+  // Less water crosses the sill where the rock stands proud, and it thins out
+  // and tears sooner. This is the shading half of the crest profile the
+  // geometry already carries; without it the sheet is uniform across an uneven
+  // lip, which reads as a curtain hung on a rail.
+  float proud = clamp(vCrest, 0.0, 1.0);
+  alpha *= mix(1.0, 0.42, proud);
+
   float density = alpha * thickness;
   if (uCoreMode > 0.5) {
     // Opaque pass: only the whitewater core, fully opaque, writing depth.
@@ -403,6 +464,19 @@ void main() {
   vec3 transmittance = exp(-uExtinction * vDepth);
   vec3 color = uShallowColor * transmittance + uDeepColor * (1.0 - transmittance);
 
+  /**
+   * Aerated water around the strike.
+   *
+   * A plunge grades white foam -> pale turquoise -> deep water -> ordinary
+   * river, and the turquoise band is the one that was missing: without it the
+   * pool jumps straight from the foam patch to its depth colour and reads as a
+   * single flat value. The colour comes from entrained bubbles scattering light
+   * back out before it can be absorbed, so it follows the same falloff as the
+   * air the fall drags under, and it lifts opacity with it.
+   */
+  float aerated = exp(-impactDistance * 0.115) * 0.9;
+  color = mix(color, vec3(0.66, 0.83, 0.81), clamp(aerated, 0.0, 1.0));
+
   vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
   float facing = clamp(dot(normal, viewDirection), 0.0, 1.0);
   float fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
@@ -415,6 +489,8 @@ void main() {
   color += uSunColor * pow(clamp(dot(normal, half3), 0.0, 1.0), 110.0) * 0.4;
 
   float alpha = mix(0.55, 0.93, 1.0 - dot(transmittance, vec3(0.333)));
+  // Bubbled water hides its bed, so opacity climbs with aeration too.
+  alpha = mix(alpha, 1.0, clamp(aerated, 0.0, 1.0) * 0.8);
   // Fade out at the waterline, or the sheet ends on a hard cut across the bank.
   alpha *= smoothstep(0.0, 0.4, vDepth);
   gl_FragColor = vec4(color, alpha);
@@ -469,9 +545,15 @@ void main() {
   );
   float rings = 0.5 + 0.5 * sin(radius * 13.0 - uTime * 3.1 + churn * 5.4);
 
-  float core = 1.0 - smoothstep(0.0, 0.44, radius);
-  float spread = 1.0 - smoothstep(0.28, 1.0, radius);
-  float foam = clamp(core * 1.15 + spread * rings * churn * 0.85, 0.0, 1.0);
+  /**
+   * The strike should be the brightest, most violent thing in the frame, and
+   * dense enough that the eye cannot find the line where the curtain geometry
+   * stops and the pool begins. It was previously weak enough that the join was
+   * plainly visible, which gives the whole fall away.
+   */
+  float core = 1.0 - smoothstep(0.0, 0.52, radius);
+  float spread = 1.0 - smoothstep(0.24, 1.0, radius);
+  float foam = clamp(core * core * 2.1 + spread * rings * churn * 1.05, 0.0, 1.0);
 
   // Foam is carried away by the flow, so the downstream side thins out first.
   float downstream = smoothstep(-0.25, 0.95, offset.x / uImpactRadius);

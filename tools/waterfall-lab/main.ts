@@ -33,8 +33,14 @@ const GORGE = {
   /** Downstream distance over which the floor falls away at the knickpoint. */
   faceLength: 3.5,
   drop: 15.5,
-  /** Level reach below the fall, before the floor climbs back to grade. */
-  plungeLength: 30,
+  /**
+   * Level reach below the fall, before the floor climbs back to grade. Long
+   * enough that the camera standing back from the fall is still over deep
+   * water: at 30 m the recovery had already lifted the bed to half a metre
+   * under the viewpoint, so the whole foreground read as one pale shallow
+   * sheet and there was no depth gradient left to show.
+   */
+  plungeLength: 48,
   recoveryLength: 46,
   wallHeight: 27,
   /** How deep the fall digs its own bowl. Phase 2.1. */
@@ -87,7 +93,32 @@ function plungeScour(x: number, z: number): number {
   const bowl = Math.max(0, 1 - (radius / warp) ** 2);
   // Shallower toward the exit, where the flow is already carrying its load away.
   const exit = 1 - 0.34 * smoothstep(x, centerX, centerX + 14);
-  return GORGE.scourDepth * bowl * bowl * exit;
+
+  /**
+   * A smooth lobed ellipse is still a shape you can read the kernel off, and
+   * under clear water that is exactly what it looks like — a procedural crater.
+   * Real scour cuts into bedding that resists it unevenly, so the hollow comes
+   * out stepped and sided rather than dish-shaped. These are metre-scale rock
+   * forms, deliberately not noise: the erosion field stays smooth enough for
+   * terrain generation while the rendered floor stops advertising its maths.
+   */
+  const bedding =
+    0.5 + 0.5 * Math.sin(x * 0.52 + Math.sin(z * 0.37) * 1.7);
+  const jointing =
+    0.5 + 0.5 * Math.sin(z * 0.78 - Math.sin(x * 0.29) * 1.2);
+  const resistance = 0.68 + 0.22 * bedding + 0.16 * jointing;
+
+  // Coarse material dropped where the flow slackens, filling the hollow back in
+  // unevenly at its downstream margin.
+  const sediment =
+    0.5 *
+    Math.max(0, Math.sin(x * 0.42 - 1.1) * Math.cos(z * 0.51 + 0.6)) *
+    smoothstep(x, centerX + 2, centerX + 15);
+
+  return Math.max(
+    0,
+    GORGE.scourDepth * bowl * bowl * exit * resistance - sediment,
+  );
 }
 
 /**
@@ -192,6 +223,25 @@ function buildTerrainGeometry(): THREE.BufferGeometry {
  * `WaterCascadeGeometry`. Finer than the world's 10x8 because the lab is meant
  * to be looked at closely.
  */
+/**
+ * The rock lip, as a height profile across the channel.
+ *
+ * The single most artificial thing about a curtain is that its top edge is a
+ * ruled line, and no amount of work in the fragment shader really hides that,
+ * because the straightness is in the geometry. Water spills over a rock sill
+ * that has been cut unevenly: lower where the channel has notched it, standing
+ * proud where the rock is harder. A few low-frequency terms give exactly that
+ * and stay deterministic; adding high-frequency noise here would only turn a
+ * ruled edge into a fuzzy one.
+ */
+function crestProfile(lateral: number): number {
+  return (
+    Math.sin(lateral * 2.3 + 0.7) * 0.36 +
+    Math.sin(lateral * 5.1 - 1.4) * 0.17 +
+    Math.sin(lateral * 9.7 + 2.2) * 0.08
+  );
+}
+
 function buildCurtainGeometry(): THREE.BufferGeometry {
   const acrossSegments = 30;
   const downSegments = 26;
@@ -200,6 +250,7 @@ function buildCurtainGeometry(): THREE.BufferGeometry {
   const count = acrossVertices * downVertices;
   const positions = new Float32Array(count * 3);
   const cascade = new Float32Array(count * 3);
+  const crest = new Float32Array(count);
   const indices = new Uint32Array(acrossSegments * downSegments * 6);
   const halfWidth = GORGE.channelHalfWidth * 0.82;
 
@@ -209,17 +260,25 @@ function buildCurtainGeometry(): THREE.BufferGeometry {
     const crestLift = down === 0 ? 0.45 : 0;
     // Water leaves a lip moving horizontally and only then falls, so travel is
     // front-loaded and descent back-loaded.
-    const travel = fall ** 0.58 * throwDistance;
     const descent = fall ** 1.75 * fallDrop;
     const width = halfWidth * (1 - 0.22 * fall);
     for (let across = 0; across < acrossVertices; across += 1) {
       const lateral = (across / acrossSegments) * 2 - 1;
+      const notch = crestProfile(lateral);
+      // The sill's shape only governs where the water leaves it. A couple of
+      // metres down the sheet has forgotten the rock and is in free fall, so
+      // the offset is blended out rather than carried the whole way.
+      const sill = notch * 1.25 * Math.max(0, 1 - fall * 3.2);
+      // Water leaving a low notch is already moving faster, and throws further.
+      const throwJitter = 1 - notch * 0.16;
+      const travel = fall ** 0.58 * throwDistance * throwJitter;
       positions[vertex * 3] = LIP_X + travel - crestLift * 1.4;
-      positions[vertex * 3 + 1] = lipLevel - descent + crestLift;
+      positions[vertex * 3 + 1] = lipLevel - descent + crestLift + sill;
       positions[vertex * 3 + 2] = lateral * width;
       cascade[vertex * 3] = lateral;
       cascade[vertex * 3 + 1] = fall;
       cascade[vertex * 3 + 2] = fallDrop;
+      crest[vertex] = notch;
       vertex += 1;
     }
   }
@@ -241,6 +300,7 @@ function buildCurtainGeometry(): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("cascade", new THREE.BufferAttribute(cascade, 3));
+  geometry.setAttribute("crest", new THREE.BufferAttribute(crest, 1));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingSphere();
   return geometry;
