@@ -2,12 +2,17 @@ import type { RuntimeCloudConfig } from "../../runtime/RuntimeConfig";
 
 export const WORLD_CLOUD_TIME_WRAP_SECONDS = 86_400;
 
+export type CloudWeatherRegime = "clear" | "fair" | "overcast" | "storm";
+
 const FBM_ROTATION_COS = 0.8;
 const FBM_ROTATION_SIN = 0.6;
 const FBM_FREQUENCY = 2.02;
 const WEATHER_COVERAGE_SWING = 0.11;
 const WEATHER_CLEAR_THRESHOLD = 0.28;
 const WEATHER_OVERCAST_THRESHOLD = 0.78;
+const WEATHER_REGIME_CLEAR_MAX = 0.22;
+const WEATHER_REGIME_FAIR_MAX = 0.62;
+const WEATHER_REGIME_OVERCAST_MAX = 0.88;
 const SHADOW_CENTER_WEIGHT = 0.36;
 const SHADOW_CARDINAL_WEIGHT = 0.16;
 
@@ -82,6 +87,22 @@ export function sampleCloudWeatherAmount(
       macroZ * config.weatherScale + 52.8,
     ),
   );
+}
+
+export function resolveCloudWeatherRegime(
+  weatherAmount: number,
+): CloudWeatherRegime {
+  const amount = Math.min(1, Math.max(0, weatherAmount));
+  if (amount < WEATHER_REGIME_CLEAR_MAX) {
+    return "clear";
+  }
+  if (amount < WEATHER_REGIME_FAIR_MAX) {
+    return "fair";
+  }
+  if (amount < WEATHER_REGIME_OVERCAST_MAX) {
+    return "overcast";
+  }
+  return "storm";
 }
 
 function sampleCloudDensity(
@@ -179,10 +200,10 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function mix(a: number, b: number, t: number): number {
+function mix(a: number, b: number, t: number {
   return a + (b - a) * t;
 }
 
-function fract(value: number): number {
+function fract(value: number {
   return value - Math.floor(value);
 }

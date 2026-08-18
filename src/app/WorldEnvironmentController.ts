@@ -168,6 +168,7 @@ export class WorldEnvironmentController {
     }
     this.disposed = true;
     disposeSafely(this.sky, "Sky");
+    disposeSafely(this.cloudLighting, "Cloud lighting");
     disposeSafely(this.sun.shadow, "Sun shadow");
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);
   }

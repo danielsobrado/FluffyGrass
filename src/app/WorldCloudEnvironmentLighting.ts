@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import {
+  resolveCloudWeatherRegime,
   sampleCloudDirectTransmittance,
   sampleCloudWeatherAmount,
+  type CloudWeatherRegime,
 } from "../world/sky/WorldCloudWeather";
 import {
   WORLD_DEFAULT_COMPACT_FOG_DENSITY,
@@ -39,7 +41,18 @@ const OVERCAST_HEMISPHERE_GROUND = new THREE.Color(
 );
 const OVERCAST_FOG_COLOR = new THREE.Color(WORLD_OVERCAST_FOG);
 
+export interface WorldCloudWeatherState {
+  amount: number;
+  directTransmittance: number;
+  regime: CloudWeatherRegime;
+}
+
 export class WorldCloudEnvironmentLighting {
+  private readonly weatherState: WorldCloudWeatherState = {
+    amount: 0,
+    directTransmittance: 1,
+    regime: "clear",
+  };
   private directTransmittance = 1;
   private weatherAmount = 0;
 
@@ -85,6 +98,10 @@ export class WorldCloudEnvironmentLighting {
       targetWeather,
       blend,
     );
+    this.weatherState.amount = this.weatherAmount;
+    this.weatherState.directTransmittance = this.directTransmittance;
+    this.weatherState.regime = resolveCloudWeatherRegime(this.weatherAmount);
+    this.scene.userData.worldCloudWeather = this.weatherState;
     this.apply();
   }
 
@@ -120,6 +137,12 @@ export class WorldCloudEnvironmentLighting {
     this.renderer.toneMappingExposure =
       WORLD_DEFAULT_EXPOSURE *
       THREE.MathUtils.lerp(1, WORLD_OVERCAST_EXPOSURE_SCALE, grade);
+  }
+
+  dispose(): void {
+    if (this.scene.userData.worldCloudWeather === this.weatherState) {
+      delete this.scene.userData.worldCloudWeather;
+    }
   }
 
   private resolveDefaultFogDensity(): number {
