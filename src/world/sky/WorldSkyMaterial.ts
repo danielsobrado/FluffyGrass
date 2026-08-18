@@ -36,6 +36,8 @@ uniform vec3 uCloudAmbientColor;
 uniform vec3 uCloudShadowColor;
 uniform vec3 uCloudSunlitColor;
 uniform float uGodRayStrength;
+uniform sampler2D uCloudTemporalTexture;
+uniform vec2 uCloudViewportInverse;
 varying vec3 vSkyDirection;
 
 ${WORLD_SKY_CLOUD_GLSL}
@@ -87,6 +89,8 @@ export function createWorldSkyMaterial(vertexShader: string): THREE.ShaderMateri
       uCloudShadowColor: { value: new THREE.Color() },
       uCloudSunlitColor: { value: new THREE.Color() },
       uGodRayStrength: { value: 0 },
+      uCloudTemporalTexture: { value: null },
+      uCloudViewportInverse: { value: new THREE.Vector2(1, 1) },
     },
     side: THREE.BackSide,
     depthWrite: false,
@@ -140,6 +144,26 @@ export function configureWorldSkyClouds(
     cloud.sunlitColor,
   );
   material.uniforms.uGodRayStrength.value = cloud.godRayStrength;
+  material.needsUpdate = true;
+}
+
+export function enableWorldSkyTemporalClouds(
+  material: THREE.ShaderMaterial,
+): void {
+  material.defines = {
+    ...(material.defines ?? {}),
+    WORLD_CLOUD_TEMPORAL: 1,
+  };
+  material.needsUpdate = true;
+}
+
+export function disableWorldSkyTemporalClouds(
+  material: THREE.ShaderMaterial,
+): void {
+  const defines = { ...(material.defines ?? {}) };
+  delete defines.WORLD_CLOUD_TEMPORAL;
+  material.defines = defines;
+  material.uniforms.uCloudTemporalTexture.value = null;
   material.needsUpdate = true;
 }
 

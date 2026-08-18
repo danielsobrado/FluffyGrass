@@ -136,6 +136,20 @@ export class RuntimeConfigLoader {
         minimum: 0,
         maximum: 1,
       }),
+      volumetricEnabled: reader.boolean(key("VolumetricEnabled")),
+      volumetricResolutionScale: reader.number(key("VolumetricResolutionScale"), {
+        minimum: 0.2,
+        maximum: 0.75,
+      }),
+      volumetricSteps: reader.number(key("VolumetricSteps"), {
+        minimum: 4,
+        maximum: 12,
+        integer: true,
+      }),
+      temporalBlend: reader.number(key("TemporalBlend"), {
+        minimum: 0,
+        maximum: 0.98,
+      }),
       godRays: reader.boolean(key("GodRays")),
       godRayStrength: reader.number(key("GodRayStrength"), {
         minimum: 0,

@@ -23,6 +23,13 @@ const cloudMaterial = read("src/world/sky/WorldSkyMaterial.ts");
 const cloudShader = read("src/world/sky/WorldSkyCloudShader.ts");
 const cloudWeather = read("src/world/sky/WorldCloudWeather.ts");
 const cloudLighting = read("src/app/WorldCloudEnvironmentLighting.ts");
+const cloudVolumeController = read(
+  "src/world/sky/WorldSkyCloudVolumeController.ts",
+);
+const cloudVolumePass = read("src/world/sky/WorldCloudTemporalPass.ts");
+const cloudVolumeShader = read("src/world/sky/WorldCloudVolumeShader.ts");
+const cloudTemporalShader = read("src/world/sky/WorldCloudTemporalShader.ts");
+const cloudVolumeQuality = read("src/world/sky/WorldCloudVolumeQuality.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const runtimeConfig = read("src/runtime/RuntimeConfig.ts");
 const runtimeYaml = read("public/config/runtime.yaml");
@@ -124,6 +131,38 @@ assert(
   "Cloud body depth, projected-shadow filtering, and weather grading must remain explicit runtime tuning rather than shader literals.",
 );
 assert(
+  runtimeConfig.includes("volumetricEnabled: boolean") &&
+    runtimeConfig.includes("volumetricResolutionScale: number") &&
+    runtimeConfig.includes("volumetricSteps: number") &&
+    runtimeConfig.includes("temporalBlend: number") &&
+    runtimeYaml.includes("desktopCloudVolumetricEnabled: true") &&
+    runtimeYaml.includes("desktopCloudVolumetricResolutionScale: 0.50") &&
+    runtimeYaml.includes("desktopCloudVolumetricSteps: 8") &&
+    runtimeYaml.includes("compactCloudVolumetricEnabled: false") &&
+    cloudMaterial.includes("WORLD_CLOUD_TEMPORAL") &&
+    cloudMaterial.includes("uCloudTemporalTexture") &&
+    cloudVolumeController.includes("new WorldCloudTemporalPass") &&
+    cloudVolumeController.includes("disableWorldSkyTemporalClouds") &&
+    cloudVolumePass.includes("uPreviousViewProjection") &&
+    cloudVolumePass.includes("this.historyTargets") &&
+    cloudTemporalShader.includes("previousParcel.xz += uCloudWind * uDeltaSeconds") &&
+    cloudTemporalShader.includes("alphaDifference") &&
+    cloudVolumeShader.includes("WORLD_CLOUD_VOLUME_STEPS") &&
+    cloudVolumeShader.includes("cloudJitter") &&
+    cloudVolumeShader.includes("cloudVerticalProfile") &&
+    cloudVolumeShader.includes("1.0 - exp(-opticalDepth)") &&
+    cloudVolumeQuality.includes('"desktop" | "medium" | "mobile"') &&
+    cloudVolumeQuality.includes("MEDIUM_MAX_STEPS = 6"),
+  "Desktop clouds must use a low-resolution temporally reprojected volumetric deck with jittered bounded ray steps, wind-aware history rejection, and medium/mobile quality fallbacks.",
+);
+assert(
+  cloudVolumeController.includes("uCloudViewportInverse") &&
+    sky.includes("mesh.renderOrder = 900") &&
+    cloudVolumePass.includes("renderer.getRenderTarget()") &&
+    cloudVolumePass.includes("renderer.setRenderTarget(previousTarget)"),
+  "Volumetric clouds must upsample only through depth-tested sky fragments and restore nested renderer state after the offscreen pass.",
+);
+assert(
   cloudWeather.includes("SHADOW_CENTER_WEIGHT = 0.36") &&
     cloudWeather.includes("SHADOW_CARDINAL_WEIGHT = 0.16") &&
     cloudWeather.includes("worldX + radius") &&
@@ -170,5 +209,5 @@ assert(
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, Beer-Lambert cloud depth, filtered direct light, coherent weather grade, god rays, GPU-safe shadows, restored PMREM, and fail-soft IBL ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, filtered direct light, Beer-Lambert temporal cloud volume, coherent weather grade, scalable quality tiers, god rays, GPU-safe shadows, restored PMREM, and fail-soft IBL ownership verified.",
 );

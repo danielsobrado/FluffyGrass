@@ -37,6 +37,10 @@ desktopCloudShadowSampleRadius: 24
 desktopCloudMinimumDirectTransmittance: 0.86
 desktopCloudLightResponseRate: 0.7
 desktopCloudWeatherGradeStrength: 0.24
+desktopCloudVolumetricEnabled: true
+desktopCloudVolumetricResolutionScale: 0.50
+desktopCloudVolumetricSteps: 8
+desktopCloudTemporalBlend: 0.88
 desktopCloudGodRays: true
 desktopCloudGodRayStrength: 0.14
 desktopCloudAmbientColor: "#d8e1e8"
@@ -74,6 +78,10 @@ compactCloudShadowSampleRadius: 28
 compactCloudMinimumDirectTransmittance: 0.90
 compactCloudLightResponseRate: 0.65
 compactCloudWeatherGradeStrength: 0.18
+compactCloudVolumetricEnabled: false
+compactCloudVolumetricResolutionScale: 0.33
+compactCloudVolumetricSteps: 6
+compactCloudTemporalBlend: 0.82
 compactCloudGodRays: true
 compactCloudGodRayStrength: 0.09
 compactCloudAmbientColor: "#d8e1e8"

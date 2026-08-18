@@ -1,4 +1,4 @@
-export const WORLD_SKY_CLOUD_GLSL = /* glsl */ `
+export const WORLD_CLOUD_FIELD_GLSL = /* glsl */ `
 float cloudHash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
@@ -64,6 +64,10 @@ float cloudDensity(
     field
   );
 }
+`;
+
+export const WORLD_SKY_CLOUD_GLSL = /* glsl */ `
+${WORLD_CLOUD_FIELD_GLSL}
 
 float cloudSelfShadow(
   vec2 worldPosition,
@@ -89,6 +93,35 @@ float cloudSelfShadow(
 #endif
 }
 
+vec3 applyTemporalGodRays(
+  vec3 color,
+  vec3 direction,
+  float cloudAlpha,
+  float horizonFade
+) {
+#ifndef WORLD_CLOUD_GOD_RAYS
+  return color;
+#else
+  float sunFacing = max(dot(direction, uSkySunDirection), 0.0);
+  vec3 rayTangent = normalize(
+    cross(uSkySunDirection, vec3(0.0, 1.0, 0.0)) + vec3(0.0001)
+  );
+  vec3 rayBitangent = normalize(cross(uSkySunDirection, rayTangent));
+  vec2 rayLocal = vec2(
+    dot(direction, rayTangent),
+    dot(direction, rayBitangent)
+  );
+  float rayAngle = atan(rayLocal.y, rayLocal.x);
+  float rayBands = 0.5 + 0.5 * sin(rayAngle * 17.0);
+  float shaftShape = smoothstep(0.56, 0.88, rayBands);
+  float shaftCone = pow(sunFacing, 7.0);
+  float edgeGate = 0.35 + cloudAlpha * (1.0 - cloudAlpha) * 2.4;
+  float godRay =
+    shaftCone * (1.0 - cloudAlpha) * shaftShape * edgeGate * horizonFade;
+  return color + uSkySunColor * godRay * uGodRayStrength;
+#endif
+}
+
 vec2 cloudPlanePosition(vec3 direction) {
   float heightScale = uCloudBaseHeight / max(direction.y, 0.075);
   return uCloudWorldOffset + direction.xz * heightScale;
@@ -102,11 +135,28 @@ vec3 applyWorldClouds(vec3 skyColor, vec3 direction) {
     return skyColor;
   }
 
+  float horizonFade = smoothstep(0.025, 0.18, direction.y);
+
+#ifdef WORLD_CLOUD_TEMPORAL
+  vec2 cloudUv = clamp(
+    gl_FragCoord.xy * uCloudViewportInverse,
+    vec2(0.0),
+    vec2(1.0)
+  );
+  vec4 cloudVolume = texture2D(uCloudTemporalTexture, cloudUv);
+  vec3 color =
+    skyColor * (1.0 - cloudVolume.a) + cloudVolume.rgb;
+  return applyTemporalGodRays(
+    color,
+    direction,
+    cloudVolume.a,
+    horizonFade
+  );
+#else
   vec2 worldPosition = cloudPlanePosition(direction);
   float weatherAmount = 0.0;
   float detailAmount = 0.0;
   float density = cloudDensity(worldPosition, weatherAmount, detailAmount);
-  float horizonFade = smoothstep(0.025, 0.18, direction.y);
   float opticalTransmittance = exp(-density * uCloudExtinction);
   float alpha =
     (1.0 - opticalTransmittance) * uCloudOpacity * horizonFade;
@@ -161,6 +211,7 @@ vec3 applyWorldClouds(vec3 skyColor, vec3 direction) {
 #endif
 
   return color;
+#endif
 #endif
 }
 `;

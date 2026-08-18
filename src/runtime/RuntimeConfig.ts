@@ -20,6 +20,10 @@ export interface RuntimeCloudConfig {
   minimumDirectTransmittance: number;
   lightResponseRate: number;
   weatherGradeStrength: number;
+  volumetricEnabled: boolean;
+  volumetricResolutionScale: number;
+  volumetricSteps: number;
+  temporalBlend: number;
   godRays: boolean;
   godRayStrength: number;
   ambientColor: string;
