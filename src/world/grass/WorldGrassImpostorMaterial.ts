@@ -89,6 +89,13 @@ flat varying vec3 vGrassIrradiance;
 varying float vGrassBackLight;
 #include <fog_pars_vertex>
 
+vec3 safeNormalize3(vec3 value, vec3 fallbackValue) {
+  float lengthSquared = dot(value, value);
+  return lengthSquared > 1e-8
+    ? value * inversesqrt(lengthSquared)
+    : fallbackValue;
+}
+
 void main() {
   mat4 instanceModel = modelMatrix * instanceMatrix;
   vec3 instanceAxisX = instanceModel[0].xyz;
@@ -96,48 +103,58 @@ void main() {
   vec3 instanceAxisZ = instanceModel[2].xyz;
   float scaleX = max(length(instanceAxisX), 0.0001);
   float scaleY = max(length(instanceAxisY), 0.0001);
+  float scaleZ = max(length(instanceAxisZ), 0.0001);
   vec3 basisX = instanceAxisX / scaleX;
   vec3 basisY = instanceAxisY / scaleY;
-  vec3 basisZ = instanceAxisZ / scaleX;
+  vec3 basisZ = instanceAxisZ / scaleZ;
   vec3 rootCenter = (instanceModel * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
   vec3 subpatchRoot = rootCenter +
     basisX * grassSubpatchOffset.x * scaleX +
-    basisZ * grassSubpatchOffset.y * scaleX;
+    basisZ * grassSubpatchOffset.y * scaleZ;
   vec3 center = subpatchRoot + basisY * uCenterHeight * scaleY;
-  vec3 toCamera = normalize(cameraPosition - center);
+  vec3 toCamera = safeNormalize3(cameraPosition - center, basisZ);
 
   vec3 worldUp = vec3(0.0, 1.0, 0.0);
-  vec3 cardUp = normalize(mix(
-    worldUp,
-    basisY,
-    ${IMPOSTOR_TERRAIN_UP_BLEND.toFixed(2)}
-  ));
+  vec3 cardUp = safeNormalize3(
+    mix(worldUp, basisY, ${IMPOSTOR_TERRAIN_UP_BLEND.toFixed(2)}),
+    worldUp
+  );
   vec3 planarView = toCamera - cardUp * dot(toCamera, cardUp);
   float planarViewLength = length(planarView);
   if (planarViewLength < 0.001) {
     planarView = basisZ - cardUp * dot(basisZ, cardUp);
     planarViewLength = length(planarView);
   }
-  planarView /= max(planarViewLength, 0.001);
-  vec3 cylindricalRight = normalize(cross(cardUp, planarView));
-  vec3 sphericalRight = cross(basisY, toCamera);
-  float sphericalRightLength = length(sphericalRight);
-  sphericalRight = sphericalRightLength < 0.001
-    ? basisX
-    : sphericalRight / sphericalRightLength;
-  vec3 sphericalUp = normalize(cross(toCamera, sphericalRight));
+  if (planarViewLength < 0.001) {
+    planarView = basisX - cardUp * dot(basisX, cardUp);
+  }
+  planarView = safeNormalize3(planarView, vec3(0.0, 0.0, 1.0));
+  vec3 cylindricalRight = safeNormalize3(
+    cross(cardUp, planarView),
+    basisX
+  );
+  vec3 sphericalRight = safeNormalize3(
+    cross(basisY, toCamera),
+    basisX
+  );
+  vec3 sphericalUp = safeNormalize3(
+    cross(toCamera, sphericalRight),
+    cardUp
+  );
   float worldElevation = abs(dot(toCamera, worldUp));
   float aerialBlend = smoothstep(
     ${IMPOSTOR_AERIAL_BLEND_START.toFixed(2)},
     ${IMPOSTOR_AERIAL_BLEND_END.toFixed(2)},
     worldElevation
   );
-  vec3 billboardRight = normalize(mix(
-    cylindricalRight,
-    sphericalRight,
-    aerialBlend
-  ));
-  vec3 billboardUp = normalize(mix(cardUp, sphericalUp, aerialBlend));
+  vec3 billboardRight = safeNormalize3(
+    mix(cylindricalRight, sphericalRight, aerialBlend),
+    cylindricalRight
+  );
+  vec3 billboardUp = safeNormalize3(
+    mix(cardUp, sphericalUp, aerialBlend),
+    cardUp
+  );
 
   vec2 windDirection = uWindDirection;
   #ifdef GRASS_NOISE_WIND
@@ -157,10 +174,6 @@ void main() {
 
   // Coverage is per instance: every term below is a uniform or an instance
   // attribute, and only the comparison against the per-fragment dither is not.
-  // A visible far batch spans 32 m, so it routinely holds instances still
-  // inside the mid band whose coverage is zero — those are the closest, and
-  // therefore largest, cards on screen. Rejecting them here clips the card
-  // outright instead of rasterizing a full billboard that discards every pixel.
   float cameraDistance = distance(cameraPosition, center);
   float nearExit = smoothstep(
     uNearDistance - uTransitionDistance,
@@ -194,26 +207,23 @@ void main() {
   vFieldCoverage = instanceCoverage * cardWeight;
   float effectiveCoverage =
     vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
-  if (effectiveCoverage <= 0.001) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
-  // Nothing overlaps the far-to-terrain handoff, so a fragment screen-door
-  // there becomes visible horizon dust. Fade whole 2x2 m subpatch cards instead;
-  // at this range each card is small while its internal silhouette stays intact.
+
+  // Do not early-return from the vertex shader. Some mobile tile renderers are
+  // sensitive to primitives whose vertices leave different output sets. A
+  // rejected card is collapsed to its centre instead, producing zero area while
+  // every varying and gl_Position still receive finite values.
+  float cardVisibility = step(0.001, effectiveCoverage);
   float terrainDither = fract(
     instanceVariation.x * ${IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE.toFixed(1)} +
     grassSubpatchIndex * ${IMPOSTOR_TERRAIN_DITHER_SUBPATCH_SCALE.toFixed(11)} +
     uDitherSeed * ${IMPOSTOR_TERRAIN_DITHER_SEED_SCALE.toFixed(11)}
   );
-  if (terrainDither >= terrainCoverage) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
+  cardVisibility *= 1.0 - step(terrainCoverage, terrainDither);
 
-  vec3 worldPosition = center +
+  vec3 cardOffset =
     billboardRight * position.x * scaleX * ${GRASS_IMPOSTOR_FOOTPRINT_SCALE.toFixed(2)} +
     billboardUp * position.y * scaleY;
+  vec3 worldPosition = center + cardOffset * cardVisibility;
   // Root-to-tip shear matches real blade bending and remains within the
   // impostor wind displacement reserved by GrassLodTuning. uCardRadius is the
   // quad's own half-extent, not the (much larger) culling bound radius, so
@@ -224,19 +234,25 @@ void main() {
     ${GRASS_IMPOSTOR_WIND_SHEAR_FACTOR.toFixed(2)} * weather *
     mix(1.0, 0.72, instanceVariation.w);
   worldPosition += vec3(windDirection.x, 0.0, windDirection.y) *
-    sway * shearProgress * scaleY;
+    sway * shearProgress * scaleY * cardVisibility;
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
   // Source blades lie in local XY, so their geometric normal is local Z.
   // Blend that same axis toward the terrain normal just like the real-blade
   // material does before evaluating the scene lights.
-  vec3 grassWorldNormal = normalize(mix(
-    basisZ,
-    basisY,
-    mix(uNormalUp, 1.0, saturate((cameraDistance - 48.0) / 90.0))
-  ));
-  vec3 grassViewNormal = normalize(mat3(viewMatrix) * grassWorldNormal);
+  vec3 grassWorldNormal = safeNormalize3(
+    mix(
+      basisZ,
+      basisY,
+      mix(uNormalUp, 1.0, saturate((cameraDistance - 48.0) / 90.0))
+    ),
+    basisY
+  );
+  vec3 grassViewNormal = safeNormalize3(
+    mat3(viewMatrix) * grassWorldNormal,
+    vec3(0.0, 1.0, 0.0)
+  );
   vec3 grassIrradiance = ambientLightColor;
   #if NUM_HEMI_LIGHTS > 0
     #pragma unroll_loop_start
@@ -256,8 +272,12 @@ void main() {
         directionalLights[i].color;
     }
     #pragma unroll_loop_end
+    vec3 viewDirection = safeNormalize3(
+      mvPosition.xyz,
+      vec3(0.0, 0.0, -1.0)
+    );
     vGrassBackLight = pow(
-      saturate(dot(normalize(mvPosition.xyz), directionalLights[0].direction)),
+      saturate(dot(viewDirection, directionalLights[0].direction)),
       2.0
     ) * mix(0.22, 1.0, shearProgress) *
       (0.42 + 0.58 * (1.0 - abs(dot(grassWorldNormal, directionalLights[0].direction)))) *
@@ -278,7 +298,10 @@ void main() {
     atlasElevation,
     dot(toCamera, basisZ)
   );
-  vLocalViewDirection = normalize(localViewDirection);
+  vLocalViewDirection = safeNormalize3(
+    localViewDirection,
+    vec3(0.0, 0.0, 1.0)
+  );
   vGustNoise = gustNoise;
   vBiome = instanceBiome;
   vSubpatchIndex = grassSubpatchIndex;
@@ -413,7 +436,7 @@ void main() {
   vec2 sampleUvDy = frameUvDy * mipGradientScale;
 
   vec2 octahedralUv = clamp(
-    encodeHemiOctahedral(normalize(vLocalViewDirection)),
+    encodeHemiOctahedral(vLocalViewDirection),
     vec2(0.0),
     vec2(1.0)
   );
