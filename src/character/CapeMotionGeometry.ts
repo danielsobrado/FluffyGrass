@@ -77,9 +77,9 @@ export class CapeMotionGeometry {
           ) *
           flutterAmplitude *
           smoothWeight;
-        values[offset] = finiteOrFallback(rotatedX, baseX);
-        values[offset + 1] = finiteOrFallback(finalY, baseY);
-        values[offset + 2] = finiteOrFallback(rotatedZ, baseZ);
+        values[offset] = rotatedX;
+        values[offset + 1] = finalY;
+        values[offset + 2] = rotatedZ;
       }
       panel.position.needsUpdate = true;
       panel.geometry.computeVertexNormals();
@@ -194,8 +194,4 @@ function createWeights(
     );
   }
   return weights;
-}
-
-function finiteOrFallback(value: number, fallback: number): number {
-  return Number.isFinite(value) ? value : fallback;
 }
