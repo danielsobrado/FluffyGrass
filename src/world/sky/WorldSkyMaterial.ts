@@ -134,8 +134,10 @@ export function configureWorldSkyClouds(
 export function disableWorldSkyCloudsForEnvironmentBake(
   material: THREE.ShaderMaterial,
 ): void {
+  material.defines = {};
   material.uniforms.uCloudOpacity.value = 0;
   material.uniforms.uGodRayStrength.value = 0;
+  material.needsUpdate = true;
 }
 
 function linearColor(hex: string): THREE.Color {
