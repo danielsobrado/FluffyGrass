@@ -4,10 +4,15 @@ import {
   FlatConfigValueReader,
   POSITIVE_NUMBER_RULE,
 } from "../config/FlatConfigValueReader";
-import type { RuntimeConfig, RuntimeTierConfig } from "./RuntimeConfig";
+import type {
+  RuntimeCloudConfig,
+  RuntimeConfig,
+  RuntimeTierConfig,
+} from "./RuntimeConfig";
 
 const CONFIG_URL = "./config/runtime.yaml";
 const MAX_SHADOW_MAP_SIZE = 16384;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 export class RuntimeConfigLoader {
   async load(url: string = CONFIG_URL): Promise<RuntimeConfig> {
@@ -52,6 +57,69 @@ export class RuntimeConfigLoader {
       shadowMapSize: this.readShadowMapSize(reader, prefix),
       showGui: reader.boolean(`${prefix}ShowGui`),
       showDecorativeText: reader.boolean(`${prefix}ShowDecorativeText`),
+      cloud: Object.freeze(this.readCloud(reader, prefix)),
+    };
+  }
+
+  private readCloud(
+    reader: FlatConfigValueReader,
+    prefix: "desktop" | "compact",
+  ): RuntimeCloudConfig {
+    const key = (suffix: string): string => `${prefix}Cloud${suffix}`;
+    return {
+      enabled: reader.boolean(key("Enabled")),
+      coverage: reader.number(key("Coverage"), { minimum: 0, maximum: 1 }),
+      softness: reader.number(key("Softness"), {
+        exclusiveMinimum: 0,
+        maximum: 0.35,
+      }),
+      opacity: reader.number(key("Opacity"), { minimum: 0, maximum: 1 }),
+      baseHeight: reader.number(key("BaseHeight"), {
+        minimum: 100,
+        maximum: 3000,
+      }),
+      macroScale: reader.number(key("MacroScale"), {
+        exclusiveMinimum: 0,
+        maximum: 0.02,
+      }),
+      detailScale: reader.number(key("DetailScale"), {
+        exclusiveMinimum: 0,
+        maximum: 0.05,
+      }),
+      weatherScale: reader.number(key("WeatherScale"), {
+        exclusiveMinimum: 0,
+        maximum: 0.01,
+      }),
+      windX: reader.number(key("WindX"), { minimum: -100, maximum: 100 }),
+      windZ: reader.number(key("WindZ"), { minimum: -100, maximum: 100 }),
+      detailWindX: reader.number(key("DetailWindX"), {
+        minimum: -100,
+        maximum: 100,
+      }),
+      detailWindZ: reader.number(key("DetailWindZ"), {
+        minimum: -100,
+        maximum: 100,
+      }),
+      shadowStrength: reader.number(key("ShadowStrength"), {
+        minimum: 0,
+        maximum: 0.35,
+      }),
+      minimumDirectTransmittance: reader.number(
+        key("MinimumDirectTransmittance"),
+        { minimum: 0.65, maximum: 1 },
+      ),
+      lightResponseRate: reader.number(key("LightResponseRate"), {
+        exclusiveMinimum: 0,
+        maximum: 5,
+      }),
+      godRays: reader.boolean(key("GodRays")),
+      godRayStrength: reader.number(key("GodRayStrength"), {
+        minimum: 0,
+        maximum: 0.5,
+      }),
+      ambientColor: this.readColor(reader, key("AmbientColor")),
+      shadowColor: this.readColor(reader, key("ShadowColor")),
+      sunlitColor: this.readColor(reader, key("SunlitColor")),
     };
   }
 
@@ -67,5 +135,15 @@ export class RuntimeConfigLoader {
       );
     }
     return size;
+  }
+
+  private readColor(reader: FlatConfigValueReader, key: string): string {
+    const value = reader.string(key);
+    if (!HEX_COLOR.test(value)) {
+      throw new Error(
+        `Runtime config value ${key} must be a six-digit hexadecimal color.`,
+      );
+    }
+    return value;
   }
 }
