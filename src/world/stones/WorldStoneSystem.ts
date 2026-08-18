@@ -1,7 +1,5 @@
 import * as THREE from "three";
 import { disposeResources } from "../../render/ResourceDisposal";
-import type { WorldVisibilityConfig } from "../../render/visibility/WorldVisibilityConfig";
-import type { WorldVisibilitySystem } from "../../render/visibility/WorldVisibilitySystem";
 import type { WorldConfig } from "../WorldConfig";
 import {
   registerStoneClearanceField,
@@ -22,9 +20,6 @@ interface StoneBatch {
   readonly key: string;
   readonly signature: string;
   readonly mesh: THREE.Mesh;
-  readonly worldSphere: THREE.Sphere;
-  readonly featureRadius: number;
-  readonly baseCastShadow: boolean;
   readonly triangles: number;
   readonly stones: number;
 }
@@ -87,7 +82,6 @@ export class WorldStoneSystem {
     private readonly scene: THREE.Scene,
     stoneField: StoneField,
     private readonly config: WorldConfig,
-    private readonly visibilityConfig: WorldVisibilityConfig,
     private readonly compact: boolean,
     private readonly receiveShadows: boolean,
   ) {
@@ -127,17 +121,7 @@ export class WorldStoneSystem {
     this.grainTexture = resources.grainTexture;
   }
 
-  update(position: THREE.Vector3, buildDeadline: number): void;
-  update(
-    position: THREE.Vector3,
-    buildDeadline: number,
-    visibility: WorldVisibilitySystem,
-  ): void;
-  update(
-    position: THREE.Vector3,
-    buildDeadline: number,
-    visibility?: WorldVisibilitySystem,
-  ): void {
+  update(position: THREE.Vector3, buildDeadline: number): void {
     if (
       this.disposed ||
       !this.enabled ||
@@ -157,28 +141,21 @@ export class WorldStoneSystem {
       this.reconcile();
     }
     this.processQueue(buildDeadline);
-    if (visibility) {
-      this.updateVisibility(visibility);
-    }
   }
 
   getDiagnostics(): StoneDiagnostics {
     let stones = 0;
     let triangles = 0;
-    let drawCalls = 0;
     for (const batch of this.batches.values()) {
       stones += batch.stones;
       triangles += batch.triangles;
-      if (batch.mesh.visible) {
-        drawCalls += 1;
-      }
     }
     return {
       activeChunks: this.batches.size,
       queuedChunks: this.queue.length + (this.activeBuild ? 1 : 0),
       stones,
       triangles,
-      drawCalls,
+      drawCalls: this.batches.size,
       lastBuildMs: this.lastBuildMs,
       maxBuildMs: this.maxBuildMs,
     };
@@ -379,27 +356,15 @@ export class WorldStoneSystem {
         this.receiveShadows && result.hasDetailedGeometry;
       mesh.castShadow = localShadowDetail;
       mesh.receiveShadow = localShadowDetail;
-      mesh.frustumCulled = true;
       mesh.matrixAutoUpdate = false;
       mesh.matrixWorldAutoUpdate = false;
       mesh.updateMatrix();
       sceneAddAndUpdate(this.scene, mesh);
 
-      const localSphere = result.geometry.boundingSphere;
-      if (!localSphere) {
-        throw new Error(`Stone batch ${request.key} has no bounding sphere.`);
-      }
-      const worldSphere = localSphere.clone();
-      worldSphere.center.add(mesh.position);
-
       batch = {
         key: request.key,
         signature: request.signature,
         mesh,
-        worldSphere,
-        featureRadius:
-          result.maxScale * this.visibilityConfig.stoneFeatureRadiusScale,
-        baseCastShadow: localShadowDetail,
         triangles: result.triangles,
         stones: result.stones,
       };
@@ -433,24 +398,6 @@ export class WorldStoneSystem {
       } catch (error) {
         console.warn("[Drusniel World] Replaced stone batch cleanup failed.", error);
       }
-    }
-  }
-
-  private updateVisibility(visibility: WorldVisibilitySystem): void {
-    for (const batch of this.batches.values()) {
-      const shadowRelevant =
-        batch.baseCastShadow && visibility.isShadowRelevant(batch.worldSphere);
-      const cameraVisible = visibility.testStaticSphere(
-        `stone:${batch.key}:${batch.signature}`,
-        batch.worldSphere,
-        {
-          featureRadius: batch.featureRadius,
-          minimumProjectedPixels: this.visibilityConfig.stoneMinPixels,
-          terrainOcclusion: !shadowRelevant,
-        },
-      );
-      batch.mesh.visible = cameraVisible || shadowRelevant;
-      batch.mesh.castShadow = shadowRelevant;
     }
   }
 

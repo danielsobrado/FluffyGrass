@@ -23,8 +23,6 @@ export interface StoneRenderBatchGeometry {
   readonly originX: number;
   readonly originY: number;
   readonly originZ: number;
-  /** Largest placement scale, used as a conservative screen-space feature size. */
-  readonly maxScale: number;
 }
 
 type BuildStage = "collect" | "resolve" | "allocate" | "fill" | "finalize";
@@ -54,7 +52,6 @@ export interface StoneRenderBatchBuildJob {
   maximumX: number;
   maximumY: number;
   maximumZ: number;
-  maxScale: number;
   buffers?: StoneRenderBuffers;
 }
 
@@ -113,7 +110,6 @@ export class StoneRenderBatchBuilder {
       maximumX: Number.NEGATIVE_INFINITY,
       maximumY: Number.NEGATIVE_INFINITY,
       maximumZ: Number.NEGATIVE_INFINITY,
-      maxScale: 0,
     };
   }
 
@@ -208,7 +204,6 @@ export class StoneRenderBatchBuilder {
       job.detailed.push(source.detailed);
       job.hasDetailedGeometry ||= source.detailed;
       job.heightSum += instance.height - instance.sink;
-      job.maxScale = Math.max(job.maxScale, instance.scale);
     }
   }
 
@@ -242,7 +237,6 @@ export class StoneRenderBatchBuilder {
       originX: job.originX,
       originY: job.originY,
       originZ: job.originZ,
-      maxScale: job.maxScale,
     };
   }
 }

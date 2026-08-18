@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import type { WorldVisibilityConfig } from "../../render/visibility/WorldVisibilityConfig";
-import type { WorldVisibilitySystem } from "../../render/visibility/WorldVisibilitySystem";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
@@ -22,20 +20,12 @@ export class WorldScenicLayer {
     scene: THREE.Scene,
     field: TerrainField,
     config: WorldConfig,
-    visibilityConfig: WorldVisibilityConfig,
     profile: RuntimeProfile,
     spawn: THREE.Vector3,
     shadows: boolean,
   ) {
     try {
-      this.trees = new WorldTreeSystem(
-        scene,
-        field,
-        config,
-        visibilityConfig,
-        profile,
-        shadows,
-      );
+      this.trees = new WorldTreeSystem(scene, field, config, profile, shadows);
     } catch (error) {
       this.treesEnabled = false;
       console.warn("[Drusniel World] Trees unavailable during initialization.", error);
@@ -57,18 +47,14 @@ export class WorldScenicLayer {
     }
   }
 
-  update(
-    deltaSeconds: number,
-    focus: THREE.Vector3,
-    visibility: WorldVisibilitySystem,
-  ): void {
+  update(deltaSeconds: number, focus: THREE.Vector3): void {
     if (this.disposed) {
       return;
     }
 
     if (this.treesEnabled && this.trees) {
       try {
-        this.trees.update(focus, visibility);
+        this.trees.update(focus);
       } catch (error) {
         console.warn("[Drusniel World] Trees disabled after a fault.", error);
         this.treesEnabled = false;

@@ -35,7 +35,7 @@ const quadrupedActor = read("src/creatures/quadruped/QuadrupedActor.ts");
 
 assert(
   scenicLayer.includes("Trees disabled after a fault.") &&
-    /try \{[\s\S]*?this\.trees\.update\(focus, visibility\);[\s\S]*?\} catch \(error\) \{/.test(
+    /try \{[\s\S]*?this\.trees\.update\(focus\);[\s\S]*?\} catch \(error\) \{/.test(
       scenicLayer,
     ),
   "Tree faults must stay inside the scenic failure domain.",
@@ -60,19 +60,17 @@ assert(
 );
 assert(
   treeSystem.includes('import { disposeResources } from "../../render/ResourceDisposal"') &&
-    treeSystem.includes("private readonly cells = new Map<string, TreeRenderCell>()") &&
-    treeSystem.includes("new THREE.InstancedMesh(") &&
-    treeSystem.includes("trunkMesh.frustumCulled = true") &&
-    treeSystem.includes("canopyMesh.frustumCulled = true") &&
-    !treeSystem.includes("frustumCulled = false") &&
-    treeSystem.includes("visibility.testStaticSphere(") &&
-    treeSystem.includes("cell.trunkMesh.dispose()") &&
-    treeSystem.includes("cell.canopyMesh.dispose()") &&
-    treeSystem.includes("this.trunkGeometry") &&
-    treeSystem.includes("this.canopyGeometry") &&
-    treeSystem.includes("this.barkMaterial") &&
-    treeSystem.includes("this.leavesMaterial"),
-  "Trees must use frustum-enabled spatial instance cells and release cell-owned instance buffers plus shared render resources.",
+    treeSystem.includes("let trunk: THREE.CylinderGeometry | undefined") &&
+    treeSystem.includes("let canopy: THREE.IcosahedronGeometry | undefined") &&
+    treeSystem.includes("scene.add(trunkMesh, canopyMesh)") &&
+    treeSystem.includes("Tree construction cleanup failed.") &&
+    treeSystem.includes("disposeResources([") &&
+    treeSystem.includes("{ dispose: () => trunkMesh?.removeFromParent() }") &&
+    treeSystem.includes("{ dispose: () => canopyMesh?.removeFromParent() }") &&
+    treeSystem.includes("{ dispose: () => this.trunkMesh.removeFromParent() }") &&
+    treeSystem.includes("{ dispose: () => this.canopyMesh.removeFromParent() }") &&
+    treeSystem.includes("disposeResources(Array.isArray(material) ? material : [material])"),
+  "Tree construction and normal teardown must attempt every mesh, geometry, and material cleanup without masking the original setup fault.",
 );
 assert(
   faunaSystem.includes("interface FaunaResources") &&
