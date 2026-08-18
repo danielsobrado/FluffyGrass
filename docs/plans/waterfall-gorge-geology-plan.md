@@ -367,13 +367,19 @@ reshaping. Two real problems remain, both narrower and both surgical:
   `WorldSingleBladeTileFactory`, `WorldDetailFoliageField`, `DenseSpawnLocator`
   — and `WorldNearGrassField` consumes tiles from the factory that does. There
   is no grass on the wall and no signal to add.
-- **The walls do not render as rock, and the reason is still open.** Sampled
-  from the settled in-game capture, the wall pixels read `#46645e` and
-  `#62705f` — green dominant, `G > R`. The rock palette is `#4a453e`/`#5d5347`,
-  warm browns with `R > G`, which no warm sun turns green. So the rock branch is
-  not reaching those fragments. Two candidates remain and picking regions out of
-  a screenshot cannot separate them, so **the next step is a debug view that
-  writes `terrainCliff` straight to the output**, not more inference.
+- ~~The walls do not render as rock.~~ **Wrong, settled with a debug view.**
+  Writing `terrainSlope` and `terrainCliff` straight to the output shows the
+  gorge walls rendering **yellow** — slope near 1, cliff 1 — so the rock branch
+  fires at full strength exactly where it should. The earlier "green dominant,
+  so not rock" reading came from sampling screen regions picked by eye, and
+  those regions were the **water surface**, not the walls. Sampled at the
+  coordinates the debug view proves are terrain, the walls read `#343b34`,
+  `#414b43`, `#2a2c26` and `#444d41`: dark, near neutral, entirely consistent
+  with the rock albedo `#4a453e` under shadowed ambient rather than with grass.
+
+  Three separate wrong conclusions in this section came from inferring instead
+  of measuring the specific thing — twice from aggregate statistics, once from
+  eyeballed screen regions. The debug view answered it in a single capture.
 
 - **The wall is about one sample wide.** At near resolution the terrain samples
   every 2.67 m, so a 3 m wall spans barely one quad; at mid (5.3 m) and far
