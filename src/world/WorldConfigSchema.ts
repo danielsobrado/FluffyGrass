@@ -180,7 +180,6 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   detailScale: POSITIVE_NUMBER_RULE,
   waterEnabled: { minimum: 0, maximum: 1, integer: true },
   waterQuality: { minimum: 0, maximum: 1, integer: true },
-  waterQuality: { minimum: 0, maximum: 1, integer: true },
   riverWidth: { minimum: 2, maximum: 40 },
   riverBankWidth: { minimum: 1, maximum: 30 },
   riverDepth: { minimum: 0.2, maximum: 8 },

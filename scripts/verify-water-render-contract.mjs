@@ -19,6 +19,12 @@ function assert(condition, message) {
 }
 
 const waterShader = read("src/world/hydrology/WaterShader.ts");
+const waterOptics = read("src/world/hydrology/WaterOpticsShader.ts");
+// The surface fragment program is composed from both files: WaterShader.ts
+// inlines WATER_OPTICS_FRAGMENT_FUNCTIONS, so the optical uniforms are declared
+// in WaterOpticsShader.ts but reach the GPU as one program. Contracts about the
+// surface must therefore read the composed source, not a single file.
+const waterSurfaceProgram = `${waterShader}\n${waterOptics}`;
 const waterMaterial = read("src/world/hydrology/WaterMaterialController.ts");
 const bedShader = read("src/world/hydrology/WaterBedMaterialShader.ts");
 const bedMaterial = read("src/world/hydrology/WaterBedMaterialController.ts");
@@ -31,18 +37,18 @@ const streamer = read("src/world/TerrainStreamer.ts");
 const chunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
 
 assert(
-  !waterShader.includes("waterSampleRiverBed") &&
-    !waterShader.includes("uWaterBedNoise") &&
-    !waterShader.includes("waterCaustic") &&
+  !waterSurfaceProgram.includes("waterSampleRiverBed") &&
+    !waterSurfaceProgram.includes("uWaterBedNoise") &&
+    !waterSurfaceProgram.includes("waterCaustic") &&
     !waterMaterial.includes("createWaterBedTexture") &&
     !waterMaterial.includes("bedTexture"),
   "The water surface must not own bed pebbles, algae, or caustics.",
 );
 assert(
-  waterShader.includes("waterTransmittance") &&
-    waterShader.includes("uWaterAbsorption") &&
-    waterShader.includes("uWaterFresnelF0") &&
-    !waterShader.includes("waterFresnelOpacity"),
+  waterSurfaceProgram.includes("waterTransmittance") &&
+    waterSurfaceProgram.includes("uWaterAbsorption") &&
+    waterSurfaceProgram.includes("uWaterFresnelF0") &&
+    !waterSurfaceProgram.includes("waterFresnelOpacity"),
   "Optical depth must drive transmittance, and Fresnel must not own surface alpha.",
 );
 assert(

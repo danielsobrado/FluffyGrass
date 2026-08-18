@@ -136,10 +136,6 @@ detailScale: 0.0055
 # cells create lowland lakes. Humidity reaches farther than the visible water.
 waterEnabled: 1
 # Water optics preset. 0 keeps the standard single-pass surface; 1 turns on the
-# richer depth extinction and Fresnel balance, selectable from the river HUD
-# menu rather than being the default.
-waterQuality: 0
-# Water optics preset. 0 keeps the standard single-pass surface; 1 turns on the
 # richer depth extinction and Fresnel balance, which costs real fragment time
 # and is selectable from the river HUD menu rather than being the default.
 waterQuality: 0

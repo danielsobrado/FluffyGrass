@@ -99,8 +99,6 @@ export interface WorldConfig {
   waterEnabled: number;
   /** 0 standard, 1 high: richer water optics at a real fragment cost. */
   waterQuality: number;
-  /** 0 standard, 1 high: richer water optics at a real fragment cost. */
-  waterQuality: number;
   riverWidth: number;
   riverBankWidth: number;
   riverDepth: number;
