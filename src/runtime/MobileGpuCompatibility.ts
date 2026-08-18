@@ -5,7 +5,7 @@ const COMPACT_MIP_SAMPLE =
   "return textureLod(uAtlas, atlasUv, log2(max(texelsPerPixel, 1.0)));";
 const BASE_LEVEL_SAMPLE = "return textureLod(uAtlas, atlasUv, 0.0);";
 const ALPHA_CUTOFF_MARKER = "  float cutoff = mix(";
-const INVALID_ATLAS_GUARD = `  // Transparent canvas texels must never become opaque black card pixels.\n  if (atlasColor.a > 0.99 && dot(atlasColor.rgb, atlasColor.rgb) < 1e-6) {\n    discard;\n  }\n\n`;
+const INVALID_ATLAS_GUARD = `  bool validAtlasSample =\n    atlasColor.a >= 0.0 && atlasColor.a <= 1.0 &&\n    all(greaterThanEqual(atlasColor.rgb, vec3(0.0))) &&\n    all(lessThanEqual(atlasColor.rgb, vec3(1.0)));\n  // Transparent canvas texels must never become opaque black card pixels.\n  if (\n    !validAtlasSample ||\n    (atlasColor.a > 0.99 && dot(atlasColor.rgb, atlasColor.rgb) < 1e-6)\n  ) {\n    discard;\n  }\n\n`;
 
 type ShaderSourceFunction = (shader: WebGLShader, source: string) => void;
 type ShaderSourcePrototype = {
