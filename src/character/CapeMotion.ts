@@ -40,7 +40,6 @@ import {
 } from "./CapeMotionTuning";
 
 const TWO_PI = Math.PI * 2;
-const COMPACT_VIEWPORT = "compact";
 
 export interface CapeMotionInput {
   forwardVelocity: number;
@@ -72,7 +71,7 @@ export class CapeMotion {
     bendX: CAPE_BASE_BACK_ANGLE,
     bendZ: 0,
   };
-  private readonly geometry?: CapeMotionGeometry;
+  private readonly geometry: CapeMotionGeometry;
   private elapsedSeconds = 0;
   private airborneTime = 0;
   private airborneBlend = 0;
@@ -85,9 +84,7 @@ export class CapeMotion {
     private readonly left: THREE.Object3D,
     private readonly right: THREE.Object3D,
   ) {
-    if (dynamicCapeGeometryEnabled()) {
-      this.geometry = new CapeMotionGeometry(back, left, right);
-    }
+    this.geometry = new CapeMotionGeometry(back, left, right);
     this.reset();
   }
 
@@ -260,7 +257,7 @@ export class CapeMotion {
       movementFlutter,
       CAPE_AIRBORNE_FLUTTER_STRENGTH * this.airborneBlend,
     );
-    this.geometry?.update(
+    this.geometry.update(
       this.elapsedSeconds,
       tailBendX,
       tailBendZ,
@@ -299,7 +296,7 @@ export class CapeMotion {
       0,
       CAPE_SIDE_REST_ANGLE,
     );
-    this.geometry?.update(0, 0, 0, 0);
+    this.geometry.update(0, 0, 0, 0);
   }
 
   private calculateAcceleration(
@@ -318,13 +315,6 @@ export class CapeMotion {
       1,
     );
   }
-}
-
-function dynamicCapeGeometryEnabled(): boolean {
-  return (
-    typeof document === "undefined" ||
-    document.documentElement.dataset.viewport !== COMPACT_VIEWPORT
-  );
 }
 
 function finiteOrZero(value: number): number {
