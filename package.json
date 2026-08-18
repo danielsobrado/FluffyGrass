@@ -51,7 +51,7 @@
     "test:grass-streaming-performance": "node scripts/verify-grass-streaming-performance.mjs",
     "test:grass-performance": "node scripts/verify-grass-performance.mjs",
     "test:grass-placement": "node scripts/verify-grass-placement.mjs",
-    "test:impostor-subpatch": "node scripts/verify-impostor-subpatch-stability.mjs",
+    "test:impostor-subpatch": "node scripts/verify-impostor-subpatch.mjs",
     "test:impostor-alpha": "node scripts/verify-impostor-alpha-stability.mjs",
     "test:impostor-lifecycle": "node scripts/verify-impostor-lifecycle.mjs",
     "test:character-motion": "node scripts/verify-character-motion.mjs",
