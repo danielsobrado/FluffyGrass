@@ -1,4 +1,5 @@
 import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
+import { installMobileGpuCompatibility } from "./runtime/MobileGpuCompatibility";
 import { UiVisibilityController } from "./runtime/UiVisibilityController";
 import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
 import { APP_VERSION, BUILD_LABEL } from "./version";
@@ -71,6 +72,7 @@ async function bootstrap(): Promise<void> {
     document.documentElement.dataset.viewport = profile.compact
       ? "compact"
       : "desktop";
+    installMobileGpuCompatibility(profile.compact);
 
     const sceneMode = params.get("scene") === "island" ? "island" : "world";
     const flyMode =
