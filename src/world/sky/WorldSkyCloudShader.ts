@@ -98,9 +98,19 @@ vec3 applyWorldClouds(vec3 skyColor, vec3 direction) {
   vec3 color = mix(skyColor, cloudColor, alpha);
 
 #ifdef WORLD_CLOUD_GOD_RAYS
+  vec3 rayTangent = normalize(
+    cross(uSkySunDirection, vec3(0.0, 1.0, 0.0)) + vec3(0.0001)
+  );
+  vec3 rayBitangent = normalize(cross(uSkySunDirection, rayTangent));
+  vec2 rayLocal = vec2(
+    dot(direction, rayTangent),
+    dot(direction, rayBitangent)
+  );
+  float rayAngle = atan(rayLocal.y, rayLocal.x);
+  float rayBands = 0.5 + 0.5 * sin(rayAngle * 17.0 + detailAmount * 5.0);
   float clearOpening = 1.0 - density;
-  float shaftShape = smoothstep(0.42, 0.78, detailAmount);
-  float shaftCone = pow(sunFacing, 5.0);
+  float shaftShape = smoothstep(0.56, 0.88, rayBands);
+  float shaftCone = pow(sunFacing, 7.0);
   float edgeGate = 0.35 + silverEdge * 2.4;
   float godRay =
     shaftCone * clearOpening * shaftShape * edgeGate * horizonFade;
