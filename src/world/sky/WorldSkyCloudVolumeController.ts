@@ -16,7 +16,7 @@ export class WorldSkyCloudVolumeController {
 
   constructor(
     private readonly scene: THREE.Scene,
-    private readonly renderer: THREE.WebGLRenderer,
+    renderer: THREE.WebGLRenderer,
     private readonly mesh: SkyMesh,
     profile: RuntimeProfile,
   ) {
