@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import { WorldVisibilityProbe } from "../render/visibility/WorldVisibilityProbe";
 import { GpuFrameTimer } from "./GpuFrameTimer";
 import {
   GrassWorkloadProbe,
@@ -20,6 +21,8 @@ export class WorldDiagnosticsController {
   private readonly probe: GrassWorkloadProbe;
   private readonly gpuTimer: GpuFrameTimer;
   private readonly hud: WorldDiagnosticsHud;
+  private readonly visibility = new WorldVisibilityProbe();
+  private lastCamera?: THREE.Camera;
   private lastHudUpdate = 0;
   private enabled = true;
   private disposed = false;
@@ -91,6 +94,7 @@ export class WorldDiagnosticsController {
       this.originalRender.call(this.renderer, scene, camera);
       return;
     }
+    this.lastCamera = camera;
 
     try {
       this.probe.prepareFrame();
@@ -120,7 +124,16 @@ export class WorldDiagnosticsController {
       return;
     }
     this.lastHudUpdate = now;
-    this.hud.update(this.probe.getSnapshot(), this.gpuTimer.getStats());
+    // Sampled on the HUD's own cadence: the traversal walks the scene graph,
+    // which is affordable four times a second and not once a frame.
+    if (this.lastCamera) {
+      this.visibility.sample(this.scene, this.lastCamera, this.renderer.info);
+    }
+    this.hud.update(
+      this.probe.getSnapshot(),
+      this.gpuTimer.getStats(),
+      this.visibility.getSnapshot(),
+    );
   }
 
   private disableAfterFailure(error: unknown): void {

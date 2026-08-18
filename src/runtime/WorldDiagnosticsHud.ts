@@ -1,3 +1,4 @@
+import type { WorldVisibilitySnapshot } from "../render/visibility/WorldVisibilityProbe";
 import type { GpuFrameTimingStats } from "./GpuFrameTimer";
 import type { GrassWorkloadSnapshot } from "./GrassWorkloadProbe";
 
@@ -9,6 +10,7 @@ export class WorldDiagnosticsHud {
   private renderedText = "";
   private snapshot?: GrassWorkloadSnapshot;
   private gpu?: GpuFrameTimingStats;
+  private visibility?: WorldVisibilitySnapshot;
 
   constructor() {
     if (!this.element) {
@@ -23,9 +25,14 @@ export class WorldDiagnosticsHud {
     });
   }
 
-  update(snapshot: GrassWorkloadSnapshot, gpu: GpuFrameTimingStats): void {
+  update(
+    snapshot: GrassWorkloadSnapshot,
+    gpu: GpuFrameTimingStats,
+    visibility?: WorldVisibilitySnapshot,
+  ): void {
     this.snapshot = snapshot;
     this.gpu = gpu;
+    this.visibility = visibility;
     this.render();
   }
 
@@ -72,6 +79,10 @@ export class WorldDiagnosticsHud {
       output.push(...formatWorkloadLines(this.snapshot));
     }
 
+    if (this.visibility?.ready) {
+      output.push(formatVisibilityLine(this.visibility));
+    }
+
     const rendered = output.filter(Boolean).join("\n");
     if (rendered === this.renderedText) {
       return;
@@ -98,6 +109,30 @@ function formatWorkloadLines(snapshot: GrassWorkloadSnapshot): string[] {
     `Near resident ${formatCompact(snapshot.nearResidentUniqueInstances)} unique · submit ${formatCompact(nearSubmitted)} inst / ${formatCompact(snapshot.nearSubmittedTriangles)} tris`,
     `Mid submit ${formatInteger(snapshot.midSubmittedBlades)} blades / ${formatCompact(snapshot.midSubmittedVertices)} verts · Far ${formatInteger(snapshot.farSubmittedCards)} cards · Accents ${formatInteger(snapshot.accentSubmittedCards)} cards`,
   ];
+}
+
+/**
+ * The submission funnel, phrased so the interesting number leads.
+ *
+ * `unculled` is what decides whether spatial partitioning is worth building: it
+ * counts meshes that bypass frustum culling entirely and are therefore drawn
+ * whichever way the camera faces.
+ */
+function formatVisibilityLine(snapshot: WorldVisibilitySnapshot): string {
+  const tested = snapshot.frustumVisible + snapshot.frustumRejected;
+  const rejectedShare =
+    tested > 0 ? Math.round((snapshot.frustumRejected / tested) * 100) : 0;
+  const pending =
+    snapshot.boundsPending > 0
+      ? ` · pending ${formatInteger(snapshot.boundsPending)}`
+      : "";
+  return [
+    `Vis ${formatInteger(snapshot.renderables)} meshes`,
+    `unculled ${formatInteger(snapshot.unculled)}`,
+    `frustum ${formatInteger(snapshot.frustumVisible)} vis / ${formatInteger(snapshot.frustumRejected)} rej (${rejectedShare}%)`,
+    `inst ${formatCompact(snapshot.submittedInstances)}${pending}`,
+    `probe ${Math.round(snapshot.sampleMicroseconds)}µs`,
+  ].join(" · ");
 }
 
 function formatGpuTiming(stats: GpuFrameTimingStats): string {
