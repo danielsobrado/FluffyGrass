@@ -1,0 +1,114 @@
+export const WORLD_SKY_CLOUD_GLSL = /* glsl */ `
+float cloudHash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float cloudValueNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 local = fract(p);
+  vec2 blend = local * local * (3.0 - 2.0 * local);
+  float a = cloudHash12(cell);
+  float b = cloudHash12(cell + vec2(1.0, 0.0));
+  float c = cloudHash12(cell + vec2(0.0, 1.0));
+  float d = cloudHash12(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+}
+
+float cloudFbm(vec2 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  float weight = 0.0;
+  mat2 rotation = mat2(0.8, 0.6, -0.6, 0.8);
+#ifdef WORLD_CLOUD_COMPACT
+  const int octaveCount = 2;
+#else
+  const int octaveCount = 3;
+#endif
+  for (int octave = 0; octave < octaveCount; ++octave) {
+    value += cloudValueNoise(p) * amplitude;
+    weight += amplitude;
+    p = rotation * p * 2.02 + vec2(11.7, -7.3);
+    amplitude *= 0.5;
+  }
+  return value / max(weight, 0.0001);
+}
+
+float cloudWeather(vec2 worldPosition) {
+  vec2 macroPosition = worldPosition + uCloudWind * uTime;
+  return cloudValueNoise(
+    macroPosition * uCloudWeatherScale + vec2(-73.1, 52.8)
+  );
+}
+
+float cloudDensity(
+  vec2 worldPosition,
+  out float weatherAmount,
+  out float detailAmount
+) {
+  vec2 macroPosition = worldPosition + uCloudWind * uTime;
+  vec2 detailPosition = worldPosition + uCloudDetailWind * uTime;
+  vec2 macroUv = macroPosition * uCloudMacroScale;
+  float macro = cloudFbm(macroUv);
+  float warp = cloudValueNoise(macroUv * 2.35 + vec2(17.13, -9.71));
+  detailAmount = cloudValueNoise(
+    detailPosition * uCloudDetailScale + vec2(41.7, -26.4)
+  );
+  weatherAmount = smoothstep(0.28, 0.78, cloudWeather(worldPosition));
+  float threshold = uCloudCoverage + (0.5 - weatherAmount) * 0.11;
+  float field = macro + (warp - 0.5) * 0.2 + (detailAmount - 0.5) * 0.1;
+  return smoothstep(
+    threshold - uCloudSoftness,
+    threshold + uCloudSoftness,
+    field
+  );
+}
+
+vec2 cloudPlanePosition(vec3 direction) {
+  float heightScale = uCloudBaseHeight / max(direction.y, 0.075);
+  return uCloudWorldOffset + direction.xz * heightScale;
+}
+
+vec3 applyWorldClouds(vec3 skyColor, vec3 direction) {
+#ifndef WORLD_CLOUDS
+  return skyColor;
+#else
+  if (direction.y <= 0.015) {
+    return skyColor;
+  }
+
+  vec2 worldPosition = cloudPlanePosition(direction);
+  float weatherAmount = 0.0;
+  float detailAmount = 0.0;
+  float density = cloudDensity(worldPosition, weatherAmount, detailAmount);
+  float horizonFade = smoothstep(0.025, 0.18, direction.y);
+  float alpha = density * uCloudOpacity * horizonFade;
+
+  float sunFacing = max(dot(direction, uSkySunDirection), 0.0);
+  vec2 sunPlanar = normalize(uSkySunDirection.xz + vec2(0.0001));
+  float silverEdge =
+    density * (1.0 - density) * smoothstep(0.38, 0.78, detailAmount);
+  float sunLift = pow(sunFacing, 3.0) * 0.22 + silverEdge * 1.75;
+  float overcast = smoothstep(0.66, 0.95, weatherAmount);
+  vec3 cloudBase = mix(uCloudAmbientColor, uCloudShadowColor, 0.30 + overcast * 0.18);
+  vec3 cloudColor = mix(cloudBase, uCloudSunlitColor, clamp(sunLift, 0.0, 0.82));
+
+  float hazeBlend = 1.0 - smoothstep(0.025, 0.13, direction.y);
+  cloudColor = mix(cloudColor, uSkyHaze, hazeBlend * 0.72);
+  vec3 color = mix(skyColor, cloudColor, alpha);
+
+#ifdef WORLD_CLOUD_GOD_RAYS
+  float clearOpening = 1.0 - density;
+  float shaftShape = smoothstep(0.42, 0.78, detailAmount);
+  float shaftCone = pow(sunFacing, 5.0);
+  float edgeGate = 0.35 + silverEdge * 2.4;
+  float godRay =
+    shaftCone * clearOpening * shaftShape * edgeGate * horizonFade;
+  color += uSkySunColor * godRay * uGodRayStrength;
+#endif
+
+  return color;
+#endif
+}
+`;
