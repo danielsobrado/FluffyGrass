@@ -11,8 +11,15 @@
   const BASE_LEVEL_SAMPLE = "return textureLod(uAtlas, atlasUv, 0.0);";
   const ALPHA_CUTOFF_MARKER = "  float cutoff = mix(";
   const INVALID_ATLAS_GUARD =
+    "  bool validAtlasSample =\n" +
+    "    atlasColor.a >= 0.0 && atlasColor.a <= 1.0 &&\n" +
+    "    all(greaterThanEqual(atlasColor.rgb, vec3(0.0))) &&\n" +
+    "    all(lessThanEqual(atlasColor.rgb, vec3(1.0)));\n" +
     "  // Transparent canvas texels must never become opaque black card pixels.\n" +
-    "  if (atlasColor.a > 0.99 && dot(atlasColor.rgb, atlasColor.rgb) < 1e-6) {\n" +
+    "  if (\n" +
+    "    !validAtlasSample ||\n" +
+    "    (atlasColor.a > 0.99 && dot(atlasColor.rgb, atlasColor.rgb) < 1e-6)\n" +
+    "  ) {\n" +
     "    discard;\n" +
     "  }\n\n";
 
