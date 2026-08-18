@@ -20,6 +20,8 @@ function assert(condition, message) {
 
 const materials = read("src/character/SnowflowCharacterMaterials.ts");
 const geometry = read("src/character/SnowflowCharacterGeometry.ts");
+const bootGeometry = read("src/character/DrowBootGeometry.ts");
+const bootTuning = read("src/character/DrowBootGeometryTuning.ts");
 const features = read("src/character/DrowCharacterFeatures.ts");
 const character = read("src/character/SnowflowCharacter.ts");
 const importedActor = read("src/character/gltf/GltfHumanoidActor.ts");
@@ -50,6 +52,18 @@ assert(
       geometry,
     ),
   "Character rig construction must publish only after body/costume completion and track geometry before mesh attachment can fail.",
+);
+
+assert(
+  geometry.includes("addDrowBootGeometry(foot, geometries, materials)") &&
+    /function addMesh\([\s\S]*?geometries\.push\(geometry\);[\s\S]*?const mesh = new THREE\.Mesh\(geometry, material\)/.test(
+      bootGeometry,
+    ) &&
+    bootTuning.includes('from "./rig/HumanoidRigTuning"') &&
+    bootTuning.includes(
+      "-HUMANOID_ANKLE_TO_SOLE + SOLE_RADIUS * SOLE_VERTICAL_SCALE",
+    ),
+  "Boot geometry must remain owned by the character lifecycle and derive its contact plane from the humanoid sole contract.",
 );
 
 assert(
