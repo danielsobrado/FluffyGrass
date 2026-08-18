@@ -11,23 +11,25 @@ import { ThirdPersonController } from "../controls/ThirdPersonController";
 import type { WorldController } from "../controls/WorldController";
 import type { SnowflowCharacter } from "../character/SnowflowCharacter";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
-import { resolvePixelRatio, resolveViewportSize } from "../runtime/ViewportSizing";
-import { APP_VERSION } from "../version";
+import { resolveViewportSize } from "../runtime/ViewportSizing";
+import type { WorldVisibilityConfig } from "../render/visibility/WorldVisibilityConfig";
+import { WorldVisibilitySystem } from "../render/visibility/WorldVisibilitySystem";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
 import { StoneField } from "../world/stones/StoneField";
 import { WorldStoneSystem } from "../world/stones/WorldStoneSystem";
 import { TerrainField } from "../world/TerrainField";
 import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
-import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 import { GrassArtMenu } from "./GrassArtMenu";
 import { DetailFoliageTuningMenu } from "./DetailFoliageTuningMenu";
 import { WorldEnvironmentController } from "./WorldEnvironmentController";
+import { loadWorldAppConfiguration } from "./WorldAppConfiguration";
 import { WorldMinimap } from "./WorldMinimap";
 import { WorldFrameMetrics, type WorldFrameSubsystem } from "./WorldFrameMetrics";
 import { WorldRuntimeGuard } from "./WorldRuntimeGuard";
 import { WorldStatusHud } from "./WorldStatusHud";
+import { WorldViewportController } from "./WorldViewportController";
 import { attachWorldStatsPanel } from "./WorldStatsPanel";
 import type { WorldActorProofContext } from "./WorldActorProofContext";
 import type { WorldVisualMatrixContext } from "./WorldVisualMatrixContext";
@@ -49,6 +51,7 @@ export class WorldApp {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly viewport: WorldViewportController;
   private readonly clock = new THREE.Clock();
   private stats?: Stats;
   private artMenu?: GrassArtMenu;
@@ -63,12 +66,11 @@ export class WorldApp {
   private readonly minimap: WorldMinimap;
   private readonly environment: WorldEnvironmentController;
   private readonly scenic: WorldScenicLayer;
+  private readonly visibility: WorldVisibilitySystem;
   private readonly reveal: WorldRevealController;
   private readonly frameMetrics = new WorldFrameMetrics();
   private readonly runtimeGuard: WorldRuntimeGuard;
   private readonly statusHud = new WorldStatusHud(document.querySelector<HTMLElement>("#world-stats"));
-  private readonly drawingBufferSize = new THREE.Vector2();
-  private pixelRatio = 1;
   private readonly flyMode: boolean;
   private frameHandle = 0;
   private watchdogHandle = 0;
@@ -92,6 +94,7 @@ export class WorldApp {
     canvas: HTMLCanvasElement,
     private readonly profile: RuntimeProfile,
     private readonly worldConfig: WorldConfig,
+    visibilityConfig: WorldVisibilityConfig,
   ) {
     const config = this.worldConfig;
     this.camera = new THREE.PerspectiveCamera(
@@ -108,6 +111,7 @@ export class WorldApp {
       precision: "highp",
       powerPreference: "high-performance",
     });
+    this.viewport = new WorldViewportController(this.renderer, this.camera, profile);
 
     let environment: WorldEnvironmentController | undefined;
     let terrain: TerrainStreamer | undefined;
@@ -124,11 +128,12 @@ export class WorldApp {
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       this.renderer.shadowMap.enabled = profile.shadows;
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
-      this.applyRendererSize();
+      this.viewport.initialize();
 
       this.field = new TerrainField(config);
-      const stoneField = new StoneField(this.field, config);
-      const spawn = new DenseSpawnLocator(this.field, config, stoneField).find();
+      this.visibility = new WorldVisibilitySystem(this.field, visibilityConfig);
+      this.viewport.attachVisibility(this.visibility);
+      const stoneField = new StoneField(this.field, config, stoneField).find();
       const params = new URLSearchParams(window.location.search);
       const useFlyControls =
         params.get("control") === "fly" || params.get("view") === "aerial";
@@ -157,18 +162,19 @@ export class WorldApp {
         this.scene,
         stoneField,
         config,
+        visibilityConfig,
         profile.compact,
         profile.shadows && !useFlyControls,
       );
       this.stones = stones;
       grass = new WorldGrassSystem(this.scene, this.field, config, profile);
       this.grass = grass;
+      this.viewport.attachGrass(this.grass);
 
       const tierOverride = params.get("tier");
       if (tierOverride !== null && /^\d+$/.test(tierOverride)) {
         this.grass.setQualityTierOverride(Number(tierOverride));
       }
-      this.applyGrassViewportScale();
       grassTrailField.configure({
         resolution: config.grassTrailResolution,
         coverage: config.grassTrailCoverage,
@@ -212,6 +218,7 @@ export class WorldApp {
         this.scene,
         this.field,
         config,
+        visibilityConfig,
         profile,
         spawn.position,
         profile.shadows && !useFlyControls,
@@ -249,6 +256,7 @@ export class WorldApp {
       disposeConstructionSafely("Grass system", () => grass?.dispose());
       disposeConstructionSafely("Stone system", () => stones?.dispose());
       disposeConstructionSafely("Terrain streamer", () => terrain?.dispose());
+      disposeConstructionSafely("Visibility system", () => this.visibility?.dispose());
       disposeConstructionSafely("Environment", () => environment?.dispose());
       disposeConstructionSafely("Renderer", () => this.renderer.dispose());
       throw error;
@@ -259,17 +267,14 @@ export class WorldApp {
     canvas: HTMLCanvasElement,
     profile: RuntimeProfile,
   ): Promise<WorldApp> {
-    const params = new URLSearchParams(window.location.search);
-    const loaded = await new WorldConfigLoader().load(
-      `./config/world.yaml?v=${encodeURIComponent(APP_VERSION)}`,
+    const configuration = await loadWorldAppConfiguration();
+    const { params } = configuration;
+    const app = new WorldApp(
+      canvas,
+      profile,
+      configuration.world,
+      configuration.visibility,
     );
-    const config =
-      params.get("riverTuning") === "1"
-        ? (await import("../dev/RiverDevelopmentConfig")).applyRiverDevelopmentConfig(
-            loaded,
-          )
-        : loaded;
-    const app = new WorldApp(canvas, profile, config);
     if (profile.showGui && params.get("riverTuning") === "1") {
       try {
         await app.attachRiverArtMenu();
@@ -389,6 +394,7 @@ export class WorldApp {
     this.disposeSafely("Terrain streamer", () => this.terrain.dispose());
     this.disposeSafely("Stone system", () => this.stones.dispose());
     this.disposeGrassResources();
+    this.disposeSafely("Visibility system", () => this.visibility.dispose());
     this.disposeSafely("Stats panel", () => this.stats?.dom.remove());
     this.stats = undefined;
     this.disposeSafely("Grass art menu", () => this.artMenu?.dispose());
@@ -522,8 +528,9 @@ export class WorldApp {
       this.controls.update(deltaSeconds);
     }
     const focus = this.controls.getStreamingPosition();
+    this.visibility.update(this.camera);
     this.environment.updateShadow(focus);
-    this.scenic.update(deltaSeconds, focus);
+    this.scenic.update(deltaSeconds, focus, this.visibility);
     this.reveal.noteHeroRing(
       !this.grassInitializing && this.grassEnabled,
       this.grassEnabled && this.grass.isHeroRingReady() ? 4 : 0,
@@ -549,7 +556,11 @@ export class WorldApp {
       ? WORLD_COMPACT_GRASS_BUILD_RESERVE_MS
       : WORLD_DESKTOP_GRASS_BUILD_RESERVE_MS;
     const stoneBuildDeadline = this.streamingBuildDeadline - grassBuildReserveMs;
-    this.stones.update(this.controls.getStreamingPosition(), stoneBuildDeadline);
+    this.stones.update(
+      this.controls.getStreamingPosition(),
+      stoneBuildDeadline,
+      this.visibility,
+    );
   };
 
   private readonly updateGrass = (deltaSeconds: number): void => {
@@ -629,26 +640,6 @@ export class WorldApp {
     }
   }
 
-  private applyRendererSize(): void {
-    const viewport = resolveViewportSize();
-    this.pixelRatio = resolvePixelRatio(this.profile.maxPixelRatio);
-    this.renderer.setPixelRatio(this.pixelRatio);
-    this.renderer.setSize(viewport.width, viewport.height);
-  }
-
-  private applyGrassViewportScale(): void {
-    const bufferHeight = this.renderer.getDrawingBufferSize(
-      this.drawingBufferSize,
-    ).y;
-    if (bufferHeight <= 0) {
-      return;
-    }
-    const halfFovTangent = Math.tan(
-      THREE.MathUtils.degToRad(this.camera.fov) * 0.5,
-    );
-    this.grass.setViewportPixelScale((2 * halfFovTangent) / bufferHeight);
-  }
-
   private readonly updateHud = (deltaSeconds: number): void => {
     this.minimap.update();
     if (!this.statusHud.shouldUpdate(deltaSeconds)) {
@@ -657,6 +648,7 @@ export class WorldApp {
     const terrain = this.terrain.getDiagnostics();
     const stones = this.stones.getDiagnostics();
     const grass = this.grass.getDiagnostics();
+    const visibility = this.visibility.getDiagnostics();
     const focus = this.controls.getStreamingPosition();
     this.statusHud.render({
       frameCount: this.frameMetrics.getFrameCount(),
@@ -671,9 +663,10 @@ export class WorldApp {
       terrain,
       stones,
       grass,
+      visibility,
       grassInitializationError: this.grassInitializationError,
       render: this.renderer.info.render,
-      pixelRatio: this.pixelRatio,
+      pixelRatio: this.viewport.getPixelRatio(),
       frameTimings: this.frameMetrics.getTimings(),
     });
   };
@@ -689,13 +682,9 @@ export class WorldApp {
   }
 
   private readonly handleResize = (): void => {
-    if (this.disposed) {
-      return;
+    if (!this.disposed) {
+      this.viewport.resize();
     }
-    this.camera.aspect = resolveViewportSize().aspect;
-    this.camera.updateProjectionMatrix();
-    this.applyRendererSize();
-    this.applyGrassViewportScale();
   };
 }
 

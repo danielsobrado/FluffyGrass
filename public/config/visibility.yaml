@@ -1,0 +1,29 @@
+# Camera visibility pipeline. Streaming keeps world data resident; these gates
+# remove resident render cells that cannot contribute useful pixels this frame.
+screenSpaceEnabled: 1
+terrainOcclusionEnabled: 0
+
+# Trees keep instancing, but are split into bounded spatial cells so frustum and
+# terrain occlusion can reject a useful fraction without exploding draw calls.
+scenicCellSize: 64
+treeMinPixels: 1.0
+
+# Merged stone batches use the largest stone scale as their screen-space feature
+# size. The safety multiplier accounts for wide archetypes such as slabs/outcrops.
+stoneMinPixels: 0.85
+stoneFeatureRadiusScale: 1.65
+
+# Conservative procedural-terrain occlusion. Keep disabled in the shipped profile
+# until visual regression covers ridge edges; the implementation is available for profiling.
+terrainOcclusionNearDistance: 36
+terrainOcclusionStep: 18
+terrainOcclusionMaxSamples: 18
+terrainOcclusionHeightBias: 2.5
+terrainOcclusionRayCount: 3
+
+# Static terrain results are reused until the camera has translated this far.
+occlusionReuseDistance: 0.75
+
+# Preserve nearby directional-shadow casters even when camera visibility rejects
+# them. Beyond this range trees/stones can be culled without shadow-pass work.
+shadowDistance: 52

@@ -41,6 +41,17 @@ interface GrassSnapshot {
   maxNearTileBuildMs: number;
 }
 
+interface VisibilitySnapshot {
+  candidates: number;
+  accepted: number;
+  frustumRejected: number;
+  screenRejected: number;
+  terrainRejected: number;
+  terrainTests: number;
+  terrainSamples: number;
+  occlusionCacheHits: number;
+}
+
 interface RenderSnapshot {
   calls: number;
   triangles: number;
@@ -67,6 +78,7 @@ export interface WorldStatusSnapshot {
   terrain: TerrainSnapshot;
   stones: StoneSnapshot;
   grass: GrassSnapshot;
+  visibility: VisibilitySnapshot;
   grassInitializationError?: string;
   render: RenderSnapshot;
   pixelRatio: number;
@@ -114,6 +126,7 @@ export class WorldStatusHud {
         ? `Grass ${snapshot.grass.clumps.toLocaleString()} patches · ${snapshot.grass.blades.toLocaleString()} blades · ${snapshot.grass.impostors.toLocaleString()} impostors`
         : grassStatus,
       `Draws ${snapshot.render.calls} · Triangles ${snapshot.render.triangles.toLocaleString()} · Scale ${snapshot.pixelRatio.toFixed(2)} · Build ${snapshot.grass.lastBuildMs.toFixed(1)} / peak ${snapshot.grass.maxBuildMs.toFixed(1)} ms`,
+      `Visibility ${snapshot.visibility.accepted}/${snapshot.visibility.candidates} kept · frustum ${snapshot.visibility.frustumRejected} · tiny ${snapshot.visibility.screenRejected} · terrain ${snapshot.visibility.terrainRejected} · LOS ${snapshot.visibility.terrainTests}/${snapshot.visibility.terrainSamples} · cache ${snapshot.visibility.occlusionCacheHits}`,
       `Grass submit mid ${snapshot.grass.submittedMidVertices.toLocaleString()} verts · far ${snapshot.grass.submittedFarInstances.toLocaleString()} inst · quality T${snapshot.grass.qualityTier} ${snapshot.grass.qualityTierSeconds.toFixed(1)}s (${snapshot.grass.qualityDensityScale.toFixed(2)})`,
       `Frame ctrl ${snapshot.frameTimings.controls.toFixed(2)} · terr ${snapshot.frameTimings.terrain.toFixed(2)} · stone ${snapshot.frameTimings.stones.toFixed(2)} · grass ${snapshot.frameTimings.grass.toFixed(2)} · draw ${snapshot.frameTimings.renderer.toFixed(2)} ms`,
       `Near tiles ${snapshot.grass.nearTiles.toLocaleString()} · Tile build ${snapshot.grass.nearTileBuildMs.toFixed(1)} / peak ${snapshot.grass.maxNearTileBuildMs.toFixed(1)} ms`,

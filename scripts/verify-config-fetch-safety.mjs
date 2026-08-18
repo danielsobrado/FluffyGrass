@@ -22,6 +22,9 @@ const fetchLoader = read("src/config/ConfigTextLoader.ts");
 const runtimeLoader = read("src/runtime/RuntimeConfigLoader.ts");
 const worldLoader = read("src/world/WorldConfigLoader.ts");
 const grassLoader = read("src/grass/internal/GrassConfigLoader.ts");
+const visibilityLoader = read(
+  "src/render/visibility/WorldVisibilityConfigLoader.ts",
+);
 
 assert(
   fetchLoader.includes("const CONFIG_FETCH_TIMEOUT_MS = 15_000") &&
@@ -39,6 +42,7 @@ for (const [name, source, label] of [
   ["Runtime", runtimeLoader, "runtime config"],
   ["World", worldLoader, "world config"],
   ["Grass", grassLoader, "grass config"],
+  ["Visibility", visibilityLoader, "world visibility config"],
 ]) {
   assert(
     source.includes("fetchConfigText") &&
@@ -49,5 +53,5 @@ for (const [name, source, label] of [
 }
 
 console.log(
-  "[config-fetch] Runtime, world, and grass startup configuration fetches are bounded and fail closed.",
+  "[config-fetch] Runtime, world, grass, and visibility startup configuration fetches are bounded and fail closed.",
 );
