@@ -8,6 +8,8 @@ const FBM_FREQUENCY = 2.02;
 const WEATHER_COVERAGE_SWING = 0.11;
 const WEATHER_CLEAR_THRESHOLD = 0.28;
 const WEATHER_OVERCAST_THRESHOLD = 0.78;
+const SHADOW_CENTER_WEIGHT = 0.36;
+const SHADOW_CARDINAL_WEIGHT = 0.16;
 
 export function sampleCloudDirectTransmittance(
   config: Readonly<RuntimeCloudConfig>,
@@ -19,16 +21,66 @@ export function sampleCloudDirectTransmittance(
   if (!config.enabled) {
     return 1;
   }
-  const density = sampleCloudDensity(
-    config,
-    compact,
-    worldX,
-    worldZ,
-    timeSeconds,
-  );
+  const radius = config.shadowSampleRadius;
+  const density =
+    sampleCloudDensity(config, compact, worldX, worldZ, timeSeconds) *
+      SHADOW_CENTER_WEIGHT +
+    sampleCloudDensity(
+      config,
+      compact,
+      worldX + radius,
+      worldZ,
+      timeSeconds,
+    ) *
+      SHADOW_CARDINAL_WEIGHT +
+    sampleCloudDensity(
+      config,
+      compact,
+      worldX - radius,
+      worldZ,
+      timeSeconds,
+    ) *
+      SHADOW_CARDINAL_WEIGHT +
+    sampleCloudDensity(
+      config,
+      compact,
+      worldX,
+      worldZ + radius,
+      timeSeconds,
+    ) *
+      SHADOW_CARDINAL_WEIGHT +
+    sampleCloudDensity(
+      config,
+      compact,
+      worldX,
+      worldZ - radius,
+      timeSeconds,
+    ) *
+      SHADOW_CARDINAL_WEIGHT;
   return Math.max(
     config.minimumDirectTransmittance,
     1 - density * config.shadowStrength,
+  );
+}
+
+export function sampleCloudWeatherAmount(
+  config: Readonly<RuntimeCloudConfig>,
+  worldX: number,
+  worldZ: number,
+  timeSeconds: number,
+): number {
+  if (!config.enabled) {
+    return 0;
+  }
+  const macroX = worldX + config.windX * timeSeconds;
+  const macroZ = worldZ + config.windZ * timeSeconds;
+  return smoothstep(
+    WEATHER_CLEAR_THRESHOLD,
+    WEATHER_OVERCAST_THRESHOLD,
+    valueNoise(
+      macroX * config.weatherScale - 73.1,
+      macroZ * config.weatherScale + 52.8,
+    ),
   );
 }
 
@@ -57,14 +109,11 @@ function sampleCloudDensity(
     detailX * config.detailScale + 41.7,
     detailZ * config.detailScale - 26.4,
   );
-  const weather = valueNoise(
-    macroX * config.weatherScale - 73.1,
-    macroZ * config.weatherScale + 52.8,
-  );
-  const weatherCoverage = smoothstep(
-    WEATHER_CLEAR_THRESHOLD,
-    WEATHER_OVERCAST_THRESHOLD,
-    weather,
+  const weatherCoverage = sampleCloudWeatherAmount(
+    config,
+    worldX,
+    worldZ,
+    timeSeconds,
   );
   const threshold =
     config.coverage + (0.5 - weatherCoverage) * WEATHER_COVERAGE_SWING;

@@ -1,15 +1,12 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
-import {
-  sampleCloudDirectTransmittance,
-  WORLD_CLOUD_TIME_WRAP_SECONDS,
-} from "../world/sky/WorldCloudWeather";
+import { WORLD_CLOUD_TIME_WRAP_SECONDS } from "../world/sky/WorldCloudWeather";
 import { WorldSky } from "../world/sky/WorldSky";
+import { WorldCloudEnvironmentLighting } from "./WorldCloudEnvironmentLighting";
 import {
   WORLD_DEFAULT_COMPACT_FOG_DENSITY,
   WORLD_DEFAULT_DESKTOP_FOG_DENSITY,
-  WORLD_DEFAULT_EXPOSURE,
   WORLD_DEFAULT_FOG,
   WORLD_DEFAULT_HEMISPHERE_GROUND,
   WORLD_DEFAULT_HEMISPHERE_INTENSITY,
@@ -35,13 +32,13 @@ export class WorldEnvironmentController {
   private readonly sun: THREE.DirectionalLight;
   private readonly hemisphere: THREE.HemisphereLight;
   private readonly sky: WorldSky;
+  private readonly cloudLighting: WorldCloudEnvironmentLighting;
   private readonly shadowMapSize: number;
   private readonly shadowTexelSize: number;
   private shadowFocusX = Number.NaN;
   private shadowFocusY = Number.NaN;
   private shadowFocusZ = Number.NaN;
   private elapsedSeconds = 0;
-  private cloudDirectTransmittance = 1;
   private disposed = false;
 
   constructor(
@@ -58,6 +55,13 @@ export class WorldEnvironmentController {
     this.sun = new THREE.DirectionalLight(
       WORLD_DEFAULT_SUN,
       WORLD_DEFAULT_SUN_INTENSITY,
+    );
+    this.cloudLighting = new WorldCloudEnvironmentLighting(
+      this.scene,
+      this.renderer,
+      this.profile,
+      this.sun,
+      this.hemisphere,
     );
     this.shadowMapSize = Math.max(
       1,
@@ -98,13 +102,7 @@ export class WorldEnvironmentController {
         ? WORLD_DEFAULT_COMPACT_FOG_DENSITY
         : WORLD_DEFAULT_DESKTOP_FOG_DENSITY,
     );
-    this.renderer.toneMappingExposure = WORLD_DEFAULT_EXPOSURE;
-    this.sun.color.set(WORLD_DEFAULT_SUN);
-    this.sun.intensity =
-      WORLD_DEFAULT_SUN_INTENSITY * this.cloudDirectTransmittance;
-    this.hemisphere.color.set(WORLD_DEFAULT_HEMISPHERE_SKY);
-    this.hemisphere.groundColor.set(WORLD_DEFAULT_HEMISPHERE_GROUND);
-    this.hemisphere.intensity = WORLD_DEFAULT_HEMISPHERE_INTENSITY;
+    this.cloudLighting.apply();
   }
 
   update(deltaSeconds: number, focus: THREE.Vector3): void {
@@ -120,7 +118,7 @@ export class WorldEnvironmentController {
       (this.elapsedSeconds + safeDelta) % WORLD_CLOUD_TIME_WRAP_SECONDS;
     this.updateShadow(focus);
     this.sky.update(this.elapsedSeconds, focus);
-    this.updateCloudLighting(safeDelta, focus);
+    this.cloudLighting.update(safeDelta, focus, this.elapsedSeconds);
   }
 
   updateShadow(focus: THREE.Vector3): void {
@@ -172,28 +170,6 @@ export class WorldEnvironmentController {
     disposeSafely(this.sky, "Sky");
     disposeSafely(this.sun.shadow, "Sun shadow");
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);
-  }
-
-  private updateCloudLighting(deltaSeconds: number, focus: THREE.Vector3): void {
-    const cloud = this.profile.cloud;
-    const cloudHeightAlongSun = cloud.baseHeight / Math.max(SUN_DIRECTION.y, 0.01);
-    const sampleX = focus.x + SUN_DIRECTION.x * cloudHeightAlongSun;
-    const sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun;
-    const target = sampleCloudDirectTransmittance(
-      cloud,
-      this.profile.compact,
-      sampleX,
-      sampleZ,
-      this.elapsedSeconds,
-    );
-    const blend = 1 - Math.exp(-cloud.lightResponseRate * deltaSeconds);
-    this.cloudDirectTransmittance = THREE.MathUtils.lerp(
-      this.cloudDirectTransmittance,
-      target,
-      blend,
-    );
-    this.sun.intensity =
-      WORLD_DEFAULT_SUN_INTENSITY * this.cloudDirectTransmittance;
   }
 
   private configureShadow(): void {

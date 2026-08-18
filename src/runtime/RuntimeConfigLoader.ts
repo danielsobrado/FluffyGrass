@@ -78,6 +78,14 @@ export class RuntimeConfigLoader {
         minimum: 100,
         maximum: 3000,
       }),
+      thickness: reader.number(key("Thickness"), {
+        minimum: 40,
+        maximum: 600,
+      }),
+      extinction: reader.number(key("Extinction"), {
+        exclusiveMinimum: 0,
+        maximum: 4,
+      }),
       macroScale: reader.number(key("MacroScale"), {
         exclusiveMinimum: 0,
         maximum: 0.02,
@@ -100,9 +108,21 @@ export class RuntimeConfigLoader {
         minimum: -100,
         maximum: 100,
       }),
+      selfShadowStrength: reader.number(key("SelfShadowStrength"), {
+        minimum: 0,
+        maximum: 1,
+      }),
+      silverLiningStrength: reader.number(key("SilverLiningStrength"), {
+        minimum: 0,
+        maximum: 3,
+      }),
       shadowStrength: reader.number(key("ShadowStrength"), {
         minimum: 0,
         maximum: 0.35,
+      }),
+      shadowSampleRadius: reader.number(key("ShadowSampleRadius"), {
+        minimum: 0,
+        maximum: 100,
       }),
       minimumDirectTransmittance: reader.number(
         key("MinimumDirectTransmittance"),
@@ -111,6 +131,10 @@ export class RuntimeConfigLoader {
       lightResponseRate: reader.number(key("LightResponseRate"), {
         exclusiveMinimum: 0,
         maximum: 5,
+      }),
+      weatherGradeStrength: reader.number(key("WeatherGradeStrength"), {
+        minimum: 0,
+        maximum: 1,
       }),
       godRays: reader.boolean(key("GodRays")),
       godRayStrength: reader.number(key("GodRayStrength"), {

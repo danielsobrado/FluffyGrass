@@ -4,6 +4,8 @@ export interface RuntimeCloudConfig {
   softness: number;
   opacity: number;
   baseHeight: number;
+  thickness: number;
+  extinction: number;
   macroScale: number;
   detailScale: number;
   weatherScale: number;
@@ -11,9 +13,13 @@ export interface RuntimeCloudConfig {
   windZ: number;
   detailWindX: number;
   detailWindZ: number;
+  selfShadowStrength: number;
+  silverLiningStrength: number;
   shadowStrength: number;
+  shadowSampleRadius: number;
   minimumDirectTransmittance: number;
   lightResponseRate: number;
+  weatherGradeStrength: number;
   godRays: boolean;
   godRayStrength: number;
   ambientColor: string;
