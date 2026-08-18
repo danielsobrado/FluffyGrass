@@ -346,11 +346,13 @@ export class HumanoidLocomotionLayer implements ActorLocomotionLayer {
     let rightThighX =
       stride * HUMANOID_THIGH_SWING * gaitBlend +
       this.crouchAmount * HUMANOID_CROUCH_THIGH_BEND;
+    // Planted-leg correction belongs to contact IK. Locomotion bends a knee
+    // through the airborne effector's swing arc, independent of side or duty factor.
     let leftShinX =
-      Math.max(0, stride) * HUMANOID_SHIN_SWING * gaitBlend +
+      kneeSwingWeight(gait, 0) * HUMANOID_SHIN_SWING * gaitBlend +
       this.crouchAmount * HUMANOID_CROUCH_SHIN_BEND;
     let rightShinX =
-      Math.max(0, oppositeStride) * HUMANOID_SHIN_SWING * gaitBlend +
+      kneeSwingWeight(gait, 1) * HUMANOID_SHIN_SWING * gaitBlend +
       this.crouchAmount * HUMANOID_CROUCH_SHIN_BEND;
 
     // 4. Foot-Roll Kinematics (Heel-Strike to Toe-Off)
@@ -550,3 +552,9 @@ function armSwing(stride: number, gaitBlend: number): number {
   );
 }
 
+function kneeSwingWeight(gait: ActorGait, effector: number): number {
+  if (gait.isInStance(effector)) {
+    return 0;
+  }
+  return Math.sin(gait.getSwingProgress(effector) * Math.PI);
+}
