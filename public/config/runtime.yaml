@@ -16,6 +16,27 @@ desktopShadowMapSize: 1024
 desktopShowGui: true
 desktopShowDecorativeText: true
 
+desktopCloudEnabled: true
+desktopCloudCoverage: 0.58
+desktopCloudSoftness: 0.11
+desktopCloudOpacity: 0.64
+desktopCloudBaseHeight: 720
+desktopCloudMacroScale: 0.00055
+desktopCloudDetailScale: 0.0022
+desktopCloudWeatherScale: 0.00016
+desktopCloudWindX: 8
+desktopCloudWindZ: 3
+desktopCloudDetailWindX: -2
+desktopCloudDetailWindZ: 7
+desktopCloudShadowStrength: 0.18
+desktopCloudMinimumDirectTransmittance: 0.82
+desktopCloudLightResponseRate: 0.7
+desktopCloudGodRays: true
+desktopCloudGodRayStrength: 0.14
+desktopCloudAmbientColor: "#d8e1e8"
+desktopCloudShadowColor: "#9fb0bf"
+desktopCloudSunlitColor: "#fff6e7"
+
 compactCameraFov: 56
 compactCameraMargin: 1.28
 compactCameraElevation: 1.05
@@ -25,3 +46,24 @@ compactShadows: false
 compactShadowMapSize: 1024
 compactShowGui: false
 compactShowDecorativeText: false
+
+compactCloudEnabled: true
+compactCloudCoverage: 0.60
+compactCloudSoftness: 0.12
+compactCloudOpacity: 0.58
+compactCloudBaseHeight: 720
+compactCloudMacroScale: 0.00055
+compactCloudDetailScale: 0.0020
+compactCloudWeatherScale: 0.00016
+compactCloudWindX: 8
+compactCloudWindZ: 3
+compactCloudDetailWindX: -2
+compactCloudDetailWindZ: 7
+compactCloudShadowStrength: 0.14
+compactCloudMinimumDirectTransmittance: 0.86
+compactCloudLightResponseRate: 0.65
+compactCloudGodRays: true
+compactCloudGodRayStrength: 0.09
+compactCloudAmbientColor: "#d8e1e8"
+compactCloudShadowColor: "#a8b7c3"
+compactCloudSunlitColor: "#fff6e7"
