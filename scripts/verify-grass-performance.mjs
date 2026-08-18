@@ -462,7 +462,13 @@ assert(tileFactory.includes("calculateGrassSingleBladeRootBoundsRadius") && !til
 assert(nearMaterial.includes("bool grassKeepBlade") && nearMaterial.includes("transformed = vec3(0.0)"), "Rejected blades must skip rasterization and wind work.");
 assert(!worldGrassSystem.includes("world-grass-near-") && !worldGrassSystem.includes("nearGeometries") && !patchGeometryFactory.includes("near.push("), "The redundant streamed near clump mesh and its geometry must not be built at all.");
 assert(!nearMaterial.includes("discard;"), "The near/mid keep test must stay in the vertex stage so the fragment shader remains early-Z friendly.");
-assert(impostorMaterial.includes("if (effectiveCoverage <= 0.001)") && impostorMaterial.includes("gl_Position = vec4(2.0, 2.0, 2.0, 1.0)"), "Zero-coverage far cards must be clipped in the vertex stage.");
+// The rejection is branchless: rather than early-returning with an off-screen
+// gl_Position, a rejected card multiplies its corner offset by zero so all four
+// vertices collapse onto the centre. That is still a vertex-stage rejection —
+// the primitive has zero area and never reaches fragment shading — but it keeps
+// every vertex emitting the same output set, which some mobile tile renderers
+// require. Pin the collapse, not the old early-out.
+assert(impostorMaterial.includes("step(0.001, effectiveCoverage)") && impostorMaterial.includes("cardOffset * cardVisibility"), "Zero-coverage far cards must be clipped in the vertex stage.");
 assert(worldGrassSystem.includes("mesh.matrixAutoUpdate = false") && tileFactory.includes("mesh.matrixAutoUpdate = false"), "Static grass meshes must not recompose their matrix every frame.");
 assert(
   worldGrassSystem.includes(
