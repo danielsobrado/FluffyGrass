@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ActorRigInstance } from "../actor/rig/ActorRigInstance";
 import { disposeResources } from "../render/ResourceDisposal";
+import { addDrowBootGeometry } from "./DrowBootGeometry";
 import { addDrowCostumeGeometry } from "./DrowCostumeGeometry";
 import {
   humanoidRig,
@@ -13,14 +14,6 @@ import {
 
 const SHADOW_RECEIVER = true;
 const SHADOW_CASTER = true;
-const BOOT_GEOMETRY = {
-  sole: { radius: 0.064, length: 0.164, y: -0.067, z: 0.104, verticalScale: 0.2 },
-  vamp: { radius: 0.058, length: 0.134, y: -0.031, z: 0.105, verticalScale: 0.62 },
-  instep: { width: 0.106, height: 0.032, length: 0.118, y: 0.005, z: 0.064, pitch: -0.18 },
-  shaft: { topRadius: 0.061, bottomRadius: 0.065, height: 0.12, y: 0.012, z: -0.006 },
-  cuff: { radius: 0.069, height: 0.022, y: 0.066, z: -0.006 },
-  toeBand: { width: 0.114, height: 0.012, length: 0.022, y: 0.003, z: 0.172, pitch: -0.05 },
-} as const;
 
 /**
  * The player's renderable rig.
@@ -410,118 +403,7 @@ function buildLeg(
     -0.185,
     0,
   );
-  buildBoot(foot, geometries, materials);
-}
-
-function buildBoot(
-  foot: THREE.Object3D,
-  geometries: THREE.BufferGeometry[],
-  materials: SnowflowCharacterMaterialSet,
-): void {
-  const sole = addMesh(
-    foot,
-    geometries,
-    new THREE.CapsuleGeometry(
-      BOOT_GEOMETRY.sole.radius,
-      BOOT_GEOMETRY.sole.length,
-      2,
-      10,
-    ),
-    materials.leather,
-    0,
-    BOOT_GEOMETRY.sole.y,
-    BOOT_GEOMETRY.sole.z,
-  );
-  sole.name = "drow-boot-sole";
-  sole.rotation.x = Math.PI * 0.5;
-  sole.scale.z = BOOT_GEOMETRY.sole.verticalScale;
-
-  const vamp = addMesh(
-    foot,
-    geometries,
-    new THREE.CapsuleGeometry(
-      BOOT_GEOMETRY.vamp.radius,
-      BOOT_GEOMETRY.vamp.length,
-      3,
-      10,
-    ),
-    materials.leather,
-    0,
-    BOOT_GEOMETRY.vamp.y,
-    BOOT_GEOMETRY.vamp.z,
-  );
-  vamp.name = "drow-boot-vamp";
-  vamp.rotation.x = Math.PI * 0.5;
-  vamp.scale.z = BOOT_GEOMETRY.vamp.verticalScale;
-
-  const instep = addMesh(
-    foot,
-    geometries,
-    new THREE.BoxGeometry(
-      BOOT_GEOMETRY.instep.width,
-      BOOT_GEOMETRY.instep.height,
-      BOOT_GEOMETRY.instep.length,
-      1,
-      1,
-      2,
-    ),
-    materials.leather,
-    0,
-    BOOT_GEOMETRY.instep.y,
-    BOOT_GEOMETRY.instep.z,
-  );
-  instep.name = "drow-boot-instep";
-  instep.rotation.x = BOOT_GEOMETRY.instep.pitch;
-
-  const shaft = addMesh(
-    foot,
-    geometries,
-    new THREE.CylinderGeometry(
-      BOOT_GEOMETRY.shaft.topRadius,
-      BOOT_GEOMETRY.shaft.bottomRadius,
-      BOOT_GEOMETRY.shaft.height,
-      10,
-      1,
-    ),
-    materials.leather,
-    0,
-    BOOT_GEOMETRY.shaft.y,
-    BOOT_GEOMETRY.shaft.z,
-  );
-  shaft.name = "drow-boot-shaft";
-
-  const cuff = addMesh(
-    foot,
-    geometries,
-    new THREE.CylinderGeometry(
-      BOOT_GEOMETRY.cuff.radius,
-      BOOT_GEOMETRY.cuff.radius,
-      BOOT_GEOMETRY.cuff.height,
-      10,
-      1,
-    ),
-    materials.trim,
-    0,
-    BOOT_GEOMETRY.cuff.y,
-    BOOT_GEOMETRY.cuff.z,
-  );
-  cuff.name = "drow-boot-cuff";
-
-  const toeBand = addMesh(
-    foot,
-    geometries,
-    new THREE.BoxGeometry(
-      BOOT_GEOMETRY.toeBand.width,
-      BOOT_GEOMETRY.toeBand.height,
-      BOOT_GEOMETRY.toeBand.length,
-    ),
-    materials.trim,
-    0,
-    BOOT_GEOMETRY.toeBand.y,
-    BOOT_GEOMETRY.toeBand.z,
-  );
-  toeBand.name = "drow-boot-toe-band";
-  toeBand.rotation.x = BOOT_GEOMETRY.toeBand.pitch;
+  addDrowBootGeometry(foot, geometries, materials);
 }
 
 function namedGroup(name: string): THREE.Group {
