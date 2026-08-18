@@ -522,7 +522,7 @@ export class WorldApp {
       this.controls.update(deltaSeconds);
     }
     const focus = this.controls.getStreamingPosition();
-    this.environment.updateShadow(focus);
+    this.environment.update(deltaSeconds, focus);
     this.scenic.update(deltaSeconds, focus);
     this.reveal.noteHeroRing(
       !this.grassInitializing && this.grassEnabled,
