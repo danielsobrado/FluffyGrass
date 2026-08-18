@@ -135,6 +135,14 @@ detailScale: 0.0055
 # Procedural hydrology. River corridors carve the terrain; deterministic basin
 # cells create lowland lakes. Humidity reaches farther than the visible water.
 waterEnabled: 1
+# Water optics preset. 0 keeps the standard single-pass surface; 1 turns on the
+# richer depth extinction and Fresnel balance, selectable from the river HUD
+# menu rather than being the default.
+waterQuality: 0
+# Water optics preset. 0 keeps the standard single-pass surface; 1 turns on the
+# richer depth extinction and Fresnel balance, which costs real fragment time
+# and is selectable from the river HUD menu rather than being the default.
+waterQuality: 0
 riverWidth: 21
 riverBankWidth: 4.5
 riverDepth: 3

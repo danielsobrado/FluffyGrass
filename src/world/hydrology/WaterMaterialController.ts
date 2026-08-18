@@ -26,6 +26,7 @@ import {
 export type WaterSurfaceLiveVisuals = Pick<
   WorldConfig,
   | "waterOpacity"
+  | "waterQuality"
   | "waterRippleStrength"
   | "waterRippleScale"
   | "waterFlowSpeed"
@@ -111,6 +112,11 @@ export class WaterMaterialController {
         uWaterAbsorption: { value: WATER_ABSORPTION_COLOR },
         uWaterSunDirection: { value: WATER_SUN_DIRECTION.clone() },
         uWaterFresnelF0: { value: WATER_F0 },
+        // High preset only; the standard path branches around all of these.
+        uWaterOpticsQuality: { value: config.waterQuality },
+        uWaterOpticsShoreFade: { value: 0.55 },
+        uWaterOpticsDeepStart: { value: 3.4 },
+        uWaterOpticsReflectionGain: { value: 0.78 },
       };
       this.configureMaterial();
     } catch (error) {
@@ -137,6 +143,9 @@ export class WaterMaterialController {
       return;
     }
     this.material.roughness = visuals.waterRoughness;
+    // Selects the optics branch; both presets share one program because the
+    // branch is on a uniform, so switching costs no recompile.
+    this.uniforms.uWaterOpticsQuality.value = visuals.waterQuality >= 1 ? 1 : 0;
     this.uniforms.uWaterOpacity.value = visuals.waterOpacity;
     this.uniforms.uWaterRippleStrength.value = visuals.waterRippleStrength;
     this.uniforms.uWaterRippleScale.value = visuals.waterRippleScale;

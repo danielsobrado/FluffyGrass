@@ -97,6 +97,10 @@ export interface WorldConfig {
   detailScale: number;
   /** 0 disables terrain carving, wetness, grass exclusion, and water meshes. */
   waterEnabled: number;
+  /** 0 standard, 1 high: richer water optics at a real fragment cost. */
+  waterQuality: number;
+  /** 0 standard, 1 high: richer water optics at a real fragment cost. */
+  waterQuality: number;
   riverWidth: number;
   riverBankWidth: number;
   riverDepth: number;

@@ -1,5 +1,6 @@
 import { WATER_FLOW_FRAGMENT_FUNCTIONS } from "./WaterFlowShader";
 import { WATER_FOAM_FRAGMENT_FUNCTIONS } from "./WaterFoamShader";
+import { WATER_OPTICS_FRAGMENT_FUNCTIONS } from "./WaterOpticsShader";
 import { WATER_REGIME_FRAGMENT_FUNCTIONS } from "./WaterRegimeShader";
 import { WATER_WAVE_FRAGMENT_FUNCTIONS } from "./WaterWaveShader";
 import {
@@ -51,7 +52,6 @@ uniform float uWaterShoreFoamWeight;
 uniform float uWaterRiffleFoamWeight;
 uniform float uWaterStoneFoamWeight;
 uniform float uWaterFresnelStrength;
-uniform float uWaterDepthFade;
 uniform float uWaterDetailDistance;
 uniform float uWaterLakeWaveStrength;
 uniform sampler2D uWaterFlowNoise;
@@ -63,9 +63,7 @@ uniform vec3 uWaterShallow;
 uniform vec3 uWaterDeep;
 uniform vec3 uWaterReflection;
 uniform vec3 uWaterFoam;
-uniform vec3 uWaterAbsorption;
 uniform vec3 uWaterSunDirection;
-uniform float uWaterFresnelF0;
 varying vec4 vWaterData;
 varying vec4 vWaterContext;
 varying vec2 vWaterInteraction;
@@ -75,6 +73,7 @@ ${WATER_FLOW_FRAGMENT_FUNCTIONS}
 ${WATER_REGIME_FRAGMENT_FUNCTIONS}
 ${WATER_WAVE_FRAGMENT_FUNCTIONS}
 ${WATER_FOAM_FRAGMENT_FUNCTIONS}
+${WATER_OPTICS_FRAGMENT_FUNCTIONS}
 `;
 
 export const WATER_SURFACE_FRAGMENT = `
@@ -245,10 +244,11 @@ vec3 waterWorldNormal = normalize(
 vec3 waterLightingNormal = gl_FrontFacing ? waterWorldNormal : -waterWorldNormal;
 normal = normalize((viewMatrix * vec4(waterLightingNormal, 0.0)).xyz);
 
-vec3 waterAbsorption = (vec3(1.0) - uWaterAbsorption) / max(0.01, uWaterDepthFade);
-vec3 waterTransmittance = exp(-waterAbsorption * waterDepth);
-vec3 waterSurfaceColor = uWaterShallow * waterTransmittance +
-  uWaterDeep * (1.0 - waterTransmittance);
+vec3 waterTransmittance;
+vec3 waterSurfaceColor = waterOpticsResolveColor(
+  uWaterShallow, uWaterDeep, waterDepth,
+  vWaterWorldPosition, cameraPosition, waterTransmittance
+);
 // A bend is asymmetric water: the cut bank runs deep and dark, the point bar
 // on the inside is shallow enough that its gravel lifts the tone.
 waterSurfaceColor *=
@@ -269,8 +269,7 @@ vec3 waterViewDirection = length(waterViewDiff) > 1e-4
   ? normalize(waterViewDiff)
   : vec3(0.0, 1.0, 0.0);
 float waterFacing = saturate(dot(waterLightingNormal, waterViewDirection));
-float waterFresnel = uWaterFresnelF0 +
-  (1.0 - uWaterFresnelF0) * pow(1.0 - waterFacing, 5.0);
+float waterFresnel = waterOpticsFresnel(waterFacing);
 float waterFresnelVisual = saturate(waterFresnel * uWaterFresnelStrength);
 waterSurfaceColor = mix(waterSurfaceColor, uWaterReflection, waterFresnelVisual * 0.42);
 // Open lake water is doing far less to break up the sky than its own margin is,

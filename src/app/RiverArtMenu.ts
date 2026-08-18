@@ -147,6 +147,7 @@ export class RiverArtMenu {
     this.addRange("Caustics", "waterCausticStrength");
 
     this.addHeading("Optics");
+    this.addQualityToggle();
     this.addRange("Opacity", "waterOpacity");
     this.addRange("Depth absorption", "waterDepthFade");
     this.addRange("Fresnel", "waterFresnelStrength");
@@ -205,6 +206,28 @@ export class RiverArtMenu {
     this.numericInputs.set(setting, input);
     this.numericOutputs.set(setting, output);
     this.root.appendChild(this.createRow(label, controls));
+  }
+
+  /**
+   * The optics preset, as a switch rather than a slider: it selects between two
+   * shader paths, and the expensive one is opt-in because it costs real
+   * fragment time on every water pixel in frame.
+   */
+  private addQualityToggle(): void {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = this.working.waterQuality >= 1;
+    input.addEventListener("change", () => {
+      if (this.disposed) {
+        return;
+      }
+      this.working.waterQuality = input.checked ? 1 : 0;
+      this.host.applyLiveWaterVisuals(this.working);
+    });
+    const controls = document.createElement("span");
+    controls.className = "grass-art-range";
+    controls.append(input);
+    this.root.appendChild(this.createRow("High water optics", controls));
   }
 
   private addButton(label: string, handler: (event: MouseEvent) => void): void {
