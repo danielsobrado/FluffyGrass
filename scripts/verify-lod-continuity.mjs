@@ -517,6 +517,47 @@ assert(
   ultraNearMultiplier === 2,
   "Ultra-near grass must double density.",
 );
+// Micro fade is a shading schedule, not a LOD schedule. It drives the troughed
+// normal's flattening toward world up, the per-blade tone collapse, and the
+// flutter amplitude. It used to read `uGrassNearDistance * 0.16 / * 0.52`, which
+// is per material: the five near/mid layers completed the flattening at 3.4 m,
+// 9.4 m and 14.6 m respectively, so the two co-located populations inside the
+// ultra-near band were lit differently and the handoff read as a brightness ring
+// riding at a fixed radius around the camera. The range is now one world-space
+// interval every layer is given, which is what these three assertions hold.
+assert(
+  /float grassMicroFade = 1\.0 - smoothstep\(\s*uGrassMicroFadeRange\.x,\s*uGrassMicroFadeRange\.y,/.test(
+    nearMaterial,
+  ),
+  "The grass micro-detail fade must come from the shared range uniform.",
+);
+assert(
+  !/grassMicroFade\s*=[^;]*uGrass(Near|Mid|Detail|Transition)/.test(nearMaterial),
+  "The grass micro-detail fade must not be derived from any LOD distance.",
+);
+{
+  const microFadeStart = readYamlNumber(worldConfig, "grassMicroDetailFadeStart");
+  const microFadeEnd = readYamlNumber(worldConfig, "grassMicroDetailFadeEnd");
+  assert(
+    microFadeStart < microFadeEnd,
+    "The grass micro-detail fade range must increase.",
+  );
+  // Every layer that can draw a real blade has to be handed the same interval.
+  // The near field applies it to all of its materials in one loop; the mid
+  // material is set from the same two config values in its own constructor.
+  assert(
+    /for \(const material of created\) \{\s*material\.setMicroDetailFadeRange\(\s*worldConfig\.grassMicroDetailFadeStart,\s*worldConfig\.grassMicroDetailFadeEnd,/.test(
+      nearField,
+    ),
+    "Every near grass material must be given the shared micro-detail fade range.",
+  );
+  assert(
+    /this\.material\.setMicroDetailFadeRange\(\s*worldConfig\.grassMicroDetailFadeStart,\s*worldConfig\.grassMicroDetailFadeEnd,/.test(
+      worldGrassSystem,
+    ),
+    "The mid grass material must share the near field's micro-detail fade range.",
+  );
+}
 assert(
   interactionStrength >= 0.9,
   "Character grass interaction must retain the stronger response.",

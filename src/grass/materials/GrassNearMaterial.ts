@@ -21,7 +21,9 @@ import {
 import {
   GRASS_LIGHT_MIX_GLSL,
   GRASS_PALETTE_GLSL,
+  GRASS_VERTEX_PALETTE_ROOT_PROGRESS_GLSL,
   setBalancedGrassPaletteColors,
+  setGrassCanopyColor,
 } from "./GrassPaletteShader";
 import {
   GRASS_BIOME_PROFILES,
@@ -128,6 +130,7 @@ uniform float uGrassFlutterSpeed;
 uniform float uGrassNormalUp;
 uniform float uGrassWindLodScale;
 uniform float uGrassDitherSeed;
+uniform vec2 uGrassMicroFadeRange;
 uniform float uGrassNearDistance;
 uniform float uGrassMidDistance;
 uniform float uGrassTransitionDistance;
@@ -297,9 +300,15 @@ float grassFieldDither = fract(
 // per-instance term, so LOD selection and motion have to stay independent.
 float grassMotionPhase = fract(grassPhase + instanceVariation.x);
 float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
+// Deliberately NOT derived from this material's own LOD distance. Micro fade
+// drives the troughed normal, the per-blade tone variation, and the flutter —
+// all shading, none of it LOD. Keying it to uGrassNearDistance gave the five
+// near/mid layers five different schedules (3.4 m, 9.4 m, 14.6 m), so the two
+// co-located populations inside the ultra-near band were lit differently and
+// the handoff at 6-7 m read as a brightness ring following the camera.
 float grassMicroFade = 1.0 - smoothstep(
-  uGrassNearDistance * 0.16,
-  uGrassNearDistance * 0.52,
+  uGrassMicroFadeRange.x,
+  uGrassMicroFadeRange.y,
   grassCameraDistance
 );
 float grassNearCoverage = 1.0 - smoothstep(
@@ -651,11 +660,18 @@ vGrassGust = grassGustNoise;
 // cards behind them would pulse against itself across the 44-64 m crossfade.
 const VERTEX_PALETTE = `
 int grassBiomeRow = grassResolveBiomeRow(instanceBiome);
+// The palette is resolved at a progress lifted off the root, not at the raw
+// attribute. A one-triangle blade only has progress 0 and 1 to offer, so the
+// rasteriser draws a chord under a strongly concave curve; evaluating the root
+// vertices slightly up the blade makes that chord carry the correct
+// area-weighted mean. See GRASS_VERTEX_PALETTE_ROOT_PROGRESS. Only the palette
+// argument is remapped: grassProgress itself still drives wind, taper, the gust
+// tip lift below, and vGrassProgress for the fragment stage's backlight.
 vec3 grassPaletteColor = grassResolvePalette(
   uGrassBiomeBase[grassBiomeRow],
   uGrassBiomeTip[grassBiomeRow],
   uGrassBiomeDry[grassBiomeRow],
-  grassProgress,
+  mix(${GRASS_VERTEX_PALETTE_ROOT_PROGRESS_GLSL}, 1.0, grassProgress),
   mix(grassBladeShade, 0.5, (1.0 - grassMicroFade) * 0.86),
   instanceVariation.w,
   instanceVariation.z,
@@ -945,6 +961,7 @@ export class GrassNearMaterial {
     uGrassDistanceFade: { value: 1 },
     uGrassDitherSeed: { value: 0 },
     uGrassWindLodScale: { value: 1 },
+    uGrassMicroFadeRange: { value: new THREE.Vector2(3, 10) },
     uGrassNearDistance: { value: 0 },
     uGrassMidDistance: { value: 0 },
     uGrassTransitionDistance: { value: 1 },
@@ -1145,10 +1162,6 @@ export class GrassNearMaterial {
       direction.gustDepth ?? DEFAULT_GUST_FRONT_DEPTH,
       direction.gustTipBoost ?? GRASS_GUST_TIP_BOOST,
     );
-    // What a widened sub-pixel blade blends towards. The terrain already tints
-    // itself with this colour under the canopy, so a blade that gives back the
-    // coverage it did not earn converges on the ground it is standing in.
-    this.uniforms.uGrassCanopyColor.value.set(direction.terrainGrassColor);
     // The specular lobe is gone before the near band hands over to the mid
     // patches, which do not carry one. Tying the fade to the preset's own near
     // distance keeps that true for every preset.
@@ -1190,6 +1203,21 @@ export class GrassNearMaterial {
   setLodThreshold(threshold: number, distanceFade = 1): void {
     this.uniforms.uGrassLodThreshold.value = threshold;
     this.uniforms.uGrassDistanceFade.value = distanceFade;
+  }
+
+  /**
+   * The world-space range over which a blade stops being shaded as an individual
+   * leaf. Every near and mid material must be given the same two numbers: this is
+   * what keeps a blade's brightness a function of where it is rather than of
+   * which layer drew it. `verify-lod-continuity` re-checks that.
+   */
+  setMicroDetailFadeRange(start: number, end: number): void {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
+      throw new Error(
+        "The grass micro-detail fade range must be a finite increasing interval.",
+      );
+    }
+    (this.uniforms.uGrassMicroFadeRange.value as THREE.Vector2).set(start, end);
   }
 
   configureLod(config: GrassLodConfig): void {
@@ -1284,6 +1312,19 @@ export class GrassNearMaterial {
       );
       shade[row].set(profile.rootDarkening, profile.tipColorStrength);
     }
+
+    // Widened sub-pixel blades mix toward this. It has to be the palette at the
+    // field's mean progress and occlusion, not a raw albedo: the unlit hex was
+    // 1.7–3× brighter than the shaded blade it replaced, and that lift sat in
+    // the 45–62 m band where the width clamp pays invented coverage back.
+    setGrassCanopyColor(
+      this.uniforms.uGrassCanopyColor.value,
+      this.colorControls.baseColor,
+      this.colorControls.tipColor,
+      this.colorControls.dryColor,
+      this.artRootDarkening,
+      this.artTipColorStrength,
+    );
   }
 
   /**

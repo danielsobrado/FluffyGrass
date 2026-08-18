@@ -32,10 +32,33 @@ export interface WorldConfig {
   grassUltraNearDensityMultiplier: number;
   /** Compact devices carry their own ultra-near multiplier. */
   grassUltraNearDensityMultiplierCompact: number;
+  /**
+   * How far the ultra-near layer's second blade population is carried, and over
+   * what half-width it decays. The doubling used to end where the segmented
+   * silhouette did, so density halved across one metre; these two split the
+   * coverage job from the detail job.
+   */
+  grassNearDensityBoostDistance: number;
+  /** Half-width of the density boost's decay. */
+  grassNearDensityBoostTransition: number;
   /** Center of the exact-placement near-to-bridge handoff. */
   grassNearBridgeDistance: number;
   /** Half-width of the near-to-bridge handoff. */
   grassNearBridgeTransitionDistance: number;
+  /**
+   * Where the blade's own micro detail — the troughed normal, the per-blade tone
+   * variation, and the flutter — begins fading toward the flat canopy response.
+   *
+   * This is a *shading* schedule, not a LOD schedule. Every near and mid layer
+   * uploads the identical range, so a blade at a given world distance is lit the
+   * same way whichever layer happens to draw it. It used to be derived from each
+   * material's own `nearMaxDistance`, which gave the five layers five different
+   * schedules and made the two co-located populations inside the ultra-near band
+   * visibly different brightnesses.
+   */
+  grassMicroDetailFadeStart: number;
+  /** Where micro detail is fully replaced by the flat canopy response. */
+  grassMicroDetailFadeEnd: number;
   grassClumpRadiusScaleMin: number;
   grassClumpRadiusScaleMax: number;
   grassClumpAspectMin: number;

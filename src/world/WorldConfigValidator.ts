@@ -168,6 +168,32 @@ export function validateWorldConfig(config: WorldConfig): void {
     );
   }
   if (
+    config.grassNearDensityBoostTransition >=
+    config.grassNearDensityBoostDistance
+  ) {
+    throw new Error(
+      "grassNearDensityBoostTransition must be lower than grassNearDensityBoostDistance.",
+    );
+  }
+  if (
+    config.grassNearDensityBoostDistance -
+      config.grassNearDensityBoostTransition <
+    config.grassUltraNearDistance + config.grassUltraNearTransitionDistance
+  ) {
+    throw new Error(
+      "The density boost must still be at full strength where the ultra-near layer ends.",
+    );
+  }
+  if (
+    config.grassNearDensityBoostDistance +
+      config.grassNearDensityBoostTransition >
+    config.grassNearDistance - config.grassTransitionDistance
+  ) {
+    throw new Error(
+      "The density boost must decay away before the near-to-mid fade begins.",
+    );
+  }
+  if (
     config.grassNearBridgeTransitionDistance >= config.grassNearBridgeDistance
   ) {
     throw new Error(
@@ -188,6 +214,17 @@ export function validateWorldConfig(config: WorldConfig): void {
   ) {
     throw new Error(
       "The bridge LOD handoff must complete before the near-to-mid fade starts.",
+    );
+  }
+
+  if (config.grassMicroDetailFadeStart >= config.grassMicroDetailFadeEnd) {
+    throw new Error(
+      "grassMicroDetailFadeStart must be lower than grassMicroDetailFadeEnd.",
+    );
+  }
+  if (config.grassMicroDetailFadeEnd >= config.grassNearBridgeDistance) {
+    throw new Error(
+      "The micro-detail fade must complete inside the exact-placement near band.",
     );
   }
 

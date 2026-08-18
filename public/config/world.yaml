@@ -49,10 +49,28 @@ grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
 
+# How far the doubled blade population reaches, and how gradually it decays. The
+# segmented silhouette above is a detail layer and stops at 6 m because triangles
+# are expensive; this is a coverage layer on one-triangle blades and is what
+# actually stops the ground showing through. Ending the doubling at 6 m halved
+# density across a single metre, which read as a brightness ring riding at a
+# fixed radius around the player. The decay must finish before the mid patches
+# take over, since they carry no counterpart population.
+grassNearDensityBoostDistance: 14
+grassNearDensityBoostTransition: 6
+
 # Bridge LOD keeps the near field's exact blade placements before the repeated
 # patch LOD begins. The first handoff completes before the patch crossfade starts.
 grassNearBridgeDistance: 18
 grassNearBridgeTransitionDistance: 2
+
+# Where a blade stops being shaded as an individual leaf and starts being shaded
+# as canopy: the troughed normal flattens toward world up, per-blade tone
+# variation collapses, and flutter stops. Every near and mid layer uses this one
+# range, so the same blade at the same distance is lit the same way whichever
+# layer draws it. Keyed to the world, deliberately not to any LOD boundary.
+grassMicroDetailFadeStart: 3
+grassMicroDetailFadeEnd: 10
 
 # Natural near-grass tuft distribution.
 grassClumpRadiusScaleMin: 0.32
@@ -209,7 +227,7 @@ terrainGroundNoiseWorldSize: 64
 terrainGroundMesoStrength: 0.14
 terrainGroundMicroStrength: 0.09
 terrainGroundNormalStrength: 0.24
-terrainGroundCanopyDarkening: 0.22
+terrainGroundCanopyDarkening: 0.34
 terrainPathCoreDarkening: 0.13
 terrainPathVergeDryness: 0.32
 

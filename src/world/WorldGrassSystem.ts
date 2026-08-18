@@ -288,7 +288,7 @@ export class WorldGrassSystem {
   ) {
     this.material = new GrassNearMaterial({
       name: "world-grass-mid-material",
-      cacheKey: `grass-near-material-v25-mid-vertex-palette-no-sheen-${
+      cacheKey: `grass-near-material-v26-mid-vertex-palette-no-sheen-${
         profile.compact ? "sine" : "noise"
       }`,
       // The mid layer draws exactly the blades the near layer drops.
@@ -307,6 +307,12 @@ export class WorldGrassSystem {
       noiseWind: !profile.compact,
       microWind: false,
     });
+    // The same shading schedule the near layers use. See
+    // GrassNearMaterial.setMicroDetailFadeRange.
+    this.material.setMicroDetailFadeRange(
+      worldConfig.grassMicroDetailFadeStart,
+      worldConfig.grassMicroDetailFadeEnd,
+    );
     this.governor = new GrassQualityGovernor(
       profile.compact ? COMPACT_TARGET_FPS : DESKTOP_TARGET_FPS,
     );

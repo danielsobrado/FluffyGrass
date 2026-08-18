@@ -71,6 +71,7 @@ uniform float uTerrainMesoStrength;
 uniform float uTerrainMicroStrength;
 uniform float uTerrainNormalStrength;
 uniform float uTerrainCanopyDarkening;
+uniform float uTerrainGrassTintStrength;
 uniform vec4 uTerrainLodDistances;
 uniform vec2 uTerrainPathHalfWidth;
 uniform float uTerrainPathEdge;
@@ -270,9 +271,14 @@ terrainUnderlayer *= terrainRootScale;
 terrainUnderlayer *= 1.0 + terrainMacroVariation + terrainMesoVariation;
 float terrainCoverage = smoothstep(0.08, 0.5, terrainSuitability) *
   terrainBiomeDensity * terrainPathGrassMask * terrainStoneClearance;
-float terrainUnderlayerAmount = terrainCoverage *
-  mix(0.34, 0.78, terrainVigor) *
-  mix(1.0, 0.52, terrainDryness);
+// terrainGrassTintStrength is the art lever for how much the ground reads as
+// grass. 0.5 is the authored default and leaves the mix unchanged.
+float terrainUnderlayerAmount = saturate(
+  terrainCoverage *
+    mix(0.34, 0.78, terrainVigor) *
+    mix(1.0, 0.52, terrainDryness) *
+    uTerrainGrassTintStrength * 2.0
+);
 vec3 terrainSurfaceColor = mix(
   terrainSoil,
   terrainUnderlayer,
@@ -294,9 +300,16 @@ terrainSurfaceColor = mix(
   terrainFarMerge * terrainCoverage
 );
 
-float terrainDryFibre = smoothstep(0.68, 0.9, terrainMicroNoise.a) *
-  terrainDryness * terrainCoverage * terrainMicroWeight *
+float terrainDryFibrePulse = smoothstep(0.68, 0.9, terrainMicroNoise.a);
+float terrainDryFibreAmount = terrainDryness * terrainCoverage *
   (1.0 - terrainWaterProximity * 0.82);
+// Mean of the fibre pulse over the A channel. Holding it as
+// terrainMicroWeight fades is what stops the ground brightening at the 6-7 m
+// micro-detail cutoff; only the speckle (the variance around this mean)
+// disappears. terrainMicroAlbedo is already zero-mean and needs no counterpart.
+float terrainDryFibre = (
+  0.06 + (terrainDryFibrePulse - 0.06) * terrainMicroWeight
+) * terrainDryFibreAmount;
 terrainSurfaceColor = mix(
   terrainSurfaceColor,
   vTerrainBiomeDry * 0.68,

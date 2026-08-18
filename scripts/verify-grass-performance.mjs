@@ -141,6 +141,12 @@ function evaluateNearField(
     focusX,
     focusZ,
   );
+  const boostTiles = countTiles(
+    parameters.boostRadius,
+    parameters.tileSize,
+    focusX,
+    focusZ,
+  );
   return (
     baseTiles * requestedBladesPerTile(parameters.tileSize, density, 1) +
     detailTiles *
@@ -152,7 +158,13 @@ function evaluateNearField(
         density,
         parameters.ultraMultiplier - 1,
       ) *
-      segmentedTriangles
+      segmentedTriangles +
+    boostTiles *
+      requestedBladesPerTile(
+        parameters.tileSize,
+        density,
+        parameters.ultraMultiplier - 1,
+      )
   );
 }
 
@@ -321,6 +333,14 @@ const compactUltraMultiplier = readYamlNumber(
   worldConfig,
   "grassUltraNearDensityMultiplierCompact",
 );
+const boostDistance = readYamlNumber(
+  worldConfig,
+  "grassNearDensityBoostDistance",
+);
+const boostTransition = readYamlNumber(
+  worldConfig,
+  "grassNearDensityBoostTransition",
+);
 const midBladeFraction = readYamlNumber(worldConfig, "grassMidBladeFraction");
 const farCards = readYamlNumber(worldConfig, "grassFarImpostorsPerPatch");
 const farSubpatchesPerAxis = readSourceNumber(
@@ -387,6 +407,7 @@ const nearParameters = {
   baseRadius: maximumPresetNearFade + boundsMargin,
   detailRadius: ultraDistance + ultraTransition + boundsMargin,
   ultraRadius: ultraDistance + ultraTransition,
+  boostRadius: boostDistance + boostTransition + boundsMargin,
   ultraMultiplier,
   legacyBaseRadius:
     nearDistance + transitionDistance + tileSize * Math.SQRT2,
@@ -403,7 +424,12 @@ const maximumNearBaselineRatio = Math.max(
   desktopNear.average / desktopNear.legacyAverage,
   compactNear.average / compactNear.legacyAverage,
 );
-assert(desktopNear.maximum <= 1_000_000, `Desktop near-field triangle ceiling exceeded: ${desktopNear.maximum}.`);
+// The density-boost layer carries the extra population out to 20 m on
+// one-triangle blades (residency 14 + 6 + 2 = 22 m). That is the cost of
+// closing the 6-7 m density cliff without spending six-triangle silhouettes
+// past 7 m. Ceiling raised from 1,000,000 to 1,250,000 to leave headroom
+// around the measured desktop max; compact stays at 600,000.
+assert(desktopNear.maximum <= 1_250_000, `Desktop near-field triangle ceiling exceeded: ${desktopNear.maximum}.`);
 assert(compactNear.maximum <= 600_000, `Compact near-field triangle ceiling exceeded: ${compactNear.maximum}.`);
 assert(desktopNear.average / desktopNear.legacyAverage <= 0.36, "Desktop near-field optimization regressed.");
 assert(compactNear.average / compactNear.legacyAverage <= 0.36, "Compact near-field optimization regressed.");
@@ -451,6 +477,14 @@ for (const [key, direction] of Object.entries(presets)) {
 }
 
 assert(nearField.includes("bladeSegments: 1"), "The non-ultra base field must use one-triangle blades.");
+assert(
+  nearField.includes("world-grass-near-density-boost") &&
+    nearField.includes("seedSalt: ULTRA_NEAR_SEED_SALT") &&
+    /namePrefix:\s*"world-grass-near-density-boost"[\s\S]{0,600}?bladeSegments:\s*1/.test(
+      nearField,
+    ),
+  "The density boost layer must continue the ultra-near placement on one-triangle blades.",
+);
 assert(nearField.includes("world-grass-ultra-near-base-detail") && nearField.includes("bladeSegments: grassConfig.geometry.bladeSegments"), "Ultra-near must retain configured segmented geometry.");
 assert(
   nearField.includes("resolveBaseVisibilityRadius") &&

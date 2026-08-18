@@ -77,9 +77,9 @@ try {
     Math.round(
       world.grassNearTileSize ** 2 *
         world.grassNearBladesPerSquareMeterDesktop *
-        world.grassUltraNearDensityMultiplier,
-    ) === 9216,
-    "The shipped desktop ultra-near tile stack must remain the reviewed 9,216 blades.",
+        (2 * world.grassUltraNearDensityMultiplier - 1),
+    ) === 13824,
+    "The shipped desktop near-tile stack must remain the reviewed 13,824 blades.",
   );
 
   expectReject(

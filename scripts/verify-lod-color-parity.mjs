@@ -22,6 +22,14 @@ const tuning = JSON.parse(
     "utf8",
   ),
 );
+const paletteShaderSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/grass/materials/GrassPaletteShader.ts"),
+  "utf8",
+);
+const nearMaterialSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/grass/materials/GrassNearMaterial.ts"),
+  "utf8",
+);
 
 const MAX_AVERAGE_LUMINANCE_DELTA = 0.03;
 const MAX_AVERAGE_RGB_DELTA = 0.025;
@@ -43,6 +51,16 @@ const MAX_P95_SAMPLE_DELTA = 0.03;
 // could name any tip colour it liked and still get a tip the same brightness as
 // its root. Ground-contact shading is progress-dependent, so the measured LOD
 // spread sits near 1.1% and MAX_ROOT_TIP_LOD_DELTA is 1.5%.
+/**
+ * Bound on how far a one-triangle blade's area-weighted mean luminance may drift
+ * from the per-fragment blade it hands off to. Relative, not absolute: a blade's
+ * mean luminance is around 0.05-0.10, so the absolute deltas the near/mid bounds
+ * above are written in cannot resolve this. Evaluating the palette at the raw
+ * root progress measured 2.74% against MAX_AVERAGE_LUMINANCE_DELTA's 0.03 and
+ * therefore passed, while being a 22% relative error on the blade — which is what
+ * the eye reads at the radius where the two representations swap.
+ */
+const MAX_TRIANGLE_INTERPOLATION_DELTA = 0.03;
 const MAX_ROOT_TIP_CONTRAST = 1.25;
 // Ground-contact shading is progress-dependent. Mid blades only have root/tip
 // vertices and far progress is 8-bit, so the measured near/mid/far contrast
@@ -699,6 +717,316 @@ for (const preset of [...Object.values(presets), ...biomeDirections]) {
     );
   }
 }
+
+// --- One-triangle blades: the vertex palette must carry the fragment palette's
+// area-weighted mean.
+//
+// Base, bridge and mid resolve the palette per vertex, and their blades are a
+// single triangle whose only progress values are 0 and 1. The rasteriser
+// therefore draws a chord from palette(0) to palette(1) while the segmented
+// ultra-near layers evaluate the true curve per fragment. rootLight and
+// groundContact both saturate inside the bottom half of a blade, so that chord
+// used to land about 22% dark — a step at exactly the radius where the two
+// representations swap, and one nothing else in this file could see, because
+// every check above compares the palette at *matched* progress rather than
+// integrated over a blade.
+//
+// GrassPaletteShader lifts the root vertices to GRASS_VERTEX_PALETTE_ROOT_PROGRESS
+// so the chord reproduces the true mean. That constant is derived, so it is
+// recomputed here from the same tuning file, and the residual it leaves is
+// bounded across every preset and biome.
+const VERTEX_PALETTE_REFERENCE_ROOT_DARKENING = Number(
+  paletteShaderSource.match(
+    /VERTEX_PALETTE_REFERENCE_ROOT_DARKENING\s*=\s*([0-9.]+)/,
+  )?.[1],
+);
+const VERTEX_PALETTE_REFERENCE_TIP_COLOR_STRENGTH = Number(
+  paletteShaderSource.match(
+    /VERTEX_PALETTE_REFERENCE_TIP_COLOR_STRENGTH\s*=\s*([0-9.]+)/,
+  )?.[1],
+);
+assertFinite(
+  VERTEX_PALETTE_REFERENCE_ROOT_DARKENING,
+  "vertex-palette reference root darkening",
+);
+assertFinite(
+  VERTEX_PALETTE_REFERENCE_TIP_COLOR_STRENGTH,
+  "vertex-palette reference tip colour strength",
+);
+
+const VERTEX_PALETTE_REFERENCE_DRYNESS = Number(
+  paletteShaderSource.match(
+    /VERTEX_PALETTE_REFERENCE_DRYNESS\s*=\s*([0-9.]+)/,
+  )?.[1],
+);
+assertFinite(
+  VERTEX_PALETTE_REFERENCE_DRYNESS,
+  "vertex-palette reference dryness",
+);
+
+/** Mirrors paletteProgressProfile in GrassPaletteShader.ts. */
+function paletteProgressProfile(progress) {
+  const tipProfile = smoothstep(progress, tuning.tipStart, tuning.tipEnd);
+  const instanceDryness = Math.min(
+    tuning.drynessMaximum,
+    VERTEX_PALETTE_REFERENCE_DRYNESS *
+      (tuning.instanceDrynessBase + tipProfile * tuning.instanceDrynessTip),
+  );
+  const healthy =
+    (1 +
+      (tuning.tipLuminanceScale - 1) *
+        tipProfile *
+        VERTEX_PALETTE_REFERENCE_TIP_COLOR_STRENGTH) *
+      (1 - instanceDryness) +
+    tuning.dryLuminanceScale * instanceDryness;
+  const rootLight = lerp(
+    VERTEX_PALETTE_REFERENCE_ROOT_DARKENING,
+    1,
+    smoothstep(progress, 0, tuning.rootFadeEnd),
+  );
+  const groundContact =
+    1 -
+    smoothstep(progress, tuning.groundContactStart, tuning.groundContactEnd);
+  const ground = lerp(
+    tuning.groundContactBaseScale,
+    tuning.groundContactDryScale,
+    VERTEX_PALETTE_REFERENCE_DRYNESS,
+  );
+  return (
+    rootLight *
+    (healthy - tuning.groundContactStrength * groundContact * (healthy - ground))
+  );
+}
+
+// The derivation above is a mirror of the one in GrassPaletteShader.ts. Neither
+// can be imported here (the shader module pulls in three), so what keeps the two
+// from drifting is that they must consume exactly the same tuning terms: drop or
+// add one on either side and this trips.
+{
+  const shaderProfile = paletteShaderSource.slice(
+    paletteShaderSource.indexOf("function paletteProgressProfile"),
+    paletteShaderSource.indexOf("export const GRASS_VERTEX_PALETTE_ROOT_PROGRESS"),
+  );
+  const mirrorProfile = paletteProgressProfile.toString();
+  const tuningKeys = Object.keys(tuning);
+  for (const key of tuningKeys) {
+    const inShader = shaderProfile.includes(`tuning.${key}`);
+    const inMirror = mirrorProfile.includes(`tuning.${key}`);
+    if (inShader !== inMirror) {
+      failures.push(
+        `The vertex-palette root-progress derivation disagrees on tuning.${key}: shader ${inShader}, verifier ${inMirror}.`,
+      );
+    }
+  }
+  if (shaderProfile.length === 0) {
+    failures.push(
+      "GrassPaletteShader must expose paletteProgressProfile for the root-progress derivation.",
+    );
+  }
+}
+
+const TRIANGLE_AREA_STEPS = 4096;
+
+/** Area-weighted mean over a blade triangle, whose width tapers as 2(1-p). */
+function triangleAreaMean(sample) {
+  let total = 0;
+  for (let index = 0; index < TRIANGLE_AREA_STEPS; index += 1) {
+    const progress = (index + 0.5) / TRIANGLE_AREA_STEPS;
+    total += sample(progress) * 2 * (1 - progress);
+  }
+  return total / TRIANGLE_AREA_STEPS;
+}
+
+const derivedRootProgress = (() => {
+  const target =
+    1.5 * triangleAreaMean(paletteProgressProfile) -
+    0.5 * paletteProgressProfile(1);
+  let low = 0;
+  let high = 1;
+  for (let iteration = 0; iteration < 64; iteration += 1) {
+    const middle = (low + high) * 0.5;
+    if (paletteProgressProfile(middle) < target) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return (low + high) * 0.5;
+})();
+
+if (
+  !/export const GRASS_VERTEX_PALETTE_ROOT_PROGRESS_GLSL = toGlslFloat\(/.test(
+    paletteShaderSource,
+  )
+) {
+  failures.push(
+    "GrassPaletteShader must publish GRASS_VERTEX_PALETTE_ROOT_PROGRESS as a GLSL constant.",
+  );
+}
+if (
+  !/mix\(\$\{GRASS_VERTEX_PALETTE_ROOT_PROGRESS_GLSL\}, 1\.0, grassProgress\)/.test(
+    nearMaterialSource,
+  )
+) {
+  failures.push(
+    "The vertex palette must resolve at the lifted root progress, not the raw attribute.",
+  );
+}
+
+// Every shipped shade control has to sit inside the band the one derived
+// constant was fitted for; outside it the approximation is no longer bounded.
+for (const [label, source] of [
+  ["preset", presets],
+  ["biome", biomeProfiles],
+]) {
+  for (const entry of Object.values(source)) {
+    if (typeof entry.rootDarkening !== "number") {
+      continue;
+    }
+    if (entry.rootDarkening < 0.4 || entry.rootDarkening > 0.48) {
+      failures.push(
+        `${label} ${entry.label} rootDarkening ${entry.rootDarkening} leaves the vertex-palette fit band.`,
+      );
+    }
+    if (entry.tipColorStrength < 0.28 || entry.tipColorStrength > 0.4) {
+      failures.push(
+        `${label} ${entry.label} tipColorStrength ${entry.tipColorStrength} leaves the vertex-palette fit band.`,
+      );
+    }
+  }
+}
+
+let worstTriangleDelta = 0;
+for (const preset of Object.values(presets)) {
+  const palette = createPalette(preset);
+  for (const shade of [0.2, 0.5, 0.8]) {
+    for (const dryness of SAMPLE_DRYNESS) {
+      const fragmentMean = triangleAreaMean((progress) =>
+        luminance(resolvePalette(preset, palette, progress, shade, dryness, 1)),
+      );
+      const rootLuminance = luminance(
+        resolvePalette(preset, palette, derivedRootProgress, shade, dryness, 1),
+      );
+      const tipLuminance = luminance(
+        resolvePalette(preset, palette, 1, shade, dryness, 1),
+      );
+      // The chord's own area-weighted mean sits two thirds of the way from tip
+      // to root, because the triangle is widest where progress is lowest.
+      const vertexMean = (2 / 3) * rootLuminance + (1 / 3) * tipLuminance;
+      const delta =
+        Math.abs(vertexMean - fragmentMean) / Math.max(fragmentMean, 1e-4);
+      worstTriangleDelta = Math.max(worstTriangleDelta, delta);
+      if (delta > MAX_TRIANGLE_INTERPOLATION_DELTA) {
+        failures.push(
+          `${preset.label} one-triangle blade mean luminance differs from the per-fragment blade by ${formatPercent(delta)} (shade ${shade}, dryness ${dryness}).`,
+        );
+      }
+    }
+  }
+}
+console.log(
+  `[lod-color] One-triangle blades resolve the palette at progress ${derivedRootProgress.toFixed(4)}; worst area-weighted mean delta against the per-fragment blade is ${formatPercent(worstTriangleDelta)}.`,
+);
+
+// --- Canopy fill: widened blades mix toward the shaded field mean, not an unlit hex.
+//
+// The mid-band width clamp pays invented coverage back in colour. That fill used
+// to be terrainGrassColor, a raw albedo 1.7–3× the luminance of the shaded
+// blade it replaced. It is now the area-weighted palette mean — the same chord
+// the one-triangle vertex palette uses — so the mix cannot lift the band.
+if (
+  !/export function setGrassCanopyColor\(/.test(paletteShaderSource) ||
+  !/setGrassCanopyColor\(/.test(nearMaterialSource)
+) {
+  failures.push(
+    "uGrassCanopyColor must be derived through setGrassCanopyColor.",
+  );
+}
+if (
+  /uGrassCanopyColor\.value\.set\(\s*direction\.terrainGrassColor/.test(
+    nearMaterialSource,
+  )
+) {
+  failures.push(
+    "uGrassCanopyColor must not be a raw unlit terrainGrassColor albedo.",
+  );
+}
+if (
+  !/export const GRASS_CANOPY_MEAN_PROGRESS = 1 \/ 3/.test(
+    paletteShaderSource,
+  ) ||
+  !/export const GRASS_CANOPY_MEAN_SHADE = 0\.5/.test(paletteShaderSource) ||
+  !/export const GRASS_CANOPY_MEAN_DRYNESS = VERTEX_PALETTE_REFERENCE_DRYNESS/.test(
+    paletteShaderSource,
+  ) ||
+  !/export const GRASS_CANOPY_MEAN_ROOT_AO = 0\.95/.test(paletteShaderSource)
+) {
+  failures.push(
+    "GrassPaletteShader must publish the canopy mean progress and occlusion constants.",
+  );
+}
+if (
+  !/resolveGrassPaletteColor\(\s*target,[\s\S]*?GRASS_VERTEX_PALETTE_ROOT_PROGRESS,/.test(
+    paletteShaderSource,
+  ) ||
+  !/target\.lerp\(\s*canopyScratchResolvedTip,\s*GRASS_CANOPY_MEAN_PROGRESS/.test(
+    paletteShaderSource,
+  )
+) {
+  failures.push(
+    "setGrassCanopyColor must use the vertex-palette chord mean, not the palette at mean progress.",
+  );
+}
+
+const GRASS_CANOPY_MEAN_PROGRESS = 1 / 3;
+const GRASS_CANOPY_MEAN_SHADE = 0.5;
+const GRASS_CANOPY_MEAN_DRYNESS = VERTEX_PALETTE_REFERENCE_DRYNESS;
+const GRASS_CANOPY_MEAN_ROOT_AO = 0.95;
+
+let worstCanopyDelta = 0;
+for (const preset of Object.values(presets)) {
+  const palette = createPalette(preset);
+  const fragmentMean = triangleAreaMean((progress) =>
+    luminance(
+      resolvePalette(
+        preset,
+        palette,
+        progress,
+        GRASS_CANOPY_MEAN_SHADE,
+        GRASS_CANOPY_MEAN_DRYNESS,
+        GRASS_CANOPY_MEAN_ROOT_AO,
+      ),
+    ),
+  );
+  const rootColor = resolvePalette(
+    preset,
+    palette,
+    derivedRootProgress,
+    GRASS_CANOPY_MEAN_SHADE,
+    GRASS_CANOPY_MEAN_DRYNESS,
+    GRASS_CANOPY_MEAN_ROOT_AO,
+  );
+  const tipColor = resolvePalette(
+    preset,
+    palette,
+    1,
+    GRASS_CANOPY_MEAN_SHADE,
+    GRASS_CANOPY_MEAN_DRYNESS,
+    GRASS_CANOPY_MEAN_ROOT_AO,
+  );
+  const canopy = mixColor(rootColor, tipColor, GRASS_CANOPY_MEAN_PROGRESS);
+  const delta =
+    Math.abs(luminance(canopy) - fragmentMean) / Math.max(fragmentMean, 1e-4);
+  worstCanopyDelta = Math.max(worstCanopyDelta, delta);
+  if (delta > MAX_AVERAGE_LUMINANCE_DELTA) {
+    failures.push(
+      `${preset.label} canopy fill luminance differs from the area-weighted blade mean by ${formatPercent(delta)}.`,
+    );
+  }
+}
+console.log(
+  `[lod-color] Canopy fill is the area-weighted palette mean at shade ${GRASS_CANOPY_MEAN_SHADE}; worst luminance delta against the per-fragment blade is ${formatPercent(worstCanopyDelta)}.`,
+);
 
 if (failures.length > 0) {
   fail(failures.join("\n[lod-color] "));

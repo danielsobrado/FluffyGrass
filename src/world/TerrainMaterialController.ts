@@ -14,7 +14,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v8-rock-joints";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v9-canopy-mean";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -42,6 +42,7 @@ export class TerrainMaterialController {
         uTerrainCanopyDarkening: {
           value: config.terrainGroundCanopyDarkening,
         },
+        uTerrainGrassTintStrength: { value: 0.5 },
         uTerrainLodDistances: {
           value: new THREE.Vector4(
             config.grassUltraNearDistance,
@@ -104,6 +105,8 @@ export class TerrainMaterialController {
     const lod = this.uniforms.uTerrainLodDistances.value as THREE.Vector4;
     lod.z = direction.nearDistance;
     lod.w = direction.midDistance;
+    this.uniforms.uTerrainGrassTintStrength.value =
+      direction.terrainGrassTintStrength;
   }
 
   dispose(): void {

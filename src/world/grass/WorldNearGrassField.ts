@@ -64,6 +64,7 @@ interface NearGrassResources {
   readonly bridgeMaterial: GrassNearMaterial;
   readonly baseDetailMaterial: GrassNearMaterial;
   readonly ultraNearMaterial: GrassNearMaterial;
+  readonly densityBoostMaterial: GrassNearMaterial;
   readonly detailFoliageTuning: DetailFoliageTuning;
 }
 
@@ -77,11 +78,15 @@ export class WorldNearGrassField {
   private readonly bridgeMaterial: GrassNearMaterial;
   private readonly baseDetailMaterial: GrassNearMaterial;
   private readonly ultraNearMaterial: GrassNearMaterial;
+  // Carries the ultra-near layer's second blade population outward on
+  // one-triangle geometry. See createDensityBoostField.
+  private readonly densityBoostMaterial: GrassNearMaterial;
   private factory?: WorldSingleBladeTileFactory;
   private baseField?: WorldSingleBladeTileField;
   private bridgeField?: WorldSingleBladeTileField;
   private baseDetailedField?: WorldSingleBladeTileField;
   private ultraNearField?: WorldSingleBladeTileField;
+  private densityBoostField?: WorldSingleBladeTileField;
   // The accent layer: one atlas, one material, every species and tint resolved
   // from per-instance data. See WorldDetailFoliageField for why it lives here
   // rather than beside the streamed mid patches — it is a near-band layer and
@@ -111,6 +116,7 @@ export class WorldNearGrassField {
     this.bridgeMaterial = resources.bridgeMaterial;
     this.baseDetailMaterial = resources.baseDetailMaterial;
     this.ultraNearMaterial = resources.ultraNearMaterial;
+    this.densityBoostMaterial = resources.densityBoostMaterial;
     this.detailFoliageTuning = resources.detailFoliageTuning;
   }
 
@@ -148,6 +154,7 @@ export class WorldNearGrassField {
     this.bridgeMaterial.update(elapsedSeconds);
     this.baseDetailMaterial.update(elapsedSeconds);
     this.ultraNearMaterial.update(elapsedSeconds);
+    this.densityBoostMaterial.update(elapsedSeconds);
     this.detailFoliageMaterial?.update(elapsedSeconds);
 
     // Near-blade residency is horizontal, while the shader's LOD distance is
@@ -164,6 +171,7 @@ export class WorldNearGrassField {
     this.bridgeField?.setEnabled(nearFieldsEnabled);
     this.baseDetailedField?.setEnabled(nearFieldsEnabled);
     this.ultraNearField?.setEnabled(nearFieldsEnabled);
+    this.densityBoostField?.setEnabled(nearFieldsEnabled);
     this.detailFoliageField?.setEnabled(
       nearFieldsEnabled && this.detailFoliageEnabled,
     );
@@ -191,6 +199,7 @@ export class WorldNearGrassField {
     if (this.bridgeField) builders.push(this.bridgeField);
     if (this.baseDetailedField) builders.push(this.baseDetailedField);
     if (this.ultraNearField) builders.push(this.ultraNearField);
+    if (this.densityBoostField) builders.push(this.densityBoostField);
     if (this.detailFoliageField) builders.push(this.detailFoliageField);
     for (let offset = 0; offset < builders.length; offset += 1) {
       const index = (this.buildCursor + offset) % builders.length;
@@ -240,7 +249,8 @@ export class WorldNearGrassField {
     const bridgeBlades = this.bridgeField?.getBladeCount() ?? 0;
     return (
       Math.max(baseBlades, bridgeBlades) +
-      (this.ultraNearField?.getBladeCount() ?? 0)
+      (this.ultraNearField?.getBladeCount() ?? 0) +
+      (this.densityBoostField?.getBladeCount() ?? 0)
     );
   }
 
@@ -254,6 +264,7 @@ export class WorldNearGrassField {
       this.bridgeField,
       this.baseDetailedField,
       this.ultraNearField,
+      this.densityBoostField,
     ];
     let nearTiles = 0;
     let nearTileBuildMs = 0;
@@ -276,6 +287,9 @@ export class WorldNearGrassField {
     const ultraNearLod = this.resolveUltraNearLodConfig();
 
     this.ultraNearMaterial.applyArtDirection(direction);
+    this.densityBoostMaterial.applyArtDirection(direction);
+    this.densityBoostMaterial.configureLod(this.resolveDensityBoostLodConfig());
+    this.densityBoostMaterial.configureDetailLod(ultraNearLod);
     this.bridgeMaterial.applyArtDirection(direction);
     this.detailFoliageMaterial?.applyArtDirection(direction);
     for (const material of [this.baseMaterial, this.baseDetailMaterial]) {
@@ -306,12 +320,13 @@ export class WorldNearGrassField {
   }
 
   /**
-   * World size of one device pixel per metre of camera distance. LOD0 and the
-   * bridge both use the same sub-pixel width rule through the handoff.
+   * World size of one device pixel per metre of camera distance. Every
+   * one-triangle layer uses the same sub-pixel width rule through the handoff.
    */
   setViewportPixelScale(pixelWorldScale: number): void {
     this.baseMaterial.setViewportPixelScale(pixelWorldScale);
     this.bridgeMaterial.setViewportPixelScale(pixelWorldScale);
+    this.densityBoostMaterial.setViewportPixelScale(pixelWorldScale);
   }
 
   setQuality(
@@ -338,11 +353,18 @@ export class WorldNearGrassField {
     this.ultraNearMaterial.setLodDensityScale(
       densityScale * ultraDensityScale,
     );
+    // The boost layer is the same second population as the ultra-near layer,
+    // just carried further out, so the governor thins the two together.
+    this.densityBoostMaterial.setLodDensityScale(
+      densityScale * ultraDensityScale,
+    );
     this.baseMaterial.setSheenEnabled(sheenEnabled);
+    this.densityBoostMaterial.setSheenEnabled(sheenEnabled);
     this.baseField?.setDensityScale(1);
     this.baseDetailedField?.setDensityScale(1);
     this.bridgeField?.setDensityScale(densityScale);
     this.ultraNearField?.setDensityScale(densityScale * ultraDensityScale);
+    this.densityBoostField?.setDensityScale(densityScale * ultraDensityScale);
 
     const bridgeEntryLod = this.resolveBridgeEntryLodConfig(
       this.artDirection,
@@ -515,6 +537,34 @@ export class WorldNearGrassField {
     };
   }
 
+  /**
+   * Where the second blade population stops. The ultra-near layer used to be the
+   * only thing carrying it, so density halved over the one metre its own fade
+   * spans — a cliff at 6-7 m that read as the field thinning and lifting toward
+   * the ground colour exactly where the player is looking. The boost layer takes
+   * the same population outward on one-triangle geometry instead, so the doubling
+   * decays across the whole band the near field owns rather than at its inner
+   * edge. It must be gone before the mid patches take over, since they have no
+   * counterpart population; the config validator holds that.
+   */
+  private resolveDensityBoostLodConfig(): GrassLodConfig {
+    return {
+      nearMaxDistance: this.worldConfig.grassNearDensityBoostDistance,
+      midMaxDistance: this.artDirection.midDistance,
+      farMaxDistance: this.artDirection.farDistance,
+      transitionDistance: this.worldConfig.grassNearDensityBoostTransition,
+      hysteresisDistance: 0,
+    };
+  }
+
+  private resolveDensityBoostVisibilityRadius(): number {
+    return (
+      this.worldConfig.grassNearDensityBoostDistance +
+      this.worldConfig.grassNearDensityBoostTransition +
+      SINGLE_BLADE_BOUNDS_MARGIN
+    );
+  }
+
   private resolveUltraNearLodConfig(): GrassLodConfig {
     const ultraTransitionHalf =
       this.worldConfig.grassUltraNearTransitionDistance * 0.5;
@@ -539,6 +589,7 @@ export class WorldNearGrassField {
     const bridgeField = this.bridgeField;
     const baseDetailedField = this.baseDetailedField;
     const ultraNearField = this.ultraNearField;
+    const densityBoostField = this.densityBoostField;
     const detailFoliageField = this.detailFoliageField;
     const factory = this.factory;
     const detailFoliageFactory = this.detailFoliageFactory;
@@ -548,6 +599,7 @@ export class WorldNearGrassField {
     this.bridgeField = undefined;
     this.baseDetailedField = undefined;
     this.ultraNearField = undefined;
+    this.densityBoostField = undefined;
     this.detailFoliageField = undefined;
     this.factory = undefined;
     this.detailFoliageFactory = undefined;
@@ -559,6 +611,7 @@ export class WorldNearGrassField {
       bridgeField,
       baseDetailedField,
       ultraNearField,
+      densityBoostField,
       detailFoliageField,
       factory,
       detailFoliageFactory,
@@ -566,6 +619,7 @@ export class WorldNearGrassField {
       this.bridgeMaterial.material,
       this.baseDetailMaterial.material,
       this.ultraNearMaterial.material,
+      this.densityBoostMaterial.material,
       detailFoliageMaterial,
     ]);
   }
@@ -606,6 +660,11 @@ export class WorldNearGrassField {
     this.ultraNearMaterial.configure(grassConfig.material, grassConfig.wind);
     this.ultraNearMaterial.applyArtDirection(this.artDirection);
     this.ultraNearMaterial.configureLod(ultraNearLodConfig);
+    const densityBoostLodConfig = this.resolveDensityBoostLodConfig();
+    this.densityBoostMaterial.configure(grassConfig.material, grassConfig.wind);
+    this.densityBoostMaterial.applyArtDirection(this.artDirection);
+    this.densityBoostMaterial.configureLod(densityBoostLodConfig);
+    this.densityBoostMaterial.configureDetailLod(ultraNearLodConfig);
     if (!this.profile.compact) {
       const texture = getGrassWindNoiseTexture();
       for (const material of [
@@ -613,6 +672,7 @@ export class WorldNearGrassField {
         this.bridgeMaterial,
         this.baseDetailMaterial,
         this.ultraNearMaterial,
+        this.densityBoostMaterial,
       ]) {
         material.setWindNoise(
           texture,
@@ -626,6 +686,7 @@ export class WorldNearGrassField {
       0.25;
     this.baseMaterial.setBladeHalfWidth(sourceBladeHalfWidth);
     this.bridgeMaterial.setBladeHalfWidth(sourceBladeHalfWidth);
+    this.densityBoostMaterial.setBladeHalfWidth(sourceBladeHalfWidth);
 
     const trailBend = {
       maxAngleRadians: THREE.MathUtils.degToRad(
@@ -639,6 +700,7 @@ export class WorldNearGrassField {
       this.bridgeMaterial,
       this.baseDetailMaterial,
       this.ultraNearMaterial,
+      this.densityBoostMaterial,
     ]) {
       material.configureTrail(trailBend);
     }
@@ -765,6 +827,38 @@ export class WorldNearGrassField {
       );
     }
 
+    if (ultraAdditionalDensity > 0) {
+      this.densityBoostField = new WorldSingleBladeTileField(
+        this.scene,
+        factory,
+        tileSize,
+        {
+          namePrefix: "world-grass-near-density-boost",
+          visibilityRadius: this.resolveDensityBoostVisibilityRadius(),
+          worldHalfExtent,
+          densityMultiplier: ultraAdditionalDensity,
+          // One triangle, not the segmented silhouette. Detail is worth six
+          // triangles only where a blade is large on screen; coverage is not,
+          // and coverage is the whole point of this layer.
+          bladeSegments: 1,
+          receiveShadows: false,
+          // The ultra-near layer's placement, continued outward: the same blade
+          // roots, so nothing moves as one representation hands off to the other.
+          seedSalt: ULTRA_NEAR_SEED_SALT,
+          material: this.densityBoostMaterial,
+          tilesPerFrame: BASE_TILES_PER_FRAME,
+          reconcileEveryFrame: true,
+          lodNearDistance: densityBoostLodConfig.nearMaxDistance,
+          lodTransitionDistance: densityBoostLodConfig.transitionDistance,
+          // Inside the ultra-near fade the keep set is an interval rather than a
+          // prefix, so CPU count trimming has to wait for that handoff.
+          lodGuardDistance:
+            ultraNearLodConfig.nearMaxDistance +
+            ultraNearLodConfig.transitionDistance,
+        },
+      );
+    }
+
     this.createDetailFoliageLayer(grassConfig);
     this.initialized = true;
   }
@@ -779,7 +873,7 @@ function createNearGrassResources(
     const windMode = profile.compact ? "sine" : "noise";
     const baseMaterial = new GrassNearMaterial({
       name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v25-base-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v26-base-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
@@ -791,7 +885,7 @@ function createNearGrassResources(
     created.push(baseMaterial);
     const bridgeMaterial = new GrassNearMaterial({
       name: "world-grass-near-bridge-material",
-      cacheKey: `grass-near-material-v25-bridge-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v26-bridge-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
@@ -804,7 +898,7 @@ function createNearGrassResources(
     created.push(bridgeMaterial);
     const baseDetailMaterial = new GrassNearMaterial({
       name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v25-detail-${windMode}`,
+      cacheKey: `grass-near-material-v26-detail-${windMode}`,
       detailMode: 2,
       ditherSeed: BASE_SEED_SALT,
       interactive: true,
@@ -814,7 +908,7 @@ function createNearGrassResources(
     created.push(baseDetailMaterial);
     const ultraNearMaterial = new GrassNearMaterial({
       name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v25-ultra-${windMode}`,
+      cacheKey: `grass-near-material-v26-ultra-${windMode}`,
       detailMode: 0,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       interactive: true,
@@ -822,12 +916,38 @@ function createNearGrassResources(
       microWind: !profile.compact,
     });
     created.push(ultraNearMaterial);
+    // Same compile-time configuration as the base layer — one-triangle blades,
+    // vertex palette, sub-pixel widening — because it draws the same kind of
+    // blade over the same band. Only the dither seed differs, and it must match
+    // the placement salt its field is built from.
+    const densityBoostMaterial = new GrassNearMaterial({
+      name: "world-grass-near-density-boost-material",
+      cacheKey: `grass-near-material-v26-density-boost-${windMode}`,
+      detailMode: 1,
+      ditherSeed: ULTRA_NEAR_SEED_SALT,
+      vertexPalette: true,
+      interactive: true,
+      subPixelWidth: true,
+      noiseWind: !profile.compact,
+      microWind: !profile.compact,
+    });
+    created.push(densityBoostMaterial);
+
+    // One shading schedule for every layer. Passing each material its own LOD
+    // distance here is what produced the 6-7 m brightness ring.
+    for (const material of created) {
+      material.setMicroDetailFadeRange(
+        worldConfig.grassMicroDetailFadeStart,
+        worldConfig.grassMicroDetailFadeEnd,
+      );
+    }
 
     return {
       baseMaterial,
       bridgeMaterial,
       baseDetailMaterial,
       ultraNearMaterial,
+      densityBoostMaterial,
       detailFoliageTuning: createDetailFoliageTuning(worldConfig),
     };
   } catch (error) {

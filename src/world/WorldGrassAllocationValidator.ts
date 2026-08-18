@@ -3,10 +3,11 @@ import type { WorldConfig } from "./WorldConfig";
 /**
  * Absolute allocation ceilings for valid-but-pathological world tuning.
  *
- * The shipped world uses 1,152 source blades per patch and 9,216 stacked
- * ultra-near blades per tile. These limits leave several times that tuning
- * headroom while preventing a large patch/tile size from turning one build
- * job into an unbounded typed-array or shared-geometry allocation.
+ * The shipped world uses 1,152 source blades per patch and 13,824 stacked
+ * near-field blades per tile (base + ultra-near extra + density-boost extra).
+ * These limits leave several times that tuning headroom while preventing a
+ * large patch/tile size from turning one build job into an unbounded
+ * typed-array or shared-geometry allocation.
  */
 export const MAX_GRASS_SOURCE_BLADES_PER_PATCH = 8_192;
 export const MAX_GRASS_MID_TRIANGLES_PER_RENDER_BATCH = 500_000;
@@ -65,5 +66,11 @@ function resolveNearStackedBladeCount(
   density: number,
   ultraMultiplier: number,
 ): number {
-  return Math.max(1, Math.round(tileSize ** 2 * density * ultraMultiplier));
+  // Base population, plus the extra ultra-near blades, plus the same extra
+  // population carried outward by the one-triangle density-boost layer.
+  // When the multiplier is 1 there is no extra population and no boost field.
+  return Math.max(
+    1,
+    Math.round(tileSize ** 2 * density * (2 * ultraMultiplier - 1)),
+  );
 }
