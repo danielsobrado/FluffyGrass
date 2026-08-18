@@ -357,11 +357,24 @@ this area is steep" is not "is there a cliff".
 So macro geology is **not** the blocking item, and the terrain does not need
 reshaping. Two real problems remain, both narrower and both surgical:
 
-- **Ecology cannot see the wall.** `TerrainLandformField` measures on an 8 m
-  lattice, and its slope at this very spot reads 0.023 while the ground drops
-  12.5 m in 3 m. Grass is therefore planted down a vertical cliff. This is the
-  actual cause of the walls reading as meadow, and it is a slope-signal problem,
-  not a geology one.
+- ~~Ecology cannot see the wall.~~ **Wrong, checked.** `TerrainLandformField`
+  does read 0.023 there, but landform slope is not what gates grass. Placement
+  uses `TerrainField.sampleNormal`, whose `TERRAIN_NORMAL_STEP` is 1.5 m — a 3 m
+  central difference, which resolves a 3 m wall fine. On the measured wall that
+  gives `normal.y = 0.233`, and `sampleGrassSlopeMask` with
+  `grassMaxSlopeDegrees: 44` (limit 0.719, fade end 0.919) returns exactly
+  **0.000**. Every placement path applies it — `WorldGrassSystem`,
+  `WorldSingleBladeTileFactory`, `WorldDetailFoliageField`, `DenseSpawnLocator`
+  — and `WorldNearGrassField` consumes tiles from the factory that does. There
+  is no grass on the wall and no signal to add.
+- **The walls do not render as rock, and the reason is still open.** Sampled
+  from the settled in-game capture, the wall pixels read `#46645e` and
+  `#62705f` — green dominant, `G > R`. The rock palette is `#4a453e`/`#5d5347`,
+  warm browns with `R > G`, which no warm sun turns green. So the rock branch is
+  not reaching those fragments. Two candidates remain and picking regions out of
+  a screenshot cannot separate them, so **the next step is a debug view that
+  writes `terrainCliff` straight to the output**, not more inference.
+
 - **The wall is about one sample wide.** At near resolution the terrain samples
   every 2.67 m, so a 3 m wall spans barely one quad; at mid (5.3 m) and far
   (10.7 m) it is narrower than a single sample and collapses into a ramp. This
