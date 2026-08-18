@@ -86,7 +86,6 @@ vec3 applyWorldClouds(vec3 skyColor, vec3 direction) {
   float alpha = density * uCloudOpacity * horizonFade;
 
   float sunFacing = max(dot(direction, uSkySunDirection), 0.0);
-  vec2 sunPlanar = normalize(uSkySunDirection.xz + vec2(0.0001));
   float silverEdge =
     density * (1.0 - density) * smoothstep(0.38, 0.78, detailAmount);
   float sunLift = pow(sunFacing, 3.0) * 0.22 + silverEdge * 1.75;
