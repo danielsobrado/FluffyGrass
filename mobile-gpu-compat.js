@@ -1,11 +1,20 @@
 (() => {
   const MOBILE_USER_AGENT = /Android|iPhone|iPad|iPod|Mobile|Silk/i;
   const COARSE_POINTER_QUERY = "(pointer: coarse)";
-  const SHADER_PATCH_FLAG = "__drusnielGrassImpostorGpuPatch";
-  const BUFFER_PATCH_FLAG = "__drusnielCapeBufferGpuPatch";
+  const PATCH_FLAG = "__drusnielGrassImpostorGpuPatch";
   const IMPOSTOR_ATTRIBUTE = "attribute vec2 grassSubpatchOffset;";
+  const IMPOSTOR_ATLAS_MARKER = "uniform sampler2D uAtlas;";
+  const IMPOSTOR_FRAME_MARKER = "vec4 sampleFrame(";
   const REJECTED_CLIP_POSITION = "gl_Position = vec4(2.0, 2.0, 2.0, 1.0);";
-  const CAPE_DYNAMIC_FLOAT_COUNTS = new Set([351, 627]);
+  const COMPACT_MIP_SAMPLE =
+    "return textureLod(uAtlas, atlasUv, log2(max(texelsPerPixel, 1.0)));";
+  const BASE_LEVEL_SAMPLE = "return textureLod(uAtlas, atlasUv, 0.0);";
+  const ALPHA_CUTOFF_MARKER = "  float cutoff = mix(";
+  const INVALID_ATLAS_GUARD =
+    "  // Transparent canvas texels must never become opaque black card pixels.\n" +
+    "  if (atlasColor.a > 0.99 && dot(atlasColor.rgb, atlasColor.rgb) < 1e-6) {\n" +
+    "    discard;\n" +
+    "  }\n\n";
 
   const compactDevice =
     window.matchMedia(COARSE_POINTER_QUERY).matches ||
@@ -14,7 +23,7 @@
     return;
   }
 
-  const patchShader = (source) => {
+  const patchVertexShader = (source) => {
     if (
       !source.includes(IMPOSTOR_ATTRIBUTE) ||
       source.includes("vec3 safeNormalize3(vec3 value")
@@ -91,92 +100,52 @@
     return patched;
   };
 
-  const patchShaderPrototype = (prototype) => {
-    if (!prototype || prototype[SHADER_PATCH_FLAG]) {
+  const patchFragmentShader = (source) => {
+    if (
+      !source.includes(IMPOSTOR_ATLAS_MARKER) ||
+      !source.includes(IMPOSTOR_FRAME_MARKER) ||
+      !source.includes(COMPACT_MIP_SAMPLE)
+    ) {
+      return source;
+    }
+
+    let patched = source.replace(COMPACT_MIP_SAMPLE, BASE_LEVEL_SAMPLE);
+    if (
+      !patched.includes(INVALID_ATLAS_GUARD) &&
+      patched.includes(ALPHA_CUTOFF_MARKER)
+    ) {
+      patched = patched.replace(
+        ALPHA_CUTOFF_MARKER,
+        INVALID_ATLAS_GUARD + ALPHA_CUTOFF_MARKER,
+      );
+    }
+    return patched;
+  };
+
+  const patchShader = (source) => {
+    if (source.includes(IMPOSTOR_ATTRIBUTE)) {
+      return patchVertexShader(source);
+    }
+    return patchFragmentShader(source);
+  };
+
+  const patchPrototype = (prototype) => {
+    if (!prototype || prototype[PATCH_FLAG]) {
       return;
     }
     const originalShaderSource = prototype.shaderSource;
     if (typeof originalShaderSource !== "function") {
       return;
     }
-    Object.defineProperty(prototype, SHADER_PATCH_FLAG, { value: true });
+    Object.defineProperty(prototype, PATCH_FLAG, { value: true });
     prototype.shaderSource = function shaderSource(shader, source) {
       return originalShaderSource.call(this, shader, patchShader(source));
     };
   };
 
-  const patchCapeBuffers = (prototype) => {
-    if (!prototype || prototype[BUFFER_PATCH_FLAG]) {
-      return;
-    }
-    const originalBufferData = prototype.bufferData;
-    const originalBufferSubData = prototype.bufferSubData;
-    if (
-      typeof originalBufferData !== "function" ||
-      typeof originalBufferSubData !== "function"
-    ) {
-      return;
-    }
-
-    const frozenBuffers = new WeakSet();
-    Object.defineProperty(prototype, BUFFER_PATCH_FLAG, { value: true });
-
-    prototype.bufferData = function bufferData(target, dataOrSize, usage, ...rest) {
-      const result = originalBufferData.call(
-        this,
-        target,
-        dataOrSize,
-        usage,
-        ...rest,
-      );
-      if (
-        target === this.ARRAY_BUFFER &&
-        usage === this.DYNAMIC_DRAW &&
-        dataOrSize instanceof Float32Array &&
-        CAPE_DYNAMIC_FLOAT_COUNTS.has(dataOrSize.length)
-      ) {
-        const buffer = this.getParameter(this.ARRAY_BUFFER_BINDING);
-        if (buffer) {
-          frozenBuffers.add(buffer);
-        }
-      }
-      return result;
-    };
-
-    prototype.bufferSubData = function bufferSubData(
-      target,
-      destinationOffset,
-      source,
-      ...rest
-    ) {
-      if (
-        target === this.ARRAY_BUFFER &&
-        source instanceof Float32Array &&
-        CAPE_DYNAMIC_FLOAT_COUNTS.has(source.length)
-      ) {
-        const buffer = this.getParameter(this.ARRAY_BUFFER_BINDING);
-        if (buffer && frozenBuffers.has(buffer)) {
-          return;
-        }
-      }
-      return originalBufferSubData.call(
-        this,
-        target,
-        destinationOffset,
-        source,
-        ...rest,
-      );
-    };
-  };
-
   try {
-    for (const prototype of [
-      globalThis.WebGL2RenderingContext?.prototype,
-      globalThis.WebGLRenderingContext?.prototype,
-    ]) {
-      patchShaderPrototype(prototype);
-      patchCapeBuffers(prototype);
-    }
+    patchPrototype(globalThis.WebGL2RenderingContext?.prototype);
+    patchPrototype(globalThis.WebGLRenderingContext?.prototype);
   } catch (error) {
     console.warn("[Drusniel World] Mobile GPU compatibility patch unavailable.", error);
   }
