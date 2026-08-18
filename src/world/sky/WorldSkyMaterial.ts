@@ -23,15 +23,21 @@ uniform float uCloudCoverage;
 uniform float uCloudSoftness;
 uniform float uCloudOpacity;
 uniform float uCloudBaseHeight;
+uniform float uCloudThickness;
+uniform float uCloudExtinction;
 uniform float uCloudMacroScale;
 uniform float uCloudDetailScale;
 uniform float uCloudWeatherScale;
 uniform vec2 uCloudWind;
 uniform vec2 uCloudDetailWind;
+uniform float uCloudSelfShadowStrength;
+uniform float uCloudSilverLiningStrength;
 uniform vec3 uCloudAmbientColor;
 uniform vec3 uCloudShadowColor;
 uniform vec3 uCloudSunlitColor;
 uniform float uGodRayStrength;
+uniform sampler2D uCloudTemporalTexture;
+uniform vec2 uCloudViewportInverse;
 varying vec3 vSkyDirection;
 
 ${WORLD_SKY_CLOUD_GLSL}
@@ -70,15 +76,21 @@ export function createWorldSkyMaterial(vertexShader: string): THREE.ShaderMateri
       uCloudSoftness: { value: 1 },
       uCloudOpacity: { value: 0 },
       uCloudBaseHeight: { value: 1 },
+      uCloudThickness: { value: 1 },
+      uCloudExtinction: { value: 1 },
       uCloudMacroScale: { value: 1 },
       uCloudDetailScale: { value: 1 },
       uCloudWeatherScale: { value: 1 },
       uCloudWind: { value: new THREE.Vector2() },
       uCloudDetailWind: { value: new THREE.Vector2() },
+      uCloudSelfShadowStrength: { value: 0 },
+      uCloudSilverLiningStrength: { value: 0 },
       uCloudAmbientColor: { value: new THREE.Color() },
       uCloudShadowColor: { value: new THREE.Color() },
       uCloudSunlitColor: { value: new THREE.Color() },
       uGodRayStrength: { value: 0 },
+      uCloudTemporalTexture: { value: null },
+      uCloudViewportInverse: { value: new THREE.Vector2(1, 1) },
     },
     side: THREE.BackSide,
     depthWrite: false,
@@ -107,6 +119,8 @@ export function configureWorldSkyClouds(
   material.uniforms.uCloudSoftness.value = cloud.softness;
   material.uniforms.uCloudOpacity.value = cloud.opacity;
   material.uniforms.uCloudBaseHeight.value = cloud.baseHeight;
+  material.uniforms.uCloudThickness.value = cloud.thickness;
+  material.uniforms.uCloudExtinction.value = cloud.extinction;
   material.uniforms.uCloudMacroScale.value = cloud.macroScale;
   material.uniforms.uCloudDetailScale.value = cloud.detailScale;
   material.uniforms.uCloudWeatherScale.value = cloud.weatherScale;
@@ -118,6 +132,8 @@ export function configureWorldSkyClouds(
     cloud.detailWindX,
     cloud.detailWindZ,
   );
+  material.uniforms.uCloudSelfShadowStrength.value = cloud.selfShadowStrength;
+  material.uniforms.uCloudSilverLiningStrength.value = cloud.silverLiningStrength;
   (material.uniforms.uCloudAmbientColor.value as THREE.Color).set(
     cloud.ambientColor,
   );
@@ -128,6 +144,26 @@ export function configureWorldSkyClouds(
     cloud.sunlitColor,
   );
   material.uniforms.uGodRayStrength.value = cloud.godRayStrength;
+  material.needsUpdate = true;
+}
+
+export function enableWorldSkyTemporalClouds(
+  material: THREE.ShaderMaterial,
+): void {
+  material.defines = {
+    ...(material.defines ?? {}),
+    WORLD_CLOUD_TEMPORAL: 1,
+  };
+  material.needsUpdate = true;
+}
+
+export function disableWorldSkyTemporalClouds(
+  material: THREE.ShaderMaterial,
+): void {
+  const defines = { ...(material.defines ?? {}) };
+  delete defines.WORLD_CLOUD_TEMPORAL;
+  material.defines = defines;
+  material.uniforms.uCloudTemporalTexture.value = null;
   material.needsUpdate = true;
 }
 

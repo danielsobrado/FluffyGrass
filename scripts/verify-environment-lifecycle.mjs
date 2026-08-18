@@ -22,7 +22,17 @@ const sky = read("src/world/sky/WorldSky.ts");
 const cloudMaterial = read("src/world/sky/WorldSkyMaterial.ts");
 const cloudShader = read("src/world/sky/WorldSkyCloudShader.ts");
 const cloudWeather = read("src/world/sky/WorldCloudWeather.ts");
+const cloudLighting = read("src/app/WorldCloudEnvironmentLighting.ts");
+const cloudVolumeController = read(
+  "src/world/sky/WorldSkyCloudVolumeController.ts",
+);
+const cloudVolumePass = read("src/world/sky/WorldCloudTemporalPass.ts");
+const cloudVolumeShader = read("src/world/sky/WorldCloudVolumeShader.ts");
+const cloudTemporalShader = read("src/world/sky/WorldCloudTemporalShader.ts");
+const cloudVolumeQuality = read("src/world/sky/WorldCloudVolumeQuality.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
+const runtimeConfig = read("src/runtime/RuntimeConfig.ts");
+const runtimeYaml = read("public/config/runtime.yaml");
 const worldApp = read("src/app/WorldApp.ts");
 
 assert(
@@ -103,8 +113,74 @@ assert(
     cloudShader.includes("WORLD_CLOUD_GOD_RAYS") &&
     cloudShader.includes("float horizonFade") &&
     cloudShader.includes("float silverEdge") &&
+    cloudShader.includes("float cloudSelfShadow(") &&
+    cloudShader.includes("opticalTransmittance = exp(") &&
+    cloudShader.includes("uCloudSilverLiningStrength") &&
     cloudShader.includes("float godRay"),
-  "The sky must retain scalable macro/detail cloud shaping, horizon integration, edge lighting, and the cheap god-ray path.",
+  "The sky must retain scalable macro/detail shaping, horizon integration, Beer-Lambert body depth, self-shadowing, tunable silver lining, and cheap god rays.",
+);
+assert(
+  cloudMaterial.includes("uCloudThickness") &&
+    cloudMaterial.includes("uCloudExtinction") &&
+    cloudMaterial.includes("uCloudSelfShadowStrength") &&
+    cloudMaterial.includes("uCloudSilverLiningStrength") &&
+    runtimeConfig.includes("shadowSampleRadius: number") &&
+    runtimeConfig.includes("weatherGradeStrength: number") &&
+    runtimeYaml.includes("desktopCloudShadowSampleRadius: 24") &&
+    runtimeYaml.includes("compactCloudMinimumDirectTransmittance: 0.90"),
+  "Cloud body depth, projected-shadow filtering, and weather grading must remain explicit runtime tuning rather than shader literals.",
+);
+assert(
+  runtimeConfig.includes("volumetricEnabled: boolean") &&
+    runtimeConfig.includes("volumetricResolutionScale: number") &&
+    runtimeConfig.includes("volumetricSteps: number") &&
+    runtimeConfig.includes("temporalBlend: number") &&
+    runtimeYaml.includes("desktopCloudVolumetricEnabled: true") &&
+    runtimeYaml.includes("desktopCloudVolumetricResolutionScale: 0.50") &&
+    runtimeYaml.includes("desktopCloudVolumetricSteps: 8") &&
+    runtimeYaml.includes("compactCloudVolumetricEnabled: false") &&
+    cloudMaterial.includes("WORLD_CLOUD_TEMPORAL") &&
+    cloudMaterial.includes("uCloudTemporalTexture") &&
+    cloudVolumeController.includes("new WorldCloudTemporalPass") &&
+    cloudVolumeController.includes("disableWorldSkyTemporalClouds") &&
+    cloudVolumePass.includes("uPreviousViewProjection") &&
+    cloudVolumePass.includes("this.historyTargets") &&
+    cloudTemporalShader.includes("previousParcel.xz += uCloudWind * uDeltaSeconds") &&
+    cloudTemporalShader.includes("alphaDifference") &&
+    cloudVolumeShader.includes("WORLD_CLOUD_VOLUME_STEPS") &&
+    cloudVolumeShader.includes("cloudJitter") &&
+    cloudVolumeShader.includes("cloudVerticalProfile") &&
+    cloudVolumeShader.includes("1.0 - exp(-opticalDepth)") &&
+    cloudVolumeQuality.includes('"desktop" | "medium" | "mobile"') &&
+    cloudVolumeQuality.includes("MEDIUM_MAX_STEPS = 6"),
+  "Desktop clouds must use a low-resolution temporally reprojected volumetric deck with jittered bounded ray steps, wind-aware history rejection, and medium/mobile quality fallbacks.",
+);
+assert(
+  cloudVolumeController.includes("uCloudViewportInverse") &&
+    sky.includes("mesh.renderOrder = 900") &&
+    cloudVolumePass.includes("renderer.getRenderTarget()") &&
+    cloudVolumePass.includes("renderer.setRenderTarget(previousTarget)"),
+  "Volumetric clouds must upsample only through depth-tested sky fragments and restore nested renderer state after the offscreen pass.",
+);
+assert(
+  cloudWeather.includes("SHADOW_CENTER_WEIGHT = 0.36") &&
+    cloudWeather.includes("SHADOW_CARDINAL_WEIGHT = 0.16") &&
+    cloudWeather.includes("worldX + radius") &&
+    cloudWeather.includes("worldX - radius") &&
+    cloudWeather.includes("worldZ + radius") &&
+    cloudWeather.includes("worldZ - radius") &&
+    cloudWeather.includes("config.minimumDirectTransmittance"),
+  "Cloud direct-light occlusion must use a normalized five-tap low-frequency footprint and retain a hard transmittance floor.",
+);
+assert(
+  environment.includes('from "./WorldCloudEnvironmentLighting"') &&
+    environment.includes("this.cloudLighting.update(safeDelta, focus, this.elapsedSeconds)") &&
+    cloudLighting.includes("WORLD_DEFAULT_SUN_INTENSITY * this.directTransmittance") &&
+    cloudLighting.includes("this.hemisphere.intensity = WORLD_DEFAULT_HEMISPHERE_INTENSITY") &&
+    cloudLighting.includes("WORLD_OVERCAST_FOG_DENSITY_SCALE") &&
+    cloudLighting.includes("WORLD_OVERCAST_EXPOSURE_SCALE") &&
+    worldApp.includes("this.environment.update(deltaSeconds, focus);"),
+  "Cloud weather must soften only direct sun while a subtle shared lighting/fog/exposure grade keeps the world coherent without crushing ambient light.",
 );
 assert(
   environment.includes("private readonly shadowMapSize: number") &&
@@ -114,14 +190,6 @@ assert(
     environment.includes("(2 * WORLD_SUN_SHADOW_HALF_EXTENT) / this.shadowMapSize") &&
     environment.includes("this.sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize)"),
   "Shadow-map allocation and texel snapping must use a size clamped to the active GPU texture limit.",
-);
-assert(
-  cloudWeather.includes("sampleCloudDirectTransmittance") &&
-    cloudWeather.includes("config.minimumDirectTransmittance") &&
-    environment.includes("WORLD_DEFAULT_SUN_INTENSITY * this.cloudDirectTransmittance") &&
-    environment.includes("this.hemisphere.intensity = WORLD_DEFAULT_HEMISPHERE_INTENSITY") &&
-    worldApp.includes("this.environment.update(deltaSeconds, focus);"),
-  "Cloud occlusion must animate with the world, clamp only direct sunlight to a safe floor, and leave ambient sky light intact.",
 );
 assert(
   environment.includes("private disposed = false") &&
@@ -141,5 +209,5 @@ assert(
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, bounded cloud lighting, cheap god rays, GPU-safe shadows, restored PMREM, and fail-soft IBL ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, filtered direct light, Beer-Lambert temporal cloud volume, coherent weather grade, scalable quality tiers, god rays, GPU-safe shadows, restored PMREM, and fail-soft IBL ownership verified.",
 );

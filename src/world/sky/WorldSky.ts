@@ -5,6 +5,7 @@ import {
   WORLD_ZELDA_EXPOSURE,
 } from "../../app/WorldEnvironmentTuning";
 import { WORLD_CLOUD_TIME_WRAP_SECONDS } from "./WorldCloudWeather";
+import { WorldSkyCloudVolumeController } from "./WorldSkyCloudVolumeController";
 import {
   configureWorldSkyClouds,
   createWorldSkyMaterial,
@@ -27,14 +28,14 @@ void main() {
 /**
  * Painterly sky dome plus an IBL bake for standard/physical materials.
  *
- * Compact profiles keep the dome and skip the PMREM hitch; desktop bakes at
- * startup and again after WebGL context restoration because render-target
- * contents do not survive context loss.
+ * Compact profiles keep the analytic dome. Desktop can add the low-resolution
+ * temporally reprojected volume owned by WorldSkyCloudVolumeController.
  */
 export class WorldSky {
   private readonly mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private readonly environmentEnabled: boolean;
   private environmentTarget?: THREE.WebGLRenderTarget;
+  private cloudVolume?: WorldSkyCloudVolumeController;
   private disposed = false;
 
   constructor(
@@ -46,6 +47,12 @@ export class WorldSky {
     this.environmentEnabled = !profile.compact;
     try {
       configureWorldSkyClouds(this.mesh.material, profile);
+      this.cloudVolume = new WorldSkyCloudVolumeController(
+        this.scene,
+        this.renderer,
+        this.mesh,
+        profile,
+      );
       this.scene.background = null;
       this.renderer.toneMappingExposure = WORLD_ZELDA_EXPOSURE;
 
@@ -73,11 +80,13 @@ export class WorldSky {
     if (this.disposed) {
       return;
     }
-    this.mesh.material.uniforms.uTime.value =
+    const safeTime =
       Math.max(0, elapsedSeconds) % WORLD_CLOUD_TIME_WRAP_SECONDS;
+    this.mesh.material.uniforms.uTime.value = safeTime;
     const worldOffset = this.mesh.material.uniforms.uCloudWorldOffset
       .value as THREE.Vector2;
     worldOffset.set(focus.x, focus.z);
+    this.cloudVolume?.update(safeTime);
   }
 
   dispose(): void {
@@ -89,6 +98,11 @@ export class WorldSky {
       "webglcontextrestored",
       this.handleContextRestored,
     );
+    const cloudVolume = this.cloudVolume;
+    this.cloudVolume = undefined;
+    if (cloudVolume) {
+      cloudVolume.dispose();
+    }
     const environmentTarget = this.environmentTarget;
     this.environmentTarget = undefined;
     if (
@@ -109,6 +123,7 @@ export class WorldSky {
     if (this.disposed || !this.environmentEnabled) {
       return;
     }
+    this.cloudVolume?.resetHistory();
     const previousTarget = this.environmentTarget;
     this.environmentTarget = undefined;
     if (
@@ -137,7 +152,10 @@ export class WorldSky {
     try {
       pmrem = new THREE.PMREMGenerator(this.renderer);
       const bakeScene = new THREE.Scene();
-      const bakeMesh = new THREE.Mesh(this.mesh.geometry, this.mesh.material.clone());
+      const bakeMesh = new THREE.Mesh(
+        this.mesh.geometry,
+        this.mesh.material.clone(),
+      );
       bakeMaterial = bakeMesh.material;
       disableWorldSkyCloudsForEnvironmentBake(bakeMaterial);
       bakeScene.add(bakeMesh);
