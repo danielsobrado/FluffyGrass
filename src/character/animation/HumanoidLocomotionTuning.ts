@@ -1,9 +1,9 @@
 /**
  * Numerical constants for the humanoid locomotion layer.
  *
- * These were the player's shipped pose equations before the actor migration and
- * are reproduced here unchanged, so the ported locomotion matches the recorded
- * baseline rather than quietly redesigning the gait.
+ * Most values preserve the recorded player baseline. Locomotion-specific
+ * articulation values may be refined when shared player/NPC motion needs a
+ * more natural result without changing rig topology or animation ownership.
  */
 
 /** Metres of travel per full gait cycle. The grass trail stamps feet from it. */
@@ -24,7 +24,10 @@ export const HUMANOID_ARM_BACKSWING_SCALE = 0.55;
 export const HUMANOID_ARM_FORWARD_BIAS = 0.09;
 
 export const HUMANOID_THIGH_SWING = 0.68;
-export const HUMANOID_SHIN_SWING = 0.5;
+// Peak knee flex needs to remain clearly readable after the locomotion blend
+// scales the pose at normal walking speeds. The prior value left moving
+// humanoids close to a straight-legged gait, especially for NPCs below run pace.
+export const HUMANOID_SHIN_SWING = 1.05;
 export const HUMANOID_IDLE_BREATH_FREQUENCY = 1.7;
 export const HUMANOID_IDLE_BREATH_AMPLITUDE = 0.004;
 
