@@ -112,6 +112,18 @@ assert(
 );
 
 assert(
+  material.includes("vec3 safeNormalize3(vec3 value, vec3 fallbackValue)") &&
+    material.includes("float scaleZ = max(length(instanceAxisZ), 0.0001)") &&
+    material.includes("safeNormalize3(cameraPosition - center, basisZ)") &&
+    material.includes("float cardVisibility = step(0.001, effectiveCoverage)") &&
+    material.includes(
+      "cardVisibility *= 1.0 - step(terrainCoverage, terrainDither)",
+    ) &&
+    material.includes("vec3 worldPosition = center + cardOffset * cardVisibility") &&
+    !material.includes("gl_Position = vec4(2.0, 2.0, 2.0, 1.0)"),
+  "Impostor vertices must keep finite bases and collapse rejected cards instead of early-returning with partially written vertex outputs.",
+);
+assert(
   material.includes("vec2 frameUvDx = dFdx(vUv)") &&
     material.includes("vec2 frameUvDy = dFdy(vUv)") &&
     material.includes("vec2 frameUvWidth = abs(frameUvDx) + abs(frameUvDy)") &&
@@ -144,7 +156,9 @@ assert(
 assert(
   material.includes("float terrainCoverage = 1.0 - smoothstep(") &&
     material.includes("float terrainDither = fract(") &&
-    material.includes("terrainDither >= terrainCoverage") &&
+    material.includes(
+      "cardVisibility *= 1.0 - step(terrainCoverage, terrainDither)",
+    ) &&
     material.includes("IMPOSTOR_TERRAIN_DITHER_INSTANCE_SCALE.toFixed(1)") &&
     material.includes("IMPOSTOR_TERRAIN_DITHER_SUBPATCH_SCALE.toFixed(11)") &&
     material.includes("IMPOSTOR_TERRAIN_DITHER_SEED_SCALE.toFixed(11)") &&
