@@ -163,6 +163,15 @@ assert(
   "Volumetric clouds must upsample only through depth-tested sky fragments and restore nested renderer state after the offscreen pass.",
 );
 assert(
+  cloudWeather.includes('CloudWeatherRegime = "clear" | "fair" | "overcast" | "storm"') &&
+    cloudWeather.includes("resolveCloudWeatherRegime(") &&
+    cloudLighting.includes("this.weatherState.regime = resolveCloudWeatherRegime(this.weatherAmount)") &&
+    cloudLighting.includes("this.scene.userData.worldCloudWeather = this.weatherState") &&
+    cloudLighting.includes("delete this.scene.userData.worldCloudWeather") &&
+    environment.includes('disposeSafely(this.cloudLighting, "Cloud lighting")'),
+  "The shared world-space weather field must expose clear/fair/overcast/storm regimes and publish one allocation-free runtime state for future weather consumers.",
+);
+assert(
   cloudWeather.includes("SHADOW_CENTER_WEIGHT = 0.36") &&
     cloudWeather.includes("SHADOW_CARDINAL_WEIGHT = 0.16") &&
     cloudWeather.includes("worldX + radius") &&
