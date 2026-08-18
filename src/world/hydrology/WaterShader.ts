@@ -247,7 +247,7 @@ normal = normalize((viewMatrix * vec4(waterLightingNormal, 0.0)).xyz);
 vec3 waterTransmittance;
 vec3 waterSurfaceColor = waterOpticsResolveColor(
   uWaterShallow, uWaterDeep, waterDepth,
-  vWaterWorldPosition, cameraPosition, waterTransmittance
+  vWaterWorldPosition, cameraPosition, waterSlope, waterTransmittance
 );
 // A bend is asymmetric water: the cut bank runs deep and dark, the point bar
 // on the inside is shallow enough that its gravel lifts the tone.

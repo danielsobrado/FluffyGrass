@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { disposeResources } from "../../render/ResourceDisposal";
 import type { WorldConfig } from "../WorldConfig";
+import { WaterRefractionPass, type WaterRefractionArgs } from "./WaterRefractionPass";
 import { createWaterFlowNoiseTexture } from "./WaterFlowNoiseTexture";
 import {
   WATER_ABSORPTION_COLOR,
@@ -45,6 +46,7 @@ export type WaterSurfaceLiveVisuals = Pick<
 >;
 
 export class WaterMaterialController {
+  private readonly refraction = new WaterRefractionPass(0.5);
   readonly material: THREE.MeshPhysicalMaterial;
   private readonly flowNoiseTexture: THREE.DataTexture;
   private readonly uniforms: Record<string, THREE.IUniform>;
@@ -115,6 +117,9 @@ export class WaterMaterialController {
         // High preset only; the standard path branches around all of these.
         uWaterOpticsQuality: { value: config.waterQuality },
         uWaterOpticsShoreFade: { value: 0.55 },
+        tWaterRefraction: { value: null },
+        uWaterRefractionSize: { value: new THREE.Vector2() },
+        uWaterRefractionStrength: { value: 0.055 },
         uWaterOpticsDeepStart: { value: 3.4 },
         uWaterOpticsReflectionGain: { value: 0.78 },
       };
@@ -136,6 +141,13 @@ export class WaterMaterialController {
     if (!this.disposed) {
       this.uniforms.uWaterTime.value = elapsedSeconds;
     }
+  }
+
+  renderRefraction(...args: WaterRefractionArgs): void {
+    if (this.disposed || this.uniforms.uWaterOpticsQuality.value < 0.5) return;
+    this.refraction.render(...args);
+    this.uniforms.tWaterRefraction.value = this.refraction.texture ?? null;
+    args[0].getDrawingBufferSize(this.uniforms.uWaterRefractionSize.value);
   }
 
   setLiveVisuals(visuals: WaterSurfaceLiveVisuals): void {
@@ -173,6 +185,7 @@ export class WaterMaterialController {
       return;
     }
     this.disposed = true;
+    this.refraction.dispose();
     disposeResources([this.flowNoiseTexture, this.material]);
   }
 

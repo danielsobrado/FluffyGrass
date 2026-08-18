@@ -564,6 +564,7 @@ export class WorldApp {
   };
 
   private readonly renderScene = (): void => {
+    this.terrain.renderWaterRefraction(this.renderer, this.scene, this.camera);
     this.renderer.render(this.scene, this.camera);
     this.stats?.update();
   };

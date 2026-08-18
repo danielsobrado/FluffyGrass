@@ -14,6 +14,13 @@ import { disposeResources } from "../../render/ResourceDisposal";
  */
 export const WATER_REFRACTION_LAYER = 2;
 
+/** What the pass needs from the frame it is rendered inside. */
+export type WaterRefractionArgs = [
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+];
+
 /**
  * Renders what sits behind the water into an offscreen target, once per frame,
  * for the high optics preset only.

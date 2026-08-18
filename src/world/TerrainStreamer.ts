@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
 import { WaterBedMaterialController } from "./hydrology/WaterBedMaterialController";
 import { WaterInteractionField } from "./hydrology/WaterInteractionField";
+import type { WaterRefractionArgs } from "./hydrology/WaterRefractionPass";
 import { WaterMaterialController } from "./hydrology/WaterMaterialController";
 import { TerrainChunk, TerrainChunkBuilder } from "./TerrainChunk";
 import type { TerrainField } from "./TerrainField";
@@ -182,6 +183,10 @@ export class TerrainStreamer {
       return;
     }
     this.materialController.setGrassArtDirection(direction);
+  }
+
+  renderWaterRefraction(...args: WaterRefractionArgs): void {
+    this.waterMaterialController?.renderRefraction(...args);
   }
 
   setLiveWaterVisuals(

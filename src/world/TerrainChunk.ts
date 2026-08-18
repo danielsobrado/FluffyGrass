@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { WATER_REFRACTION_LAYER } from "./hydrology/WaterRefractionPass";
 import {
   createEcologySample,
   type WorldEcologySample,
@@ -45,6 +46,9 @@ export class TerrainChunk {
   ) {
     this.key = `${chunkX}:${chunkZ}`;
     this.mesh = new THREE.Mesh(geometry, material);
+    // Opt in to what the high water preset may refract: ground and bed, never
+    // grass or the water surface itself.
+    this.mesh.layers.enable(WATER_REFRACTION_LAYER);
     this.mesh.name = `terrain-${this.key}-r${resolution}`;
     this.mesh.receiveShadow = receiveShadow;
     this.mesh.castShadow = false;
@@ -52,6 +56,7 @@ export class TerrainChunk {
 
     if (waterGeometry && waterBedMaterial) {
       this.waterBedMesh = new THREE.Mesh(waterGeometry, waterBedMaterial);
+      this.waterBedMesh.layers.enable(WATER_REFRACTION_LAYER);
       this.waterBedMesh.name = `water-bed-${this.key}-r${resolution}`;
       this.waterBedMesh.receiveShadow = false;
       this.waterBedMesh.castShadow = false;

@@ -25,6 +25,9 @@ uniform float uWaterFresnelF0;
 uniform float uWaterOpticsShoreFade;
 uniform float uWaterOpticsDeepStart;
 uniform float uWaterOpticsReflectionGain;
+uniform sampler2D tWaterRefraction;
+uniform vec2 uWaterRefractionSize;
+uniform float uWaterRefractionStrength;
 
 /**
  * Optical depth along the view ray rather than straight down.
@@ -62,6 +65,7 @@ vec3 waterOpticsResolveColor(
   float depth,
   vec3 worldPosition,
   vec3 eye,
+  vec2 slope,
   out vec3 transmittance
 ) {
   vec3 absorption = (vec3(1.0) - uWaterAbsorption) / max(0.01, uWaterDepthFade);
@@ -74,6 +78,22 @@ vec3 waterOpticsResolveColor(
   vec3 color = shallow * transmittance + deep * (1.0 - transmittance);
   if (uWaterOpticsQuality > 0.5) {
     color = mix(shallow, color, waterOpticsDepthBlend(optical));
+    /**
+     * What is actually behind the water, displaced by the surface slope. The
+     * offset shrinks as the column deepens because a distant bed is both harder
+     * to see and less displaced by the same wave, and the whole term is weighted
+     * by the depth blend so shallow water shows its bed and deep water hides it.
+     */
+    if (uWaterRefractionSize.x > 1.0) {
+      vec2 screenUv = gl_FragCoord.xy / uWaterRefractionSize;
+      vec2 offsetUv = clamp(
+        screenUv + slope * uWaterRefractionStrength / (1.0 + optical),
+        vec2(0.002),
+        vec2(0.998)
+      );
+      vec3 refracted = texture2D(tWaterRefraction, offsetUv).rgb;
+      color = mix(refracted * transmittance, color, waterOpticsDepthBlend(optical));
+    }
   }
   return color;
 }
