@@ -46,8 +46,8 @@ export const HUMANOID_ANKLE_OFFSET_Y = -0.37;
 export const HUMANOID_TOE_OFFSET_Y = -0.06;
 export const HUMANOID_TOE_OFFSET_Z = 0.1;
 
-/** Sole height below the ankle, used by contact IK to place the visible boot. */
-export const HUMANOID_ANKLE_TO_SOLE = 0.08;
+/** Sole height below the ankle, used by contact IK to place the foot. */
+export const HUMANOID_ANKLE_TO_SOLE = 0.09;
 
 /** Rest lengths of the two-bone chains, derived from the bind offsets. */
 export const HUMANOID_THIGH_LENGTH = -HUMANOID_KNEE_OFFSET_Y;
