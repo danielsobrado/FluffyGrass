@@ -1,9 +1,11 @@
 (() => {
   const MOBILE_USER_AGENT = /Android|iPhone|iPad|iPod|Mobile|Silk/i;
   const COARSE_POINTER_QUERY = "(pointer: coarse)";
-  const PATCH_FLAG = "__drusnielGrassImpostorGpuPatch";
+  const SHADER_PATCH_FLAG = "__drusnielGrassImpostorGpuPatch";
+  const BUFFER_PATCH_FLAG = "__drusnielCapeBufferGpuPatch";
   const IMPOSTOR_ATTRIBUTE = "attribute vec2 grassSubpatchOffset;";
   const REJECTED_CLIP_POSITION = "gl_Position = vec4(2.0, 2.0, 2.0, 1.0);";
+  const CAPE_DYNAMIC_FLOAT_COUNTS = new Set([351, 627]);
 
   const compactDevice =
     window.matchMedia(COARSE_POINTER_QUERY).matches ||
@@ -89,23 +91,92 @@
     return patched;
   };
 
-  const patchPrototype = (prototype) => {
-    if (!prototype || prototype[PATCH_FLAG]) {
+  const patchShaderPrototype = (prototype) => {
+    if (!prototype || prototype[SHADER_PATCH_FLAG]) {
       return;
     }
     const originalShaderSource = prototype.shaderSource;
     if (typeof originalShaderSource !== "function") {
       return;
     }
-    Object.defineProperty(prototype, PATCH_FLAG, { value: true });
+    Object.defineProperty(prototype, SHADER_PATCH_FLAG, { value: true });
     prototype.shaderSource = function shaderSource(shader, source) {
       return originalShaderSource.call(this, shader, patchShader(source));
     };
   };
 
+  const patchCapeBuffers = (prototype) => {
+    if (!prototype || prototype[BUFFER_PATCH_FLAG]) {
+      return;
+    }
+    const originalBufferData = prototype.bufferData;
+    const originalBufferSubData = prototype.bufferSubData;
+    if (
+      typeof originalBufferData !== "function" ||
+      typeof originalBufferSubData !== "function"
+    ) {
+      return;
+    }
+
+    const frozenBuffers = new WeakSet();
+    Object.defineProperty(prototype, BUFFER_PATCH_FLAG, { value: true });
+
+    prototype.bufferData = function bufferData(target, dataOrSize, usage, ...rest) {
+      const result = originalBufferData.call(
+        this,
+        target,
+        dataOrSize,
+        usage,
+        ...rest,
+      );
+      if (
+        target === this.ARRAY_BUFFER &&
+        usage === this.DYNAMIC_DRAW &&
+        dataOrSize instanceof Float32Array &&
+        CAPE_DYNAMIC_FLOAT_COUNTS.has(dataOrSize.length)
+      ) {
+        const buffer = this.getParameter(this.ARRAY_BUFFER_BINDING);
+        if (buffer) {
+          frozenBuffers.add(buffer);
+        }
+      }
+      return result;
+    };
+
+    prototype.bufferSubData = function bufferSubData(
+      target,
+      destinationOffset,
+      source,
+      ...rest
+    ) {
+      if (
+        target === this.ARRAY_BUFFER &&
+        source instanceof Float32Array &&
+        CAPE_DYNAMIC_FLOAT_COUNTS.has(source.length)
+      ) {
+        const buffer = this.getParameter(this.ARRAY_BUFFER_BINDING);
+        if (buffer && frozenBuffers.has(buffer)) {
+          return;
+        }
+      }
+      return originalBufferSubData.call(
+        this,
+        target,
+        destinationOffset,
+        source,
+        ...rest,
+      );
+    };
+  };
+
   try {
-    patchPrototype(globalThis.WebGL2RenderingContext?.prototype);
-    patchPrototype(globalThis.WebGLRenderingContext?.prototype);
+    for (const prototype of [
+      globalThis.WebGL2RenderingContext?.prototype,
+      globalThis.WebGLRenderingContext?.prototype,
+    ]) {
+      patchShaderPrototype(prototype);
+      patchCapeBuffers(prototype);
+    }
   } catch (error) {
     console.warn("[Drusniel World] Mobile GPU compatibility patch unavailable.", error);
   }
