@@ -149,10 +149,10 @@ assert(
   "Water compile cache keys and optical constants must live in the tuning module.",
 );
 assert(
-  /try \{[\s\S]*?renderer\.render\(scene, camera\);[\s\S]*?\} finally \{[\s\S]*?renderer\.setRenderTarget\(previousTarget\);[\s\S]*?camera\.layers\.mask = previousMask;/.test(
+  /try \{[\s\S]*?renderer\.render\(scene, camera\);[\s\S]*?\} finally \{[\s\S]*?camera\.layers\.mask = previousMask;[\s\S]*?renderer\.setRenderTarget\(previousTarget\);/.test(
     refractionPass,
   ),
-  "Water refraction must restore render-target and camera-layer state even when its offscreen render fails.",
+  "Water refraction must restore the shared camera before renderer-target recovery can fail.",
 );
 
 console.log(
