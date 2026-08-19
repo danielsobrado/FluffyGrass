@@ -53,6 +53,7 @@ assert(
 );
 
 for (const modulePath of [
+  "./runtime/WorldIsolationHarness",
   "./runtime/AnimationBlendingHud",
   "./runtime/WorldDiagnosticsController",
   "./qa/WorldVisualMatrixRunner",
@@ -65,7 +66,15 @@ for (const modulePath of [
   );
 }
 assert(
-  (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 7,
+  source.includes('params.get("debug") === "1"') &&
+    !source.includes('import { installWorldIsolationHarness }') &&
+    /await import\(\s*"\.\/runtime\/WorldIsolationHarness"\s*\)[\s\S]*?if \(disposed\) \{[\s\S]*?return;[\s\S]*?installWorldIsolationHarness\(params\)/.test(
+      source,
+    ),
+  "Isolation diagnostics must stay debug-only, lazy, and re-check bootstrap ownership before installing a global scene hook.",
+);
+assert(
+  (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 8,
   "Optional asynchronous runtime modules must re-check bootstrap ownership before publishing resources.",
 );
 
@@ -77,5 +86,5 @@ assert(
 );
 
 console.log(
-  "[bootstrap-lifecycle] First-await navigation ownership, async setup checks, and startup rollback verified.",
+  "[bootstrap-lifecycle] First-await navigation ownership, lazy diagnostics, async setup checks, and startup rollback verified.",
 );
