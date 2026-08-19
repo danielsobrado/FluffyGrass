@@ -154,7 +154,13 @@ assert(
   ),
   "Water refraction must restore the shared camera before renderer-target recovery can fail.",
 );
+assert(
+  /this\.disposed = true;[\s\S]*?const target = this\.target;[\s\S]*?this\.target = undefined;[\s\S]*?if \(target\) \{[\s\S]*?disposeResources\(\[target, target\.depthTexture \?\? undefined\]\)/.test(
+    refractionPass,
+  ),
+  "Water refraction disposal must clear published ownership before resource cleanup can throw.",
+);
 
 console.log(
-  "[water-render] Surface/bed ownership, opaque bed depth, absorption, refraction state restoration, and compact quality verified.",
+  "[water-render] Surface/bed ownership, opaque bed depth, absorption, refraction state restoration, failure-safe cleanup, and compact quality verified.",
 );
