@@ -104,11 +104,66 @@ function abMeadowPoses(): WorldVisualPose[] {
   ];
 }
 
+/**
+ * A macro stone cluster this seed actually has, at fixed world coordinates.
+ *
+ * `stoneFormation` cannot find one. Its score rejects any point whose
+ * `stoneVicinity` is 1, and around the spawn every sampled point is 1 — the
+ * nearest in-world active cluster is 179.8 m away, and the 16 m search step
+ * steps over cluster footprints on the way. With every candidate scoring zero
+ * the landmark degenerates onto the same coordinates as `rocky`, so both frame
+ * bare meadow and the stone system goes unphotographed.
+ *
+ * Measured against StoneClusterField over the lattice around the spawn: a ridge
+ * cluster of budget 7, major radius 11.8 m, suitability 0.33, ground 6.3 m.
+ * Fixed coordinates rather than a search, because the whole point is to look at
+ * known stone rather than at whatever scored least badly.
+ */
+const STONE_TRUTH: WorldVisualPoint = {
+  x: 535.3,
+  y: 6.3,
+  z: 200.7,
+  waterDepth: 0,
+  waterCoverage: 0,
+  riverCoverage: 0,
+  lakeCoverage: 0,
+  flowX: 0,
+  flowZ: 0,
+  moisture: 0,
+  fertility: 0,
+  exposure: 0,
+  rockiness: 0,
+  disturbance: 0,
+  slope: 0,
+  pathMask: 1,
+  stoneClearance: 1,
+  stoneVicinity: 0,
+  waterProximity: 0,
+  biomeIndex: 0,
+  riverMorphology: 0,
+  riverBend: 0,
+  riverLateral: 0,
+  riverFallDrop: 0,
+  riverFallStep: 0,
+};
+
+function stoneTruthPoses(): WorldVisualPose[] {
+  // Steep and from above for the same reason the s0 poses are: an eye-height
+  // camera on sloping ground looks over the crest the cluster sits on.
+  return [
+    look("s1-truth", STONE_TRUTH, 14, 9, 0.72, 0.5),
+    look("s1-truth-close", STONE_TRUTH, 7, 4.5, 0.85, 0.3),
+    look("s1-truth-wide", STONE_TRUTH, 26, 16, 0.6, 0.7),
+    look("s1-truth-eye", STONE_TRUTH, 11, 1.9, 0.8, 0.4),
+  ];
+}
+
 export function createWorldVisualPoses(
   locations: WorldVisualLocations,
 ): WorldVisualPose[] {
   const meadow = locations.meadow;
   return [
+    ...stoneTruthPoses(),
     ...abMeadowPoses(),
     ...distancePoses(meadow),
     look("g10-meadow", meadow, 7.5, 2.4, 0.55, 0.55),

@@ -1,0 +1,252 @@
+// Captures every visual-matrix pose matching a substring, in ONE browser
+// session. Booting the world costs minutes, so a script that reboots per pose
+// spends nearly all its time on startup.
+//
+// Usage: node scripts/capture-visual-matrix-poses.mjs <substring> <outDir> [devPort]
+// Requires a dev server already running (npm run dev -- --port <devPort>).
+//
+// Env overrides: FLUFFY_BROWSER (browser binary), FLUFFY_CDP_PORT.
+import { spawn, execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const WANTED = (process.argv[2] ?? "s0-formation").toLowerCase();
+const OUT_DIR = process.argv[3] ?? ".tmp-screenshots/poses";
+const DEV_PORT = Number(process.argv[4] ?? 5221);
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1`;
+const PORT = Number(process.env.FLUFFY_CDP_PORT ?? 9333);
+// Chrome rather than Edge on purpose. Other capture scripts in this project
+// open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
+// regardless of profile or debugging port; when two sessions capture at once
+// they kill each other mid-run and the CDP socket simply closes. A private
+// `--user-data-dir` stops this script killing theirs; a different binary stops
+// theirs killing this one.
+const BROWSER =
+  process.env.FLUFFY_BROWSER ??
+  "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe";
+const PROFILE = `${process.cwd().split("\\").join("/")}/.tmp-screenshots/chrome-profile-capture`;
+
+mkdirSync(OUT_DIR, { recursive: true });
+
+/**
+ * Kill only the browsers this script owns, matched by its private
+ * `--user-data-dir`. `taskkill /IM msedge.exe /F` is the usual advice because
+ * the launcher re-parents the real browser, but this tree is shared: another
+ * session's capture killed this one mid-run and this one killed theirs. The
+ * profile path is the only handle that distinguishes them, and a private
+ * `--remote-debugging-port` keeps the two CDP endpoints apart.
+ */
+function killOwnBrowsers() {
+  try {
+    execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
+          `Where-Object { $_.CommandLine -like '*chrome-profile-capture*' } | ` +
+          `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+      ],
+      { stdio: "ignore" },
+    );
+  } catch {
+    /* none running */
+  }
+}
+
+killOwnBrowsers();
+// A dying Chrome keeps the profile lock for a moment, and a launch into a
+// locked profile exits without ever opening the debugging port ("no CDP
+// target"). Give it room.
+await sleep(5000);
+
+const child = spawn(
+  BROWSER,
+  [
+    "--headless=new",
+    "--use-angle=d3d11",
+    "--ignore-gpu-blocklist",
+    "--enable-gpu-rasterization",
+    `--remote-debugging-port=${PORT}`,
+    "--window-size=1280,720",
+    `--user-data-dir=${PROFILE}`,
+    "--no-first-run",
+    // Headless Chrome still parks a renderer it considers occluded: the frame
+    // counter froze at 168 mid-stream while the terrain queue sat at +143.
+    // Without these the world never finishes booting and every capture is the
+    // "Finding the meadow…" overlay.
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    "about:blank",
+  ],
+  { stdio: "ignore" },
+);
+
+async function target() {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
+      const page = list.find((t) => t.type === "page");
+      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+    } catch {
+      /* not up */
+    }
+    await sleep(250);
+  }
+  throw new Error("no CDP target");
+}
+
+const socket = new WebSocket(await target());
+await new Promise((resolve, reject) => {
+  socket.addEventListener("open", resolve, { once: true });
+  socket.addEventListener("error", reject, { once: true });
+});
+let nextId = 0;
+const pending = new Map();
+socket.addEventListener("close", () => {
+  console.log("!! CDP socket closed");
+});
+socket.addEventListener("error", (event) => {
+  console.log("!! CDP socket error", String(event?.message ?? ""));
+});
+socket.addEventListener("message", (event) => {
+  const message = JSON.parse(event.data);
+  const resolver = pending.get(message.id);
+  if (resolver) {
+    pending.delete(message.id);
+    resolver(message.result ?? message.error);
+  }
+});
+const send = (method, params = {}) => {
+  const id = (nextId += 1);
+  socket.send(JSON.stringify({ id, method, params }));
+  // A crashed renderer never answers, and an unanswered promise silently
+  // drains the event loop instead of failing. Time out loudly.
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      console.log(`!! CDP timeout on ${method}`);
+      resolve(undefined);
+    }, 60000);
+    pending.set(id, (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
+};
+const evaluate = async (expression) =>
+  (
+    await send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    })
+  )?.result?.value;
+
+await send("Page.enable");
+await send("Runtime.enable");
+await send("Page.navigate", { url: URL_BASE });
+
+let poses = null;
+let lastSeen = "none";
+for (let attempt = 0; attempt < 600; attempt += 1) {
+  const state = await evaluate(
+    `(() => { const q = window.__FLUFFY_WORLD_VISUAL_QA__;
+      return q ? JSON.stringify({ s: q.status, p: q.poses }) : null; })()`,
+  );
+  if (state) {
+    const parsed = JSON.parse(state);
+    if (parsed.s !== lastSeen) {
+      lastSeen = parsed.s;
+      console.log(`  [${attempt}s] status ${parsed.s}`);
+    }
+    if (parsed.s === "ready" || parsed.s === "posed") {
+      poses = parsed.p;
+      break;
+    }
+    if (parsed.s === "error") throw new Error("visual matrix reported error");
+  }
+  await sleep(1000);
+}
+if (!poses) throw new Error(`visual matrix never became ready (last: ${lastSeen})`);
+
+/**
+ * The QA harness reports `ready` as soon as its landmark scan finishes, which
+ * happens while the app is still behind its "Finding the meadow…" veil — a
+ * capture taken then is a flat green card with a caption.
+ *
+ * Poll `#world-reveal[data-revealed]`, NOT the page text. `WorldRevealController`
+ * reveals by setting that attribute, which CSS turns into `opacity: 0`; the
+ * element and its caption stay in the DOM forever, so `innerText` still reads
+ * "Finding the meadow…" long after the world is visible and a text gate waits
+ * for something that can never happen.
+ */
+let booted = false;
+for (let attempt = 0; attempt < 300; attempt += 1) {
+  const state = await evaluate(
+    `(() => { const v = document.querySelector('#world-reveal');
+      return v ? v.dataset.revealed || 'pending' : 'gone'; })()`,
+  );
+  if (state === "true" || state === "gone") {
+    booted = true;
+    console.log(`  revealed after ${attempt}s (${state})`);
+    break;
+  }
+  if (attempt % 30 === 29) console.log(`  [${attempt}s] veil still up`);
+  await sleep(1000);
+}
+if (!booted) throw new Error("world veil never lifted");
+// The veil fades over 0.7 s; capture through it and the frame is milky.
+await sleep(2000);
+
+const matches = poses
+  .map((name, index) => ({ name, index }))
+  .filter((entry) => entry.name.toLowerCase().includes(WANTED));
+console.log(`poses: ${poses.length}, matched "${WANTED}": ${matches.length}`);
+if (matches.length === 0) {
+  console.log(poses.join("\n"));
+  throw new Error(`no pose matching ${WANTED}`);
+}
+
+for (const { name, index } of matches) {
+  console.log(`\n=== ${name} (index ${index}) ===`);
+  await evaluate(
+    `window.__FLUFFY_WORLD_VISUAL_QA__.apply(${index}).then(() => true)`,
+  );
+  let settled = false;
+  for (let attempt = 0; attempt < 150; attempt += 1) {
+    const text = (await evaluate(`document.body.innerText || ''`)) ?? "";
+    const terrain = /Terrain\s+(\d+)\s*\+(\d+)/.exec(text);
+    const stones = /Stones\s+(\d+)\s*·\s*(\d+)\s*\+(\d+)/.exec(text);
+    // Both counters must actually parse. Treating an unmatched HUD as zero is
+    // how the first run "settled" on a world that had not started streaming.
+    const terrainQueue = terrain ? Number(terrain[2]) : Number.NaN;
+    const stoneQueue = stones ? Number(stones[3]) : Number.NaN;
+    if (attempt % 20 === 19) {
+      console.log(`  settling ${attempt}s terrain +${terrainQueue} stone +${stoneQueue}`);
+    }
+    if (terrainQueue === 0 && stoneQueue === 0) {
+      await sleep(6000);
+      settled = true;
+      break;
+    }
+    await sleep(1000);
+  }
+  console.log(settled ? "  settled" : "  WARNING: never settled");
+  const hud = await evaluate(
+    `(document.body.innerText || '').split(String.fromCharCode(10)).slice(0, 14).join(String.fromCharCode(10))`,
+  );
+  console.log(hud);
+  const shot = await send("Page.captureScreenshot", { format: "png" });
+  if (shot?.data) {
+    const out = `${OUT_DIR}/desktop-${name}.png`;
+    writeFileSync(out, Buffer.from(shot.data, "base64"));
+    console.log("  wrote", out);
+  }
+}
+
+socket.close();
+child.kill();
+killOwnBrowsers();
+process.exit(0);
