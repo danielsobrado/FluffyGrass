@@ -8,6 +8,10 @@ const source = readFileSync(
   resolve(REPOSITORY_ROOT, "src/qa/WorldVisualMatrixRunner.ts"),
   "utf8",
 );
+const captureScript = readFileSync(
+  resolve(REPOSITORY_ROOT, "scripts/capture-visual-matrix-poses.mjs"),
+  "utf8",
+);
 
 function assert(condition, message) {
   if (!condition) {
@@ -31,6 +35,16 @@ assert(
   "Visual matrix disposal must abort pending sampling and remove its published window API.",
 );
 
+assert(
+  captureScript.includes('params.get("debug")') === false &&
+    captureScript.includes("&debug=1") &&
+    captureScript.includes("const PROFILE_TAG = `chrome-profile-capture-${PORT}-owned`") &&
+    captureScript.includes("Where-Object { $_.CommandLine -like '*${PROFILE_TAG}*' }") &&
+    captureScript.includes('isolationHud.includes("hook=active")') &&
+    !captureScript.includes("'*chrome-profile-capture*'"),
+  "Visual pose captures must enable isolation diagnostics, prove the render hook is active, and scope browser cleanup to the owning CDP port.",
+);
+
 console.log(
-  "[visual-qa-lifecycle] Capture serialization and disposal ownership verified.",
+  "[visual-qa-lifecycle] Capture serialization, disposal ownership, isolation diagnostics, and browser-session ownership verified.",
 );
