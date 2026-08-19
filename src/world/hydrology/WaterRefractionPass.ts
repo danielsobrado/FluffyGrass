@@ -72,12 +72,15 @@ export class WaterRefractionPass {
     // render that follows it.
     const previousTarget = renderer.getRenderTarget();
     const previousMask = camera.layers.mask;
-    camera.layers.set(WATER_REFRACTION_LAYER);
-    renderer.setRenderTarget(target);
-    renderer.clear();
-    renderer.render(scene, camera);
-    renderer.setRenderTarget(previousTarget);
-    camera.layers.mask = previousMask;
+    try {
+      camera.layers.set(WATER_REFRACTION_LAYER);
+      renderer.setRenderTarget(target);
+      renderer.clear();
+      renderer.render(scene, camera);
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+      camera.layers.mask = previousMask;
+    }
   }
 
   private resize(width: number, height: number): void {
