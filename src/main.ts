@@ -2,6 +2,7 @@ import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
 import { installMobileGpuCompatibility } from "./runtime/MobileGpuCompatibility";
 import { UiVisibilityController } from "./runtime/UiVisibilityController";
 import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
+import { installWorldIsolationHarness } from "./runtime/WorldIsolationHarness";
 import { APP_VERSION, BUILD_LABEL } from "./version";
 
 interface RunnableApp {
@@ -32,6 +33,7 @@ async function bootstrap(): Promise<void> {
   let actorProof: Disposable | undefined;
   let animationHud: Disposable | undefined;
   let visualMatrix: Disposable | undefined;
+  let isolationHarness: Disposable | undefined;
   let disposed = false;
 
   const disposeRuntime = (): void => {
@@ -42,6 +44,7 @@ async function bootstrap(): Promise<void> {
       actorProof,
       animationHud,
       visualMatrix,
+      isolationHarness,
     );
   };
   const handlePageHide = (event: PageTransitionEvent): void => {
@@ -75,6 +78,9 @@ async function bootstrap(): Promise<void> {
     installMobileGpuCompatibility(profile.compact);
 
     const sceneMode = params.get("scene") === "island" ? "island" : "world";
+    if (sceneMode === "world") {
+      isolationHarness = installWorldIsolationHarness(params);
+    }
     const flyMode =
       sceneMode === "world" &&
       (params.get("control") === "fly" || params.get("view") === "aerial");
@@ -205,6 +211,7 @@ function disposeRuntimeSafely(
   actorProof: Disposable | undefined,
   animationHud: Disposable | undefined,
   visualMatrix: Disposable | undefined,
+  isolationHarness: Disposable | undefined,
 ): void {
   disposeSafely("Animation HUD", () => animationHud?.dispose());
   disposeSafely("Actor proof", () => actorProof?.dispose());
@@ -212,6 +219,7 @@ function disposeRuntimeSafely(
   disposeSafely("Diagnostics", () => diagnostics?.dispose());
   disposeSafely("UI controller", () => uiController.dispose());
   disposeSafely("Application", () => app?.dispose());
+  disposeSafely("Isolation harness", () => isolationHarness?.dispose());
 }
 
 function disposeSafely(label: string, dispose: () => void): void {
