@@ -13,7 +13,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 const WANTED = (process.argv[2] ?? "s0-formation").toLowerCase();
 const OUT_DIR = process.argv[3] ?? ".tmp-screenshots/poses";
 const DEV_PORT = parsePort(process.argv[4] ?? 5221, "dev server");
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1`;
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
