@@ -8,6 +8,8 @@ import { createServer } from "vite";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
+const PROBE_HALF_SPAN = 160;
+const SEARCH_RADIUS = 480;
 
 // findWorldVisualLocations yields to the browser between scan rows so the page
 // keeps painting. Headless there is no frame clock, so give it one.
@@ -30,8 +32,14 @@ try {
   const { TerrainField } = await server.ssrLoadModule(
     "/src/world/TerrainField.ts",
   );
+  const { StoneField } = await server.ssrLoadModule(
+    "/src/world/stones/StoneField.ts",
+  );
   const { StoneClusterField } = await server.ssrLoadModule(
     "/src/world/stones/StoneClusterField.ts",
+  );
+  const { DenseSpawnLocator } = await server.ssrLoadModule(
+    "/src/world/DenseSpawnLocator.ts",
   );
   const { findWorldVisualLocations } = await server.ssrLoadModule(
     "/src/qa/WorldVisualMatrixLocations.ts",
@@ -41,19 +49,21 @@ try {
     readFileSync(resolve(REPOSITORY_ROOT, "public/config/world.yaml"), "utf8"),
   );
   const field = new TerrainField(config);
+  const stoneField = new StoneField(field, config);
   const clusters = new StoneClusterField(field, config);
+  const spawn = new DenseSpawnLocator(field, config, stoneField).find();
+  const originX = spawn.position.x;
+  const originZ = spawn.position.z;
   const halfWorld = config.worldSize * 0.5;
   // stone-world.html refuses a patch that leaves the world, so a site is only
   // photographable if its half-span fits too.
-  const PROBE_HALF_SPAN = 160;
   const probeLimit = halfWorld - PROBE_HALF_SPAN;
   console.log(
     `world ${config.worldSize} m · half ${halfWorld} · probe limit ${probeLimit}`,
   );
-
-  // The app's own spawn, as the running world reported it in the HUD.
-  const ORIGIN_X = 830;
-  const ORIGIN_Z = 23;
+  console.log(
+    `spawn (${originX.toFixed(1)}, ${originZ.toFixed(1)}) · suitability ${spawn.suitability.toFixed(3)}`,
+  );
 
   console.log(
     `spacing ${config.stoneClusterSpacing} m · chance ${config.stoneClusterChance}`,
@@ -62,12 +72,11 @@ try {
     `density ${config.stoneDensity} · singleton ${config.stoneSingletonChance}`,
   );
 
-  // 1. Enumerate the macro lattice around the spawn.
+  // 1. Enumerate the macro lattice around the actual application spawn.
   const spacing = config.stoneClusterSpacing;
-  const RADIUS = 480;
-  const cellRadius = Math.ceil(RADIUS / spacing);
-  const originGridX = Math.round(ORIGIN_X / spacing);
-  const originGridZ = Math.round(ORIGIN_Z / spacing);
+  const cellRadius = Math.ceil(SEARCH_RADIUS / spacing);
+  const originGridX = Math.round(originX / spacing);
+  const originGridZ = Math.round(originZ / spacing);
 
   const active = [];
   let examined = 0;
@@ -82,10 +91,10 @@ try {
       gx += 1
     ) {
       const descriptor = clusters.getDescriptor(gx, gz);
-      const dx = descriptor.centerX - ORIGIN_X;
-      const dz = descriptor.centerZ - ORIGIN_Z;
+      const dx = descriptor.centerX - originX;
+      const dz = descriptor.centerZ - originZ;
       const distance = Math.hypot(dx, dz);
-      if (distance > RADIUS) {
+      if (distance > SEARCH_RADIUS) {
         continue;
       }
       examined += 1;
@@ -115,7 +124,7 @@ try {
   }
   active.sort((a, b) => a.distance - b.distance);
   console.log(
-    `\nmacro lattice: ${active.length} active in-world of ${examined} cells within ${RADIUS} m of spawn`,
+    `\nmacro lattice: ${active.length} active in-world of ${examined} cells within ${SEARCH_RADIUS} m of spawn`,
   );
   for (const cluster of active.slice(0, 12)) {
     console.log(
@@ -128,7 +137,7 @@ try {
   console.log(`  ${probeable.length} of ${active.length} are probeable`);
 
   // 2. Where the pose search actually aims.
-  const locations = await findWorldVisualLocations(field, ORIGIN_X, ORIGIN_Z);
+  const locations = await findWorldVisualLocations(field, originX, originZ);
   const aimed = ["stoneFormation", "rocky", "meadow"];
   console.log("\npose landmarks:");
   for (const key of aimed) {
@@ -155,7 +164,7 @@ try {
     }
   }
 
-  // 3. The nearest cluster is the honest place to point a camera.
+  // 3. The richest probeable cluster is the honest place to point a camera.
   if (probeable.length > 0) {
     const best = probeable
       .slice()
