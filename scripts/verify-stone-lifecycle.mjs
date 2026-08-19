@@ -29,6 +29,11 @@ assert(
 const commitStart = stones.indexOf("private commitBuild(");
 const coarseStart = stones.indexOf("private isCoarseShaderSafe(", commitStart);
 const commitSource = stones.slice(commitStart, coarseStart);
+const batchPosition = commitSource.indexOf(
+  "mesh.position.set(result.originX, result.originY, result.originZ)",
+);
+const freezeLocalMatrix = commitSource.indexOf("mesh.matrixAutoUpdate = false");
+const updateLocalMatrix = commitSource.indexOf("mesh.updateMatrix()");
 const publishScene = commitSource.indexOf("sceneAddAndUpdate(this.scene, mesh)");
 const publishMap = commitSource.indexOf("this.batches.set(batch.key, batch)");
 const retireExisting = commitSource.lastIndexOf("this.removeBatch(existing)");
@@ -41,6 +46,20 @@ assert(
     commitSource.includes("result.geometry") &&
     commitSource.includes("Unpublished stone batch cleanup failed."),
   "Stone replacement must publish the new batch before retiring the previous visible batch and clean failed publication geometry.",
+);
+assert(
+  batchPosition >= 0 &&
+    freezeLocalMatrix > batchPosition &&
+    updateLocalMatrix > freezeLocalMatrix &&
+    publishScene > updateLocalMatrix &&
+    !commitSource.includes("mesh.matrixWorldAutoUpdate = false"),
+  "Static stone batches must freeze only the local matrix and allow Three.js to publish their translated world matrix.",
+);
+assert(
+  /function sceneAddAndUpdate\(scene: THREE\.Scene, mesh: THREE\.Mesh\): void \{[\s\S]*?scene\.add\(mesh\);[\s\S]*?mesh\.updateMatrixWorld\(true\)/.test(
+    stones,
+  ),
+  "Stone scene publication must update matrixWorld after the mesh is attached.",
 );
 
 const disposeStart = stones.indexOf("dispose(): void");
@@ -71,5 +90,5 @@ assert(
 );
 
 console.log(
-  "[stone-lifecycle] Stale-result disposal, transactional replacement, and isolated teardown verified.",
+  "[stone-lifecycle] World transforms, stale-result disposal, transactional replacement, and isolated teardown verified.",
 );
