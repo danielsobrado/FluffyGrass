@@ -357,7 +357,6 @@ export class WorldStoneSystem {
       mesh.castShadow = localShadowDetail;
       mesh.receiveShadow = localShadowDetail;
       mesh.matrixAutoUpdate = false;
-      mesh.matrixWorldAutoUpdate = false;
       mesh.updateMatrix();
       sceneAddAndUpdate(this.scene, mesh);
 
