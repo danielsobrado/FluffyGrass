@@ -12,9 +12,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 const WANTED = (process.argv[2] ?? "s0-formation").toLowerCase();
 const OUT_DIR = process.argv[3] ?? ".tmp-screenshots/poses";
-const DEV_PORT = Number(process.argv[4] ?? 5221);
+const DEV_PORT = parsePort(process.argv[4] ?? 5221, "dev server");
 const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1`;
-const PORT = Number(process.env.FLUFFY_CDP_PORT ?? 9333);
+const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
 // regardless of profile or debugging port; when two sessions capture at once
@@ -27,6 +27,14 @@ const BROWSER =
 const PROFILE = `${process.cwd().split("\\").join("/")}/.tmp-screenshots/chrome-profile-capture`;
 
 mkdirSync(OUT_DIR, { recursive: true });
+
+function parsePort(value, label) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`invalid ${label} port: ${value}`);
+  }
+  return parsed;
+}
 
 /**
  * Kill only the browsers this script owns, matched by its private
@@ -82,6 +90,17 @@ const child = spawn(
   ],
   { stdio: "ignore" },
 );
+
+let cleanedUp = false;
+function cleanupBrowser() {
+  if (cleanedUp) {
+    return;
+  }
+  cleanedUp = true;
+  child.kill();
+  killOwnBrowsers();
+}
+process.once("exit", cleanupBrowser);
 
 async function target() {
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -224,7 +243,9 @@ for (const { name, index } of matches) {
     const terrainQueue = terrain ? Number(terrain[2]) : Number.NaN;
     const stoneQueue = stones ? Number(stones[3]) : Number.NaN;
     if (attempt % 20 === 19) {
-      console.log(`  settling ${attempt}s terrain +${terrainQueue} stone +${stoneQueue}`);
+      console.log(
+        `  settling ${attempt}s terrain +${terrainQueue} stone +${stoneQueue}`,
+      );
     }
     if (terrainQueue === 0 && stoneQueue === 0) {
       await sleep(6000);
@@ -247,6 +268,5 @@ for (const { name, index } of matches) {
 }
 
 socket.close();
-child.kill();
-killOwnBrowsers();
-process.exit(0);
+cleanupBrowser();
+process.removeListener("exit", cleanupBrowser);
