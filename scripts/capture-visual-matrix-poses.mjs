@@ -255,6 +255,16 @@ for (const { name, index } of matches) {
     await sleep(1000);
   }
   console.log(settled ? "  settled" : "  WARNING: never settled");
+  const isolationHud =
+    (await evaluate(
+      `document.querySelector('#world-isolation-hud')?.textContent || ''`,
+    )) ?? "";
+  if (!isolationHud.includes("hook=active")) {
+    throw new Error(
+      `isolation harness did not intercept the world render: ${isolationHud || "HUD missing"}`,
+    );
+  }
+  console.log(isolationHud);
   const hud = await evaluate(
     `(document.body.innerText || '').split(String.fromCharCode(10)).slice(0, 14).join(String.fromCharCode(10))`,
   );
