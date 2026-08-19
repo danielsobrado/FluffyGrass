@@ -100,9 +100,12 @@ export class WaterRefractionPass {
       return;
     }
     this.disposed = true;
-    if (this.target) {
-      disposeResources([this.target, this.target.depthTexture ?? undefined]);
-      this.target = undefined;
+    const target = this.target;
+    this.target = undefined;
+    this.width = 0;
+    this.height = 0;
+    if (target) {
+      disposeResources([target, target.depthTexture ?? undefined]);
     }
   }
 }
