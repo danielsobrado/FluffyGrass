@@ -17,14 +17,14 @@ const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&sta
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
-// regardless of profile or debugging port; when two sessions capture at once
-// they kill each other mid-run and the CDP socket simply closes. A private
-// `--user-data-dir` stops this script killing theirs; a different binary stops
-// theirs killing this one.
+// regardless of profile or debugging port. A Chrome profile owned by this CDP
+// port isolates concurrent capture sessions; two sessions cannot legitimately
+// share the same CDP port anyway.
 const BROWSER =
   process.env.FLUFFY_BROWSER ??
   "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe";
-const PROFILE = `${process.cwd().split("\\").join("/")}/.tmp-screenshots/chrome-profile-capture`;
+const PROFILE_TAG = `chrome-profile-capture-${PORT}-owned`;
+const PROFILE = `${process.cwd().split("\\").join("/")}/.tmp-screenshots/${PROFILE_TAG}`;
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -37,12 +37,8 @@ function parsePort(value, label) {
 }
 
 /**
- * Kill only the browsers this script owns, matched by its private
- * `--user-data-dir`. `taskkill /IM msedge.exe /F` is the usual advice because
- * the launcher re-parents the real browser, but this tree is shared: another
- * session's capture killed this one mid-run and this one killed theirs. The
- * profile path is the only handle that distinguishes them, and a private
- * `--remote-debugging-port` keeps the two CDP endpoints apart.
+ * Kill only the browser this CDP port owns. The port-specific profile tag is
+ * part of the browser command line and cannot overlap a different valid port.
  */
 function killOwnBrowsers() {
   try {
@@ -52,7 +48,7 @@ function killOwnBrowsers() {
         "-NoProfile",
         "-Command",
         `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
-          `Where-Object { $_.CommandLine -like '*chrome-profile-capture*' } | ` +
+          `Where-Object { $_.CommandLine -like '*${PROFILE_TAG}*' } | ` +
           `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
       ],
       { stdio: "ignore" },
@@ -106,8 +102,10 @@ async function target() {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
-      const page = list.find((t) => t.type === "page");
-      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+      const page = list.find((entry) => entry.type === "page");
+      if (page?.webSocketDebuggerUrl) {
+        return page.webSocketDebuggerUrl;
+      }
     } catch {
       /* not up */
     }
@@ -117,9 +115,9 @@ async function target() {
 }
 
 const socket = new WebSocket(await target());
-await new Promise((resolve, reject) => {
-  socket.addEventListener("open", resolve, { once: true });
-  socket.addEventListener("error", reject, { once: true });
+await new Promise((resolveOpen, rejectOpen) => {
+  socket.addEventListener("open", resolveOpen, { once: true });
+  socket.addEventListener("error", rejectOpen, { once: true });
 });
 let nextId = 0;
 const pending = new Map();
@@ -142,15 +140,15 @@ const send = (method, params = {}) => {
   socket.send(JSON.stringify({ id, method, params }));
   // A crashed renderer never answers, and an unanswered promise silently
   // drains the event loop instead of failing. Time out loudly.
-  return new Promise((resolve) => {
+  return new Promise((resolveResponse) => {
     const timer = setTimeout(() => {
       pending.delete(id);
       console.log(`!! CDP timeout on ${method}`);
-      resolve(undefined);
+      resolveResponse(undefined);
     }, 60000);
     pending.set(id, (value) => {
       clearTimeout(timer);
-      resolve(value);
+      resolveResponse(value);
     });
   });
 };
@@ -184,11 +182,15 @@ for (let attempt = 0; attempt < 600; attempt += 1) {
       poses = parsed.p;
       break;
     }
-    if (parsed.s === "error") throw new Error("visual matrix reported error");
+    if (parsed.s === "error") {
+      throw new Error("visual matrix reported error");
+    }
   }
   await sleep(1000);
 }
-if (!poses) throw new Error(`visual matrix never became ready (last: ${lastSeen})`);
+if (!poses) {
+  throw new Error(`visual matrix never became ready (last: ${lastSeen})`);
+}
 
 /**
  * The QA harness reports `ready` as soon as its landmark scan finishes, which
@@ -212,10 +214,14 @@ for (let attempt = 0; attempt < 300; attempt += 1) {
     console.log(`  revealed after ${attempt}s (${state})`);
     break;
   }
-  if (attempt % 30 === 29) console.log(`  [${attempt}s] veil still up`);
+  if (attempt % 30 === 29) {
+    console.log(`  [${attempt}s] veil still up`);
+  }
   await sleep(1000);
 }
-if (!booted) throw new Error("world veil never lifted");
+if (!booted) {
+  throw new Error("world veil never lifted");
+}
 // The veil fades over 0.7 s; capture through it and the frame is milky.
 await sleep(2000);
 
