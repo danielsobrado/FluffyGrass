@@ -60,7 +60,12 @@ interface ValidationIssue {
 
 class IsolationState {
   private readonly overrideMaterial?: THREE.MeshBasicMaterial;
-  private readonly touchedScenes = new Set<THREE.Scene>();
+  private readonly overriddenScenes = new Map<
+    THREE.Scene,
+    THREE.Material | null
+  >();
+  private readonly hiddenObjects = new Map<THREE.Object3D, boolean>();
+  private readonly originalCameraNear = new Map<THREE.PerspectiveCamera, number>();
   private readonly checkedStaticGeometries = new WeakSet<THREE.BufferGeometry>();
   private readonly reportedIssues = new Set<string>();
   private readonly trackedStoneMeshes = new Map<THREE.Mesh, StoneRenderHooks>();
@@ -153,12 +158,9 @@ class IsolationState {
   }
 
   dispose(): void {
-    for (const scene of this.touchedScenes) {
-      if (scene.overrideMaterial === this.overrideMaterial) {
-        scene.overrideMaterial = null;
-      }
-    }
-    this.touchedScenes.clear();
+    this.restoreVisibility();
+    this.restoreCameraNearOverrides();
+    this.restoreOverrideMaterials();
     this.restoreStoneMeshHooks();
     this.worldScene = undefined;
     this.overrideMaterial?.dispose();
@@ -176,8 +178,22 @@ class IsolationState {
     if (camera.near === cameraNear) {
       return;
     }
+    if (!this.originalCameraNear.has(camera)) {
+      this.originalCameraNear.set(camera, camera.near);
+    }
     camera.near = cameraNear;
     camera.updateProjectionMatrix();
+  }
+
+  private restoreCameraNearOverrides(): void {
+    const appliedNear = this.options.cameraNear;
+    for (const [camera, originalNear] of this.originalCameraNear) {
+      if (appliedNear !== undefined && camera.near === appliedNear) {
+        camera.near = originalNear;
+        camera.updateProjectionMatrix();
+      }
+    }
+    this.originalCameraNear.clear();
   }
 
   private applyVisibility(
@@ -197,22 +213,22 @@ class IsolationState {
       }
 
       if (this.options.noCharacter && object.name === "drusniel-character") {
-        object.visible = false;
+        this.hideObject(object);
         return;
       }
 
       if (this.options.noTerrain && isTerrainObject(object)) {
-        object.visible = false;
+        this.hideObject(object);
         return;
       }
 
       if (this.options.noStones && stoneObject) {
-        object.visible = false;
+        this.hideObject(object);
         return;
       }
 
       if (this.options.noScenic && isScenicObject(object)) {
-        object.visible = false;
+        this.hideObject(object);
         return;
       }
 
@@ -225,13 +241,29 @@ class IsolationState {
         (this.options.grassLayer !== undefined &&
           grassLayer !== this.options.grassLayer)
       ) {
-        object.visible = false;
+        this.hideObject(object);
       }
     });
 
     if (residentStoneMeshes) {
       this.pruneStoneMeshHooks(residentStoneMeshes);
     }
+  }
+
+  private hideObject(object: THREE.Object3D): void {
+    if (!this.hiddenObjects.has(object)) {
+      this.hiddenObjects.set(object, object.visible);
+    }
+    object.visible = false;
+  }
+
+  private restoreVisibility(): void {
+    for (const [object, originalVisible] of this.hiddenObjects) {
+      if (!object.visible) {
+        object.visible = originalVisible;
+      }
+    }
+    this.hiddenObjects.clear();
   }
 
   private instrumentStoneMesh(mesh: THREE.Mesh): void {
@@ -291,8 +323,19 @@ class IsolationState {
     if (!this.overrideMaterial || !(scene instanceof THREE.Scene)) {
       return;
     }
+    if (!this.overriddenScenes.has(scene)) {
+      this.overriddenScenes.set(scene, scene.overrideMaterial);
+    }
     scene.overrideMaterial = this.overrideMaterial;
-    this.touchedScenes.add(scene);
+  }
+
+  private restoreOverrideMaterials(): void {
+    for (const [scene, originalMaterial] of this.overriddenScenes) {
+      if (scene.overrideMaterial === this.overrideMaterial) {
+        scene.overrideMaterial = originalMaterial;
+      }
+    }
+    this.overriddenScenes.clear();
   }
 
   private validateScene(scene: THREE.Object3D): void {
@@ -494,6 +537,18 @@ export function installWorldIsolationHarness(
 
   const originalBeforeRender = prototype.onBeforeRender;
   const originalAfterRender = prototype.onAfterRender;
+  const beforeRenderWasOwn = Object.prototype.hasOwnProperty.call(
+    prototype,
+    "onBeforeRender",
+  );
+  const afterRenderWasOwn = Object.prototype.hasOwnProperty.call(
+    prototype,
+    "onAfterRender",
+  );
+  const originalPatchDescriptor = Object.getOwnPropertyDescriptor(
+    prototype,
+    PATCH_FLAG,
+  );
   const state = new IsolationState(options);
   const installedBeforeRender: SceneRenderHook = (
     renderer,
@@ -514,22 +569,65 @@ export function installWorldIsolationHarness(
     state.afterRender(renderer, scene, camera);
   };
 
-  prototype[PATCH_FLAG] = true;
+  Object.defineProperty(prototype, PATCH_FLAG, {
+    configurable: true,
+    writable: true,
+    value: true,
+  });
   prototype.onBeforeRender = installedBeforeRender;
   prototype.onAfterRender = installedAfterRender;
 
   return {
     dispose: () => {
-      if (prototype.onBeforeRender === installedBeforeRender) {
-        prototype.onBeforeRender = originalBeforeRender;
-      }
-      if (prototype.onAfterRender === installedAfterRender) {
-        prototype.onAfterRender = originalAfterRender;
-      }
-      delete prototype[PATCH_FLAG];
+      restoreScenePrototypeHook(
+        prototype,
+        "onBeforeRender",
+        installedBeforeRender,
+        originalBeforeRender,
+        beforeRenderWasOwn,
+      );
+      restoreScenePrototypeHook(
+        prototype,
+        "onAfterRender",
+        installedAfterRender,
+        originalAfterRender,
+        afterRenderWasOwn,
+      );
+      restorePatchFlag(prototype, originalPatchDescriptor);
       state.dispose();
     },
   };
+}
+
+function restoreScenePrototypeHook(
+  prototype: ScenePrototype,
+  key: "onBeforeRender" | "onAfterRender",
+  installed: SceneRenderHook,
+  original: SceneRenderHook,
+  wasOwn: boolean,
+): void {
+  if (prototype[key] !== installed) {
+    return;
+  }
+  if (wasOwn) {
+    prototype[key] = original;
+    return;
+  }
+  delete (prototype as Partial<ScenePrototype>)[key];
+}
+
+function restorePatchFlag(
+  prototype: ScenePrototype,
+  originalDescriptor: PropertyDescriptor | undefined,
+): void {
+  if (prototype[PATCH_FLAG] !== true) {
+    return;
+  }
+  if (originalDescriptor) {
+    Object.defineProperty(prototype, PATCH_FLAG, originalDescriptor);
+    return;
+  }
+  delete prototype[PATCH_FLAG];
 }
 
 function resolveIsolationOptions(params: URLSearchParams): IsolationOptions {
