@@ -47,14 +47,20 @@ try {
   // photographable if its half-span fits too.
   const PROBE_HALF_SPAN = 160;
   const probeLimit = halfWorld - PROBE_HALF_SPAN;
-  console.log(`world ${config.worldSize} m · half ${halfWorld} · probe limit ${probeLimit}`);
+  console.log(
+    `world ${config.worldSize} m · half ${halfWorld} · probe limit ${probeLimit}`,
+  );
 
   // The app's own spawn, as the running world reported it in the HUD.
   const ORIGIN_X = 830;
   const ORIGIN_Z = 23;
 
-  console.log(`spacing ${config.stoneClusterSpacing} m · chance ${config.stoneClusterChance}`);
-  console.log(`density ${config.stoneDensity} · singleton ${config.stoneSingletonChance}`);
+  console.log(
+    `spacing ${config.stoneClusterSpacing} m · chance ${config.stoneClusterChance}`,
+  );
+  console.log(
+    `density ${config.stoneDensity} · singleton ${config.stoneSingletonChance}`,
+  );
 
   // 1. Enumerate the macro lattice around the spawn.
   const spacing = config.stoneClusterSpacing;
@@ -65,10 +71,24 @@ try {
 
   const active = [];
   let examined = 0;
-  for (let gz = originGridZ - cellRadius; gz <= originGridZ + cellRadius; gz += 1) {
-    for (let gx = originGridX - cellRadius; gx <= originGridX + cellRadius; gx += 1) {
-      examined += 1;
+  for (
+    let gz = originGridZ - cellRadius;
+    gz <= originGridZ + cellRadius;
+    gz += 1
+  ) {
+    for (
+      let gx = originGridX - cellRadius;
+      gx <= originGridX + cellRadius;
+      gx += 1
+    ) {
       const descriptor = clusters.getDescriptor(gx, gz);
+      const dx = descriptor.centerX - ORIGIN_X;
+      const dz = descriptor.centerZ - ORIGIN_Z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > RADIUS) {
+        continue;
+      }
+      examined += 1;
       if (!descriptor.active) continue;
       // The lattice runs past the world edge. Cells outside it are not places
       // anything can stand, and counting them inflated the "nearest cluster"
@@ -79,12 +99,10 @@ try {
       ) {
         continue;
       }
-      const dx = descriptor.centerX - ORIGIN_X;
-      const dz = descriptor.centerZ - ORIGIN_Z;
       active.push({
         x: Math.round(descriptor.centerX * 10) / 10,
         z: Math.round(descriptor.centerZ * 10) / 10,
-        distance: Math.round(Math.hypot(dx, dz) * 10) / 10,
+        distance: Math.round(distance * 10) / 10,
         budget: descriptor.budget,
         major: Math.round(descriptor.majorRadius * 10) / 10,
         process: descriptor.process,
@@ -97,7 +115,7 @@ try {
   }
   active.sort((a, b) => a.distance - b.distance);
   console.log(
-    `\nmacro lattice: ${active.length} active of ${examined} cells within ${RADIUS} m of spawn`,
+    `\nmacro lattice: ${active.length} active in-world of ${examined} cells within ${RADIUS} m of spawn`,
   );
   for (const cluster of active.slice(0, 12)) {
     console.log(
@@ -119,9 +137,9 @@ try {
     let nearest = Infinity;
     let nearestCluster = null;
     for (const cluster of active) {
-      const d = Math.hypot(cluster.x - point.x, cluster.z - point.z);
-      if (d < nearest) {
-        nearest = d;
+      const distance = Math.hypot(cluster.x - point.x, cluster.z - point.z);
+      if (distance < nearest) {
+        nearest = distance;
         nearestCluster = cluster;
       }
     }
@@ -149,7 +167,7 @@ try {
     console.log(`GROUND_TRUTH ${best.x} ${best.z}`);
     const closest = probeable[0];
     console.log(`CLOSEST ${closest.x} ${closest.z} ${closest.distance}`);
-    console.log('TOP_PROBEABLE ' + JSON.stringify(probeable.slice(0, 5)));
+    console.log("TOP_PROBEABLE " + JSON.stringify(probeable.slice(0, 5)));
   }
 } finally {
   await server.close();
