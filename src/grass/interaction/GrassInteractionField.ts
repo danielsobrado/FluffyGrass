@@ -88,9 +88,17 @@ class GrassInteractionField {
     grassTrailField.setFocus(pose.position.x, pose.position.z);
     this.updateGroundShadow(config, pose);
 
+    const lift =
+      this.groundHeight !== undefined && Number.isFinite(pose.position.y)
+        ? Math.max(0, pose.position.y - this.groundHeight)
+        : 0;
+
     if (pose.grounded) {
       this.submitFootContacts(config, pose, speed);
-      this.submitBodyContact(config, pose);
+      this.submitBodyContact(config, pose, 1);
+    } else if (lift < 1.4) {
+      const airborneContactScale = Math.max(0, 1 - lift / 1.4);
+      this.submitBodyContact(config, pose, airborneContactScale);
     }
 
     if (this.pulseStrength > MIN_PULSE_STRENGTH) {
@@ -243,7 +251,11 @@ class GrassInteractionField {
   private submitBodyContact(
     config: Readonly<GrassInteractionConfig>,
     pose: GrassInteractionPose,
+    scale = 1,
   ): void {
+    if (scale <= 0) {
+      return;
+    }
     const speed = Math.hypot(pose.velocity.x, pose.velocity.z);
     const wake = THREE.MathUtils.smoothstep(
       speed,
@@ -254,7 +266,10 @@ class GrassInteractionField {
       pose.position.x - this.direction.x * wake * 0.42,
       pose.position.z - this.direction.y * wake * 0.42,
       config.bodyContactRadius * THREE.MathUtils.lerp(1, 1.4, wake),
-      config.bodyContactStrength * config.strength * THREE.MathUtils.lerp(1, 0.72, wake),
+      config.bodyContactStrength *
+        config.strength *
+        THREE.MathUtils.lerp(1, 0.72, wake) *
+        scale,
       this.direction.x,
       this.direction.y,
       0,

@@ -393,7 +393,6 @@ class GrassTrailField {
       this.accumulatedDeltaSeconds + UPDATE_INTERVAL_EPSILON_SECONDS <
       UPDATE_INTERVAL_SECONDS
     ) {
-      this.contactCount = 0;
       return;
     }
     const delta = this.accumulatedDeltaSeconds;

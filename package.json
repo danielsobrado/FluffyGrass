@@ -67,6 +67,7 @@
     "test:river": "npm run test:config && npm run test:hydrology && npm run test:water-flow && npm run test:water-render && npm run test:terrain-surface && npm run test:stones && npm run test:stone-lifecycle && npm run test:river-perf-contract",
     "bench:river": "node scripts/benchmark-river-generation.mjs",
     "capture:stone-baseline": "node scripts/capture-stone-performance-baseline.mjs",
+    "loc": "node scripts/loc.mjs",
     "preview": "vite preview",
     "deploy:pages": "node scripts/deploy-github-pages.mjs"
   },
