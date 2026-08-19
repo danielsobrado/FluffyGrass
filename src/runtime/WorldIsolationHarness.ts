@@ -24,9 +24,22 @@ interface IsolationOptions {
   validateGpu: boolean;
 }
 
-interface RendererPrototype {
-  render(scene: THREE.Object3D, camera: THREE.Camera): void;
+type SceneRenderHook = (
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  ...args: unknown[]
+) => void;
+
+interface ScenePrototype {
+  onBeforeRender: SceneRenderHook;
+  onAfterRender: SceneRenderHook;
   [PATCH_FLAG]?: boolean;
+}
+
+interface StoneRenderHooks {
+  readonly original: THREE.Object3D["onBeforeRender"];
+  readonly installed: THREE.Object3D["onBeforeRender"];
 }
 
 interface DebugRendererInfo {
@@ -50,12 +63,16 @@ class IsolationState {
   private readonly touchedScenes = new Set<THREE.Scene>();
   private readonly checkedStaticGeometries = new WeakSet<THREE.BufferGeometry>();
   private readonly reportedIssues = new Set<string>();
+  private readonly trackedStoneMeshes = new Map<THREE.Mesh, StoneRenderHooks>();
+  private readonly submittedStoneBatches = new Set<string>();
   private readonly hud?: HTMLPreElement;
   private rendererInfo?: DebugRendererInfo;
   private lastHudUpdateMs = Number.NEGATIVE_INFINITY;
   private lastValidationMs = Number.NEGATIVE_INFINITY;
   private lastGlError = "NO_ERROR";
   private invalidValueCount = 0;
+  private residentStoneBatches = 0;
+  private renderHookActive = false;
 
   constructor(private readonly options: IsolationOptions) {
     if (options.basicMaterials || options.wireframe) {
@@ -77,8 +94,15 @@ class IsolationState {
     scene: THREE.Object3D,
     camera: THREE.Camera,
   ): void {
+    const mainPass = renderer.getRenderTarget() === null;
+    if (mainPass) {
+      this.renderHookActive = true;
+      this.residentStoneBatches = 0;
+      this.submittedStoneBatches.clear();
+    }
+
     this.applyCameraNear(camera);
-    this.applyVisibility(scene);
+    this.applyVisibility(scene, mainPass);
     this.applyOverrideMaterial(scene);
 
     const now = performance.now();
@@ -93,6 +117,10 @@ class IsolationState {
   }
 
   afterRender(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    if (renderer.getRenderTarget() !== null) {
+      return;
+    }
+
     const now = performance.now();
     if (now - this.lastHudUpdateMs < HUD_UPDATE_INTERVAL_MS) {
       return;
@@ -109,6 +137,7 @@ class IsolationState {
       }
     }
     this.touchedScenes.clear();
+    this.restoreStoneMeshHooks();
     this.overrideMaterial?.dispose();
     this.hud?.remove();
   }
@@ -125,8 +154,22 @@ class IsolationState {
     camera.updateProjectionMatrix();
   }
 
-  private applyVisibility(scene: THREE.Object3D): void {
+  private applyVisibility(
+    scene: THREE.Object3D,
+    trackStoneSubmissions: boolean,
+  ): void {
+    const residentStoneMeshes = trackStoneSubmissions
+      ? new Set<THREE.Mesh>()
+      : undefined;
+
     scene.traverse((object) => {
+      const stoneObject = isStoneObject(object);
+      if (residentStoneMeshes && stoneObject && object instanceof THREE.Mesh) {
+        this.residentStoneBatches += 1;
+        residentStoneMeshes.add(object);
+        this.instrumentStoneMesh(object);
+      }
+
       if (this.options.noCharacter && object.name === "drusniel-character") {
         object.visible = false;
         return;
@@ -137,7 +180,7 @@ class IsolationState {
         return;
       }
 
-      if (this.options.noStones && isStoneObject(object)) {
+      if (this.options.noStones && stoneObject) {
         object.visible = false;
         return;
       }
@@ -158,6 +201,63 @@ class IsolationState {
         object.visible = false;
       }
     });
+
+    if (residentStoneMeshes) {
+      this.pruneStoneMeshHooks(residentStoneMeshes);
+    }
+  }
+
+  private instrumentStoneMesh(mesh: THREE.Mesh): void {
+    if (this.trackedStoneMeshes.has(mesh)) {
+      return;
+    }
+
+    const original = mesh.onBeforeRender;
+    const installed: THREE.Object3D["onBeforeRender"] = (
+      renderer,
+      scene,
+      camera,
+      geometry,
+      material,
+      group,
+    ) => {
+      if (renderer.getRenderTarget() === null) {
+        this.submittedStoneBatches.add(mesh.uuid);
+      }
+      original.call(
+        mesh,
+        renderer,
+        scene,
+        camera,
+        geometry,
+        material,
+        group,
+      );
+    };
+    mesh.onBeforeRender = installed;
+    this.trackedStoneMeshes.set(mesh, { original, installed });
+  }
+
+  private pruneStoneMeshHooks(resident: ReadonlySet<THREE.Mesh>): void {
+    for (const [mesh, hooks] of this.trackedStoneMeshes) {
+      if (resident.has(mesh)) {
+        continue;
+      }
+      if (mesh.onBeforeRender === hooks.installed) {
+        mesh.onBeforeRender = hooks.original;
+      }
+      this.trackedStoneMeshes.delete(mesh);
+    }
+  }
+
+  private restoreStoneMeshHooks(): void {
+    for (const [mesh, hooks] of this.trackedStoneMeshes) {
+      if (mesh.onBeforeRender === hooks.installed) {
+        mesh.onBeforeRender = hooks.original;
+      }
+    }
+    this.trackedStoneMeshes.clear();
+    this.submittedStoneBatches.clear();
   }
 
   private applyOverrideMaterial(scene: THREE.Object3D): void {
@@ -288,7 +388,7 @@ class IsolationState {
     hud.style.whiteSpace = "pre-wrap";
     hud.style.pointerEvents = "none";
     document.body.appendChild(hud);
-    hud.textContent = `Isolation debug\n${this.describeOptions()}`;
+    hud.textContent = `Isolation debug\nhook=pending\n${this.describeOptions()}`;
     return hud;
   }
 
@@ -301,7 +401,9 @@ class IsolationState {
     const perspective = camera instanceof THREE.PerspectiveCamera ? camera : undefined;
     const lines = [
       "Isolation debug",
+      `hook=${this.renderHookActive ? "active" : "pending"}`,
       this.describeOptions(),
+      `stone batches=${this.submittedStoneBatches.size}/${this.residentStoneBatches} submitted/resident`,
       `viewport=${document.documentElement.dataset.viewport ?? "unknown"}`,
       `camera near=${perspective?.near ?? "n/a"} far=${perspective?.far ?? "n/a"}`,
       info
@@ -344,29 +446,45 @@ export function installWorldIsolationHarness(
     return undefined;
   }
 
-  const prototype = THREE.WebGLRenderer.prototype as unknown as RendererPrototype;
+  const prototype = THREE.Scene.prototype as unknown as ScenePrototype;
   if (prototype[PATCH_FLAG]) {
     console.warn("[Drusniel World] Isolation harness is already installed.");
     return undefined;
   }
 
-  const originalRender = prototype.render;
+  const originalBeforeRender = prototype.onBeforeRender;
+  const originalAfterRender = prototype.onAfterRender;
   const state = new IsolationState(options);
-  prototype[PATCH_FLAG] = true;
-  prototype.render = function render(
-    this: THREE.WebGLRenderer,
-    scene: THREE.Object3D,
-    camera: THREE.Camera,
-  ): void {
-    state.beforeRender(this, scene, camera);
-    originalRender.call(this, scene, camera);
-    state.afterRender(this, camera);
+  const installedBeforeRender: SceneRenderHook = (
+    renderer,
+    scene,
+    camera,
+    ...args
+  ) => {
+    originalBeforeRender.call(scene, renderer, scene, camera, ...args);
+    state.beforeRender(renderer, scene, camera);
   };
+  const installedAfterRender: SceneRenderHook = (
+    renderer,
+    scene,
+    camera,
+    ...args
+  ) => {
+    originalAfterRender.call(scene, renderer, scene, camera, ...args);
+    state.afterRender(renderer, camera);
+  };
+
+  prototype[PATCH_FLAG] = true;
+  prototype.onBeforeRender = installedBeforeRender;
+  prototype.onAfterRender = installedAfterRender;
 
   return {
     dispose: () => {
-      if (prototype.render !== originalRender) {
-        prototype.render = originalRender;
+      if (prototype.onBeforeRender === installedBeforeRender) {
+        prototype.onBeforeRender = originalBeforeRender;
+      }
+      if (prototype.onAfterRender === installedAfterRender) {
+        prototype.onAfterRender = originalAfterRender;
       }
       delete prototype[PATCH_FLAG];
       state.dispose();
