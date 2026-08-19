@@ -84,8 +84,11 @@ assert(
     isolationHarness.includes("const beforeRenderWasOwn = Object.prototype.hasOwnProperty.call(") &&
     isolationHarness.includes("const afterRenderWasOwn = Object.prototype.hasOwnProperty.call(") &&
     isolationHarness.includes("delete (prototype as Partial<ScenePrototype>)[key]") &&
-    isolationHarness.includes("restorePatchFlag(prototype, originalPatchDescriptor)"),
-  "Isolation diagnostics must restore scene, camera, visibility, and prototype ownership when disposed.",
+    isolationHarness.includes("restorePatchFlag(prototype, originalPatchDescriptor)") &&
+    /const state = new IsolationState\(options\);[\s\S]*?let disposed = false;[\s\S]*?dispose: \(\) => \{[\s\S]*?if \(disposed\) \{[\s\S]*?return;[\s\S]*?disposed = true;/.test(
+      isolationHarness,
+    ),
+  "Isolation diagnostics must be idempotent and restore scene, camera, visibility, and prototype ownership when disposed.",
 );
 assert(
   (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 8,
@@ -100,5 +103,5 @@ assert(
 );
 
 console.log(
-  "[bootstrap-lifecycle] First-await navigation ownership, lazy diagnostics, reversible isolation state, async setup checks, and startup rollback verified.",
+  "[bootstrap-lifecycle] First-await navigation ownership, lazy diagnostics, reversible idempotent isolation state, async setup checks, and startup rollback verified.",
 );
