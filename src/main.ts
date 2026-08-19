@@ -2,7 +2,6 @@ import { RuntimeConfigLoader } from "./runtime/RuntimeConfigLoader";
 import { installMobileGpuCompatibility } from "./runtime/MobileGpuCompatibility";
 import { UiVisibilityController } from "./runtime/UiVisibilityController";
 import { resolveRuntimeProfile } from "./runtime/ViewportProfile";
-import { installWorldIsolationHarness } from "./runtime/WorldIsolationHarness";
 import { APP_VERSION, BUILD_LABEL } from "./version";
 
 interface RunnableApp {
@@ -78,7 +77,15 @@ async function bootstrap(): Promise<void> {
     installMobileGpuCompatibility(profile.compact);
 
     const sceneMode = params.get("scene") === "island" ? "island" : "world";
-    if (sceneMode === "world") {
+    const isolationEnabled =
+      sceneMode === "world" && params.get("debug") === "1";
+    if (isolationEnabled) {
+      const { installWorldIsolationHarness } = await import(
+        "./runtime/WorldIsolationHarness"
+      );
+      if (disposed) {
+        return;
+      }
       isolationHarness = installWorldIsolationHarness(params);
     }
     const flyMode =
