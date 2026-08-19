@@ -550,6 +550,7 @@ export function installWorldIsolationHarness(
     PATCH_FLAG,
   );
   const state = new IsolationState(options);
+  let disposed = false;
   const installedBeforeRender: SceneRenderHook = (
     renderer,
     scene,
@@ -579,6 +580,10 @@ export function installWorldIsolationHarness(
 
   return {
     dispose: () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
       restoreScenePrototypeHook(
         prototype,
         "onBeforeRender",
