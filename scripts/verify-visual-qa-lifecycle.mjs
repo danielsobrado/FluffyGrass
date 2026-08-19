@@ -12,6 +12,10 @@ const captureScript = readFileSync(
   resolve(REPOSITORY_ROOT, "scripts/capture-visual-matrix-poses.mjs"),
   "utf8",
 );
+const stoneMeasurementScript = readFileSync(
+  resolve(REPOSITORY_ROOT, "scripts/measure-stone-areas.mjs"),
+  "utf8",
+);
 
 function assert(condition, message) {
   if (!condition) {
@@ -45,6 +49,18 @@ assert(
   "Visual pose captures must enable isolation diagnostics, prove the render hook is active, and scope browser cleanup to the owning CDP port.",
 );
 
+assert(
+  stoneMeasurementScript.includes('"/src/world/DenseSpawnLocator.ts"') &&
+    stoneMeasurementScript.includes('"/src/world/stones/StoneField.ts"') &&
+    stoneMeasurementScript.includes(
+      "new DenseSpawnLocator(field, config, stoneField).find()",
+    ) &&
+    stoneMeasurementScript.includes("const originX = spawn.position.x") &&
+    stoneMeasurementScript.includes("const originZ = spawn.position.z") &&
+    !/const ORIGIN_[XZ]\s*=\s*-?\d/.test(stoneMeasurementScript),
+  "Stone truth measurements must derive their origin from the same spawn locator and stone field as the running world.",
+);
+
 console.log(
-  "[visual-qa-lifecycle] Capture serialization, disposal ownership, isolation diagnostics, and browser-session ownership verified.",
+  "[visual-qa-lifecycle] Capture serialization, disposal ownership, isolation diagnostics, browser-session ownership, and stone-truth spawn parity verified.",
 );
