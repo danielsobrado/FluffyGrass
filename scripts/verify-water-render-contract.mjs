@@ -35,6 +35,7 @@ const waveShader = read("src/world/hydrology/WaterWaveShader.ts");
 const foamShader = read("src/world/hydrology/WaterFoamShader.ts");
 const streamer = read("src/world/TerrainStreamer.ts");
 const chunkGeometry = read("src/world/hydrology/WaterChunkGeometry.ts");
+const refractionPass = read("src/world/hydrology/WaterRefractionPass.ts");
 
 assert(
   !waterSurfaceProgram.includes("waterSampleRiverBed") &&
@@ -147,7 +148,13 @@ assert(
     tuning.includes("WATER_ABSORPTION_COLOR"),
   "Water compile cache keys and optical constants must live in the tuning module.",
 );
+assert(
+  /try \{[\s\S]*?renderer\.render\(scene, camera\);[\s\S]*?\} finally \{[\s\S]*?renderer\.setRenderTarget\(previousTarget\);[\s\S]*?camera\.layers\.mask = previousMask;/.test(
+    refractionPass,
+  ),
+  "Water refraction must restore render-target and camera-layer state even when its offscreen render fails.",
+);
 
 console.log(
-  "[water-render] Surface/bed ownership, opaque bed depth, absorption, and compact quality verified.",
+  "[water-render] Surface/bed ownership, opaque bed depth, absorption, refraction state restoration, and compact quality verified.",
 );
