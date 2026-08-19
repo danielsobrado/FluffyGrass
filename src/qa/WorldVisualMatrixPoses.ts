@@ -44,11 +44,72 @@ export function createRiverTuningPose(
   }
 }
 
+/**
+ * Fixed open-meadow poses for the 6-7 m LOD-ring A/B, added outside the scanned
+ * landmark set on purpose.
+ *
+ * Every scanned pose in this seed lands on the riverbank, which is useless for
+ * judging near-grass coverage: half the frame is water and the bank slope
+ * confounds the distance bands. This point was found by sweeping the terrain
+ * field for full grass suitability, near-flat ground, no path within 18 m, and
+ * no water or thin grass anywhere within 40 m — 2.1 m of relief over that whole
+ * disc, 59 m from the dense-ground spawn so it streams in quickly.
+ *
+ * Fixed world coordinates rather than a landmark search, because an A/B is only
+ * meaningful if both trees frame the identical ground.
+ */
+const AB_MEADOW: WorldVisualPoint = {
+  x: 588,
+  y: 5.33,
+  z: 372,
+  waterDepth: 0,
+  waterCoverage: 0,
+  riverCoverage: 0,
+  lakeCoverage: 0,
+  flowX: 0,
+  flowZ: 0,
+  moisture: 0,
+  fertility: 0,
+  exposure: 0,
+  rockiness: 0,
+  disturbance: 0,
+  slope: 0,
+  pathMask: 1,
+  stoneClearance: 1,
+  stoneVicinity: 1,
+  waterProximity: 0,
+  biomeIndex: 0,
+  riverMorphology: 0,
+  riverBend: 0,
+  riverLateral: 0,
+  riverFallDrop: 0,
+  riverFallStep: 0,
+};
+
+function abMeadowPoses(): WorldVisualPose[] {
+  // Front-lit: the sun is behind the camera, so what the frame shows is albedo
+  // and coverage rather than transmission. The ring is a diffuse-shading and
+  // density artefact, and backlight would only mask it.
+  const lit = { x: -WORLD_SUN_XZ.x, z: -WORLD_SUN_XZ.z };
+  // Perpendicular to the sun. Up-facing normals gain most against a side light,
+  // so if any flattening mismatch survives, this is where it shows.
+  const side = { x: -WORLD_SUN_XZ.z, z: WORLD_SUN_XZ.x };
+  return [
+    // Eye level, 12 m back: the 6-7 m band sits across the middle of the frame.
+    look("ab-ring-eye", AB_MEADOW, 12, 1.9, lit.x, lit.z),
+    look("ab-ring-side", AB_MEADOW, 12, 1.9, side.x, side.z),
+    // Raised and looking down, so the whole 0-25 m coverage ramp is visible at
+    // once and bare ground reads directly.
+    look("ab-ring-down", AB_MEADOW, 14, 7, lit.x, lit.z),
+  ];
+}
+
 export function createWorldVisualPoses(
   locations: WorldVisualLocations,
 ): WorldVisualPose[] {
   const meadow = locations.meadow;
   return [
+    ...abMeadowPoses(),
     ...distancePoses(meadow),
     look("g10-meadow", meadow, 7.5, 2.4, 0.55, 0.55),
     look("g10-water-edge", locations.waterEdge, 6.5, 2.1, 0.7, 0.2),

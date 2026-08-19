@@ -35,14 +35,16 @@ The default transition distances come from the `lush-hero` art preset. The ultra
 
 | Distance from camera | Representation | Purpose |
 | --- | --- | --- |
-| `0–6 m` | Normal single-blade field plus segmented base detail and extra ultra-near density | Maximum close-range density, curvature, and bend detail. |
-| `6–7 m` | Extra density and segmented detail dithering out | Removes close detail without a visible ring. |
+| `0–6 m` | Normal single-blade field plus segmented base detail, at doubled density | Maximum close-range density, curvature, and bend detail. |
+| `6–7 m` | Segmented detail dithering out to one-triangle blades | Swaps blade *form* only. Density does not change here. |
+| `8–20 m` | Doubled density decaying to single density | Carries the extra population out on one-triangle blades instead of ending it with the segmented detail. |
 | `7–16 m` | Dense curved one-triangle individual blades | Maintains close-range density and interaction at lower cost. |
-| `16–36 m` | Individual blades crossfading to full-density patch geometry | Preserves density through the near/mid transition. |
-| `36–44 m` | Full-density patch geometry | Avoids redundant impostor overdraw in the middle band. |
-| `44–64 m` | Patch geometry crossfading to impostors | Smoothly enters the far representation. |
-| `64–270 m` | Hemi-octahedral impostors | Maintains view-dependent silhouettes near the streamed horizon. |
-| `270–290 m` | Impostors fading into terrain | Avoids a hard grass cutoff at the world edge. |
+| `16–20 m` | Individual blades handing off to the bridge layer | Exact placements are preserved across the handoff. |
+| `20–36 m` | Individual blades crossfading to full-density patch geometry | Preserves density through the near/mid transition. |
+| `36–46 m` | Full-density patch geometry | Avoids redundant impostor overdraw in the middle band. |
+| `46–62 m` | Patch geometry crossfading to impostors | Smoothly enters the far representation. |
+| `62–272 m` | Hemi-octahedral impostors | Maintains view-dependent silhouettes near the streamed horizon. |
+| `272–288 m` | Impostors fading into terrain | Avoids a hard grass cutoff at the world edge. |
 
 The table shows the default `lush-hero` preset. Runtime preset values in `src/grass/GrassArtPresets.json` select the active near, mid, far, and transition distances. The values in `public/config/world.yaml` provide validated world and streaming limits:
 
@@ -51,6 +53,14 @@ grassNearDistance: 28
 grassMidDistance: 80
 grassFarDistance: 280
 grassTransitionDistance: 8
+
+# Where the doubled blade population decays, and the world-space range over
+# which a blade stops being shaded as an individual leaf. Neither is a LOD
+# boundary; see "Near-field shading and density schedule" below.
+grassNearDensityBoostDistance: 14
+grassNearDensityBoostTransition: 6
+grassMicroDetailFadeStart: 3
+grassMicroDetailFadeEnd: 10
 ```
 
 ### Ultra-near LOD
@@ -106,6 +116,77 @@ The impostor shader includes:
 - Terrain-color matching for elevated camera angles.
 - Stream fade and terrain-horizon fade.
 
+### Near-field shading and density schedule
+
+Two schedules run across the near field that are deliberately *not* LOD boundaries.
+
+**Micro-detail fade** (`grassMicroDetailFadeStart` / `End`, 3–10 m) is where a blade
+stops being shaded as an individual leaf: the troughed normal flattens toward world
+up, per-blade tone variation collapses, and flutter stops. Every near and mid
+material is given the identical range.
+
+It used to be derived from each material's own `nearMaxDistance`, which made it five
+different schedules — the ultra-near layer finished flattening at 3.4 m, the base
+layer at 9.4 m, the mid at 14.6 m. Inside the ultra-near band two co-located blade
+populations were therefore lit differently (0.78 against 0.46 flattening), so the
+field dipped as the brighter half faded out and recovered over the next three metres.
+That dip and recovery rode at a fixed radius around the camera and read as a
+brightness ring while walking. `verify-lod-continuity` now fails if the range is
+derived from any LOD distance, or if the layers are given different ranges.
+
+**Density boost** (`grassNearDensityBoostDistance` / `Transition`) carries the doubled
+blade population out on one-triangle geometry, at full strength to 8 m and decaying to
+20 m. The doubling used to end where the segmented silhouette ended, so density halved
+across a single metre at the same radius the shading stepped. Detail is worth six
+triangles per blade only where a blade is large on screen; coverage is not, and
+coverage is what stops the ground showing through.
+
+**One-triangle palette lift.** Base, bridge and mid blades are a single triangle whose
+only progress values are 0 and 1, and those layers resolve the palette per vertex — so
+the rasteriser draws a chord under a curve that is strongly concave, because
+`rootLight` and `groundContact` both saturate in the bottom half of a blade. Measured
+area-weighted over the tapering triangle, that chord was **22.8% darker** than the
+per-fragment path the segmented blades use, and the step landed at exactly the radius
+where the two representations swap. The root vertices now evaluate the palette at
+`GRASS_VERTEX_PALETTE_ROOT_PROGRESS`, derived from the palette tuning so the chord
+carries the true area-weighted mean; the residual is 1.5%. This costs no triangles.
+`verify-lod-color-parity` re-derives the constant and bounds the residual across every
+preset and biome.
+
+**Ground under the canopy.** `terrainGroundCanopyDarkening` is 0.34, and the dark
+dry-fibre speckle holds its *mean* as terrain micro detail fades so only the variance
+disappears — otherwise the ground brightened at the micro-detail cutoff, which sits at
+the same 6–7 m radius. That mean is `TERRAIN_DRY_FIBRE_PULSE_MEAN`, measured over the
+noise field rather than estimated: the fibre channel is a carrier-modulated sine, so
+the knee positions do not predict it (0.082 measured against 0.155 for a uniform).
+`verify-terrain-surface` re-measures it across seeds and fails on drift.
+
+#### Measured result
+
+Captured from a fixed open-meadow pose (`ab-ring-eye`, x=588 z=372, chosen for full
+grass suitability and no water or path within 40 m) against the commit before these
+changes, same seed and camera. Mean luminance by ground distance:
+
+| Band | Before | After | Change |
+| --- | --- | --- | --- |
+| 4–6.5 m ultra | 0.4018 | 0.3974 | −1.1% |
+| 6.5–10 m ring zone | 0.4023 | 0.4042 | +0.5% |
+| 10–16 m base | 0.3635 | 0.3888 | +7.0% |
+| 16–28 m bridge | 0.3434 | 0.3821 | +11.2% |
+| 28–45 m mid | 0.3483 | 0.3836 | +10.1% |
+
+Near-to-far spread across the bands fell from 0.0588 to 0.0221 — **flattened by 62%**.
+The near band is essentially unchanged; everything past the handoff came up to meet it.
+
+Ground coverage over the same pair, measured as the fraction of green-dominant pixels:
+78.3% → 87.1% in the mid band, and 33.0% → 43.2% looking down from 7 m, the worst case
+for vertical blades. Resident near blades rose from 216k to 386k.
+
+The fixed A/B poses live in `src/qa/WorldVisualMatrixPoses.ts` (`ab-ring-eye`,
+`ab-ring-side`, `ab-ring-down`) with hardcoded coordinates, because a comparison is
+only meaningful if both trees frame identical ground — the scanned landmark poses in
+this seed all land on the riverbank.
+
 ### LOD continuity rules
 
 The grass LOD system follows these rules:
@@ -117,6 +198,8 @@ The grass LOD system follows these rules:
 5. Every transition overlaps through stochastic coverage rather than switching meshes abruptly.
 6. Color, wind response, blade rest shape, height, and root placement must remain visually compatible across representations.
 7. Terrain and grass streaming radii must be large enough to contain the configured LOD fades.
+8. Shading schedules are keyed to world distance, never to a LOD boundary. A blade at a given distance must be lit the same way whichever layer draws it.
+9. Density changes and representation changes must not share a boundary. Stacking them makes a single radius carry every discontinuity at once.
 
 Run the LOD and blade-shape continuity verification with:
 

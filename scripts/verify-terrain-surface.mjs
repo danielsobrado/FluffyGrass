@@ -41,6 +41,7 @@ try {
     "/src/world/hydrology/HydrologyField.ts",
   );
   const {
+    TERRAIN_DRY_FIBRE_PULSE_MEAN,
     TERRAIN_SURFACE_NOISE_SIZE,
     createTerrainSurfaceNoiseTexture,
     sampleTerrainSurfaceNoisePixel,
@@ -110,6 +111,49 @@ try {
       );
     }
   }
+
+  // The dry-fibre pulse mean the shader holds constant as micro detail fades.
+  // If it drifts from the field's true mean, the ground steps in brightness at
+  // the micro-detail cutoff — which is the 6-7 m radius the near grass hands off
+  // at, so the step lands exactly where it is most visible. A is a
+  // carrier-modulated sine rather than a uniform, so this mean cannot be read off
+  // the smoothstep knees; it has to be measured, and measured across seeds,
+  // because one constant serves every world.
+  {
+    const fibreSample = new Float64Array(4);
+    let worstFibreMean = 0;
+    let bestFibreMean = 1;
+    for (const seed of [rawConfig.seed, 1337, 1, 99991, 2026, 7]) {
+      let total = 0;
+      let count = 0;
+      for (let y = 0; y < TERRAIN_SURFACE_NOISE_SIZE; y += 1) {
+        for (let x = 0; x < TERRAIN_SURFACE_NOISE_SIZE; x += 1) {
+          sampleTerrainSurfaceNoisePixel(x, y, seed, fibreSample);
+          // Quantized exactly as the texture stores it.
+          const alpha = Math.round(fibreSample[3] * 255) / 255;
+          const t = Math.min(1, Math.max(0, (alpha - 0.68) / (0.9 - 0.68)));
+          total += t * t * (3 - 2 * t);
+          count += 1;
+        }
+      }
+      const mean = total / count;
+      worstFibreMean = Math.max(worstFibreMean, mean);
+      bestFibreMean = Math.min(bestFibreMean, mean);
+    }
+    const drift = Math.max(
+      Math.abs(worstFibreMean - TERRAIN_DRY_FIBRE_PULSE_MEAN),
+      Math.abs(bestFibreMean - TERRAIN_DRY_FIBRE_PULSE_MEAN),
+    );
+    assert(
+      drift <= 0.006,
+      `TERRAIN_DRY_FIBRE_PULSE_MEAN ${TERRAIN_DRY_FIBRE_PULSE_MEAN} is ${drift.toFixed(4)} from the measured fibre mean (${bestFibreMean.toFixed(4)}-${worstFibreMean.toFixed(4)}).`,
+    );
+    assert(
+      TERRAIN_DETAIL_COLOR.includes(TERRAIN_DRY_FIBRE_PULSE_MEAN.toFixed(4)),
+      "The terrain shader must hold the measured fibre mean as micro detail fades.",
+    );
+  }
+
   textureA.dispose();
   textureB.dispose();
   textureC.dispose();

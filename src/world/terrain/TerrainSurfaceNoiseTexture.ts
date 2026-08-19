@@ -97,6 +97,20 @@ export function sampleTerrainSurfaceNoisePixel(
  * scaled world coordinates supplies the whole terrain surface without an
  * authored texture asset or a stack of per-fragment FBM octaves.
  */
+/**
+ * Mean of `smoothstep(0.68, 0.9, A)` over the fibre channel, measured across the
+ * whole 256x256 field at level 0 and quantized exactly as the texture stores it.
+ *
+ * The terrain shader holds this mean constant as the micro-detail weight fades so
+ * the ground does not brighten at the cutoff — only the speckle around it
+ * disappears. It has to be the *measured* mean, not an eyeballed one: A is a
+ * carrier-modulated sine, not a uniform, so the fraction of it above the 0.68
+ * knee is not something the knee positions predict. Sampled over the six seeds in
+ * `verify-terrain-surface` the mean lands in 0.080-0.085 regardless of seed,
+ * which is what makes one constant legitimate here.
+ */
+export const TERRAIN_DRY_FIBRE_PULSE_MEAN = 0.082;
+
 export function createTerrainSurfaceNoiseTexture(seed: number): THREE.DataTexture {
   const data = new Uint8Array(
     TERRAIN_SURFACE_NOISE_SIZE * TERRAIN_SURFACE_NOISE_SIZE * 4,

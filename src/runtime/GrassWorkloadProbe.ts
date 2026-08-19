@@ -8,6 +8,7 @@ type GrassMeshKind =
   | "near-bridge"
   | "near-detail"
   | "near-ultra"
+  | "near-boost"
   | "mid"
   | "far"
   | "accent";
@@ -36,6 +37,7 @@ interface RuntimeNearField {
   bridgeField?: RuntimeTileField;
   baseDetailedField?: RuntimeTileField;
   ultraNearField?: RuntimeTileField;
+  densityBoostField?: RuntimeTileField;
   detailFoliageField?: RuntimeAccentField;
 }
 
@@ -130,6 +132,7 @@ export class GrassWorkloadProbe {
     this.instrumentTileField(near?.bridgeField, "near-bridge");
     this.instrumentTileField(near?.baseDetailedField, "near-detail");
     this.instrumentTileField(near?.ultraNearField, "near-ultra");
+    this.instrumentTileField(near?.densityBoostField, "near-boost");
     for (const tile of near?.detailFoliageField?.tiles?.values() ?? []) {
       this.instrumentMesh(tile.mesh, "accent");
     }
@@ -159,7 +162,8 @@ export class GrassWorkloadProbe {
     const near = this.grass.nearField;
     const nearResidentUniqueInstances =
       sumResidentInstances(near?.baseField) +
-      sumResidentInstances(near?.ultraNearField);
+      sumResidentInstances(near?.ultraNearField) +
+      sumResidentInstances(near?.densityBoostField);
     const nearBladesPerPatch = this.grass.nearBladesPerPatch ?? 0;
     const midBladesPerPatch = this.grass.midBladesPerPatch ?? 0;
     let residentPatchInstances = 0;

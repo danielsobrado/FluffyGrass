@@ -1,6 +1,9 @@
 import { GRASS_MAX_BIOMES } from "../grass/biome/GrassBiomeProfile";
 import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
-import { TERRAIN_SURFACE_NOISE_SIZE } from "./terrain/TerrainSurfaceNoiseTexture";
+import {
+  TERRAIN_DRY_FIBRE_PULSE_MEAN,
+  TERRAIN_SURFACE_NOISE_SIZE,
+} from "./terrain/TerrainSurfaceNoiseTexture";
 
 export const TERRAIN_DETAIL_VERTEX = `
 #define TERRAIN_MAX_BIOMES ${GRASS_MAX_BIOMES}
@@ -308,7 +311,9 @@ float terrainDryFibreAmount = terrainDryness * terrainCoverage *
 // micro-detail cutoff; only the speckle (the variance around this mean)
 // disappears. terrainMicroAlbedo is already zero-mean and needs no counterpart.
 float terrainDryFibre = (
-  0.06 + (terrainDryFibrePulse - 0.06) * terrainMicroWeight
+  ${TERRAIN_DRY_FIBRE_PULSE_MEAN.toFixed(4)} +
+    (terrainDryFibrePulse - ${TERRAIN_DRY_FIBRE_PULSE_MEAN.toFixed(4)}) *
+      terrainMicroWeight
 ) * terrainDryFibreAmount;
 terrainSurfaceColor = mix(
   terrainSurfaceColor,
