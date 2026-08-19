@@ -67,9 +67,8 @@ export class WaterRefractionPass {
     if (!target) {
       return;
     }
-    // Both are restored rather than assumed: this runs inside someone else's
-    // frame, and leaving the camera pinned to one layer would blank the real
-    // render that follows it.
+    // Restore shared camera state first. If renderer target restoration itself
+    // faults during context loss, the real frame must not inherit layer 2.
     const previousTarget = renderer.getRenderTarget();
     const previousMask = camera.layers.mask;
     try {
@@ -78,8 +77,8 @@ export class WaterRefractionPass {
       renderer.clear();
       renderer.render(scene, camera);
     } finally {
-      renderer.setRenderTarget(previousTarget);
       camera.layers.mask = previousMask;
+      renderer.setRenderTarget(previousTarget);
     }
   }
 
