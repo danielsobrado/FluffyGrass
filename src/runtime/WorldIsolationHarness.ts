@@ -228,7 +228,17 @@ class IsolationState {
       }
     }
 
-    if (position.usage !== THREE.DynamicDrawUsage && position.usage !== THREE.StreamDrawUsage) {
+    // getAttribute widens to BufferAttribute | InterleavedBufferAttribute, and
+    // only the former carries `usage` -- an interleaved attribute inherits it
+    // from the buffer it views.
+    const positionUsage =
+      position instanceof THREE.InterleavedBufferAttribute
+        ? position.data.usage
+        : position.usage;
+    if (
+      positionUsage !== THREE.DynamicDrawUsage &&
+      positionUsage !== THREE.StreamDrawUsage
+    ) {
       this.checkedStaticGeometries.add(geometry);
     }
     return 0;
