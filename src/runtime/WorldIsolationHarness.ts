@@ -67,6 +67,7 @@ class IsolationState {
   private readonly submittedStoneBatches = new Set<string>();
   private readonly hud?: HTMLPreElement;
   private rendererInfo?: DebugRendererInfo;
+  private worldScene?: THREE.Scene;
   private lastHudUpdateMs = Number.NEGATIVE_INFINITY;
   private lastValidationMs = Number.NEGATIVE_INFINITY;
   private lastGlError = "NO_ERROR";
@@ -94,7 +95,21 @@ class IsolationState {
     scene: THREE.Object3D,
     camera: THREE.Camera,
   ): void {
+    if (!(scene instanceof THREE.Scene)) {
+      return;
+    }
+
     const mainPass = renderer.getRenderTarget() === null;
+    if (!this.worldScene) {
+      if (!mainPass) {
+        return;
+      }
+      this.worldScene = scene;
+    }
+    if (scene !== this.worldScene) {
+      return;
+    }
+
     if (mainPass) {
       this.renderHookActive = true;
       this.residentStoneBatches = 0;
@@ -106,7 +121,10 @@ class IsolationState {
     this.applyOverrideMaterial(scene);
 
     const now = performance.now();
-    if (this.options.validateGpu && now - this.lastValidationMs >= VALIDATION_INTERVAL_MS) {
+    if (
+      this.options.validateGpu &&
+      now - this.lastValidationMs >= VALIDATION_INTERVAL_MS
+    ) {
       this.lastValidationMs = now;
       this.validateScene(scene);
     }
@@ -116,8 +134,12 @@ class IsolationState {
     }
   }
 
-  afterRender(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
-    if (renderer.getRenderTarget() !== null) {
+  afterRender(
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Object3D,
+    camera: THREE.Camera,
+  ): void {
+    if (scene !== this.worldScene || renderer.getRenderTarget() !== null) {
       return;
     }
 
@@ -138,13 +160,17 @@ class IsolationState {
     }
     this.touchedScenes.clear();
     this.restoreStoneMeshHooks();
+    this.worldScene = undefined;
     this.overrideMaterial?.dispose();
     this.hud?.remove();
   }
 
   private applyCameraNear(camera: THREE.Camera): void {
     const cameraNear = this.options.cameraNear;
-    if (cameraNear === undefined || !(camera instanceof THREE.PerspectiveCamera)) {
+    if (
+      cameraNear === undefined ||
+      !(camera instanceof THREE.PerspectiveCamera)
+    ) {
       return;
     }
     if (camera.near === cameraNear) {
@@ -196,7 +222,8 @@ class IsolationState {
       }
       if (
         this.options.noGrass ||
-        (this.options.grassLayer !== undefined && grassLayer !== this.options.grassLayer)
+        (this.options.grassLayer !== undefined &&
+          grassLayer !== this.options.grassLayer)
       ) {
         object.visible = false;
       }
@@ -295,7 +322,10 @@ class IsolationState {
     ];
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index];
-      if (!Number.isFinite(value) || Math.abs(value) > MAX_ABS_TRANSFORM_VALUE) {
+      if (
+        !Number.isFinite(value) ||
+        Math.abs(value) > MAX_ABS_TRANSFORM_VALUE
+      ) {
         this.reportIssue({
           key: `transform:${object.uuid}:${index}`,
           message: `${describeObject(object)} has invalid transform value ${value} at index ${index}`,
@@ -319,7 +349,10 @@ class IsolationState {
     const values = position.array as ArrayLike<number>;
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index];
-      if (!Number.isFinite(value) || Math.abs(value) > MAX_ABS_POSITION_VALUE) {
+      if (
+        !Number.isFinite(value) ||
+        Math.abs(value) > MAX_ABS_POSITION_VALUE
+      ) {
         this.reportIssue({
           key: `geometry:${geometry.uuid}:${index}`,
           message: `${describeObject(object)} has invalid geometry position ${value} at index ${index}`,
@@ -352,7 +385,10 @@ class IsolationState {
     const valueCount = Math.min(values.length, object.count * 16);
     for (let index = 0; index < valueCount; index += 1) {
       const value = values[index];
-      if (!Number.isFinite(value) || Math.abs(value) > MAX_ABS_TRANSFORM_VALUE) {
+      if (
+        !Number.isFinite(value) ||
+        Math.abs(value) > MAX_ABS_TRANSFORM_VALUE
+      ) {
         this.reportIssue({
           key: `instance:${object.uuid}:${index}`,
           message: `${describeObject(object)} has invalid instance matrix value ${value} at index ${index}`,
@@ -392,13 +428,17 @@ class IsolationState {
     return hud;
   }
 
-  private updateHud(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+  private updateHud(
+    renderer: THREE.WebGLRenderer,
+    camera: THREE.Camera,
+  ): void {
     if (!this.hud) {
       return;
     }
     const info = this.rendererInfo;
     const render = renderer.info.render;
-    const perspective = camera instanceof THREE.PerspectiveCamera ? camera : undefined;
+    const perspective =
+      camera instanceof THREE.PerspectiveCamera ? camera : undefined;
     const lines = [
       "Isolation debug",
       `hook=${this.renderHookActive ? "active" : "pending"}`,
@@ -406,9 +446,7 @@ class IsolationState {
       `stone batches=${this.submittedStoneBatches.size}/${this.residentStoneBatches} submitted/resident`,
       `viewport=${document.documentElement.dataset.viewport ?? "unknown"}`,
       `camera near=${perspective?.near ?? "n/a"} far=${perspective?.far ?? "n/a"}`,
-      info
-        ? `GPU=${info.renderer} | ${info.vendor}`
-        : "GPU=unknown",
+      info ? `GPU=${info.renderer} | ${info.vendor}` : "GPU=unknown",
       info
         ? `${info.version} depth=${info.depthBits} maxTex=${info.maxTextureSize} attribs=${info.maxVertexAttribs}`
         : "WebGL=unknown",
@@ -430,7 +468,9 @@ class IsolationState {
     if (this.options.noScenic) flags.push("noScenic");
     if (this.options.noCharacter) flags.push("noCharacter");
     if (this.options.grassLayer) flags.push(`grass=${this.options.grassLayer}`);
-    if (this.options.cameraNear !== undefined) flags.push(`near=${this.options.cameraNear}`);
+    if (this.options.cameraNear !== undefined) {
+      flags.push(`near=${this.options.cameraNear}`);
+    }
     if (this.options.basicMaterials) flags.push("basicMaterials");
     if (this.options.wireframe) flags.push("wireframe");
     if (this.options.validateGpu) flags.push("validateGpu");
@@ -471,7 +511,7 @@ export function installWorldIsolationHarness(
     ...args
   ) => {
     originalAfterRender.call(scene, renderer, scene, camera, ...args);
-    state.afterRender(renderer, camera);
+    state.afterRender(renderer, scene, camera);
   };
 
   prototype[PATCH_FLAG] = true;
@@ -510,7 +550,9 @@ function resolveIsolationOptions(params: URLSearchParams): IsolationOptions {
   };
 }
 
-function resolveGrassLayer(value: string | null): GrassIsolationLayer | undefined {
+function resolveGrassLayer(
+  value: string | null,
+): GrassIsolationLayer | undefined {
   return value === "near" || value === "mid" || value === "far"
     ? value
     : undefined;
@@ -527,7 +569,9 @@ function resolveCameraNear(value: string | null): number | undefined {
   return THREE.MathUtils.clamp(parsed, MIN_CAMERA_NEAR, MAX_CAMERA_NEAR);
 }
 
-function classifyGrassObject(object: THREE.Object3D): GrassIsolationLayer | undefined {
+function classifyGrassObject(
+  object: THREE.Object3D,
+): GrassIsolationLayer | undefined {
   const objectName = object.name.toLowerCase();
   const materialNames = getMaterialNames(object);
   const joinedMaterials = materialNames.join(" ");
@@ -567,7 +611,10 @@ function isTerrainObject(object: THREE.Object3D): boolean {
 
 function isStoneObject(object: THREE.Object3D): boolean {
   const name = object.name.toLowerCase();
-  return name.startsWith("world-stones-") || getMaterialNames(object).some((value) => value.includes("world-stone-"));
+  return (
+    name.startsWith("world-stones-") ||
+    getMaterialNames(object).some((value) => value.includes("world-stone-"))
+  );
 }
 
 function isScenicObject(object: THREE.Object3D): boolean {
@@ -593,7 +640,9 @@ function getMaterialNames(object: THREE.Object3D): string[] {
     .filter((name) => name.length > 0);
 }
 
-function getGeometry(object: THREE.Object3D): THREE.BufferGeometry | undefined {
+function getGeometry(
+  object: THREE.Object3D,
+): THREE.BufferGeometry | undefined {
   const geometry = (object as THREE.Mesh).geometry;
   return geometry instanceof THREE.BufferGeometry ? geometry : undefined;
 }
@@ -604,7 +653,9 @@ function describeObject(object: THREE.Object3D): string {
     : `${object.type}(${object.uuid})`;
 }
 
-function collectRendererInfo(renderer: THREE.WebGLRenderer): DebugRendererInfo {
+function collectRendererInfo(
+  renderer: THREE.WebGLRenderer,
+): DebugRendererInfo {
   const gl = renderer.getContext();
   const debugInfo = gl.getExtension("WEBGL_debug_renderer_info") as
     | {
@@ -635,13 +686,17 @@ function collectRendererInfo(renderer: THREE.WebGLRenderer): DebugRendererInfo {
   };
 }
 
-function describePrecision(format: WebGLShaderPrecisionFormat | null): string {
+function describePrecision(
+  format: WebGLShaderPrecisionFormat | null,
+): string {
   return format
     ? `p${format.precision} [${format.rangeMin},${format.rangeMax}]`
     : "unavailable";
 }
 
-function readGlError(gl: WebGLRenderingContext | WebGL2RenderingContext): string {
+function readGlError(
+  gl: WebGLRenderingContext | WebGL2RenderingContext,
+): string {
   const error = gl.getError();
   if (error === gl.NO_ERROR) {
     return "NO_ERROR";
