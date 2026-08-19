@@ -19,6 +19,7 @@ function assert(condition, message) {
 }
 
 const source = read("src/main.ts");
+const isolationHarness = read("src/runtime/WorldIsolationHarness.ts");
 const listener = source.indexOf('window.addEventListener("pagehide", handlePageHide)');
 const runtimeConfigLoad = source.indexOf("await new RuntimeConfigLoader().load(");
 const islandImport = source.indexOf('await import("./app/IslandApp")');
@@ -74,6 +75,19 @@ assert(
   "Isolation diagnostics must stay debug-only, lazy, and re-check bootstrap ownership before installing a global scene hook.",
 );
 assert(
+  isolationHarness.includes("private readonly hiddenObjects = new Map<THREE.Object3D, boolean>()") &&
+    isolationHarness.includes("private readonly originalCameraNear = new Map<THREE.PerspectiveCamera, number>()") &&
+    isolationHarness.includes("private readonly overriddenScenes = new Map<") &&
+    isolationHarness.includes("this.restoreVisibility()") &&
+    isolationHarness.includes("this.restoreCameraNearOverrides()") &&
+    isolationHarness.includes("this.restoreOverrideMaterials()") &&
+    isolationHarness.includes("const beforeRenderWasOwn = Object.prototype.hasOwnProperty.call(") &&
+    isolationHarness.includes("const afterRenderWasOwn = Object.prototype.hasOwnProperty.call(") &&
+    isolationHarness.includes("delete (prototype as Partial<ScenePrototype>)[key]") &&
+    isolationHarness.includes("restorePatchFlag(prototype, originalPatchDescriptor)"),
+  "Isolation diagnostics must restore scene, camera, visibility, and prototype ownership when disposed.",
+);
+assert(
   (source.match(/if \(disposed\) \{/g)?.length ?? 0) >= 8,
   "Optional asynchronous runtime modules must re-check bootstrap ownership before publishing resources.",
 );
@@ -86,5 +100,5 @@ assert(
 );
 
 console.log(
-  "[bootstrap-lifecycle] First-await navigation ownership, lazy diagnostics, async setup checks, and startup rollback verified.",
+  "[bootstrap-lifecycle] First-await navigation ownership, lazy diagnostics, reversible isolation state, async setup checks, and startup rollback verified.",
 );
