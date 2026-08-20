@@ -11,6 +11,7 @@ Companion documents:
 - [aaa-grass-execution-plan.md](aaa-grass-execution-plan.md)
 - [tiny-glade-detail-foliage-plan.md](tiny-glade-detail-foliage-plan.md)
 - [waterfall-gorge-geology-plan.md](waterfall-gorge-geology-plan.md)
+- [aaa-cloud-shadow-system-plan.md](aaa-cloud-shadow-system-plan.md)
 
 ## 1. Purpose
 
@@ -114,7 +115,21 @@ height-aware atmospheric response.
 
 This is where the mountain-depth work should land.
 
-### 2.7 Current quality/performance assumptions
+### 2.7 Current cloud lighting is global, not spatial
+
+`WorldCloudEnvironmentLighting` samples one cloud transmittance value projected
+from the current focus toward the cloud layer, smooths it, and multiplies the
+single directional-light intensity by that value. The visible cloud stack shares
+a procedural field, but the ground currently does not receive a world-space
+projected cloud-shadow field.
+
+This distinction is important for the latest screenshots: the configured desktop
+cloud-light floor is `0.86`, so that path cannot by itself explain a near-black
+terrain region. Diagnose any black region before tuning cloud shadow strength.
+The dedicated code-level execution plan is
+[aaa-cloud-shadow-system-plan.md](aaa-cloud-shadow-system-plan.md).
+
+### 2.8 Current quality/performance assumptions
 
 The screenshot showed roughly 79 FPS, but that number is only a visual-session
 observation, not a benchmark. Every phase must take a fresh baseline on the same
@@ -148,6 +163,8 @@ Never spend the apparent headroom without measurement.
     revertible.
 12. **Before every implementation tranche, fetch/check `main` again.** Do not
     overwrite a newer commit or blindly apply a stale file replacement.
+13. **Cloud shadows must attenuate direct sun, never final surface color.** Sky,
+    hemisphere, fog, and material color must remain present under cloud.
 
 ## 4. Visual target for the current frame
 
@@ -172,6 +189,9 @@ pose:
 - Valleys carry more haze than exposed high ridges.
 - The sun direction is readable from grass and terrain without crushing the
   shadows.
+- Cloud shadows are broad, soft, world-anchored reductions of direct sunlight,
+  never black overlays or camera-relative masks.
+- Visible cloud bodies and ground modulation feel like one weather system.
 - The character's feet, lower legs, and cape feel embedded in the meadow rather
   than composited over it.
 - Added scenic structure creates rhythm and scale while preserving large areas
@@ -214,6 +234,7 @@ At minimum capture:
 4. path crossing
 5. elevated mountain-facing view
 6. compact-profile hero meadow
+7. the current cloud/black-region regression pose
 
 Reuse existing poses when they already cover one of these cases.
 
@@ -246,6 +267,10 @@ Prefer existing debug/HUD plumbing. Useful temporary or permanent overlays are:
 - detail foliage colony/core
 - LOD representation band
 - atmospheric fog factor
+- cloud weather amount
+- focus cloud direct transmittance
+- cloud shadow transmittance map once implemented
+- directional shadow-map contribution for black-region diagnosis
 
 A debug overlay should visualize an existing field. It must not become a second
 implementation of that field.
@@ -259,6 +284,9 @@ Do not start Phase 1 until:
 - the baseline performance numbers are saved
 - visual defects can be pointed to in a fixed image instead of remembered from
   play
+
+The cloud-shadow diagnostic can run as part of this baseline work; do not wait
+until Phase 10 to identify the source of a near-black ground patch.
 
 ## 6. Phase 1 - Foreground grass: remove the synthetic-card look
 
@@ -898,7 +926,7 @@ Relevant files:
 - `src/app/WorldEnvironmentController.ts`
 - `src/app/WorldEnvironmentTuning.ts`
 - `src/world/sky/WorldSky.ts`
-- `src/world/sky/WorldCloudEnvironmentLighting.ts`
+- `src/app/WorldCloudEnvironmentLighting.ts`
 - grass, terrain, character material files
 
 ### 14.1 Preserve the current warm/cool design
@@ -938,10 +966,11 @@ described later if it proves visually valuable.
 - The character retains dark costume values while separating from the meadow.
 - No exposure change reintroduces white dry grass.
 
-## 15. Phase 10 - Sky and cloud composition
+## 15. Phase 10 - Sky, clouds, and spatial cloud-shadow composition
 
 There is already a dedicated sky and volumetric cloud stack. Do not create a
-second cloud renderer in this plan.
+second cloud renderer in this plan. The missing ground piece is a spatial,
+world-space transmittance field, not another visible cloud layer.
 
 Relevant files:
 
@@ -952,6 +981,8 @@ Relevant files:
 - `src/world/sky/WorldCloudVolumeShader.ts`
 - `src/world/sky/WorldCloudWeather.ts`
 - `src/app/WorldCloudEnvironmentLighting.ts`
+- new cloud-shadow modules described in
+  [aaa-cloud-shadow-system-plan.md](aaa-cloud-shadow-system-plan.md)
 
 ### 15.1 Composition goal
 
@@ -965,20 +996,117 @@ The hero sky should normally have:
 
 Do not fill the entire sky with cloud detail merely because the system can.
 
-### 15.2 Cloud shadow rule
+### 15.2 Diagnose black terrain before implementing new shadows
 
-Cloud shadows should be broad environmental modulation, not near-black moving
-patches. Ground darkening must preserve local sun/sky shape and grass color.
-If cloud shadows are visually strong, reduce their modulation before increasing
-ambient light globally.
+The current desktop cloud-light configuration only allows the global direct sun
+to fall to `0.86` of authored intensity, and that global path does not project a
+spatial ground mask. Therefore the large near-black region in the latest capture
+must be isolated before it is treated as a cloud-shadow tuning problem.
 
-### 15.3 Phase 10 acceptance
+Add/reuse a fixed regression pose and compare with:
+
+1. cloud environment attenuation forced to `1`;
+2. directional shadow map disabled;
+3. path/terrain visual branches isolated;
+4. grass hidden to expose the terrain result.
+
+Fix the subsystem that actually creates the black surface. Never compensate by
+raising ambient light or reducing terrain contrast globally.
+
+### 15.3 Spatial cloud-shadow architecture
+
+Implement the detailed companion plan in this order:
+
+1. extract the shared cloud density/vertical-profile GLSL into one reusable
+   module;
+2. render one small world-space cloud-plane transmittance texture;
+3. project each world point toward the cloud plane along the sun direction;
+4. sample the shared transmittance map;
+5. apply the result to **direct sun only**;
+6. integrate terrain first;
+7. integrate grass through the vertex path before considering any fragment
+   texture fetch;
+8. integrate horizon/scenic/water only after terrain + grass are proven;
+9. fade shadow contrast with atmospheric distance;
+10. debug/tune morphology only after lighting correctness is established.
+
+The texture stores transmittance, never a black-overlay opacity. It must respect
+`minimumDirectTransmittance` at generation time and consumer time.
+
+### 15.4 World-space projection rule
+
+The shadow map represents the cloud plane, not a flat ground plane. For a world
+point `P`:
+
+```text
+heightToCloud = max(cloudBaseHeight - P.y, 0)
+cloudXZ = P.xz
+        + sunDirection.xz
+        * heightToCloud / max(sunDirection.y, epsilon)
+```
+
+This makes hilltops and valleys receive correctly shifted projected shadows and
+keeps the field stable under camera rotation.
+
+### 15.5 Preserve ambient/sky light
+
+The cloud value must scale only the direct directional-light term. Do not apply
+it after `outgoingLight`, to `diffuseColor`, or to final terrain/grass albedo.
+Otherwise cloud shadows will incorrectly remove hemisphere light and can produce
+black holes.
+
+The current global focus transmittance can remain the baseline sun intensity.
+Spatial materials apply the relative correction:
+
+```text
+relativeCloudSun = localTransmittance / focusTransmittance
+```
+
+so a clear region can recover authored sunlight even while the player is under a
+cloud, without double-dimming the focus area.
+
+### 15.6 Cloud morphology and banding
+
+The visible clouds and projected ground shadow must consume the same macro cloud
+field. If the latest ring/band artifacts remain, determine whether they originate
+from:
+
+- god-ray angular banding;
+- temporal volumetric upscaling/history;
+- the cloud density field itself;
+- tone-mapping amplification.
+
+Improve the shared field once rather than adding shadow-only noise. Prefer domain
+warp/erosion changes before increasing FBM octave count.
+
+### 15.7 Performance strategy
+
+The preferred cost shape is:
+
+- one shared low-resolution cloud transmittance render target;
+- no procedural cloud FBM in terrain/grass fragments;
+- terrain may sample the map in fragment stage;
+- grass starts with vertex-stage sampling and passes one scalar varying;
+- distant shadow contrast fades with atmosphere;
+- compact reduces map resolution/integration steps before disabling the feature.
+
+Profile the small map pass separately from consumer cost.
+
+### 15.8 Phase 10 acceptance
 
 - The sky is no longer visually empty in normal weather, but remains spacious.
+- No unexplained black terrain patch remains.
+- Cloud shadows are spatial and anchored in world space.
+- Rotating the camera does not move the shadow field.
 - Cloud shadows never read as black overlays.
+- Shadowed terrain and grass retain sky/hemisphere color.
+- Grass backlight/transmission weakens under cloud shadow.
+- Terrain and grass agree under the same cloud.
 - Cloud/haze color is coherent with the new aerial perspective.
+- Shadow contrast falls naturally with distance.
 - Temporal cloud accumulation does not create flicker or ghosting in the hero
   capture.
+- No rectangular shadow-map boundary or grass-tile boundary is visible.
 
 ## 16. Phase 11 - Add sparse scenic structure to the meadow
 
@@ -1267,6 +1395,13 @@ Grass material:
 - `backlightStrength`
 - current palette colors
 
+Clouds:
+
+- existing `CloudShadowStrength`
+- existing `CloudMinimumDirectTransmittance`
+- existing `CloudLightResponseRate`
+- existing cloud coverage/softness/macro/detail/weather/wind controls
+
 ### 20.2 Candidate new keys - only add if the implementation needs them
 
 Potential ground integration:
@@ -1291,6 +1426,19 @@ Potential horizon geology:
 - `horizonRockSlopeFull`
 - `horizonConcavityDarkening`
 - `horizonMacroVariationStrength`
+
+Cloud-shadow technical quality, in `runtime.yaml`:
+
+- `desktopCloudShadowMapResolution`
+- `desktopCloudShadowWorldSize`
+- `desktopCloudShadowSteps`
+- `desktopCloudShadowEdgeFade`
+- `desktopCloudShadowDistanceFadeStart`
+- `desktopCloudShadowDistanceFadeEnd`
+- compact equivalents
+
+Do not add a second shadow-strength or direct-transmittance floor; reuse the
+existing cloud controls.
 
 Potential character grounding:
 
@@ -1337,15 +1485,22 @@ Spend budget in this order:
 6. extra geometry only in the close field
 7. additional draw calls only as a last resort
 
+Cloud shadows are the deliberate exception to “lookup only if absolutely
+necessary”: one shared low-resolution transmittance texture is preferable to
+re-running cloud FBM inside every material. Grass still starts with vertex-stage
+sampling rather than a new fragment lookup.
+
 ### 21.3 Avoid these expensive shortcuts
 
 - full grass shadow-map receipt
 - per-fragment procedural FBM in far terrain/horizon
+- per-fragment procedural cloud FBM in terrain/grass
 - per-blade ecology/hydrology resampling every frame
 - separate material/draw call for each flower species
 - screen-space AO solely to ground grass/character
 - increasing grass density to cover a bad ground shader
 - high-frequency far geometry that becomes sub-pixel
+- a second cloud-shadow texture per material/system
 
 ### 21.4 Compact profile
 
@@ -1355,6 +1510,7 @@ Compact should primarily reduce:
 - detail-foliage count
 - scenic density
 - cloud quality
+- cloud-shadow map resolution/integration steps when required
 
 It should preserve:
 
@@ -1363,6 +1519,7 @@ It should preserve:
 - the same atmosphere color logic
 - the same path placement
 - the same mountain geology identity
+- the same macro cloud-shadow layout
 
 ## 22. Verification plan
 
@@ -1414,6 +1571,33 @@ Suggested script name:
 
 `scripts/verify-atmosphere-contract.mjs`
 
+#### Cloud field contract
+
+Verify the reusable cloud field remains one source for analytic clouds,
+volumetric clouds, and the transmittance-map shader, and that intended shared
+constants stay aligned with the CPU weather sampler.
+
+Suggested script name:
+
+`scripts/verify-cloud-field-contract.mjs`
+
+#### Cloud shadow contract
+
+Verify:
+
+- the generated value is transmittance with a configured safety floor;
+- projection uses world position, sun direction, and cloud base height;
+- the map edge fades toward no shadow;
+- terrain/grass apply the factor only to direct sun;
+- grass transmission/backlight uses the same cloud direct factor;
+- the render target is created once and disposed;
+- desktop/compact config fields are valid;
+- no surface material contains a copied procedural cloud FBM implementation.
+
+Suggested script name:
+
+`scripts/verify-cloud-shadow-contract.mjs`
+
 #### Path ecology contract
 
 Verify:
@@ -1446,6 +1630,15 @@ Static verifiers cannot prove the target look. After every visual phase:
 4. inspect motion through LOD transitions where relevant
 5. inspect both desktop and compact at least once before phase sign-off
 
+For cloud shadows also inspect:
+
+- camera rotation while standing still;
+- cloud motion while standing still;
+- walking through a shadow boundary;
+- a hill/valley crossing the same shadow;
+- the shadow-field edge region;
+- the black-region regression pose.
+
 ### 22.4 Full gate
 
 Before considering this plan implemented:
@@ -1466,7 +1659,7 @@ produces a visible improvement and can be reviewed independently.
 
 ### Batch A - Fix the hero foreground first
 
-1. Phase 0 baseline/capture
+1. Phase 0 baseline/capture, including the cloud/black-region regression pose
 2. Phase 1 foreground grass
 3. Phase 2 ground/grass integration
 4. Phase 3 grass lighting
@@ -1481,22 +1674,36 @@ Suggested commit boundaries:
 - `Strengthen terrain grass habitat coupling`
 - `Rebalance grass directional lighting`
 
-### Batch B - Fix distance and scale
+### Batch B - Fix distance, atmosphere, and weather integration
 
 1. Phase 7 mountain geology
 2. Phase 8 atmosphere
 3. Phase 9 environment rebalance
-4. Phase 10 cloud composition
+4. Phase 10 cloud composition and spatial cloud shadows
+
+Cloud-shadow internal order:
+
+1. diagnose black region
+2. extract shared cloud field
+3. add/debug transmittance map
+4. terrain integration
+5. grass integration
+6. distant/scenic integration
+7. morphology + performance tuning
 
 Expected visible result: mountains read as terrain several kilometers away rather
-than flat shapes behind the meadow.
+than flat shapes behind the meadow, and cloud cover changes direct sunlight in a
+soft world-space pattern rather than as global pulsing or black overlays.
 
 Suggested commit boundaries:
 
 - `Add horizon geological shading cues`
 - `Add sky matched height aware atmosphere`
 - `Rebalance world environment for new atmosphere`
-- `Tune cloud composition and ground modulation`
+- `Diagnose cloud shadow black region`
+- `Add world space cloud transmittance map`
+- `Apply cloud direct lighting to terrain and grass`
+- `Refine cloud composition and shadow morphology`
 
 ### Batch C - Add biological hierarchy and path coherence
 
@@ -1543,7 +1750,9 @@ the current architecture:
 - putting procedural high-frequency noise in distant mountain fragments
 - adding bloom to make grass “richer”
 - increasing global saturation/contrast to compensate for flat material response
-- rebuilding the cloud system in parallel with the existing volume stack
+- rebuilding the visible cloud system in parallel with the existing volume stack
+- multiplying final terrain/grass color by a cloud darkness mask
+- adding per-material procedural cloud noise instead of one shared field
 
 ## 25. Final definition of done
 
@@ -1576,12 +1785,18 @@ This plan is complete only when all of the following are true at the same time:
 - aerial perspective converges to the actual sky gradient
 - valleys haze more than ridges without a camera-following fog plane
 
-### Lighting
+### Lighting and weather
 
 - sunlight direction is readable
 - backlit grass transmits light without glowing white
 - warm direct and cool ambient light remain balanced
-- cloud modulation is soft
+- unexplained near-black terrain regions are absent
+- cloud shadows are spatial and world-anchored
+- cloud shadows attenuate direct sun only
+- shaded terrain/grass retain sky/hemisphere light and material color
+- grass and terrain agree under the same cloud field
+- cloud-shadow contrast fades naturally with atmospheric distance
+- cloud macro bodies and ground modulation are visually coherent
 
 ### Character
 
@@ -1598,6 +1813,9 @@ This plan is complete only when all of the following are true at the same time:
 - no unjustified per-frame allocations were introduced
 - no species-level draw-call explosion was introduced
 - compact retains macro visual identity
+- compact retains the same macro cloud-shadow identity
+- cloud shadow uses one shared transmittance map, not copied FBM in materials
+- no new high-overdraw grass fragment cloud lookup is accepted without profiling
 - all added art tuning is validated/config-backed
 - targeted checks pass
 - `npm run build` passes
@@ -1609,15 +1827,40 @@ This plan is complete only when all of the following are true at the same time:
 When execution starts, do not begin with all phases in parallel. The highest
 value first slice is:
 
-1. capture/lock the current hero pose
-2. trace and fix the nearly white dry-grass response
-3. strengthen existing clump/archetype silhouette differences
-4. strengthen terrain root-zone/canopy correlation using current semantic
+1. capture/lock the current hero pose and cloud/black-region regression pose
+2. diagnose the source of the black region before changing cloud shadows
+3. trace and fix the nearly white dry-grass response
+4. strengthen existing clump/archetype silhouette differences
+5. strengthen terrain root-zone/canopy correlation using current semantic
    attributes
-5. verify near-to-mid color parity
-6. run targeted grass/terrain tests
-7. capture before/after
-8. only then proceed to atmosphere
+6. verify near-to-mid color parity
+7. run targeted grass/terrain/environment tests
+8. capture before/after
+9. proceed to atmosphere
+10. execute the first cloud-shadow slice from the companion plan: shared field ->
+    debug transmittance map -> terrain direct-light integration -> profile
 
-That slice should materially improve the exact 2026-08-20 screenshot without
-adding a new renderer, increasing grass density, or changing world generation.
+That slice should materially improve the exact 2026-08-20 screenshots without
+adding a new grass renderer, increasing grass density, hiding black regions with
+ambient light, or duplicating the cloud procedural field.
+
+## 27. Detailed cloud-shadow implementation reference
+
+The code-level execution plan for Phase 10 is maintained in
+[aaa-cloud-shadow-system-plan.md](aaa-cloud-shadow-system-plan.md).
+
+Its key architectural decision is intentionally narrow:
+
+```text
+shared cloud density field
+  -> one low-resolution cloud-plane transmittance texture
+  -> world-position projection along sun direction
+  -> direct-sun modulation per material
+  -> distance/atmosphere fade
+```
+
+It explicitly rejects a projected black overlay, camera-space cloud-shadow
+texture, procedural cloud FBM inside surface fragments, and full grass shadow-map
+receipt. Terrain is the first consumer; grass follows through vertex-stage
+sampling only after terrain proves the visual model and the map pass has been
+profiled.
