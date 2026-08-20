@@ -20,6 +20,9 @@ function assert(condition, message) {
 
 const main = read("src/main.ts");
 const hud = read("src/runtime/AnimationBlendingHud.ts");
+const uiVisibility = read("src/runtime/UiVisibilityController.ts");
+const hudSettingsUi = read("src/runtime/HudSettingsController.ts");
+const hudSettingsStore = read("src/runtime/HudSettingsStore.ts");
 const input = read("src/controls/ThirdPersonInput.ts");
 const controller = read("src/controls/ThirdPersonController.ts");
 const joystick = read("src/controls/MobileJoystick.ts");
@@ -53,6 +56,38 @@ const bootstrapCatch = main.indexOf("  } catch (error) {", bootstrapTry);
 assert(
   bootstrapTry >= 0 && uiInitialize > bootstrapTry && uiInitialize < bootstrapCatch,
   "UI initialization must run inside bootstrap's cleanup transaction.",
+);
+assert(
+  uiVisibility.includes('from "./HudSettingsController"') &&
+    uiVisibility.includes("private readonly settingsController =") &&
+    uiVisibility.includes("this.settingsController.initialize()") &&
+    uiVisibility.includes("this.settingsController.dispose()") &&
+    uiVisibility.includes("this.settingsController.close()"),
+  "HUD settings must share the interface lifecycle and close before the HUD is minimized.",
+);
+assert(
+  hudSettingsUi.includes('heading.textContent = "HUD Settings"') &&
+    hudSettingsUi.includes('movementText.textContent = "Invert left/right movement"') &&
+    hudSettingsUi.includes("hudSettingsStore.setInvertHorizontalMovement(") &&
+    hudSettingsUi.includes('document.addEventListener("keydown", this.handleKeyDown)') &&
+    hudSettingsUi.includes('document.removeEventListener("keydown", this.handleKeyDown)'),
+  "HUD settings must expose the movement preference with symmetric keyboard lifecycle cleanup.",
+);
+assert(
+  hudSettingsStore.includes("invertHorizontalMovement: false") &&
+    hudSettingsStore.includes('localStorage.getItem(STORAGE_KEY)') &&
+    hudSettingsStore.includes('localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))') &&
+    hudSettingsStore.includes("parsed.invertHorizontalMovement === true"),
+  "Horizontal movement inversion must default to normal controls and persist only validated boolean state.",
+);
+assert(
+  input.includes('from "../runtime/HudSettingsStore"') &&
+    input.includes("const rawHorizontalMovement = keyboardX + touch.x + joystick.x") &&
+    /const horizontalMovement = hudSettingsStore\.getInvertHorizontalMovement\(\)[\s\S]*?\? rawHorizontalMovement[\s\S]*?: -rawHorizontalMovement;/.test(
+      input,
+    ) &&
+    input.includes("THREE.MathUtils.clamp(horizontalMovement, -1, 1)"),
+  "Keyboard, touch movement, and the joystick must use normal horizontal camera-relative movement by default with one shared inversion preference.",
 );
 
 const setJumpStart = input.indexOf("const setJump = (");
@@ -183,5 +218,5 @@ assert(
 );
 
 console.log(
-  "[runtime-ui-input] Diagnostics ownership, mobile visual reset, action/coyote precedence, transactional compact/fly input, and tuning UI lifecycle verified.",
+  "[runtime-ui-input] HUD movement settings, diagnostics ownership, mobile visual reset, action/coyote precedence, transactional compact/fly input, and tuning UI lifecycle verified.",
 );

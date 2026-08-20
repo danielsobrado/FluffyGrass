@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import { hudSettingsStore } from "../runtime/HudSettingsStore";
 import type { WorldConfig } from "../world/WorldConfig";
 import {
   isEditableInputTarget,
@@ -70,8 +71,12 @@ export class ThirdPersonInput {
     const keyboardY =
       (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0) -
       (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0);
+    const rawHorizontalMovement = keyboardX + touch.x + joystick.x;
+    const horizontalMovement = hudSettingsStore.getInvertHorizontalMovement()
+      ? rawHorizontalMovement
+      : -rawHorizontalMovement;
     target.set(
-      THREE.MathUtils.clamp(keyboardX + touch.x + joystick.x, -1, 1),
+      THREE.MathUtils.clamp(horizontalMovement, -1, 1),
       THREE.MathUtils.clamp(keyboardY + touch.y + joystick.y, -1, 1),
     );
     if (target.lengthSq() > 1) {
