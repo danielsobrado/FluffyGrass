@@ -17,6 +17,12 @@ export interface RuntimeCloudConfig {
   silverLiningStrength: number;
   shadowStrength: number;
   shadowSampleRadius: number;
+  shadowMapResolution: number;
+  shadowWorldSize: number;
+  shadowSteps: number;
+  shadowEdgeFade: number;
+  shadowDistanceFadeStart: number;
+  shadowDistanceFadeEnd: number;
   minimumDirectTransmittance: number;
   lightResponseRate: number;
   weatherGradeStrength: number;

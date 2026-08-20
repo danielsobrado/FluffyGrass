@@ -55,6 +55,7 @@ export class WorldCloudEnvironmentLighting {
   };
   private directTransmittance = 1;
   private weatherAmount = 0;
+  private directAttenuationEnabled = true;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -105,6 +106,15 @@ export class WorldCloudEnvironmentLighting {
     this.apply();
   }
 
+  getDirectTransmittance(): number {
+    return this.directTransmittance;
+  }
+
+  setDirectAttenuationEnabled(enabled: boolean): void {
+    this.directAttenuationEnabled = enabled;
+    this.apply();
+  }
+
   apply(): void {
     const cloud = this.profile.cloud;
     const grade = THREE.MathUtils.clamp(
@@ -113,7 +123,8 @@ export class WorldCloudEnvironmentLighting {
       1,
     );
     this.sun.intensity =
-      WORLD_DEFAULT_SUN_INTENSITY * this.directTransmittance;
+      WORLD_DEFAULT_SUN_INTENSITY *
+      (this.directAttenuationEnabled ? this.directTransmittance : 1);
     this.sun.color.copy(DEFAULT_SUN_COLOR).lerp(OVERCAST_SUN_COLOR, grade);
     this.hemisphere.color
       .copy(DEFAULT_HEMISPHERE_SKY)
