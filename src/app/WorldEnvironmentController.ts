@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { WorldCloudShadowMap } from "../world/sky/WorldCloudShadowMap";
+import { WorldCloudShadowSceneIntegrator } from "../world/sky/WorldCloudShadowSceneIntegrator";
 import type { WorldCloudShadowUniforms } from "../world/sky/WorldCloudShadowUniforms";
 import { WORLD_CLOUD_TIME_WRAP_SECONDS } from "../world/sky/WorldCloudWeather";
 import { WorldSky } from "../world/sky/WorldSky";
@@ -36,6 +37,7 @@ export class WorldEnvironmentController {
   private readonly sky: WorldSky;
   private readonly cloudLighting: WorldCloudEnvironmentLighting;
   private readonly cloudShadow: WorldCloudShadowMap;
+  private readonly cloudShadowIntegrator: WorldCloudShadowSceneIntegrator;
   private readonly shadowMapSize: number;
   private readonly shadowTexelSize: number;
   private shadowFocusX = Number.NaN;
@@ -67,6 +69,10 @@ export class WorldEnvironmentController {
       this.hemisphere,
     );
     this.cloudShadow = new WorldCloudShadowMap(this.renderer, this.profile);
+    this.cloudShadowIntegrator = new WorldCloudShadowSceneIntegrator(
+      this.scene,
+      this.cloudShadow.getUniforms(),
+    );
     this.shadowMapSize = Math.max(
       1,
       Math.min(
@@ -90,6 +96,7 @@ export class WorldEnvironmentController {
       this.applyArtDirection();
     } catch (error) {
       disposeSafely(sky, "Sky");
+      disposeSafely(this.cloudShadowIntegrator, "Cloud shadow integration");
       disposeSafely(this.cloudShadow, "Cloud shadow map");
       disposeSafely(this.cloudLighting, "Cloud lighting");
       disposeSafely(this.sun.shadow, "Sun shadow");
@@ -102,8 +109,13 @@ export class WorldEnvironmentController {
     return this.cloudShadow.getUniforms();
   }
 
-  getCloudShadowDiagnostics(): ReturnType<WorldCloudShadowMap["getDiagnostics"]> {
-    return this.cloudShadow.getDiagnostics();
+  getCloudShadowDiagnostics(): ReturnType<WorldCloudShadowMap["getDiagnostics"]> & {
+    patchedMaterials: number;
+  } {
+    return {
+      ...this.cloudShadow.getDiagnostics(),
+      ...this.cloudShadowIntegrator.getDiagnostics(),
+    };
   }
 
   setCloudShadowsEnabled(enabled: boolean): void {
@@ -144,6 +156,7 @@ export class WorldEnvironmentController {
       this.elapsedSeconds,
       this.cloudLighting.getDirectTransmittance(),
     );
+    this.cloudShadowIntegrator.update(safeDelta);
     this.sky.update(this.elapsedSeconds, focus);
     this.updateShadow(focus);
   }
@@ -195,6 +208,7 @@ export class WorldEnvironmentController {
     }
     this.disposed = true;
     disposeSafely(this.sky, "Sky");
+    disposeSafely(this.cloudShadowIntegrator, "Cloud shadow integration");
     disposeSafely(this.cloudShadow, "Cloud shadow map");
     disposeSafely(this.cloudLighting, "Cloud lighting");
     disposeSafely(this.sun.shadow, "Sun shadow");

@@ -29,6 +29,15 @@ float cloudSelfShadow(
 #endif
 }
 
+float cloudRayBreakup(vec2 rayLocal, float seed) {
+  float broad = cloudValueNoise(rayLocal * 18.0 + vec2(7.3, -11.7) + seed);
+  mat2 rotate = mat2(0.8, 0.6, -0.6, 0.8);
+  float detail = cloudValueNoise(
+    rotate * rayLocal * 37.0 + vec2(-19.1, 5.7) - seed * 0.37
+  );
+  return broad * 0.68 + detail * 0.32;
+}
+
 vec3 applyTemporalGodRays(
   vec3 color,
   vec3 direction,
@@ -47,9 +56,7 @@ vec3 applyTemporalGodRays(
     dot(direction, rayTangent),
     dot(direction, rayBitangent)
   );
-  float rayAngle = atan(rayLocal.y, rayLocal.x);
-  float rayBands = 0.5 + 0.5 * sin(rayAngle * 17.0);
-  float shaftShape = smoothstep(0.56, 0.88, rayBands);
+  float shaftShape = smoothstep(0.52, 0.82, cloudRayBreakup(rayLocal, 0.31));
   float shaftCone = pow(sunFacing, 7.0);
   float edgeGate = 0.35 + cloudAlpha * (1.0 - cloudAlpha) * 2.4;
   float godRay =
@@ -135,10 +142,12 @@ vec3 applyWorldClouds(vec3 skyColor, vec3 direction) {
     dot(direction, rayTangent),
     dot(direction, rayBitangent)
   );
-  float rayAngle = atan(rayLocal.y, rayLocal.x);
-  float rayBands = 0.5 + 0.5 * sin(rayAngle * 17.0 + detailAmount * 5.0);
   float clearOpening = 1.0 - density;
-  float shaftShape = smoothstep(0.56, 0.88, rayBands);
+  float shaftShape = smoothstep(
+    0.50,
+    0.80,
+    cloudRayBreakup(rayLocal, detailAmount * 0.73 + 0.19)
+  );
   float shaftCone = pow(sunFacing, 7.0);
   float edgeGate = 0.35 + silverEdge * 2.4;
   float godRay =

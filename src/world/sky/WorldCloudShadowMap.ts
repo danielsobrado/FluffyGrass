@@ -6,7 +6,6 @@ import {
   WORLD_CLOUD_SHADOW_FRAGMENT_SHADER,
 } from "./WorldCloudShadowShader";
 import {
-  asWorldCloudShadowUniformRecord,
   createWorldCloudShadowUniforms,
   type WorldCloudShadowUniforms,
 } from "./WorldCloudShadowUniforms";
