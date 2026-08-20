@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../grass/GrassArtDirection";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
+import { WorldCloudShadowMap } from "../world/sky/WorldCloudShadowMap";
+import type { WorldCloudShadowUniforms } from "../world/sky/WorldCloudShadowUniforms";
 import { WORLD_CLOUD_TIME_WRAP_SECONDS } from "../world/sky/WorldCloudWeather";
 import { WorldSky } from "../world/sky/WorldSky";
 import { WorldCloudEnvironmentLighting } from "./WorldCloudEnvironmentLighting";
@@ -33,6 +35,7 @@ export class WorldEnvironmentController {
   private readonly hemisphere: THREE.HemisphereLight;
   private readonly sky: WorldSky;
   private readonly cloudLighting: WorldCloudEnvironmentLighting;
+  private readonly cloudShadow: WorldCloudShadowMap;
   private readonly shadowMapSize: number;
   private readonly shadowTexelSize: number;
   private shadowFocusX = Number.NaN;
@@ -63,6 +66,7 @@ export class WorldEnvironmentController {
       this.sun,
       this.hemisphere,
     );
+    this.cloudShadow = new WorldCloudShadowMap(this.renderer, this.profile);
     this.shadowMapSize = Math.max(
       1,
       Math.min(
@@ -86,10 +90,28 @@ export class WorldEnvironmentController {
       this.applyArtDirection();
     } catch (error) {
       disposeSafely(sky, "Sky");
+      disposeSafely(this.cloudShadow, "Cloud shadow map");
+      disposeSafely(this.cloudLighting, "Cloud lighting");
       disposeSafely(this.sun.shadow, "Sun shadow");
       this.scene.remove(this.hemisphere, this.sun, this.sun.target);
       throw error;
     }
+  }
+
+  getCloudShadowUniforms(): WorldCloudShadowUniforms {
+    return this.cloudShadow.getUniforms();
+  }
+
+  getCloudShadowDiagnostics(): ReturnType<WorldCloudShadowMap["getDiagnostics"]> {
+    return this.cloudShadow.getDiagnostics();
+  }
+
+  setCloudShadowsEnabled(enabled: boolean): void {
+    this.cloudShadow.setEnabled(enabled);
+  }
+
+  setCloudDirectAttenuationEnabled(enabled: boolean): void {
+    this.cloudLighting.setDirectAttenuationEnabled(enabled);
   }
 
   applyArtDirection(_direction?: GrassArtDirection): void {
@@ -116,9 +138,14 @@ export class WorldEnvironmentController {
     );
     this.elapsedSeconds =
       (this.elapsedSeconds + safeDelta) % WORLD_CLOUD_TIME_WRAP_SECONDS;
-    this.updateShadow(focus);
-    this.sky.update(this.elapsedSeconds, focus);
     this.cloudLighting.update(safeDelta, focus, this.elapsedSeconds);
+    this.cloudShadow.update(
+      focus,
+      this.elapsedSeconds,
+      this.cloudLighting.getDirectTransmittance(),
+    );
+    this.sky.update(this.elapsedSeconds, focus);
+    this.updateShadow(focus);
   }
 
   updateShadow(focus: THREE.Vector3): void {
@@ -168,6 +195,7 @@ export class WorldEnvironmentController {
     }
     this.disposed = true;
     disposeSafely(this.sky, "Sky");
+    disposeSafely(this.cloudShadow, "Cloud shadow map");
     disposeSafely(this.cloudLighting, "Cloud lighting");
     disposeSafely(this.sun.shadow, "Sun shadow");
     this.scene.remove(this.hemisphere, this.sun, this.sun.target);

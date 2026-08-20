@@ -1,4 +1,7 @@
-import { WORLD_CLOUD_FIELD_GLSL } from "./WorldSkyCloudShader";
+import {
+  WORLD_CLOUD_FIELD_GLSL,
+  WORLD_CLOUD_VERTICAL_PROFILE_GLSL,
+} from "./WorldCloudFieldShader";
 
 export const WORLD_CLOUD_FULLSCREEN_VERTEX_SHADER = /* glsl */ `
 varying vec2 vUv;
@@ -35,6 +38,7 @@ uniform vec3 uCloudSunlitColor;
 varying vec2 vUv;
 
 ${WORLD_CLOUD_FIELD_GLSL}
+${WORLD_CLOUD_VERTICAL_PROFILE_GLSL}
 
 float cloudJitter(vec2 pixel, float frameIndex) {
   return fract(
@@ -45,17 +49,6 @@ float cloudJitter(vec2 pixel, float frameIndex) {
       frameIndex * 0.61803398875
     )
   );
-}
-
-float cloudVerticalProfile(vec2 worldPosition, float heightFraction) {
-  float topNoise = cloudValueNoise(
-    worldPosition * uCloudMacroScale * 0.61 + vec2(23.7, -18.2)
-  );
-  float top = mix(0.62, 1.0, topNoise);
-  float flatBase = smoothstep(0.0, 0.07, heightFraction);
-  float irregularTop =
-    1.0 - smoothstep(max(0.12, top - 0.16), top, heightFraction);
-  return flatBase * irregularTop;
 }
 
 float cloudVolumeSelfShadow(

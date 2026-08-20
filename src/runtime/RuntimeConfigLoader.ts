@@ -66,6 +66,37 @@ export class RuntimeConfigLoader {
     prefix: "desktop" | "compact",
   ): RuntimeCloudConfig {
     const key = (suffix: string): string => `${prefix}Cloud${suffix}`;
+    const shadowMapResolution = reader.number(key("ShadowMapResolution"), {
+      minimum: 64,
+      maximum: 512,
+      integer: true,
+    });
+    const shadowWorldSize = reader.number(key("ShadowWorldSize"), {
+      minimum: 256,
+      maximum: 4096,
+    });
+    const shadowSteps = reader.number(key("ShadowSteps"), {
+      minimum: 1,
+      maximum: 6,
+      integer: true,
+    });
+    const shadowEdgeFade = reader.number(key("ShadowEdgeFade"), {
+      minimum: 0,
+      maximum: 0.25,
+    });
+    const shadowDistanceFadeStart = reader.number(
+      key("ShadowDistanceFadeStart"),
+      POSITIVE_NUMBER_RULE,
+    );
+    const shadowDistanceFadeEnd = reader.number(
+      key("ShadowDistanceFadeEnd"),
+      POSITIVE_NUMBER_RULE,
+    );
+    if (shadowDistanceFadeEnd <= shadowDistanceFadeStart) {
+      throw new Error(
+        `Runtime config value ${key("ShadowDistanceFadeEnd")} must be greater than ${key("ShadowDistanceFadeStart")}.`,
+      );
+    }
     return {
       enabled: reader.boolean(key("Enabled")),
       coverage: reader.number(key("Coverage"), { minimum: 0, maximum: 1 }),
@@ -124,6 +155,12 @@ export class RuntimeConfigLoader {
         minimum: 0,
         maximum: 100,
       }),
+      shadowMapResolution,
+      shadowWorldSize,
+      shadowSteps,
+      shadowEdgeFade,
+      shadowDistanceFadeStart,
+      shadowDistanceFadeEnd,
       minimumDirectTransmittance: reader.number(
         key("MinimumDirectTransmittance"),
         { minimum: 0.65, maximum: 1 },
