@@ -6,6 +6,7 @@ import { WorldCloudShadowSceneIntegrator } from "../world/sky/WorldCloudShadowSc
 import type { WorldCloudShadowUniforms } from "../world/sky/WorldCloudShadowUniforms";
 import { WORLD_CLOUD_TIME_WRAP_SECONDS } from "../world/sky/WorldCloudWeather";
 import { WorldSky } from "../world/sky/WorldSky";
+import { WorldCloudShadowDebugPanel } from "./WorldCloudShadowDebugPanel";
 import { WorldCloudEnvironmentLighting } from "./WorldCloudEnvironmentLighting";
 import {
   WORLD_DEFAULT_COMPACT_FOG_DENSITY,
@@ -38,8 +39,10 @@ export class WorldEnvironmentController {
   private readonly cloudLighting: WorldCloudEnvironmentLighting;
   private readonly cloudShadow: WorldCloudShadowMap;
   private readonly cloudShadowIntegrator: WorldCloudShadowSceneIntegrator;
+  private readonly sunShadowsAvailable: boolean;
   private readonly shadowMapSize: number;
   private readonly shadowTexelSize: number;
+  private cloudShadowDebug?: WorldCloudShadowDebugPanel;
   private shadowFocusX = Number.NaN;
   private shadowFocusY = Number.NaN;
   private shadowFocusZ = Number.NaN;
@@ -52,6 +55,7 @@ export class WorldEnvironmentController {
     private readonly profile: RuntimeProfile,
     shadowsEnabled: boolean,
   ) {
+    this.sunShadowsAvailable = shadowsEnabled;
     this.hemisphere = new THREE.HemisphereLight(
       WORLD_DEFAULT_HEMISPHERE_SKY,
       WORLD_DEFAULT_HEMISPHERE_GROUND,
@@ -93,8 +97,21 @@ export class WorldEnvironmentController {
       sky = new WorldSky(this.scene, this.renderer, this.profile);
       this.sky = sky;
       this.scene.add(this.hemisphere, this.sun, this.sun.target);
+      this.cloudShadowDebug = WorldCloudShadowDebugPanel.createIfRequested(
+        this.scene,
+        {
+          getDiagnostics: () => this.getCloudShadowDiagnostics(),
+          readPixels: (target) => this.cloudShadow.readDebugPixels(target),
+          setSpatialEnabled: (enabled) => this.setCloudShadowsEnabled(enabled),
+          setDirectAttenuationEnabled: (enabled) =>
+            this.setCloudDirectAttenuationEnabled(enabled),
+          setSunShadowsEnabled: (enabled) =>
+            this.setSunShadowsEnabled(enabled),
+        },
+      );
       this.applyArtDirection();
     } catch (error) {
+      disposeSafely(this.cloudShadowDebug, "Cloud shadow diagnostics");
       disposeSafely(sky, "Sky");
       disposeSafely(this.cloudShadowIntegrator, "Cloud shadow integration");
       disposeSafely(this.cloudShadow, "Cloud shadow map");
@@ -124,6 +141,11 @@ export class WorldEnvironmentController {
 
   setCloudDirectAttenuationEnabled(enabled: boolean): void {
     this.cloudLighting.setDirectAttenuationEnabled(enabled);
+  }
+
+  setSunShadowsEnabled(enabled: boolean): void {
+    this.sun.castShadow = this.sunShadowsAvailable && enabled;
+    this.sun.shadow.needsUpdate = true;
   }
 
   applyArtDirection(_direction?: GrassArtDirection): void {
@@ -157,6 +179,7 @@ export class WorldEnvironmentController {
       this.cloudLighting.getDirectTransmittance(),
     );
     this.cloudShadowIntegrator.update(safeDelta);
+    this.cloudShadowDebug?.update(safeDelta);
     this.sky.update(this.elapsedSeconds, focus);
     this.updateShadow(focus);
   }
@@ -207,6 +230,8 @@ export class WorldEnvironmentController {
       return;
     }
     this.disposed = true;
+    disposeSafely(this.cloudShadowDebug, "Cloud shadow diagnostics");
+    this.cloudShadowDebug = undefined;
     disposeSafely(this.sky, "Sky");
     disposeSafely(this.cloudShadowIntegrator, "Cloud shadow integration");
     disposeSafely(this.cloudShadow, "Cloud shadow map");

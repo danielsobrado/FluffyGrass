@@ -172,6 +172,34 @@ export class WorldCloudShadowMap {
     }
   }
 
+  readDebugPixels(target: Uint8Array): boolean {
+    const renderTarget = this.renderTarget;
+    if (
+      this.disposed ||
+      !renderTarget ||
+      target.length < renderTarget.width * renderTarget.height * 4
+    ) {
+      return false;
+    }
+    try {
+      this.renderer.readRenderTargetPixels(
+        renderTarget,
+        0,
+        0,
+        renderTarget.width,
+        renderTarget.height,
+        target,
+      );
+      return true;
+    } catch (error) {
+      console.warn(
+        "[Drusniel World] Cloud shadow debug readback failed.",
+        error,
+      );
+      return false;
+    }
+  }
+
   getDiagnostics(): WorldCloudShadowDiagnostics {
     return {
       enabled: this.consumerUniforms.uCloudShadowEnabled.value >= 0.5,
