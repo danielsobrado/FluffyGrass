@@ -20,6 +20,7 @@ function assert(condition, message) {
 
 const sky = read("src/world/sky/WorldSky.ts");
 const cloudMaterial = read("src/world/sky/WorldSkyMaterial.ts");
+const cloudField = read("src/world/sky/WorldCloudFieldShader.ts");
 const cloudShader = read("src/world/sky/WorldSkyCloudShader.ts");
 const cloudWeather = read("src/world/sky/WorldCloudWeather.ts");
 const cloudLighting = read("src/app/WorldCloudEnvironmentLighting.ts");
@@ -30,6 +31,16 @@ const cloudVolumePass = read("src/world/sky/WorldCloudTemporalPass.ts");
 const cloudVolumeShader = read("src/world/sky/WorldCloudVolumeShader.ts");
 const cloudTemporalShader = read("src/world/sky/WorldCloudTemporalShader.ts");
 const cloudVolumeQuality = read("src/world/sky/WorldCloudVolumeQuality.ts");
+const cloudShadowMap = read("src/world/sky/WorldCloudShadowMap.ts");
+const cloudShadowShader = read("src/world/sky/WorldCloudShadowShader.ts");
+const cloudShadowSampler = read(
+  "src/world/sky/WorldCloudShadowSamplerShader.ts",
+);
+const cloudShadowIntegrator = read(
+  "src/world/sky/WorldCloudShadowSceneIntegrator.ts",
+);
+const cloudShadowPatch = read("src/render/WorldCloudShadowMaterialPatch.ts");
+const cloudShadowDebug = read("src/app/WorldCloudShadowDebugPanel.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const runtimeConfig = read("src/runtime/RuntimeConfig.ts");
 const runtimeYaml = read("public/config/runtime.yaml");
@@ -108,16 +119,20 @@ assert(
   "Cloud shader work must be removed from the one-shot PMREM bake so startup IBL does not pay the animated weather cost.",
 );
 assert(
-  cloudShader.includes("float cloudFbm(vec2 p)") &&
-    cloudShader.includes("WORLD_CLOUD_COMPACT") &&
+  cloudField.includes("float cloudFbm(vec2 p)") &&
+    cloudField.includes("WORLD_CLOUD_COMPACT") &&
+    cloudField.includes("float cloudDensity(") &&
+    cloudField.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
     cloudShader.includes("WORLD_CLOUD_GOD_RAYS") &&
     cloudShader.includes("float horizonFade") &&
     cloudShader.includes("float silverEdge") &&
     cloudShader.includes("float cloudSelfShadow(") &&
     cloudShader.includes("opticalTransmittance = exp(") &&
     cloudShader.includes("uCloudSilverLiningStrength") &&
-    cloudShader.includes("float godRay"),
-  "The sky must retain scalable macro/detail shaping, horizon integration, Beer-Lambert body depth, self-shadowing, tunable silver lining, and cheap god rays.",
+    cloudShader.includes("float godRay") &&
+    cloudShader.includes("float cloudRayBreakup(") &&
+    !cloudShader.includes("sin(rayAngle * 17.0"),
+  "The sky must retain scalable shared macro/detail shaping, horizon integration, Beer-Lambert body depth, self-shadowing, tunable silver lining, and irregular cheap god rays without angular banding.",
 );
 assert(
   cloudMaterial.includes("uCloudThickness") &&
@@ -125,10 +140,16 @@ assert(
     cloudMaterial.includes("uCloudSelfShadowStrength") &&
     cloudMaterial.includes("uCloudSilverLiningStrength") &&
     runtimeConfig.includes("shadowSampleRadius: number") &&
+    runtimeConfig.includes("shadowMapResolution: number") &&
+    runtimeConfig.includes("shadowWorldSize: number") &&
+    runtimeConfig.includes("shadowSteps: number") &&
+    runtimeConfig.includes("shadowDistanceFadeStart: number") &&
     runtimeConfig.includes("weatherGradeStrength: number") &&
     runtimeYaml.includes("desktopCloudShadowSampleRadius: 24") &&
+    runtimeYaml.includes("desktopCloudShadowMapResolution: 256") &&
+    runtimeYaml.includes("compactCloudShadowMapResolution: 128") &&
     runtimeYaml.includes("compactCloudMinimumDirectTransmittance: 0.90"),
-  "Cloud body depth, projected-shadow filtering, and weather grading must remain explicit runtime tuning rather than shader literals.",
+  "Cloud body depth, global filtering, spatial shadow quality, and weather grading must remain explicit runtime tuning rather than shader literals.",
 );
 assert(
   runtimeConfig.includes("volumetricEnabled: boolean") &&
@@ -148,12 +169,13 @@ assert(
     cloudTemporalShader.includes("previousParcel.xz += uCloudWind * uDeltaSeconds") &&
     cloudTemporalShader.includes("alphaDifference") &&
     cloudVolumeShader.includes("WORLD_CLOUD_VOLUME_STEPS") &&
+    cloudVolumeShader.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
     cloudVolumeShader.includes("cloudJitter") &&
     cloudVolumeShader.includes("cloudVerticalProfile") &&
     cloudVolumeShader.includes("1.0 - exp(-opticalDepth)") &&
     cloudVolumeQuality.includes('"desktop" | "medium" | "mobile"') &&
     cloudVolumeQuality.includes("MEDIUM_MAX_STEPS = 6"),
-  "Desktop clouds must use a low-resolution temporally reprojected volumetric deck with jittered bounded ray steps, wind-aware history rejection, and medium/mobile quality fallbacks.",
+  "Desktop clouds must use a low-resolution temporally reprojected volumetric deck with jittered bounded ray steps, shared morphology, wind-aware history rejection, and medium/mobile quality fallbacks.",
 );
 assert(
   cloudVolumeController.includes("uCloudViewportInverse") &&
@@ -179,17 +201,54 @@ assert(
     cloudWeather.includes("worldZ + radius") &&
     cloudWeather.includes("worldZ - radius") &&
     cloudWeather.includes("config.minimumDirectTransmittance"),
-  "Cloud direct-light occlusion must use a normalized five-tap low-frequency footprint and retain a hard transmittance floor.",
+  "Global cloud direct-light occlusion must use a normalized five-tap low-frequency footprint and retain a hard transmittance floor.",
+);
+assert(
+  cloudShadowShader.includes("WORLD_CLOUD_FIELD_GLSL") &&
+    cloudShadowShader.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
+    cloudShadowShader.includes("physicalTransmittance = exp(") &&
+    cloudShadowShader.includes("uCloudMinimumDirectTransmittance") &&
+    cloudShadowMap.includes("new THREE.WebGLRenderTarget") &&
+    cloudShadowMap.includes("THREE.LinearFilter") &&
+    cloudShadowMap.includes("THREE.ClampToEdgeWrapping") &&
+    cloudShadowMap.includes("Math.round(focusCloudX / texelSize) * texelSize") &&
+    cloudShadowMap.includes("renderer.setRenderTarget(previousTarget)"),
+  "Spatial cloud shadows must be one bounded, filtered, texel-snapped transmittance field that shares visible-cloud density and restores render state.",
+);
+assert(
+  cloudShadowSampler.includes("uCloudBaseHeight - worldPosition.y") &&
+    cloudShadowSampler.includes("edgeCoverage") &&
+    cloudShadowSampler.includes("uCloudShadowDistanceFadeEnd") &&
+    cloudShadowSampler.includes("uCloudFocusTransmittance") &&
+    cloudShadowPatch.includes("reflectedLight.directDiffuse *= worldCloudDirectScale") &&
+    cloudShadowPatch.includes("patchGrassBladeCloudShadowMaterial") &&
+    cloudShadowPatch.includes("grassWorldRoot.xyz") &&
+    cloudShadowIntegrator.includes("HORIZON_RESPONSE_STRENGTH = 0.35"),
+  "Spatial consumers must project world height to the cloud plane, fade safely, normalize against global focus light, modulate direct light only, and keep high-overdraw grass sampling in the vertex path.",
 );
 assert(
   environment.includes('from "./WorldCloudEnvironmentLighting"') &&
     environment.includes("this.cloudLighting.update(safeDelta, focus, this.elapsedSeconds)") &&
-    cloudLighting.includes("WORLD_DEFAULT_SUN_INTENSITY * this.directTransmittance") &&
+    environment.includes("this.cloudShadow.update(") &&
+    environment.includes("this.cloudShadowIntegrator.update(safeDelta)") &&
+    cloudLighting.includes(
+      "this.directAttenuationEnabled ? this.directTransmittance : 1",
+    ) &&
     cloudLighting.includes("this.hemisphere.intensity = WORLD_DEFAULT_HEMISPHERE_INTENSITY") &&
     cloudLighting.includes("WORLD_OVERCAST_FOG_DENSITY_SCALE") &&
     cloudLighting.includes("WORLD_OVERCAST_EXPOSURE_SCALE") &&
     worldApp.includes("this.environment.update(deltaSeconds, focus);"),
-  "Cloud weather must soften only direct sun while a subtle shared lighting/fog/exposure grade keeps the world coherent without crushing ambient light.",
+  "Cloud weather must soften global direct sun while spatial correction restores local contrast; ambient light remains intact and the environment owns both paths.",
+);
+assert(
+  cloudShadowDebug.includes("Spatial cloud shadow") &&
+    cloudShadowDebug.includes("Global cloud direct") &&
+    cloudShadowDebug.includes("Sun shadow map") &&
+    cloudShadowDebug.includes("Grass") &&
+    cloudShadowDebug.includes("Water") &&
+    cloudShadowDebug.includes("readPixels") &&
+    environment.includes("WorldCloudShadowDebugPanel.createIfRequested"),
+  "Cloud diagnostics must expose independent binary-search toggles and a live transmittance preview without affecting normal sessions.",
 );
 assert(
   environment.includes("private readonly shadowMapSize: number") &&
@@ -205,18 +264,18 @@ assert(
     /sky = new WorldSky\([\s\S]*?this\.sky = sky;[\s\S]*?this\.scene\.add\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
       environment,
     ) &&
-    /catch \(error\) \{[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
+    /catch \(error\) \{[\s\S]*?disposeSafely\(this\.cloudShadowDebug, "Cloud shadow diagnostics"\);[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?disposeSafely\(this\.cloudShadowIntegrator, "Cloud shadow integration"\);[\s\S]*?disposeSafely\(this\.cloudShadow, "Cloud shadow map"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
       environment,
     ),
-  "Environment lights and shadow resources must publish only after core sky construction succeeds and roll back on initialization failure.",
+  "Environment lights, cloud targets/integration/diagnostics, and shadow resources must publish only after core sky construction succeeds and roll back on initialization failure.",
 );
 assert(
-  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
+  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.cloudShadowDebug, "Cloud shadow diagnostics"\);[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?disposeSafely\(this\.cloudShadowIntegrator, "Cloud shadow integration"\);[\s\S]*?disposeSafely\(this\.cloudShadow, "Cloud shadow map"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
     environment,
   ),
-  "Environment teardown must release the shadow render target, stay idempotent, and remove lights even if cleanup fails.",
+  "Environment teardown must release cloud/debug/shadow render resources, stay idempotent, and remove lights even if cleanup fails.",
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, filtered direct light, Beer-Lambert temporal cloud volume, coherent weather grade, scalable quality tiers, god rays, GPU-safe shadows, restored PMREM, and fail-soft IBL ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, shared cloud morphology, temporal cloud volume, bounded spatial direct-light shadows, diagnostics, coherent weather grade, GPU-safe local shadows, restored PMREM, and fail-soft ownership verified.",
 );
