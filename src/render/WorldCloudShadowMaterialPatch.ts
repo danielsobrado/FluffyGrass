@@ -5,9 +5,16 @@ import {
 } from "../world/sky/WorldCloudShadowUniforms";
 import { WORLD_CLOUD_SHADOW_SAMPLER_GLSL } from "../world/sky/WorldCloudShadowSamplerShader";
 
-const PATCH_CACHE_KEY = "world-cloud-shadow-v1";
+const PATCH_CACHE_KEY = "world-cloud-shadow-v2";
 const WORLD_POSITION_VARYING = "varying vec3 vWorldCloudPosition;";
 const CLOUD_SCALE_VARYING = "varying float vWorldCloudDirectScale;";
+const WORLD_POSITION_VERTEX = `
+vec4 worldCloudPosition = vec4(transformed, 1.0);
+#ifdef USE_INSTANCING
+  worldCloudPosition = instanceMatrix * worldCloudPosition;
+#endif
+vWorldCloudPosition = (modelMatrix * worldCloudPosition).xyz;
+`;
 
 export function patchStandardCloudShadowMaterial(
   material: THREE.Material,
@@ -25,8 +32,8 @@ export function patchStandardCloudShadowMaterial(
         `#include <common>\n${WORLD_POSITION_VARYING}`,
       )
       .replace(
-        "#include <worldpos_vertex>",
-        `#include <worldpos_vertex>\nvWorldCloudPosition = worldPosition.xyz;`,
+        "#include <project_vertex>",
+        `#include <project_vertex>${WORLD_POSITION_VERTEX}`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -47,6 +54,12 @@ float worldCloudDirectScale = mix(
 reflectedLight.directDiffuse *= worldCloudDirectScale;
 reflectedLight.directSpecular *= worldCloudDirectScale;`,
       );
+    if (material.name === "world-terrain-material") {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "outgoingLight += directionalLights[0].color * (",
+        "outgoingLight += directionalLights[0].color * worldCloudDirectScale * (",
+      );
+    }
     if (material.name === "world-hydrology-water-material") {
       shader.fragmentShader = shader.fragmentShader
         .replace(
@@ -139,6 +152,6 @@ float worldCloudDirectScale = resolveRelativeCloudDirectLight(
       "vGrassBackLight = worldCloudDirectScale * pow(",
     );
   material.customProgramCacheKey = () =>
-    `${material.type}|${PATCH_CACHE_KEY}|grass-custom`;
+    `${material.type}|${material.name}|${PATCH_CACHE_KEY}|grass-custom`;
   material.needsUpdate = true;
 }
