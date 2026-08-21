@@ -94,6 +94,7 @@ export class WorldCloudShadowSceneIntegrator {
     if (
       name === "world-terrain-material" ||
       name === "world-hydrology-water-material" ||
+      name === "world-hydrology-water-bed-material" ||
       name.startsWith("world-stone-") ||
       object.name.startsWith("world-tree-")
     ) {
