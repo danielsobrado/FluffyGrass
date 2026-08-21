@@ -40,15 +40,26 @@ varying vec2 vUv;
 ${WORLD_CLOUD_FIELD_GLSL}
 ${WORLD_CLOUD_VERTICAL_PROFILE_GLSL}
 
-float cloudJitter(vec2 pixel, float frameIndex) {
+float cloudStepJitter(
+  vec2 pixel,
+  float frameIndex,
+  float sampleIndex
+) {
+  vec2 sampleOffset = vec2(sampleIndex * 47.0, sampleIndex * 89.0);
+  float sequenceRotation =
+    frameIndex * 0.61803398875 + sampleIndex * 0.75487766625;
   return fract(
     52.9829189 *
     fract(
-      0.06711056 * pixel.x +
-      0.00583715 * pixel.y +
-      frameIndex * 0.61803398875
+      0.06711056 * (pixel.x + sampleOffset.x) +
+      0.00583715 * (pixel.y + sampleOffset.y) +
+      sequenceRotation
     )
   );
+}
+
+float cloudLayerDistance(float worldHeight, float rayVertical) {
+  return (worldHeight - uCameraPosition.y) / max(rayVertical, 0.0001);
 }
 
 float cloudVolumeSelfShadow(
@@ -84,16 +95,25 @@ void main() {
     return;
   }
 
-  float baseDistance = uCloudBaseHeight / rayDirection.y;
-  float topDistance =
-    (uCloudBaseHeight + uCloudThickness) / rayDirection.y;
-  if (baseDistance > 18000.0) {
+  float baseDistance = cloudLayerDistance(uCloudBaseHeight, rayDirection.y);
+  float topDistance = cloudLayerDistance(
+    uCloudBaseHeight + uCloudThickness,
+    rayDirection.y
+  );
+  if (topDistance <= 0.0 || baseDistance > 18000.0) {
     gl_FragColor = vec4(0.0);
     return;
   }
+  baseDistance = max(baseDistance, 0.0);
 
-  float previewDistance =
-    (uCloudBaseHeight + uCloudThickness * 0.5) / rayDirection.y;
+  float previewDistance = clamp(
+    cloudLayerDistance(
+      uCloudBaseHeight + uCloudThickness * 0.5,
+      rayDirection.y
+    ),
+    baseDistance,
+    topDistance
+  );
   vec3 previewPosition =
     uCameraPosition + rayDirection * previewDistance;
   float previewWeather = 0.0;
@@ -110,19 +130,24 @@ void main() {
 
   float segmentLength =
     (topDistance - baseDistance) / float(WORLD_CLOUD_VOLUME_STEPS);
-  float jitter = cloudJitter(gl_FragCoord.xy, uFrameIndex);
   float transmittance = 1.0;
   vec3 radiance = vec3(0.0);
 
   for (int sampleIndex = 0;
        sampleIndex < WORLD_CLOUD_VOLUME_STEPS;
        ++sampleIndex) {
+    float sampleOrdinal = float(sampleIndex);
+    float sampleJitter = mix(
+      0.06,
+      0.94,
+      cloudStepJitter(gl_FragCoord.xy, uFrameIndex, sampleOrdinal)
+    );
     float sampleDistance =
-      baseDistance + (float(sampleIndex) + jitter) * segmentLength;
+      baseDistance + (sampleOrdinal + sampleJitter) * segmentLength;
     vec3 worldPosition =
       uCameraPosition + rayDirection * sampleDistance;
     float heightFraction =
-      (sampleDistance * rayDirection.y - uCloudBaseHeight) /
+      (worldPosition.y - uCloudBaseHeight) /
       max(uCloudThickness, 0.0001);
     float weatherAmount = 0.0;
     float detailAmount = 0.0;
