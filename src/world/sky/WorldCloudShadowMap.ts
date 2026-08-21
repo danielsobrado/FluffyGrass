@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
+import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
+import { sampleCloudShadowTransmittance } from "./WorldCloudWeather";
 import {
   WORLD_CLOUD_FULLSCREEN_VERTEX_SHADER,
   WORLD_CLOUD_SHADOW_FRAGMENT_SHADER,
@@ -130,18 +131,12 @@ export class WorldCloudShadowMap {
     this.runtimeEnabled = enabled;
     this.consumerUniforms.uCloudShadowEnabled.value =
       enabled && !this.faulted && !!this.renderTarget ? 1 : 0;
+    if (!enabled) {
+      this.consumerUniforms.uCloudFocusTransmittance.value = 1;
+    }
   }
 
-  update(
-    focus: THREE.Vector3,
-    elapsedSeconds: number,
-    focusTransmittance: number,
-  ): void {
-    this.consumerUniforms.uCloudFocusTransmittance.value = THREE.MathUtils.clamp(
-      Number.isFinite(focusTransmittance) ? focusTransmittance : 1,
-      this.profile.cloud.minimumDirectTransmittance,
-      1,
-    );
+  update(focus: THREE.Vector3, elapsedSeconds: number): void {
     if (
       this.disposed ||
       this.faulted ||
@@ -152,6 +147,7 @@ export class WorldCloudShadowMap {
       !Number.isFinite(focus.y) ||
       !Number.isFinite(focus.z)
     ) {
+      this.consumerUniforms.uCloudFocusTransmittance.value = 1;
       return;
     }
     const sunVertical = Math.max(SUN_DIRECTION.y, 0.08);
@@ -167,6 +163,15 @@ export class WorldCloudShadowMap {
       Math.round(focusCloudZ / texelSize) * texelSize,
     );
     this.consumerUniforms.uCloudShadowOriginXZ.value.copy(this.origin);
+    this.consumerUniforms.uCloudFocusTransmittance.value =
+      sampleCloudShadowTransmittance(
+        this.profile.cloud,
+        this.profile.compact,
+        focusCloudX,
+        focusCloudZ,
+        elapsedSeconds,
+        SUN_DIRECTION,
+      );
     this.material.uniforms.uTime.value = elapsedSeconds;
 
     const previousTarget = this.renderer.getRenderTarget();
@@ -230,6 +235,7 @@ export class WorldCloudShadowMap {
     this.disposed = true;
     this.consumerUniforms.uCloudShadowEnabled.value = 0;
     this.consumerUniforms.uCloudShadowMap.value = null;
+    this.consumerUniforms.uCloudFocusTransmittance.value = 1;
     this.releaseGpuResources();
   }
 
@@ -251,6 +257,7 @@ export class WorldCloudShadowMap {
     this.faulted = true;
     this.consumerUniforms.uCloudShadowEnabled.value = 0;
     this.consumerUniforms.uCloudShadowMap.value = null;
+    this.consumerUniforms.uCloudFocusTransmittance.value = 1;
     console.warn(
       `[Drusniel World] Cloud shadow map ${stage} failed; spatial cloud shadows disabled.`,
       error,
