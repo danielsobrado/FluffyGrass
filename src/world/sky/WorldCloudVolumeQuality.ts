@@ -4,7 +4,7 @@ import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 const MEDIUM_MAX_HARDWARE_CONCURRENCY = 6;
 const MEDIUM_MAX_TEXTURE_SIZE = 8192;
 const MEDIUM_MAX_RESOLUTION_SCALE = 0.35;
-const MEDIUM_MAX_STEPS = 6;
+const MEDIUM_MAX_STEPS = 8;
 
 export type WorldCloudVolumeTier = "desktop" | "medium" | "mobile";
 
