@@ -47,8 +47,12 @@ desktopCloudLightResponseRate: 0.7
 desktopCloudWeatherGradeStrength: 0.24
 desktopCloudVolumetricEnabled: true
 desktopCloudVolumetricResolutionScale: 0.50
-desktopCloudVolumetricSteps: 8
-desktopCloudTemporalBlend: 0.88
+# Twelve independently jittered strata remove the visible shell/ring pattern
+# while the half-resolution pass keeps the cost bounded.
+desktopCloudVolumetricSteps: 12
+# Keep enough current-frame weight that old raymarch strata cannot persist as
+# temporal bands after camera or cloud motion.
+desktopCloudTemporalBlend: 0.84
 desktopCloudGodRays: true
 desktopCloudGodRayStrength: 0.14
 desktopCloudAmbientColor: "#d8e1e8"
