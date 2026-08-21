@@ -8,6 +8,7 @@ import {
   GRASS_CLUSTER_TALL_WET,
   type GrassHabitatSample,
 } from "./GrassHabitatField";
+import * as Tuning from "./GrassClusterProfileTuning";
 
 export interface GrassClusterProfile {
   heightScale: number;
@@ -23,81 +24,6 @@ export interface GrassClusterProfile {
   leanScale: number;
   gapStrength: number;
 }
-
-const MIN_MAIN_TIER_SHARE = 0.22;
-const MIN_EDGE_COVERAGE = 0.4;
-const MAX_PLANE_COHERENCE = 0.5;
-const BASE_HEIGHT_IDENTITY_MIN = 0.94;
-const BASE_HEIGHT_IDENTITY_RANGE = 0.12;
-const BASE_ASYMMETRY_MIN = 0.05;
-const BASE_ASYMMETRY_RANGE = 0.2;
-const EDGE_FADE_START = 0.72;
-const GAP_INNER_START = 0.18;
-const GAP_INNER_FULL = 0.34;
-const GAP_OUTER_FULL = 0.58;
-const GAP_OUTER_END = 0.82;
-const GAP_WAVE_START = 0.05;
-const GAP_WAVE_END = 0.2;
-const GAP_IDENTITY_START = 0.55;
-const GAP_IDENTITY_END = 0.95;
-
-const SPARSE_HEIGHT_SCALE = 0.96;
-const SPARSE_WIDTH_SCALE = 1.08;
-const SPARSE_UNDERSTORY_SHARE = 0.3;
-const SPARSE_PLANE_SCALE = 0.65;
-const SPARSE_DRYNESS_OFFSET = 0.015;
-const SPARSE_COVERAGE_SCALE = 0.56;
-const SPARSE_EDGE_SCALE = 0.72;
-const SPARSE_LEAN_SCALE = 0.95;
-const SPARSE_GAP_STRENGTH = 0.62;
-
-const WET_HEIGHT_SCALE = 1.14;
-const WET_WIDTH_SCALE = 0.94;
-const WET_UNDERSTORY_SHARE = 0.28;
-const WET_PLANE_SCALE = 1.25;
-const WET_DRYNESS_SCALE = 0.5;
-const WET_EDGE_COVERAGE = 0.94;
-const WET_LEAN_SCALE = 0.78;
-const WET_GAP_STRENGTH = 0.03;
-
-const DRY_HEIGHT_SCALE = 0.78;
-const DRY_WIDTH_SCALE = 1.06;
-const DRY_UNDERSTORY_SHARE = 0.56;
-const DRY_PLANE_SCALE = 0.64;
-const DRY_DRYNESS_SCALE = 1.02;
-const DRY_DRYNESS_OFFSET = 0.1;
-const DRY_COVERAGE_SCALE = 0.88;
-const DRY_EDGE_SCALE = 0.7;
-const DRY_LEAN_SCALE = 1.05;
-const DRY_GAP_STRENGTH = 0.54;
-
-const FLATTENED_HEIGHT_SCALE = 0.8;
-const FLATTENED_WIDTH_SCALE = 1.03;
-const FLATTENED_UNDERSTORY_SHARE = 0.56;
-const FLATTENED_PLANE_SCALE = 1.12;
-const FLATTENED_ASYMMETRY_SCALE = 1.18;
-const FLATTENED_DRYNESS_OFFSET = 0.04;
-const FLATTENED_COVERAGE_SCALE = 0.9;
-const FLATTENED_EDGE_SCALE = 0.74;
-const FLATTENED_LEAN_SCALE = 1.75;
-const FLATTENED_GAP_STRENGTH = 0.46;
-
-const ACCENT_HEIGHT_SCALE = 1.1;
-const ACCENT_WIDTH_SCALE = 0.98;
-const ACCENT_UNDERSTORY_SHARE = 0.34;
-const ACCENT_PLANE_SCALE = 1.08;
-const ACCENT_EDGE_COVERAGE = 0.9;
-const ACCENT_LEAN_SCALE = 0.95;
-const ACCENT_GAP_STRENGTH = 0.08;
-
-const NORMAL_ACCENT_IDENTITY_THRESHOLD = 0.62;
-const SPARSE_ACCENT_IDENTITY_THRESHOLD = 0.84;
-const NORMAL_ACCENT_SHARE_SCALE = 1.8;
-const SPARSE_ACCENT_SHARE_SCALE = 1.35;
-const WET_ACCENT_SHARE_SCALE = 2.7;
-const ACCENT_SHARE_SCALE = 3.2;
-const DEFAULT_GAP_STRENGTH = 0.12;
-const HABITAT_UNDERSTORY_BLEND = 0.55;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return value <= minimum ? minimum : value >= maximum ? maximum : value;
@@ -123,7 +49,7 @@ export function createGrassClusterProfile(): GrassClusterProfile {
     understoryShare: 0,
     accentShare: 0,
     planeCoherence: 0,
-    asymmetry: BASE_ASYMMETRY_MIN,
+    asymmetry: Tuning.BASE_ASYMMETRY_MIN,
     drynessScale: 1,
     drynessOffset: 0,
     coverageScale: 1,
@@ -133,13 +59,7 @@ export function createGrassClusterProfile(): GrassClusterProfile {
   };
 }
 
-/**
- * Resolves one stable clump morphology into caller-owned storage.
- *
- * Habitat remains the causal source. Archetypes only bias that state into
- * recognisable silhouettes, while the identity samples make neighbouring
- * clumps differ without adding another world-space noise field.
- */
+/** Resolves one stable clump morphology into caller-owned storage. */
 export function resolveGrassClusterProfile(
   archetype: number,
   habitat: GrassHabitatSample,
@@ -151,85 +71,95 @@ export function resolveGrassClusterProfile(
 ): GrassClusterProfile {
   target.heightScale =
     habitat.height *
-    (BASE_HEIGHT_IDENTITY_MIN + heightIdentity * BASE_HEIGHT_IDENTITY_RANGE);
+    (Tuning.BASE_HEIGHT_IDENTITY_MIN +
+      heightIdentity * Tuning.BASE_HEIGHT_IDENTITY_RANGE);
   target.widthScale = habitat.clumpScale;
   target.understoryShare = config.grassUnderlayerFraction;
   target.accentShare =
-    tallIdentity > NORMAL_ACCENT_IDENTITY_THRESHOLD
-      ? config.grassAccentBladeShare * NORMAL_ACCENT_SHARE_SCALE
+    tallIdentity > Tuning.NORMAL_ACCENT_IDENTITY_THRESHOLD
+      ? config.grassAccentBladeShare * Tuning.NORMAL_ACCENT_SHARE_SCALE
       : 0;
   target.planeCoherence = config.grassClumpPlaneCoherence;
   target.asymmetry =
-    BASE_ASYMMETRY_MIN + asymmetryIdentity * BASE_ASYMMETRY_RANGE;
+    Tuning.BASE_ASYMMETRY_MIN +
+    asymmetryIdentity * Tuning.BASE_ASYMMETRY_RANGE;
   target.drynessScale = 1;
   target.drynessOffset = 0;
   target.coverageScale = 1;
   target.edgeCoverage = config.grassClumpEdgeCoverage;
   target.leanScale = 1;
-  target.gapStrength = DEFAULT_GAP_STRENGTH;
+  target.gapStrength = Tuning.DEFAULT_GAP_STRENGTH;
 
   switch (archetype) {
     case GRASS_CLUSTER_SPARSE_OPEN:
-      target.heightScale *= SPARSE_HEIGHT_SCALE;
-      target.widthScale *= SPARSE_WIDTH_SCALE;
-      target.understoryShare = SPARSE_UNDERSTORY_SHARE;
+      target.heightScale *= Tuning.SPARSE_HEIGHT_SCALE;
+      target.widthScale *= Tuning.SPARSE_WIDTH_SCALE;
+      target.understoryShare = Tuning.SPARSE_UNDERSTORY_SHARE;
       target.accentShare =
-        tallIdentity > SPARSE_ACCENT_IDENTITY_THRESHOLD
-          ? config.grassAccentBladeShare * SPARSE_ACCENT_SHARE_SCALE
+        tallIdentity > Tuning.SPARSE_ACCENT_IDENTITY_THRESHOLD
+          ? config.grassAccentBladeShare * Tuning.SPARSE_ACCENT_SHARE_SCALE
           : 0;
-      target.planeCoherence *= SPARSE_PLANE_SCALE;
-      target.drynessOffset = SPARSE_DRYNESS_OFFSET;
-      target.coverageScale = SPARSE_COVERAGE_SCALE;
-      target.edgeCoverage *= SPARSE_EDGE_SCALE;
-      target.leanScale = SPARSE_LEAN_SCALE;
-      target.gapStrength = SPARSE_GAP_STRENGTH;
+      target.planeCoherence *= Tuning.SPARSE_PLANE_SCALE;
+      target.drynessOffset = Tuning.SPARSE_DRYNESS_OFFSET;
+      target.coverageScale = Tuning.SPARSE_COVERAGE_SCALE;
+      target.edgeCoverage *= Tuning.SPARSE_EDGE_SCALE;
+      target.leanScale = Tuning.SPARSE_LEAN_SCALE;
+      target.gapStrength = Tuning.SPARSE_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_TALL_WET:
-      target.heightScale *= WET_HEIGHT_SCALE;
-      target.widthScale *= WET_WIDTH_SCALE;
-      target.understoryShare = WET_UNDERSTORY_SHARE;
-      target.accentShare = config.grassAccentBladeShare * WET_ACCENT_SHARE_SCALE;
-      target.planeCoherence *= WET_PLANE_SCALE;
-      target.drynessScale = WET_DRYNESS_SCALE;
-      target.edgeCoverage = Math.max(target.edgeCoverage, WET_EDGE_COVERAGE);
-      target.leanScale = WET_LEAN_SCALE;
-      target.gapStrength = WET_GAP_STRENGTH;
+      target.heightScale *= Tuning.WET_HEIGHT_SCALE;
+      target.widthScale *= Tuning.WET_WIDTH_SCALE;
+      target.understoryShare = Tuning.WET_UNDERSTORY_SHARE;
+      target.accentShare =
+        config.grassAccentBladeShare * Tuning.WET_ACCENT_SHARE_SCALE;
+      target.planeCoherence *= Tuning.WET_PLANE_SCALE;
+      target.drynessScale = Tuning.WET_DRYNESS_SCALE;
+      target.edgeCoverage = Math.max(
+        target.edgeCoverage,
+        Tuning.WET_EDGE_COVERAGE,
+      );
+      target.leanScale = Tuning.WET_LEAN_SCALE;
+      target.gapStrength = Tuning.WET_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_SHORT_DRY:
-      target.heightScale *= DRY_HEIGHT_SCALE;
-      target.widthScale *= DRY_WIDTH_SCALE;
-      target.understoryShare = DRY_UNDERSTORY_SHARE;
+      target.heightScale *= Tuning.DRY_HEIGHT_SCALE;
+      target.widthScale *= Tuning.DRY_WIDTH_SCALE;
+      target.understoryShare = Tuning.DRY_UNDERSTORY_SHARE;
       target.accentShare = 0;
-      target.planeCoherence *= DRY_PLANE_SCALE;
-      target.drynessScale = DRY_DRYNESS_SCALE;
-      target.drynessOffset = DRY_DRYNESS_OFFSET;
-      target.coverageScale = DRY_COVERAGE_SCALE;
-      target.edgeCoverage *= DRY_EDGE_SCALE;
-      target.leanScale = DRY_LEAN_SCALE;
-      target.gapStrength = DRY_GAP_STRENGTH;
+      target.planeCoherence *= Tuning.DRY_PLANE_SCALE;
+      target.drynessScale = Tuning.DRY_DRYNESS_SCALE;
+      target.drynessOffset = Tuning.DRY_DRYNESS_OFFSET;
+      target.coverageScale = Tuning.DRY_COVERAGE_SCALE;
+      target.edgeCoverage *= Tuning.DRY_EDGE_SCALE;
+      target.leanScale = Tuning.DRY_LEAN_SCALE;
+      target.gapStrength = Tuning.DRY_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_FLATTENED:
-      target.heightScale *= FLATTENED_HEIGHT_SCALE;
-      target.widthScale *= FLATTENED_WIDTH_SCALE;
-      target.understoryShare = FLATTENED_UNDERSTORY_SHARE;
+      target.heightScale *= Tuning.FLATTENED_HEIGHT_SCALE;
+      target.widthScale *= Tuning.FLATTENED_WIDTH_SCALE;
+      target.understoryShare = Tuning.FLATTENED_UNDERSTORY_SHARE;
       target.accentShare = 0;
-      target.planeCoherence *= FLATTENED_PLANE_SCALE;
-      target.asymmetry *= FLATTENED_ASYMMETRY_SCALE;
-      target.drynessOffset = FLATTENED_DRYNESS_OFFSET;
-      target.coverageScale = FLATTENED_COVERAGE_SCALE;
-      target.edgeCoverage *= FLATTENED_EDGE_SCALE;
-      target.leanScale = FLATTENED_LEAN_SCALE;
-      target.gapStrength = FLATTENED_GAP_STRENGTH;
+      target.planeCoherence *= Tuning.FLATTENED_PLANE_SCALE;
+      target.asymmetry *= Tuning.FLATTENED_ASYMMETRY_SCALE;
+      target.drynessOffset = Tuning.FLATTENED_DRYNESS_OFFSET;
+      target.coverageScale = Tuning.FLATTENED_COVERAGE_SCALE;
+      target.edgeCoverage *= Tuning.FLATTENED_EDGE_SCALE;
+      target.leanScale = Tuning.FLATTENED_LEAN_SCALE;
+      target.gapStrength = Tuning.FLATTENED_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_ACCENT:
-      target.heightScale *= ACCENT_HEIGHT_SCALE;
-      target.widthScale *= ACCENT_WIDTH_SCALE;
-      target.understoryShare = ACCENT_UNDERSTORY_SHARE;
-      target.accentShare = config.grassAccentBladeShare * ACCENT_SHARE_SCALE;
-      target.planeCoherence *= ACCENT_PLANE_SCALE;
-      target.edgeCoverage = Math.max(target.edgeCoverage, ACCENT_EDGE_COVERAGE);
-      target.leanScale = ACCENT_LEAN_SCALE;
-      target.gapStrength = ACCENT_GAP_STRENGTH;
+      target.heightScale *= Tuning.ACCENT_HEIGHT_SCALE;
+      target.widthScale *= Tuning.ACCENT_WIDTH_SCALE;
+      target.understoryShare = Tuning.ACCENT_UNDERSTORY_SHARE;
+      target.accentShare =
+        config.grassAccentBladeShare * Tuning.ACCENT_SHARE_SCALE;
+      target.planeCoherence *= Tuning.ACCENT_PLANE_SCALE;
+      target.edgeCoverage = Math.max(
+        target.edgeCoverage,
+        Tuning.ACCENT_EDGE_COVERAGE,
+      );
+      target.leanScale = Tuning.ACCENT_LEAN_SCALE;
+      target.gapStrength = Tuning.ACCENT_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_DENSE_NORMAL:
     default:
@@ -239,51 +169,61 @@ export function resolveGrassClusterProfile(
   target.understoryShare = lerp(
     target.understoryShare,
     habitat.underlayer,
-    HABITAT_UNDERSTORY_BLEND,
+    Tuning.HABITAT_UNDERSTORY_BLEND,
   );
   target.accentShare = clamp01(target.accentShare);
   target.understoryShare = clamp(
     target.understoryShare,
     0,
-    1 - target.accentShare - MIN_MAIN_TIER_SHARE,
+    1 - target.accentShare - Tuning.MIN_MAIN_TIER_SHARE,
   );
   target.planeCoherence = clamp(
     target.planeCoherence,
     0,
-    MAX_PLANE_COHERENCE,
+    Tuning.MAX_PLANE_COHERENCE,
   );
   target.asymmetry = clamp(target.asymmetry, 0.04, 0.3);
-  target.edgeCoverage = clamp(target.edgeCoverage, MIN_EDGE_COVERAGE, 1);
+  target.edgeCoverage = clamp(
+    target.edgeCoverage,
+    Tuning.MIN_EDGE_COVERAGE,
+    1,
+  );
   target.coverageScale = clamp01(target.coverageScale);
   target.gapStrength = clamp01(target.gapStrength);
   return target;
 }
 
-/**
- * Continuous core/shoulder/edge coverage with a stable, irregular interior gap.
- * It never enumerates another population and never clips a circular boundary.
- */
+/** Stable frayed edge plus archetype-specific interior opening. */
 export function resolveGrassClusterCoverage(
   profile: GrassClusterProfile,
   radialPosition: number,
   sampleAngle: number,
   gapIdentity: number,
 ): number {
-  const edgeAmount = smoothstep(EDGE_FADE_START, 1, radialPosition);
+  const edgeAmount = smoothstep(Tuning.EDGE_FADE_START, 1, radialPosition);
   const edgeCoverage = lerp(1, profile.edgeCoverage, edgeAmount);
   const interiorBand =
-    smoothstep(GAP_INNER_START, GAP_INNER_FULL, radialPosition) *
-    (1 - smoothstep(GAP_OUTER_FULL, GAP_OUTER_END, radialPosition));
+    smoothstep(
+      Tuning.GAP_INNER_START,
+      Tuning.GAP_INNER_FULL,
+      radialPosition,
+    ) *
+    (1 -
+      smoothstep(
+        Tuning.GAP_OUTER_FULL,
+        Tuning.GAP_OUTER_END,
+        radialPosition,
+      ));
   const gapWave =
     1 -
     smoothstep(
-      GAP_WAVE_START,
-      GAP_WAVE_END,
+      Tuning.GAP_WAVE_START,
+      Tuning.GAP_WAVE_END,
       Math.abs(Math.sin(sampleAngle * 1.5 + gapIdentity * Math.PI * 2)),
     );
   const gapActivation = smoothstep(
-    GAP_IDENTITY_START,
-    GAP_IDENTITY_END,
+    Tuning.GAP_IDENTITY_START,
+    Tuning.GAP_IDENTITY_END,
     gapIdentity,
   );
   const gapCoverage =
