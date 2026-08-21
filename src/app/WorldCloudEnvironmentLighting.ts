@@ -111,6 +111,10 @@ export class WorldCloudEnvironmentLighting {
     return this.directTransmittance;
   }
 
+  getAppliedDirectTransmittance(): number {
+    return this.directAttenuationEnabled ? this.directTransmittance : 1;
+  }
+
   setDirectAttenuationEnabled(enabled: boolean): void {
     this.directAttenuationEnabled = enabled;
     this.apply();
@@ -124,8 +128,7 @@ export class WorldCloudEnvironmentLighting {
       1,
     );
     this.sun.intensity =
-      WORLD_DEFAULT_SUN_INTENSITY *
-      (this.directAttenuationEnabled ? this.directTransmittance : 1);
+      WORLD_DEFAULT_SUN_INTENSITY * this.getAppliedDirectTransmittance();
     this.sun.color.copy(DEFAULT_SUN_COLOR).lerp(OVERCAST_SUN_COLOR, grade);
     this.hemisphere.color
       .copy(DEFAULT_HEMISPHERE_SKY)
