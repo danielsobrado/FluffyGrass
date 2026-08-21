@@ -119,6 +119,8 @@ assert(
     cloudField.includes("WORLD_CLOUD_COMPACT") &&
     cloudField.includes("float cloudDensity(") &&
     cloudField.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
+    cloudField.includes("vec2 macroPosition = worldPosition + uCloudWind * uTime;") &&
+    cloudField.includes("vec2 detailPosition = worldPosition + uCloudDetailWind * uTime;") &&
     cloudShader.includes("WORLD_CLOUD_GOD_RAYS") &&
     cloudShader.includes("float horizonFade") &&
     cloudShader.includes("float silverEdge") &&
@@ -127,7 +129,7 @@ assert(
     cloudShader.includes("uCloudSilverLiningStrength") &&
     cloudShader.includes("float cloudRayBreakup(") &&
     !cloudShader.includes("sin(rayAngle * 17.0"),
-  "Visible clouds must retain shared scalable morphology and irregular god rays.",
+  "Visible clouds must retain shared wind-coherent morphology and irregular god rays.",
 );
 assert(
   cloudMaterial.includes("uCloudThickness") &&
@@ -144,7 +146,7 @@ assert(
     runtimeYaml.includes("desktopCloudShadowMapResolution: 256") &&
     runtimeYaml.includes("compactCloudShadowMapResolution: 128") &&
     runtimeYaml.includes("compactCloudMinimumDirectTransmittance: 0.90"),
-  "Cloud body, global filtering, spatial quality, and weather grade must stay config-backed.",
+  "Cloud body, spatial quality, and weather grade must stay config-backed.",
 );
 assert(
   runtimeConfig.includes("volumetricEnabled: boolean") &&
@@ -153,7 +155,8 @@ assert(
     runtimeConfig.includes("temporalBlend: number") &&
     runtimeYaml.includes("desktopCloudVolumetricEnabled: true") &&
     runtimeYaml.includes("desktopCloudVolumetricResolutionScale: 0.50") &&
-    runtimeYaml.includes("desktopCloudVolumetricSteps: 8") &&
+    runtimeYaml.includes("desktopCloudVolumetricSteps: 12") &&
+    runtimeYaml.includes("desktopCloudTemporalBlend: 0.84") &&
     runtimeYaml.includes("compactCloudVolumetricEnabled: false") &&
     cloudMaterial.includes("WORLD_CLOUD_TEMPORAL") &&
     cloudMaterial.includes("uCloudTemporalTexture") &&
@@ -162,14 +165,16 @@ assert(
     cloudVolumePass.includes("uPreviousViewProjection") &&
     cloudVolumePass.includes("this.historyTargets") &&
     cloudTemporalShader.includes("previousParcel.xz += uCloudWind * uDeltaSeconds") &&
-    cloudTemporalShader.includes("alphaDifference") &&
+    cloudTemporalShader.includes("colorDifference") &&
+    cloudTemporalShader.includes("grazingConfidence") &&
     cloudVolumeShader.includes("WORLD_CLOUD_VOLUME_STEPS") &&
     cloudVolumeShader.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
-    cloudVolumeShader.includes("cloudJitter") &&
+    cloudVolumeShader.includes("cloudStepJitter") &&
+    cloudVolumeShader.includes("cloudPreviewDensityAt") &&
     cloudVolumeShader.includes("1.0 - exp(-opticalDepth)") &&
     cloudVolumeQuality.includes('"desktop" | "medium" | "mobile"') &&
-    cloudVolumeQuality.includes("MEDIUM_MAX_STEPS = 6"),
-  "Desktop clouds must retain bounded temporal volumetrics and compact fallbacks.",
+    cloudVolumeQuality.includes("MEDIUM_MAX_STEPS = 8"),
+  "Desktop clouds must retain anti-banded temporal volumetrics and compact fallbacks.",
 );
 assert(
   cloudVolumeController.includes("uCloudViewportInverse") &&
@@ -189,19 +194,21 @@ assert(
   "Cloud weather must publish one stable allocation-free state for rendering and diagnostics.",
 );
 assert(
-  cloudWeather.includes("SHADOW_CENTER_WEIGHT = 0.36") &&
-    cloudWeather.includes("SHADOW_CARDINAL_WEIGHT = 0.16") &&
-    cloudWeather.includes("worldX + radius") &&
-    cloudWeather.includes("worldX - radius") &&
-    cloudWeather.includes("config.minimumDirectTransmittance"),
-  "Global focus lighting must retain its filtered bounded direct-light path.",
+  cloudWeather.includes("sampleCloudPointDirectTransmittance(") &&
+    cloudWeather.includes("worldY >= cloudTop") &&
+    cloudWeather.includes("remainingFraction") &&
+    cloudWeather.includes("sampleHeight - worldY") &&
+    cloudWeather.includes("resolveAuthoredTransmittance(config, opticalDepth)") &&
+    cloudLighting.includes("sampleCloudPointDirectTransmittance(") &&
+    cloudLighting.includes("focus.y,"),
+  "Global focus lighting must integrate only the cloud volume above the actual focus altitude.",
 );
 assert(
   cloudWeather.includes("sampleCloudShadowTransmittance(") &&
     cloudWeather.includes("config.shadowSteps") &&
     cloudWeather.includes("sampleCloudVerticalProfile(") &&
     cloudWeather.includes("Math.exp(-opticalDepth * config.extinction)"),
-  "Spatial focus normalization must use the same integrated cloud volume shape as the GPU map.",
+  "Cloud-plane sampling must retain the same integrated volume shape as the GPU map.",
 );
 assert(
   cloudShadowShader.includes("WORLD_CLOUD_FIELD_GLSL") &&
@@ -212,11 +219,19 @@ assert(
     cloudShadowMap.includes("THREE.LinearFilter") &&
     cloudShadowMap.includes("THREE.ClampToEdgeWrapping") &&
     cloudShadowMap.includes("Math.round(focusCloudX / texelSize) * texelSize") &&
-    cloudShadowMap.includes("sampleCloudShadowTransmittance(") &&
+    cloudShadowMap.includes("sampleCloudPointDirectTransmittance(") &&
+    cloudShadowMap.includes("focus.y,") &&
+    cloudShadowMap.includes("private isContextLost(): boolean") &&
+    cloudShadowMap.includes("this.suspendSpatialShadows();") &&
+    cloudShadowMap.includes("renderer.getViewport(this.viewport)") &&
+    cloudShadowMap.includes("renderer.getScissor(this.scissor)") &&
     cloudShadowMap.includes("renderer.setRenderTarget(previousTarget)") &&
+    cloudShadowMap.includes("renderer.setViewport(this.viewport)") &&
+    cloudShadowMap.includes("renderer.setScissor(this.scissor)") &&
+    cloudShadowMap.includes("renderer.setScissorTest(previousScissorTest)") &&
     cloudShadowMap.includes("geometry?.dispose()") &&
     cloudShadowMap.includes("private releaseGpuResources(): void"),
-  "Spatial shadows must be one filtered texel-snapped transmittance field with transactional construction.",
+  "Spatial shadows must be one filtered, altitude-aware, context-loss-safe, texel-snapped transmittance field with transactional construction and full renderer-state restoration.",
 );
 assert(
   cloudShadowSampler.includes("uCloudBaseHeight - worldPosition.y") &&
@@ -290,5 +305,5 @@ assert(
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, shared cloud morphology, temporal volume, bounded spatial direct-light shadows, diagnostics, coherent weather grade, GPU-safe local shadows, restored PMREM, and fail-soft ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, wind-coherent anti-banded temporal clouds, altitude-aware bounded spatial direct-light shadows, context-safe diagnostics, coherent weather grade, GPU-safe local shadows, restored PMREM, and fail-soft ownership verified.",
 );
