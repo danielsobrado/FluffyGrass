@@ -1,24 +1,33 @@
 import * as THREE from "three";
 import type { WorldCloudShadowDiagnostics } from "../world/sky/WorldCloudShadowMap";
+import {
+  WorldCloudShadowDebugVisibility,
+  type WorldCloudShadowDebugVisibilityState,
+} from "./WorldCloudShadowDebugVisibility";
 
 const UPDATE_INTERVAL_SECONDS = 0.25;
 const VISIBILITY_SCAN_INTERVAL_SECONDS = 0.5;
 
+interface WorldCloudShadowDebugDiagnostics extends WorldCloudShadowDiagnostics {
+  patchedMaterials: number;
+  globalDirectTransmittance: number;
+  appliedDirectTransmittance: number;
+  weatherAmount: number;
+  weatherRegime: "clear" | "fair" | "overcast" | "storm";
+}
+
 export interface WorldCloudShadowDebugHost {
-  getDiagnostics(): WorldCloudShadowDiagnostics & { patchedMaterials: number };
+  getDiagnostics(): WorldCloudShadowDebugDiagnostics;
   readPixels(target: Uint8Array): boolean;
   setSpatialEnabled(enabled: boolean): void;
   setDirectAttenuationEnabled(enabled: boolean): void;
   setSunShadowsEnabled(enabled: boolean): void;
 }
 
-interface DebugState {
+interface DebugState extends WorldCloudShadowDebugVisibilityState {
   spatial: boolean;
   direct: boolean;
   sunShadows: boolean;
-  terrain: boolean;
-  grass: boolean;
-  water: boolean;
 }
 
 interface PreviewStats {
@@ -30,7 +39,7 @@ interface PreviewStats {
 
 export class WorldCloudShadowDebugPanel {
   private readonly state: DebugState;
-  private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
+  private readonly visibility: WorldCloudShadowDebugVisibility;
   private readonly root?: HTMLDivElement;
   private readonly readout?: HTMLPreElement;
   private readonly canvas?: HTMLCanvasElement;
@@ -64,10 +73,11 @@ export class WorldCloudShadowDebugPanel {
   }
 
   private constructor(
-    private readonly scene: THREE.Scene,
+    scene: THREE.Scene,
     private readonly host: WorldCloudShadowDebugHost,
     params: URLSearchParams,
   ) {
+    this.visibility = new WorldCloudShadowDebugVisibility(scene);
     this.state = {
       spatial: params.get("cloudShadows") !== "off",
       direct: params.get("cloudDirect") !== "off",
@@ -159,13 +169,13 @@ export class WorldCloudShadowDebugPanel {
     this.updateCountdown = UPDATE_INTERVAL_SECONDS;
     const diagnostics = this.host.getDiagnostics();
     const preview = this.updatePreview(diagnostics.resolution);
-    const weather = this.resolveWeatherRegime();
     this.readout.textContent = [
       `enabled: ${diagnostics.enabled}`,
-      `weather: ${weather}`,
+      `weather: ${diagnostics.weatherRegime} ${diagnostics.weatherAmount.toFixed(3)}`,
       `spatial/direct/sun: ${flag(this.state.spatial)}/${flag(this.state.direct)}/${flag(this.state.sunShadows)}`,
       `map: ${diagnostics.resolution}² / ${diagnostics.worldSize.toFixed(0)} m`,
       `focus T: ${diagnostics.focusTransmittance.toFixed(3)}`,
+      `global/applied T: ${diagnostics.globalDirectTransmittance.toFixed(3)}/${diagnostics.appliedDirectTransmittance.toFixed(3)}`,
       preview
         ? `T range: ${preview.minTransmittance.toFixed(3)}–${preview.maxTransmittance.toFixed(3)}`
         : "T range: unavailable",
@@ -182,10 +192,7 @@ export class WorldCloudShadowDebugPanel {
       return;
     }
     this.disposed = true;
-    for (const [object, visible] of this.originalVisibility) {
-      object.visible = visible;
-    }
-    this.originalVisibility.clear();
+    this.visibility.dispose();
     this.root?.remove();
     this.pixels = undefined;
     this.imageData = undefined;
@@ -222,57 +229,7 @@ export class WorldCloudShadowDebugPanel {
   }
 
   private applyVisibilityState(): void {
-    this.scene.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      if (!mesh.isMesh || !mesh.material) {
-        return;
-      }
-      let isTerrain = false;
-      let isGrass = object.name.startsWith("world-grass-");
-      let isWater = object.name.startsWith("world-hydrology-water");
-      if (Array.isArray(mesh.material)) {
-        for (let index = 0; index < mesh.material.length; index += 1) {
-          const name = mesh.material[index].name;
-          isTerrain ||= name === "world-terrain-material";
-          isGrass ||= name.startsWith("world-grass-");
-          isWater ||= name === "world-hydrology-water-material";
-        }
-      } else {
-        const name = mesh.material.name;
-        isTerrain = name === "world-terrain-material";
-        isGrass ||= name.startsWith("world-grass-");
-        isWater ||= name === "world-hydrology-water-material";
-      }
-      if (isTerrain) {
-        this.setDebugVisibility(object, this.state.terrain);
-      } else if (isGrass) {
-        this.setDebugVisibility(object, this.state.grass);
-      } else if (isWater) {
-        this.setDebugVisibility(object, this.state.water);
-      }
-    });
-  }
-
-  private setDebugVisibility(object: THREE.Object3D, enabled: boolean): void {
-    if (enabled) {
-      const original = this.originalVisibility.get(object);
-      if (original !== undefined) {
-        object.visible = original;
-        this.originalVisibility.delete(object);
-      }
-      return;
-    }
-    if (!this.originalVisibility.has(object)) {
-      this.originalVisibility.set(object, object.visible);
-    }
-    object.visible = false;
-  }
-
-  private resolveWeatherRegime(): string {
-    const weather = this.scene.userData.worldCloudWeather as
-      | { regime?: unknown }
-      | undefined;
-    return typeof weather?.regime === "string" ? weather.regime : "unknown";
+    this.visibility.update(this.state);
   }
 
   private updatePreview(resolution: number): PreviewStats | undefined {
