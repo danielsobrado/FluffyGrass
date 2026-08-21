@@ -115,6 +115,10 @@ export class WorldCloudEnvironmentLighting {
     return this.directAttenuationEnabled ? this.directTransmittance : 1;
   }
 
+  getWeatherState(): Readonly<WorldCloudWeatherState> {
+    return this.weatherState;
+  }
+
   setDirectAttenuationEnabled(enabled: boolean): void {
     this.directAttenuationEnabled = enabled;
     this.apply();
