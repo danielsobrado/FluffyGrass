@@ -2,6 +2,7 @@ import type { StoneRecipe } from "./StoneRecipe";
 import type { StoneVec3 } from "./StoneClipper";
 import { buildStonePolyhedron } from "./StoneClipper";
 import {
+  resolveStoneFacetSoftening,
   STONE_CENTROID_FAN_MIN_CORNERS,
   STONE_MESH_QUANTIZE,
   STONE_SNAP_EPSILON,
@@ -75,9 +76,13 @@ export function generateStoneMesh(
   centerStoneContact(polygons, uniquePoints);
 
   const faces = buildWorkingStoneFaces(polygons);
-  const edgeSharpness = buildStoneEdgeSharpness(faces);
+  // Normal averaging and the edge accents that start where it stops read the
+  // same archetype treatment, so a family cannot end up smoothed by one rule
+  // and accented by another.
+  const softening = resolveStoneFacetSoftening(recipe.archetype);
+  const edgeSharpness = buildStoneEdgeSharpness(faces, softening);
   const sharedFacePairs = countSharedStoneFacePairs(faces);
-  const softNormals = buildStoneSoftNormals(faces);
+  const softNormals = buildStoneSoftNormals(faces, softening);
   const heightMetres = resolveStoneHeight(faces);
   const { vertexCount, triangleCount } = resolveMeshCounts(faces);
 

@@ -2,8 +2,7 @@ import type { StonePolygon, StonePlaneRole, StoneVec3 } from "./StoneClipper";
 import {
   STONE_DEGENERATE_NORMAL_LENGTH,
   STONE_MESH_QUANTIZE,
-  STONE_WEAR_ANGLE_FULL,
-  STONE_WEAR_ANGLE_START,
+  type StoneFacetSoftening,
 } from "./StoneGeometryTuning";
 
 export interface WorkingStoneFace {
@@ -94,6 +93,7 @@ export function buildWorkingStoneFaces(
  */
 export function buildStoneEdgeSharpness(
   faces: readonly WorkingStoneFace[],
+  softening: StoneFacetSoftening,
 ): Map<string, number> {
   interface EdgeFace {
     normalX: number;
@@ -133,8 +133,8 @@ export function buildStoneEdgeSharpness(
       const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
       const magnitude = smoothstep(
         angle,
-        STONE_WEAR_ANGLE_START,
-        STONE_WEAR_ANGLE_FULL,
+        softening.wearAngleStart,
+        softening.wearAngleFull,
       );
       // The first face's centre against the second face's plane: behind it the
       // pair folds outward (a ridge), in front of it the pair folds inward.

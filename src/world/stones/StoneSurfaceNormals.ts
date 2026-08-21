@@ -1,7 +1,6 @@
 import {
   STONE_DEGENERATE_NORMAL_LENGTH,
-  STONE_SOFT_NORMAL_COS_LIMIT,
-  STONE_SOFT_NORMAL_STRENGTH,
+  type StoneFacetSoftening,
 } from "./StoneGeometryTuning";
 import type { WorkingStoneFace } from "./StoneMeshTopology";
 
@@ -18,6 +17,9 @@ import type { WorkingStoneFace } from "./StoneMeshTopology";
  *
  * Corners keep their own position and index, so this changes shading only —
  * silhouette, triangle count, and vertex count are identical.
+ *
+ * The dihedral limit and averaging strength arrive per archetype, so the same
+ * ring structure can read as a weathered boulder or as a fractured shard.
  */
 
 /** Corner records live in per-welded-point linked lists to avoid nested arrays. */
@@ -44,6 +46,7 @@ export function countStoneFaceCorners(
  */
 export function buildStoneSoftNormals(
   faces: readonly WorkingStoneFace[],
+  softening: StoneFacetSoftening,
 ): Float32Array {
   const cornerCount = countStoneFaceCorners(faces);
   const softNormals = new Float32Array(cornerCount * 3);
@@ -66,7 +69,7 @@ export function buildStoneSoftNormals(
           face.normalX * neighbour.normalX +
           face.normalY * neighbour.normalY +
           face.normalZ * neighbour.normalZ;
-        if (alignment < STONE_SOFT_NORMAL_COS_LIMIT) continue;
+        if (alignment < softening.cosLimit) continue;
         const weight = adjacency.weight[link];
         sumX += neighbour.normalX * weight;
         sumY += neighbour.normalY * weight;
@@ -76,8 +79,8 @@ export function buildStoneSoftNormals(
       const offset = corner * 3;
       const length = Math.hypot(sumX, sumY, sumZ);
       if (length > STONE_DEGENERATE_NORMAL_LENGTH) {
-        const inverse = STONE_SOFT_NORMAL_STRENGTH / length;
-        const rest = 1 - STONE_SOFT_NORMAL_STRENGTH;
+        const inverse = softening.strength / length;
+        const rest = 1 - softening.strength;
         const blendedX = face.normalX * rest + sumX * inverse;
         const blendedY = face.normalY * rest + sumY * inverse;
         const blendedZ = face.normalZ * rest + sumZ * inverse;
