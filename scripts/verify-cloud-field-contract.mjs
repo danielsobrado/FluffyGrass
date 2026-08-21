@@ -77,6 +77,11 @@ assert(
   "CPU focus lighting and GPU cloud fields must retain matching macro constants and weather thresholds.",
 );
 assert(
+  weather.includes("function fract(value: number): number") &&
+    weather.includes("return value - Math.floor(value);"),
+  "CPU cloud noise must retain its GLSL-compatible fract helper.",
+);
+assert(
   field.includes("uCloudMacroScale * 0.83") &&
     field.includes("uCloudDetailScale * 0.42") &&
     field.includes("heightFraction * 7.1") &&
@@ -103,6 +108,14 @@ assert(
   "Each volumetric raymarch stratum must have independent temporal jitter; shifting one shared sample lattice recreates concentric shell bands.",
 );
 assert(
+  volume.includes("float cloudPreviewDensityAt(") &&
+    volume.includes("if (rayDirection.y < 0.35)") &&
+    volume.includes("topDistance, 0.2") &&
+    volume.includes("topDistance, 0.8") &&
+    volume.includes("previewDensity <= 0.0015"),
+  "Grazing cloud rays must use conservative multi-point empty-space probes so one midpoint cannot punch radial holes through the volume.",
+);
+assert(
   volume.includes("worldHeight - uCameraPosition.y") &&
     volume.includes("worldPosition.y - uCloudBaseHeight") &&
     temporal.includes("cloudMidHeight - uCameraPosition.y"),
@@ -123,5 +136,5 @@ assert(
 );
 
 console.log(
-  "[cloud-field] Shared CPU/GPU morphology, vertically eroded cloud bodies, independent raymarch jitter, camera-correct reprojection, stale-history rejection, and band-free god-ray breakup verified.",
+  "[cloud-field] Shared CPU/GPU morphology, CPU noise helpers, vertically eroded cloud bodies, conservative grazing-ray culling, independent raymarch jitter, camera-correct reprojection, stale-history rejection, and band-free god-ray breakup verified.",
 );
