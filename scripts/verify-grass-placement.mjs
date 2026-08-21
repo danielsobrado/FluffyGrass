@@ -78,7 +78,8 @@ assert(
     factorySource.includes("resolveGrassClusterProfile(") &&
     factorySource.includes("resolveGrassClusterCoverage(") &&
     factorySource.includes("mixGrassAngle(") &&
-    factorySource.includes("GRASS_PLACEMENT_VERSION = 8") &&
+    factorySource.includes("this.clusterProfile.leanTowardMax") &&
+    factorySource.includes("GRASS_PLACEMENT_VERSION = 9") &&
     factorySource.includes("placement-${GRASS_PLACEMENT_VERSION}"),
   "The tuft distribution must read its shape and morphology from configuration and version its placement cache key.",
 );
@@ -86,8 +87,9 @@ assert(
   profileSource.includes("GRASS_CLUSTER_TALL_WET") &&
     profileSource.includes("GRASS_CLUSTER_SHORT_DRY") &&
     profileSource.includes("GRASS_CLUSTER_FLATTENED") &&
-    profileSource.includes("GRASS_CLUSTER_SPARSE_OPEN"),
-  "Clump morphology must retain the habitat archetype families.",
+    profileSource.includes("GRASS_CLUSTER_SPARSE_OPEN") &&
+    profileSource.includes("leanTowardMax"),
+  "Clump morphology must retain the habitat archetype families and absolute flattened-rest lean control.",
 );
 assert(
   config.radialExponent >= 0.5 && config.radialExponent <= 0.75,
@@ -417,8 +419,10 @@ assert(
     profileSource.includes("resolveGrassClusterCoverage") &&
     profileSource.includes("drynessScale") &&
     profileSource.includes("leanScale") &&
+    profileSource.includes("leanTowardMax") &&
     factorySource.includes("sampleGrassHabitat") &&
     factorySource.includes("resolveGrassClusterArchetype") &&
+    factorySource.includes("this.clusterProfile.leanTowardMax") &&
     factorySource.includes("CLUMP_LEAN_SALT") &&
     factorySource.includes("CLUMP_TALL_GROUP_SALT") &&
     factorySource.includes("CLUMP_ASYMMETRY_SALT") &&
