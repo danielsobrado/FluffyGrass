@@ -118,6 +118,7 @@ export class WaterMaterialController {
         uWaterOpticsQuality: { value: config.waterQuality },
         uWaterOpticsShoreFade: { value: 0.55 },
         tWaterRefraction: { value: null },
+        tWaterRefractionDepth: { value: null },
         uWaterRefractionSize: { value: new THREE.Vector2() },
         uWaterRefractionStrength: { value: 0.055 },
         uWaterOpticsDeepStart: { value: 3.4 },
@@ -147,6 +148,8 @@ export class WaterMaterialController {
     if (this.disposed || this.uniforms.uWaterOpticsQuality.value < 0.5) return;
     this.refraction.render(...args);
     this.uniforms.tWaterRefraction.value = this.refraction.texture ?? null;
+    this.uniforms.tWaterRefractionDepth.value =
+      this.refraction.depthTexture ?? null;
     args[0].getDrawingBufferSize(this.uniforms.uWaterRefractionSize.value);
   }
 
