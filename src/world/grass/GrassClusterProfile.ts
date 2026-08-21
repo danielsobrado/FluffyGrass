@@ -22,6 +22,7 @@ export interface GrassClusterProfile {
   coverageScale: number;
   edgeCoverage: number;
   leanScale: number;
+  leanTowardMax: number;
   gapStrength: number;
 }
 
@@ -55,6 +56,7 @@ export function createGrassClusterProfile(): GrassClusterProfile {
     coverageScale: 1,
     edgeCoverage: 1,
     leanScale: 1,
+    leanTowardMax: 0,
     gapStrength: 0,
   };
 }
@@ -88,6 +90,7 @@ export function resolveGrassClusterProfile(
   target.coverageScale = 1;
   target.edgeCoverage = config.grassClumpEdgeCoverage;
   target.leanScale = 1;
+  target.leanTowardMax = 0;
   target.gapStrength = Tuning.DEFAULT_GAP_STRENGTH;
 
   switch (archetype) {
@@ -145,6 +148,7 @@ export function resolveGrassClusterProfile(
       target.coverageScale = Tuning.FLATTENED_COVERAGE_SCALE;
       target.edgeCoverage *= Tuning.FLATTENED_EDGE_SCALE;
       target.leanScale = Tuning.FLATTENED_LEAN_SCALE;
+      target.leanTowardMax = Tuning.FLATTENED_LEAN_TOWARD_MAX;
       target.gapStrength = Tuning.FLATTENED_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_ACCENT:
@@ -189,6 +193,7 @@ export function resolveGrassClusterProfile(
     1,
   );
   target.coverageScale = clamp01(target.coverageScale);
+  target.leanTowardMax = clamp01(target.leanTowardMax);
   target.gapStrength = clamp01(target.gapStrength);
   return target;
 }
