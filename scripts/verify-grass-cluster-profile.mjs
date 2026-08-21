@@ -45,6 +45,7 @@ function readSourceNumber(source, key) {
 }
 
 const worldSource = read("public/config/world.yaml");
+const grassSource = read("public/config/grass.yaml");
 const profileSource = read("src/world/grass/GrassClusterProfile.ts");
 const tuningSource = read("src/world/grass/GrassClusterProfileTuning.ts");
 const nearFactorySource = read("src/world/grass/WorldSingleBladeTileFactory.ts");
@@ -59,6 +60,8 @@ const config = {
   planeCoherence: readYamlNumber(worldSource, "grassClumpPlaneCoherence"),
   edgeCoverage: readYamlNumber(worldSource, "grassClumpEdgeCoverage"),
   heightJitter: readYamlNumber(worldSource, "grassBladeHeightJitter"),
+  bladeLeanMin: readYamlNumber(grassSource, "bladeLeanMin"),
+  bladeLeanMax: readYamlNumber(grassSource, "bladeLeanMax"),
 };
 
 assert(
@@ -92,6 +95,7 @@ for (const token of [
   "GRASS_CLUSTER_ACCENT",
   "resolveGrassClusterCoverage",
   "mixGrassAngle",
+  "leanTowardMax",
   'import * as Tuning from "./GrassClusterProfileTuning"',
 ]) {
   assert(profileSource.includes(token), `GrassClusterProfile must retain ${token}.`);
@@ -101,9 +105,11 @@ assert(
   nearFactorySource.includes("resolveGrassClusterProfile(") &&
     nearFactorySource.includes("resolveGrassClusterCoverage(") &&
     nearFactorySource.includes("mixGrassAngle(") &&
+    nearFactorySource.includes("this.clusterProfile.leanTowardMax") &&
+    nearFactorySource.includes("THREE.MathUtils.lerp(") &&
     nearFactorySource.includes("CLUMP_PLANE_SALT") &&
-    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 8"),
-  "Near grass must consume the shared clump profile and version its placement cache.",
+    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 9"),
+  "Near grass must consume the shared clump profile, including absolute flattened-rest lean, and version its placement cache.",
 );
 
 for (const key of [
@@ -125,28 +131,32 @@ const dense = {
   coverage: 1,
   drynessScale: 1,
   drynessOffset: 0,
-  lean: 1,
+  leanScale: 1,
+  leanTowardMax: 0,
 };
 const sparse = {
   height: dense.height * readSourceNumber(tuningSource, "SPARSE_HEIGHT_SCALE"),
   coverage: readSourceNumber(tuningSource, "SPARSE_COVERAGE_SCALE"),
   drynessScale: 1,
   drynessOffset: readSourceNumber(tuningSource, "SPARSE_DRYNESS_OFFSET"),
-  lean: readSourceNumber(tuningSource, "SPARSE_LEAN_SCALE"),
+  leanScale: readSourceNumber(tuningSource, "SPARSE_LEAN_SCALE"),
+  leanTowardMax: 0,
 };
 const tallWet = {
   height: dense.height * readSourceNumber(tuningSource, "WET_HEIGHT_SCALE"),
   coverage: 1,
   drynessScale: readSourceNumber(tuningSource, "WET_DRYNESS_SCALE"),
   drynessOffset: 0,
-  lean: readSourceNumber(tuningSource, "WET_LEAN_SCALE"),
+  leanScale: readSourceNumber(tuningSource, "WET_LEAN_SCALE"),
+  leanTowardMax: 0,
 };
 const shortDry = {
   height: dense.height * readSourceNumber(tuningSource, "DRY_HEIGHT_SCALE"),
   coverage: readSourceNumber(tuningSource, "DRY_COVERAGE_SCALE"),
   drynessScale: readSourceNumber(tuningSource, "DRY_DRYNESS_SCALE"),
   drynessOffset: readSourceNumber(tuningSource, "DRY_DRYNESS_OFFSET"),
-  lean: readSourceNumber(tuningSource, "DRY_LEAN_SCALE"),
+  leanScale: readSourceNumber(tuningSource, "DRY_LEAN_SCALE"),
+  leanTowardMax: 0,
 };
 const flattened = {
   height:
@@ -157,13 +167,33 @@ const flattened = {
     tuningSource,
     "FLATTENED_DRYNESS_OFFSET",
   ),
-  lean: readSourceNumber(tuningSource, "FLATTENED_LEAN_SCALE"),
+  leanScale: readSourceNumber(tuningSource, "FLATTENED_LEAN_SCALE"),
+  leanTowardMax: readSourceNumber(
+    tuningSource,
+    "FLATTENED_LEAN_TOWARD_MAX",
+  ),
 };
 
 assert(tallWet.height > dense.height, "Tall-wet clumps must be taller than normal.");
 assert(shortDry.height < dense.height, "Short-dry clumps must be shorter than normal.");
 assert(sparse.coverage < dense.coverage, "Sparse clumps must carry less body coverage.");
-assert(flattened.lean > dense.lean, "Flattened clumps must retain stronger rest lean.");
+assert(
+  flattened.leanScale >= 1 &&
+    flattened.leanTowardMax > 0 &&
+    flattened.leanTowardMax <= 1,
+  "Flattened clumps must bias stable rest lean toward the configured maximum.",
+);
+const flattenedMinimumRestLean =
+  (config.bladeLeanMin +
+    (config.bladeLeanMax - config.bladeLeanMin) * flattened.leanTowardMax) *
+  flattened.leanScale;
+const minimumStrongFlattenedLean =
+  config.bladeLeanMin +
+  (config.bladeLeanMax - config.bladeLeanMin) * 0.5;
+assert(
+  flattenedMinimumRestLean >= minimumStrongFlattenedLean,
+  `Flattened minimum rest lean ${flattenedMinimumRestLean.toFixed(3)} is too weak; expected at least ${minimumStrongFlattenedLean.toFixed(3)}.`,
+);
 assert(
   tallWet.drynessScale < shortDry.drynessScale &&
     shortDry.drynessOffset > tallWet.drynessOffset,
@@ -175,5 +205,5 @@ assert(
 );
 
 console.log(
-  "[grass-cluster-profile] Config-backed tiering, clump morphology, plane coherence, frayed coverage, LOD source parity, and archetype relationships verified.",
+  "[grass-cluster-profile] Config-backed tiering, clump morphology, absolute flattened-rest lean, plane coherence, frayed coverage, LOD source parity, and archetype relationships verified.",
 );
