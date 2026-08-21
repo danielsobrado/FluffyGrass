@@ -32,8 +32,13 @@ void main() {
     return;
   }
 
-  float historyDistance =
-    (uCloudBaseHeight + uCloudThickness * 0.5) / rayDirection.y;
+  float cloudMidHeight = uCloudBaseHeight + uCloudThickness * 0.5;
+  float heightToCloud = cloudMidHeight - uCameraPosition.y;
+  if (heightToCloud <= 0.0) {
+    gl_FragColor = currentCloud;
+    return;
+  }
+  float historyDistance = heightToCloud / rayDirection.y;
   vec3 previousParcel =
     uCameraPosition + rayDirection * historyDistance;
   previousParcel.xz += uCloudWind * uDeltaSeconds;
@@ -57,12 +62,16 @@ void main() {
   }
 
   vec4 historyCloud = texture2D(uHistoryTexture, previousUv);
-  float alphaDifference =
-    abs(currentCloud.a - historyCloud.a);
-  float rejection =
-    smoothstep(0.07, 0.30, alphaDifference);
+  float alphaDifference = abs(currentCloud.a - historyCloud.a);
+  float colorDifference = length(currentCloud.rgb - historyCloud.rgb);
+  float alphaRejection = smoothstep(0.055, 0.22, alphaDifference);
+  float colorRejection = smoothstep(0.08, 0.30, colorDifference);
+  float rejection = max(alphaRejection, colorRejection);
+  float grazingConfidence = smoothstep(0.045, 0.18, rayDirection.y);
   float blend =
-    uTemporalBlend * (1.0 - rejection);
+    uTemporalBlend *
+    (1.0 - rejection) *
+    mix(0.58, 1.0, grazingConfidence);
   gl_FragColor = mix(currentCloud, historyCloud, blend);
 }
 `;
