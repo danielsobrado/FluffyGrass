@@ -40,6 +40,7 @@ const cloudShadowIntegrator = read(
   "src/world/sky/WorldCloudShadowSceneIntegrator.ts",
 );
 const cloudShadowPatch = read("src/render/WorldCloudShadowMaterialPatch.ts");
+const cloudShadowController = read("src/app/WorldCloudShadowController.ts");
 const cloudShadowDebug = read("src/app/WorldCloudShadowDebugPanel.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const runtimeConfig = read("src/runtime/RuntimeConfig.ts");
@@ -204,6 +205,11 @@ assert(
   "Global cloud direct-light occlusion must use a normalized five-tap low-frequency footprint and retain a hard transmittance floor.",
 );
 assert(
+  cloudLighting.includes("cloud.baseHeight - focus.y") &&
+    cloudLighting.includes("this.directAttenuationEnabled ? this.directTransmittance : 1"),
+  "Focus cloud lighting must use actual world height and keep the diagnostic direct-light bypass.",
+);
+assert(
   cloudShadowShader.includes("WORLD_CLOUD_FIELD_GLSL") &&
     cloudShadowShader.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
     cloudShadowShader.includes("physicalTransmittance = exp(") &&
@@ -228,27 +234,39 @@ assert(
 );
 assert(
   environment.includes('from "./WorldCloudEnvironmentLighting"') &&
+    environment.includes('from "./WorldCloudShadowController"') &&
     environment.includes("this.cloudLighting.update(safeDelta, focus, this.elapsedSeconds)") &&
-    environment.includes("this.cloudShadow.update(") &&
-    environment.includes("this.cloudShadowIntegrator.update(safeDelta)") &&
-    cloudLighting.includes(
-      "this.directAttenuationEnabled ? this.directTransmittance : 1",
-    ) &&
+    environment.includes("this.cloudShadow.update(safeDelta, focus, this.elapsedSeconds)") &&
+    cloudShadowController.includes("new WorldCloudShadowMap") &&
+    cloudShadowController.includes("new WorldCloudShadowSceneIntegrator") &&
+    cloudShadowController.includes("this.map.update(") &&
+    cloudShadowController.includes("this.integrator.update(deltaSeconds)") &&
     cloudLighting.includes("this.hemisphere.intensity = WORLD_DEFAULT_HEMISPHERE_INTENSITY") &&
     cloudLighting.includes("WORLD_OVERCAST_FOG_DENSITY_SCALE") &&
     cloudLighting.includes("WORLD_OVERCAST_EXPOSURE_SCALE") &&
     worldApp.includes("this.environment.update(deltaSeconds, focus);"),
-  "Cloud weather must soften global direct sun while spatial correction restores local contrast; ambient light remains intact and the environment owns both paths.",
+  "Cloud weather must soften global direct sun while the cloud-shadow controller owns spatial correction and integration; ambient light remains intact.",
 );
 assert(
   cloudShadowDebug.includes("Spatial cloud shadow") &&
     cloudShadowDebug.includes("Global cloud direct") &&
     cloudShadowDebug.includes("Sun shadow map") &&
+    cloudShadowDebug.includes("Terrain") &&
     cloudShadowDebug.includes("Grass") &&
     cloudShadowDebug.includes("Water") &&
     cloudShadowDebug.includes("readPixels") &&
-    environment.includes("WorldCloudShadowDebugPanel.createIfRequested"),
-  "Cloud diagnostics must expose independent binary-search toggles and a live transmittance preview without affecting normal sessions.",
+    cloudShadowDebug.includes("originalVisibility") &&
+    cloudShadowController.includes("WorldCloudShadowDebugPanel.createIfRequested"),
+  "Cloud diagnostics must expose independent binary-search toggles, restore visibility state, and provide a live transmittance preview without affecting normal sessions.",
+);
+assert(
+  cloudShadowController.includes("private disposed = false") &&
+    cloudShadowController.includes('disposeSafely(this.integrator, "Cloud shadow integration")') &&
+    cloudShadowController.includes('disposeSafely(this.map, "Cloud shadow map")') &&
+    /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true/.test(
+      cloudShadowController,
+    ),
+  "Cloud shadow controller teardown must be idempotent and release diagnostics, integration, and GPU map ownership.",
 );
 assert(
   environment.includes("private readonly shadowMapSize: number") &&
@@ -264,18 +282,18 @@ assert(
     /sky = new WorldSky\([\s\S]*?this\.sky = sky;[\s\S]*?this\.scene\.add\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
       environment,
     ) &&
-    /catch \(error\) \{[\s\S]*?disposeSafely\(this\.cloudShadowDebug, "Cloud shadow diagnostics"\);[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?disposeSafely\(this\.cloudShadowIntegrator, "Cloud shadow integration"\);[\s\S]*?disposeSafely\(this\.cloudShadow, "Cloud shadow map"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
+    /catch \(error\) \{[\s\S]*?disposeSafely\(sky, "Sky"\);[\s\S]*?disposeSafely\(this\.cloudShadow, "Cloud shadow system"\);[\s\S]*?disposeSafely\(this\.cloudLighting, "Cloud lighting"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\);[\s\S]*?throw error;/.test(
       environment,
     ),
-  "Environment lights, cloud targets/integration/diagnostics, and shadow resources must publish only after core sky construction succeeds and roll back on initialization failure.",
+  "Environment lights, cloud-shadow controller, and shadow resources must roll back if sky initialization fails.",
 );
 assert(
-  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.cloudShadowDebug, "Cloud shadow diagnostics"\);[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?disposeSafely\(this\.cloudShadowIntegrator, "Cloud shadow integration"\);[\s\S]*?disposeSafely\(this\.cloudShadow, "Cloud shadow map"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
+  /dispose\(\): void \{[\s\S]*?if \(this\.disposed\)[\s\S]*?this\.disposed = true;[\s\S]*?disposeSafely\(this\.sky, "Sky"\);[\s\S]*?disposeSafely\(this\.cloudShadow, "Cloud shadow system"\);[\s\S]*?disposeSafely\(this\.cloudLighting, "Cloud lighting"\);[\s\S]*?disposeSafely\(this\.sun\.shadow, "Sun shadow"\);[\s\S]*?this\.scene\.remove\(this\.hemisphere, this\.sun, this\.sun\.target\)/.test(
     environment,
   ),
-  "Environment teardown must release cloud/debug/shadow render resources, stay idempotent, and remove lights even if cleanup fails.",
+  "Environment teardown must release sky/cloud/shadow resources, stay idempotent, and remove lights even if cleanup fails.",
 );
 
 console.log(
-  "[environment-lifecycle] Camera-relative sky, shared cloud morphology, temporal cloud volume, bounded spatial direct-light shadows, diagnostics, coherent weather grade, GPU-safe local shadows, restored PMREM, and fail-soft ownership verified.",
+  "[environment-lifecycle] Camera-relative sky, shared cloud morphology, temporal cloud volume, bounded spatial direct-light shadows, reversible diagnostics, height-correct weather projection, coherent weather grade, GPU-safe local shadows, restored PMREM, and fail-soft ownership verified.",
 );
