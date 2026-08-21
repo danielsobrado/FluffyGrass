@@ -41,6 +41,64 @@ const GAP_WAVE_END = 0.2;
 const GAP_IDENTITY_START = 0.55;
 const GAP_IDENTITY_END = 0.95;
 
+const SPARSE_HEIGHT_SCALE = 0.96;
+const SPARSE_WIDTH_SCALE = 1.08;
+const SPARSE_UNDERSTORY_SHARE = 0.3;
+const SPARSE_PLANE_SCALE = 0.65;
+const SPARSE_DRYNESS_OFFSET = 0.015;
+const SPARSE_COVERAGE_SCALE = 0.56;
+const SPARSE_EDGE_SCALE = 0.72;
+const SPARSE_LEAN_SCALE = 0.95;
+const SPARSE_GAP_STRENGTH = 0.62;
+
+const WET_HEIGHT_SCALE = 1.14;
+const WET_WIDTH_SCALE = 0.94;
+const WET_UNDERSTORY_SHARE = 0.28;
+const WET_PLANE_SCALE = 1.25;
+const WET_DRYNESS_SCALE = 0.5;
+const WET_EDGE_COVERAGE = 0.94;
+const WET_LEAN_SCALE = 0.78;
+const WET_GAP_STRENGTH = 0.03;
+
+const DRY_HEIGHT_SCALE = 0.78;
+const DRY_WIDTH_SCALE = 1.06;
+const DRY_UNDERSTORY_SHARE = 0.56;
+const DRY_PLANE_SCALE = 0.64;
+const DRY_DRYNESS_SCALE = 1.02;
+const DRY_DRYNESS_OFFSET = 0.1;
+const DRY_COVERAGE_SCALE = 0.88;
+const DRY_EDGE_SCALE = 0.7;
+const DRY_LEAN_SCALE = 1.05;
+const DRY_GAP_STRENGTH = 0.54;
+
+const FLATTENED_HEIGHT_SCALE = 0.8;
+const FLATTENED_WIDTH_SCALE = 1.03;
+const FLATTENED_UNDERSTORY_SHARE = 0.56;
+const FLATTENED_PLANE_SCALE = 1.12;
+const FLATTENED_ASYMMETRY_SCALE = 1.18;
+const FLATTENED_DRYNESS_OFFSET = 0.04;
+const FLATTENED_COVERAGE_SCALE = 0.9;
+const FLATTENED_EDGE_SCALE = 0.74;
+const FLATTENED_LEAN_SCALE = 1.75;
+const FLATTENED_GAP_STRENGTH = 0.46;
+
+const ACCENT_HEIGHT_SCALE = 1.1;
+const ACCENT_WIDTH_SCALE = 0.98;
+const ACCENT_UNDERSTORY_SHARE = 0.34;
+const ACCENT_PLANE_SCALE = 1.08;
+const ACCENT_EDGE_COVERAGE = 0.9;
+const ACCENT_LEAN_SCALE = 0.95;
+const ACCENT_GAP_STRENGTH = 0.08;
+
+const NORMAL_ACCENT_IDENTITY_THRESHOLD = 0.62;
+const SPARSE_ACCENT_IDENTITY_THRESHOLD = 0.84;
+const NORMAL_ACCENT_SHARE_SCALE = 1.8;
+const SPARSE_ACCENT_SHARE_SCALE = 1.35;
+const WET_ACCENT_SHARE_SCALE = 2.7;
+const ACCENT_SHARE_SCALE = 3.2;
+const DEFAULT_GAP_STRENGTH = 0.12;
+const HABITAT_UNDERSTORY_BLEND = 0.55;
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return value <= minimum ? minimum : value >= maximum ? maximum : value;
 }
@@ -62,16 +120,16 @@ export function createGrassClusterProfile(): GrassClusterProfile {
   return {
     heightScale: 1,
     widthScale: 1,
-    understoryShare: 0.48,
+    understoryShare: 0,
     accentShare: 0,
-    planeCoherence: 0.24,
-    asymmetry: 0.12,
+    planeCoherence: 0,
+    asymmetry: BASE_ASYMMETRY_MIN,
     drynessScale: 1,
     drynessOffset: 0,
     coverageScale: 1,
-    edgeCoverage: 0.82,
+    edgeCoverage: 1,
     leanScale: 1,
-    gapStrength: 0.12,
+    gapStrength: 0,
   };
 }
 
@@ -97,7 +155,9 @@ export function resolveGrassClusterProfile(
   target.widthScale = habitat.clumpScale;
   target.understoryShare = config.grassUnderlayerFraction;
   target.accentShare =
-    tallIdentity > 0.62 ? config.grassAccentBladeShare * 1.8 : 0;
+    tallIdentity > NORMAL_ACCENT_IDENTITY_THRESHOLD
+      ? config.grassAccentBladeShare * NORMAL_ACCENT_SHARE_SCALE
+      : 0;
   target.planeCoherence = config.grassClumpPlaneCoherence;
   target.asymmetry =
     BASE_ASYMMETRY_MIN + asymmetryIdentity * BASE_ASYMMETRY_RANGE;
@@ -106,68 +166,70 @@ export function resolveGrassClusterProfile(
   target.coverageScale = 1;
   target.edgeCoverage = config.grassClumpEdgeCoverage;
   target.leanScale = 1;
-  target.gapStrength = 0.12;
+  target.gapStrength = DEFAULT_GAP_STRENGTH;
 
   switch (archetype) {
     case GRASS_CLUSTER_SPARSE_OPEN:
-      target.heightScale *= 0.96;
-      target.widthScale *= 1.08;
-      target.understoryShare = 0.3;
+      target.heightScale *= SPARSE_HEIGHT_SCALE;
+      target.widthScale *= SPARSE_WIDTH_SCALE;
+      target.understoryShare = SPARSE_UNDERSTORY_SHARE;
       target.accentShare =
-        tallIdentity > 0.84 ? config.grassAccentBladeShare * 1.35 : 0;
-      target.planeCoherence *= 0.65;
-      target.drynessOffset = 0.015;
-      target.coverageScale = 0.56;
-      target.edgeCoverage *= 0.72;
-      target.leanScale = 0.95;
-      target.gapStrength = 0.62;
+        tallIdentity > SPARSE_ACCENT_IDENTITY_THRESHOLD
+          ? config.grassAccentBladeShare * SPARSE_ACCENT_SHARE_SCALE
+          : 0;
+      target.planeCoherence *= SPARSE_PLANE_SCALE;
+      target.drynessOffset = SPARSE_DRYNESS_OFFSET;
+      target.coverageScale = SPARSE_COVERAGE_SCALE;
+      target.edgeCoverage *= SPARSE_EDGE_SCALE;
+      target.leanScale = SPARSE_LEAN_SCALE;
+      target.gapStrength = SPARSE_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_TALL_WET:
-      target.heightScale *= 1.14;
-      target.widthScale *= 0.94;
-      target.understoryShare = 0.28;
-      target.accentShare = config.grassAccentBladeShare * 2.7;
-      target.planeCoherence *= 1.25;
-      target.drynessScale = 0.5;
-      target.edgeCoverage = Math.max(target.edgeCoverage, 0.94);
-      target.leanScale = 0.78;
-      target.gapStrength = 0.03;
+      target.heightScale *= WET_HEIGHT_SCALE;
+      target.widthScale *= WET_WIDTH_SCALE;
+      target.understoryShare = WET_UNDERSTORY_SHARE;
+      target.accentShare = config.grassAccentBladeShare * WET_ACCENT_SHARE_SCALE;
+      target.planeCoherence *= WET_PLANE_SCALE;
+      target.drynessScale = WET_DRYNESS_SCALE;
+      target.edgeCoverage = Math.max(target.edgeCoverage, WET_EDGE_COVERAGE);
+      target.leanScale = WET_LEAN_SCALE;
+      target.gapStrength = WET_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_SHORT_DRY:
-      target.heightScale *= 0.78;
-      target.widthScale *= 1.06;
-      target.understoryShare = 0.56;
+      target.heightScale *= DRY_HEIGHT_SCALE;
+      target.widthScale *= DRY_WIDTH_SCALE;
+      target.understoryShare = DRY_UNDERSTORY_SHARE;
       target.accentShare = 0;
-      target.planeCoherence *= 0.64;
-      target.drynessScale = 1.02;
-      target.drynessOffset = 0.1;
-      target.coverageScale = 0.88;
-      target.edgeCoverage *= 0.7;
-      target.leanScale = 1.05;
-      target.gapStrength = 0.54;
+      target.planeCoherence *= DRY_PLANE_SCALE;
+      target.drynessScale = DRY_DRYNESS_SCALE;
+      target.drynessOffset = DRY_DRYNESS_OFFSET;
+      target.coverageScale = DRY_COVERAGE_SCALE;
+      target.edgeCoverage *= DRY_EDGE_SCALE;
+      target.leanScale = DRY_LEAN_SCALE;
+      target.gapStrength = DRY_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_FLATTENED:
-      target.heightScale *= 0.8;
-      target.widthScale *= 1.03;
-      target.understoryShare = 0.56;
+      target.heightScale *= FLATTENED_HEIGHT_SCALE;
+      target.widthScale *= FLATTENED_WIDTH_SCALE;
+      target.understoryShare = FLATTENED_UNDERSTORY_SHARE;
       target.accentShare = 0;
-      target.planeCoherence *= 1.12;
-      target.asymmetry *= 1.18;
-      target.drynessOffset = 0.04;
-      target.coverageScale = 0.9;
-      target.edgeCoverage *= 0.74;
-      target.leanScale = 1.25;
-      target.gapStrength = 0.46;
+      target.planeCoherence *= FLATTENED_PLANE_SCALE;
+      target.asymmetry *= FLATTENED_ASYMMETRY_SCALE;
+      target.drynessOffset = FLATTENED_DRYNESS_OFFSET;
+      target.coverageScale = FLATTENED_COVERAGE_SCALE;
+      target.edgeCoverage *= FLATTENED_EDGE_SCALE;
+      target.leanScale = FLATTENED_LEAN_SCALE;
+      target.gapStrength = FLATTENED_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_ACCENT:
-      target.heightScale *= 1.1;
-      target.widthScale *= 0.98;
-      target.understoryShare = 0.34;
-      target.accentShare = config.grassAccentBladeShare * 3.2;
-      target.planeCoherence *= 1.08;
-      target.edgeCoverage = Math.max(target.edgeCoverage, 0.9);
-      target.leanScale = 0.95;
-      target.gapStrength = 0.08;
+      target.heightScale *= ACCENT_HEIGHT_SCALE;
+      target.widthScale *= ACCENT_WIDTH_SCALE;
+      target.understoryShare = ACCENT_UNDERSTORY_SHARE;
+      target.accentShare = config.grassAccentBladeShare * ACCENT_SHARE_SCALE;
+      target.planeCoherence *= ACCENT_PLANE_SCALE;
+      target.edgeCoverage = Math.max(target.edgeCoverage, ACCENT_EDGE_COVERAGE);
+      target.leanScale = ACCENT_LEAN_SCALE;
+      target.gapStrength = ACCENT_GAP_STRENGTH;
       break;
     case GRASS_CLUSTER_DENSE_NORMAL:
     default:
@@ -177,7 +239,7 @@ export function resolveGrassClusterProfile(
   target.understoryShare = lerp(
     target.understoryShare,
     habitat.underlayer,
-    0.55,
+    HABITAT_UNDERSTORY_BLEND,
   );
   target.accentShare = clamp01(target.accentShare);
   target.understoryShare = clamp(
@@ -226,9 +288,7 @@ export function resolveGrassClusterCoverage(
   );
   const gapCoverage =
     1 - profile.gapStrength * interiorBand * gapWave * gapActivation;
-  return clamp01(
-    edgeCoverage * gapCoverage * profile.coverageScale,
-  );
+  return clamp01(edgeCoverage * gapCoverage * profile.coverageScale);
 }
 
 /** Circular interpolation that never takes the long way around the unit circle. */
