@@ -82,15 +82,20 @@ assert(
   "CPU cloud noise must retain its GLSL-compatible fract helper.",
 );
 assert(
-  field.includes("uCloudMacroScale * 0.83") &&
-    field.includes("uCloudDetailScale * 0.42") &&
+  field.includes("vec2 macroPosition = worldPosition + uCloudWind * uTime;") &&
+    field.includes("vec2 detailPosition = worldPosition + uCloudDetailWind * uTime;") &&
+    field.includes("macroPosition * uCloudMacroScale * 0.83") &&
+    field.includes("detailPosition * uCloudDetailScale * 0.42") &&
     field.includes("heightFraction * 7.1") &&
     field.includes("-heightFraction * 5.3") &&
-    weather.includes("config.macroScale * 0.83") &&
-    weather.includes("config.detailScale * 0.42") &&
+    weather.includes("const macroX = worldX + config.windX * timeSeconds;") &&
+    weather.includes("const detailX = worldX + config.detailWindX * timeSeconds;") &&
+    weather.includes("macroX * config.macroScale * 0.83") &&
+    weather.includes("detailX * config.detailScale * 0.42") &&
     weather.includes("heightFraction * 7.1") &&
-    weather.includes("heightFraction * 5.3"),
-  "CPU shadow diagnostics and GPU cloud/shadow integration must retain matching vertical erosion coordinates.",
+    weather.includes("heightFraction * 5.3") &&
+    weather.includes("heightFraction,\n        timeSeconds,"),
+  "GPU and CPU vertical cloud erosion must advect with the same macro/detail winds instead of staying pinned while the density field moves.",
 );
 assert(
   sky.includes("float cloudRayBreakup(") &&
@@ -136,5 +141,5 @@ assert(
 );
 
 console.log(
-  "[cloud-field] Shared CPU/GPU morphology, CPU noise helpers, vertically eroded cloud bodies, conservative grazing-ray culling, independent raymarch jitter, camera-correct reprojection, stale-history rejection, and band-free god-ray breakup verified.",
+  "[cloud-field] Shared CPU/GPU morphology, coherent wind advection, CPU noise helpers, vertically eroded cloud bodies, conservative grazing-ray culling, independent raymarch jitter, camera-correct reprojection, stale-history rejection, and band-free god-ray breakup verified.",
 );
