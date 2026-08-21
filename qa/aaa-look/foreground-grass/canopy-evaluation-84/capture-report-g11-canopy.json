@@ -1,0 +1,328 @@
+{
+  "version": 1,
+  "sourceRevision": null,
+  "requestedPoseFilter": "g11-canopy",
+  "runtimeProfile": "desktop",
+  "grassLayer": "combined",
+  "terrainVisible": true,
+  "grassVisible": true,
+  "waterVisible": true,
+  "runtime": {
+    "version": 1,
+    "generatedAt": "2026-08-21T09:57:25.136Z",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/150.0.0.0 Safari/537.36",
+    "compact": false,
+    "viewport": {
+      "width": 1264,
+      "height": 625,
+      "devicePixelRatio": 1
+    },
+    "locations": {
+      "meadow": {
+        "x": 512,
+        "y": -2.9782870800466767,
+        "z": 604
+      },
+      "waterEdge": {
+        "x": 656,
+        "y": 1.5242357880454884,
+        "z": 316
+      },
+      "pathEdge": {
+        "x": 208,
+        "y": 2.0592732848384103,
+        "z": -36
+      },
+      "rocky": {
+        "x": 992,
+        "y": 6.637690861033025,
+        "z": 92
+      },
+      "stoneFormation": {
+        "x": 836.75,
+        "y": 25.229524086146704,
+        "z": 27.5
+      },
+      "slope": {
+        "x": 128,
+        "y": 43.091248988552195,
+        "z": 812
+      },
+      "dry": {
+        "x": 848,
+        "y": 28.260043418899,
+        "z": 12
+      },
+      "steppe": {
+        "x": 144,
+        "y": 31.975460044987855,
+        "z": 732
+      },
+      "alpine": {
+        "x": 128,
+        "y": 40.95430605583422,
+        "z": 748
+      },
+      "riverShallow": {
+        "x": 896,
+        "y": -2.5150076234068477,
+        "z": 732
+      },
+      "riverMedium": {
+        "x": 672,
+        "y": 1.4309847506201705,
+        "z": 716
+      },
+      "lakeDeep": {
+        "x": 656,
+        "y": 1.093479383379695,
+        "z": 268
+      },
+      "shore": {
+        "x": 656,
+        "y": 1.5242357880454884,
+        "z": 316
+      },
+      "wetBank": {
+        "x": 304,
+        "y": 11.227000992378086,
+        "z": -4
+      },
+      "stoneWake": {
+        "x": 672,
+        "y": 1.4309847506201705,
+        "z": 716
+      },
+      "kneeDeep": {
+        "x": 736,
+        "y": 6.764525656550562,
+        "z": 764
+      },
+      "waistDeep": {
+        "x": 496,
+        "y": 8.036334743957404,
+        "z": 60
+      },
+      "riverPool": {
+        "x": 736,
+        "y": 1.3403915979785368,
+        "z": 140
+      },
+      "riverRiffle": {
+        "x": 320,
+        "y": -4.33474017378653,
+        "z": 604
+      },
+      "riverStraight": {
+        "x": 256,
+        "y": 5.132394131178707,
+        "z": -36
+      },
+      "riverInsideBend": {
+        "x": 192,
+        "y": -1.7474652702775142,
+        "z": 588
+      },
+      "riverOutsideBend": {
+        "x": 688,
+        "y": 1.2137635825660191,
+        "z": 140
+      },
+      "waterfall": {
+        "x": 176,
+        "y": -1.7252970928726512,
+        "z": 588
+      }
+    },
+    "captures": [
+      {
+        "name": "g11-canopy-third-person",
+        "camera": {
+          "position": [
+            594.3497741190826,
+            7.73,
+            375.9912865891376
+          ],
+          "target": [
+            588,
+            6.48,
+            372
+          ]
+        },
+        "hud": "Frame 3,312 · 144.0 FPS · running · fly\nFocus 594 / 8 / 376\nCamera 594 / 8 / 376\nAGL 2.1 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 66.1 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 45.2 ms\nGrass logical 22.87M · visible 7.86M · patch inst 25,266\nNear resident 440k unique · submit 273k inst / 507k tris\nMid submit 433,857 blades / 1.30M verts · Far 32,556 cards · Accents 515 cards\nDraws 27 · Triangles 3,750 · Scale 1.00 · Build 0.1 / peak 1.8 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.19 · terr 0.01 · stone 0.00 · grass 0.30 · draw 3.38 ms\nNear tiles 186 · Tile build 0.0 / peak 5.3 ms\nVis 601 meshes · unculled 47 · frustum 151 vis / 382 rej (72%) · inst 154k · pending 21 · probe 0µs",
+        "compact": false,
+        "frameStats": {
+          "samples": 101,
+          "meanMs": 6.94,
+          "p50Ms": 6.9,
+          "p95Ms": 7,
+          "p99Ms": 7.1,
+          "maxMs": 7.1
+        },
+        "renderer": {
+          "calls": 27,
+          "triangles": 3750,
+          "points": 0,
+          "lines": 0
+        }
+      },
+      {
+        "name": "g11-canopy-blade-height",
+        "camera": {
+          "position": [
+            595.6197289428991,
+            6.38,
+            376.7895439069651
+          ],
+          "target": [
+            588,
+            6.48,
+            372
+          ]
+        },
+        "hud": "Frame 5,855 · 144.0 FPS · running · fly\nFocus 596 / 6 / 377\nCamera 596 / 6 / 377\nAGL 0.7 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 66.1 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 45.2 ms\nGrass logical 22.88M · visible 7.80M · patch inst 25,266\nNear resident 457k unique · submit 266k inst / 495k tris\nMid submit 422,428 blades / 1.27M verts · Far 32,556 cards · Accents 455 cards\nDraws 26 · Triangles 3,510 · Scale 1.00 · Build 0.1 / peak 1.8 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.17 · terr 0.00 · stone 0.00 · grass 0.20 · draw 2.71 ms\nNear tiles 194 · Tile build 0.0 / peak 5.3 ms\nVis 596 meshes · unculled 47 · frustum 145 vis / 383 rej (73%) · inst 138k · pending 21 · probe 100µs",
+        "compact": false,
+        "frameStats": {
+          "samples": 101,
+          "meanMs": 6.94,
+          "p50Ms": 6.9,
+          "p95Ms": 7,
+          "p99Ms": 7.1,
+          "maxMs": 7.1
+        },
+        "renderer": {
+          "calls": 26,
+          "triangles": 3510,
+          "points": 0,
+          "lines": 0
+        }
+      },
+      {
+        "name": "g11-canopy-elevated-35deg",
+        "camera": {
+          "position": [
+            598.159638590532,
+            14.88,
+            378.38605854262016
+          ],
+          "target": [
+            588,
+            6.48,
+            372
+          ]
+        },
+        "hud": "Frame 8,397 · 144.0 FPS · running · fly\nFocus 598 / 15 / 378\nCamera 598 / 15 / 378\nAGL 9.2 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 66.1 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 45.2 ms\nGrass logical 22.85M · visible 6.25M · patch inst 25,266\nNear resident 489k unique · submit 302k inst / 556k tris\nMid submit 464,400 blades / 1.39M verts · Far 28,964 cards · Accents 502 cards\nDraws 27 · Triangles 3,698 · Scale 1.00 · Build 0.1 / peak 1.8 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.21 · terr 0.00 · stone 0.00 · grass 0.23 · draw 3.10 ms\nNear tiles 201 · Tile build 0.0 / peak 5.3 ms\nVis 601 meshes · unculled 44 · frustum 151 vis / 385 rej (72%) · inst 191k · pending 21 · probe 100µs",
+        "compact": false,
+        "frameStats": {
+          "samples": 101,
+          "meanMs": 6.94,
+          "p50Ms": 6.9,
+          "p95Ms": 7,
+          "p99Ms": 7.1,
+          "maxMs": 7.1
+        },
+        "renderer": {
+          "calls": 27,
+          "triangles": 3698,
+          "points": 0,
+          "lines": 0
+        }
+      }
+    ]
+  },
+  "captures": [
+    {
+      "name": "g11-canopy-third-person",
+      "camera": {
+        "position": [
+          594.3497741190826,
+          7.73,
+          375.9912865891376
+        ],
+        "target": [
+          588,
+          6.48,
+          372
+        ]
+      },
+      "hud": "Frame 3,312 · 144.0 FPS · running · fly\nFocus 594 / 8 / 376\nCamera 594 / 8 / 376\nAGL 2.1 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 66.1 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 45.2 ms\nGrass logical 22.87M · visible 7.86M · patch inst 25,266\nNear resident 440k unique · submit 273k inst / 507k tris\nMid submit 433,857 blades / 1.30M verts · Far 32,556 cards · Accents 515 cards\nDraws 27 · Triangles 3,750 · Scale 1.00 · Build 0.1 / peak 1.8 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.19 · terr 0.01 · stone 0.00 · grass 0.30 · draw 3.38 ms\nNear tiles 186 · Tile build 0.0 / peak 5.3 ms\nVis 601 meshes · unculled 47 · frustum 151 vis / 382 rej (72%) · inst 154k · pending 21 · probe 0µs",
+      "compact": false,
+      "frameStats": {
+        "samples": 101,
+        "meanMs": 6.94,
+        "p50Ms": 6.9,
+        "p95Ms": 7,
+        "p99Ms": 7.1,
+        "maxMs": 7.1
+      },
+      "renderer": {
+        "calls": 27,
+        "triangles": 3750,
+        "points": 0,
+        "lines": 0
+      }
+    },
+    {
+      "name": "g11-canopy-blade-height",
+      "camera": {
+        "position": [
+          595.6197289428991,
+          6.38,
+          376.7895439069651
+        ],
+        "target": [
+          588,
+          6.48,
+          372
+        ]
+      },
+      "hud": "Frame 5,855 · 144.0 FPS · running · fly\nFocus 596 / 6 / 377\nCamera 596 / 6 / 377\nAGL 0.7 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 66.1 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 45.2 ms\nGrass logical 22.88M · visible 7.80M · patch inst 25,266\nNear resident 457k unique · submit 266k inst / 495k tris\nMid submit 422,428 blades / 1.27M verts · Far 32,556 cards · Accents 455 cards\nDraws 26 · Triangles 3,510 · Scale 1.00 · Build 0.1 / peak 1.8 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.17 · terr 0.00 · stone 0.00 · grass 0.20 · draw 2.71 ms\nNear tiles 194 · Tile build 0.0 / peak 5.3 ms\nVis 596 meshes · unculled 47 · frustum 145 vis / 383 rej (73%) · inst 138k · pending 21 · probe 100µs",
+      "compact": false,
+      "frameStats": {
+        "samples": 101,
+        "meanMs": 6.94,
+        "p50Ms": 6.9,
+        "p95Ms": 7,
+        "p99Ms": 7.1,
+        "maxMs": 7.1
+      },
+      "renderer": {
+        "calls": 26,
+        "triangles": 3510,
+        "points": 0,
+        "lines": 0
+      }
+    },
+    {
+      "name": "g11-canopy-elevated-35deg",
+      "camera": {
+        "position": [
+          598.159638590532,
+          14.88,
+          378.38605854262016
+        ],
+        "target": [
+          588,
+          6.48,
+          372
+        ]
+      },
+      "hud": "Frame 8,397 · 144.0 FPS · running · fly\nFocus 598 / 15 / 378\nCamera 598 / 15 / 378\nAGL 9.2 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 66.1 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 45.2 ms\nGrass logical 22.85M · visible 6.25M · patch inst 25,266\nNear resident 489k unique · submit 302k inst / 556k tris\nMid submit 464,400 blades / 1.39M verts · Far 28,964 cards · Accents 502 cards\nDraws 27 · Triangles 3,698 · Scale 1.00 · Build 0.1 / peak 1.8 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.21 · terr 0.00 · stone 0.00 · grass 0.23 · draw 3.10 ms\nNear tiles 201 · Tile build 0.0 / peak 5.3 ms\nVis 601 meshes · unculled 44 · frustum 151 vis / 385 rej (72%) · inst 191k · pending 21 · probe 100µs",
+      "compact": false,
+      "frameStats": {
+        "samples": 101,
+        "meanMs": 6.94,
+        "p50Ms": 6.9,
+        "p95Ms": 7,
+        "p99Ms": 7.1,
+        "maxMs": 7.1
+      },
+      "renderer": {
+        "calls": 27,
+        "triangles": 3698,
+        "points": 0,
+        "lines": 0
+      }
+    }
+  ]
+}

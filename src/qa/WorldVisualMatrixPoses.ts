@@ -105,6 +105,24 @@ function abMeadowPoses(): WorldVisualPose[] {
 }
 
 /**
+ * Three fixed canopy-density review angles on the same healthy meadow.
+ *
+ * These answer different questions without moving the ecology underneath the
+ * camera: gameplay reads silhouette and motion, blade height exposes channels
+ * through the roots, and the 35-degree view makes projected ground coverage
+ * directly comparable between revisions.
+ */
+function canopyEvaluationPoses(): WorldVisualPose[] {
+  const lit = { x: -WORLD_SUN_XZ.x, z: -WORLD_SUN_XZ.z };
+  return [
+    look("g11-canopy-third-person", AB_MEADOW, 7.5, 2.4, lit.x, lit.z),
+    look("g11-canopy-blade-height", AB_MEADOW, 9, 1.05, lit.x, lit.z),
+    // atan((9.55 - LOOK_HEIGHT) / 12) = 35 degrees.
+    look("g11-canopy-elevated-35deg", AB_MEADOW, 12, 9.55, lit.x, lit.z),
+  ];
+}
+
+/**
  * A macro stone cluster this seed actually has, at fixed world coordinates.
  *
  * `stoneFormation` cannot find one. Its score rejects any point whose
@@ -212,6 +230,7 @@ export function createWorldVisualPoses(
     ...stoneTruthPoses(),
     ...stoneDistancePoses(),
     ...abMeadowPoses(),
+    ...canopyEvaluationPoses(),
     ...distancePoses(AB_MEADOW),
     look("g10-meadow", AB_MEADOW, 7.5, 2.4, 0.55, 0.55),
     look("g10-water-edge", locations.waterEdge, 6.5, 2.1, 0.7, 0.2),
