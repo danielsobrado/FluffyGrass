@@ -83,17 +83,56 @@ export function sampleCloudShadowTransmittance(
   timeSeconds: number,
   sunDirection: CloudSunDirection,
 ): number {
+  return sampleCloudPointDirectTransmittance(
+    config,
+    compact,
+    cloudPlaneX,
+    config.baseHeight,
+    cloudPlaneZ,
+    timeSeconds,
+    sunDirection,
+  );
+}
+
+/** Direct sunlight remaining at an arbitrary world-space point. */
+export function sampleCloudPointDirectTransmittance(
+  config: Readonly<RuntimeCloudConfig>,
+  compact: boolean,
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  timeSeconds: number,
+  sunDirection: CloudSunDirection,
+): number {
   if (!config.enabled) {
     return 1;
   }
+  const cloudTop = config.baseHeight + config.thickness;
+  if (worldY >= cloudTop) {
+    return 1;
+  }
+
+  const startHeight = Math.max(worldY, config.baseHeight);
+  const startFraction = clamp01(
+    (startHeight - config.baseHeight) / config.thickness,
+  );
+  const remainingFraction = 1 - startFraction;
+  if (remainingFraction <= Number.EPSILON) {
+    return 1;
+  }
+
   const stepCount = Math.max(1, Math.trunc(config.shadowSteps));
   const sunVertical = Math.max(sunDirection.y, 0.08);
   let opticalDepth = 0;
   for (let sampleIndex = 0; sampleIndex < stepCount; sampleIndex += 1) {
-    const heightFraction = (sampleIndex + 0.5) / stepCount;
-    const distance = (heightFraction * config.thickness) / sunVertical;
-    const sampleX = cloudPlaneX + sunDirection.x * distance;
-    const sampleZ = cloudPlaneZ + sunDirection.z * distance;
+    const stepFraction = (sampleIndex + 0.5) / stepCount;
+    const heightFraction =
+      startFraction + stepFraction * remainingFraction;
+    const sampleHeight =
+      config.baseHeight + heightFraction * config.thickness;
+    const distance = Math.max(0, (sampleHeight - worldY) / sunVertical);
+    const sampleX = worldX + sunDirection.x * distance;
+    const sampleZ = worldZ + sunDirection.z * distance;
     opticalDepth +=
       sampleCloudDensity(config, compact, sampleX, sampleZ, timeSeconds) *
       sampleCloudVerticalProfile(
@@ -104,12 +143,8 @@ export function sampleCloudShadowTransmittance(
         timeSeconds,
       );
   }
-  opticalDepth /= stepCount;
-  const physicalTransmittance = Math.exp(-opticalDepth * config.extinction);
-  return Math.max(
-    config.minimumDirectTransmittance,
-    Math.min(1, mix(1, physicalTransmittance, config.shadowStrength)),
-  );
+  opticalDepth = (opticalDepth / stepCount) * remainingFraction;
+  return resolveAuthoredTransmittance(config, opticalDepth);
 }
 
 export function sampleCloudWeatherAmount(
@@ -136,7 +171,7 @@ export function sampleCloudWeatherAmount(
 export function resolveCloudWeatherRegime(
   weatherAmount: number,
 ): CloudWeatherRegime {
-  const amount = Math.min(1, Math.max(0, weatherAmount));
+  const amount = clamp01(weatherAmount);
   if (amount < WEATHER_REGIME_CLEAR_MAX) {
     return "clear";
   }
@@ -147,6 +182,17 @@ export function resolveCloudWeatherRegime(
     return "overcast";
   }
   return "storm";
+}
+
+function resolveAuthoredTransmittance(
+  config: Readonly<RuntimeCloudConfig>,
+  opticalDepth: number,
+): number {
+  const physicalTransmittance = Math.exp(-opticalDepth * config.extinction);
+  return Math.max(
+    config.minimumDirectTransmittance,
+    Math.min(1, mix(1, physicalTransmittance, config.shadowStrength)),
+  );
 }
 
 function sampleCloudDensity(
@@ -272,8 +318,12 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   if (edge0 === edge1) {
     return value < edge0 ? 0 : 1;
   }
-  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  const t = clamp01((value - edge0) / (edge1 - edge0));
   return t * t * (3 - 2 * t);
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 function mix(a: number, b: number, t: number): number {
