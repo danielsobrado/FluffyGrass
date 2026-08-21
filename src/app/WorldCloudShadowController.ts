@@ -36,9 +36,10 @@ export class WorldCloudShadowController {
         setSunShadowsEnabled: (enabled) => this.setSunShadowsEnabled(enabled),
       });
     } catch (error) {
-      disposeSafely(this.integrator, "Cloud shadow integration");
-      disposeSafely(this.map, "Cloud shadow map");
-      throw error;
+      console.warn(
+        "[Drusniel World] Cloud shadow diagnostics unavailable; continuing without the debug panel.",
+        error,
+      );
     }
   }
 
