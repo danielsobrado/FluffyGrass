@@ -194,11 +194,21 @@ function sampleCloudVerticalProfile(
     worldX * config.macroScale * 0.61 + 23.7,
     worldZ * config.macroScale * 0.61 - 18.2,
   );
+  const baseNoise = valueNoise(
+    worldX * config.macroScale * 0.83 - 31.4,
+    worldZ * config.macroScale * 0.83 + 14.9,
+  );
+  const bodyNoise = valueNoise(
+    worldX * config.detailScale * 0.42 + 9.2 + heightFraction * 7.1,
+    worldZ * config.detailScale * 0.42 - 37.6 - heightFraction * 5.3,
+  );
   const top = mix(0.62, 1, topNoise);
-  const flatBase = smoothstep(0, 0.07, heightFraction);
+  const baseFeather = mix(0.045, 0.095, baseNoise);
+  const shapedBase = smoothstep(0, baseFeather, heightFraction);
   const irregularTop =
     1 - smoothstep(Math.max(0.12, top - 0.16), top, heightFraction);
-  return flatBase * irregularTop;
+  const bodyErosion = mix(0.78, 1, smoothstep(0.28, 0.72, bodyNoise));
+  return shapedBase * irregularTop * bodyErosion;
 }
 
 function fbm(x: number, y: number, octaves: 2 | 3): number {
@@ -257,8 +267,4 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 
 function mix(a: number, b: number, t: number): number {
   return a + (b - a) * t;
-}
-
-function fract(value: number): number {
-  return value - Math.floor(value);
 }
