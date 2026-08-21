@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
-import { sampleCloudShadowTransmittance } from "./WorldCloudWeather";
+import { sampleCloudPointDirectTransmittance } from "./WorldCloudWeather";
 import {
   WORLD_CLOUD_FULLSCREEN_VERTEX_SHADER,
   WORLD_CLOUD_SHADOW_FRAGMENT_SHADER,
@@ -174,11 +174,12 @@ export class WorldCloudShadowMap {
     );
     this.consumerUniforms.uCloudShadowOriginXZ.value.copy(this.origin);
     this.consumerUniforms.uCloudFocusTransmittance.value =
-      sampleCloudShadowTransmittance(
+      sampleCloudPointDirectTransmittance(
         this.profile.cloud,
         this.profile.compact,
-        focusCloudX,
-        focusCloudZ,
+        focus.x,
+        focus.y,
+        focus.z,
         elapsedSeconds,
         SUN_DIRECTION,
       );
