@@ -20,13 +20,15 @@ import {
   createGrassHabitatSample,
   resolveGrassClusterArchetype,
   sampleGrassHabitat,
-  GRASS_CLUSTER_ACCENT,
-  GRASS_CLUSTER_FLATTENED,
-  GRASS_CLUSTER_SHORT_DRY,
-  GRASS_CLUSTER_SPARSE_OPEN,
-  GRASS_CLUSTER_TALL_WET,
   type GrassHabitatSample,
 } from "./GrassHabitatField";
+import {
+  createGrassClusterProfile,
+  mixGrassAngle,
+  resolveGrassClusterCoverage,
+  resolveGrassClusterProfile,
+  type GrassClusterProfile,
+} from "./GrassClusterProfile";
 import {
   calculateGrassBladeCurveReach,
   calculateGrassSingleBladeRootBoundsRadius,
@@ -128,19 +130,9 @@ const MIN_SUITABILITY = 0.08;
  * height. A jittered grid of independently oriented blades is uniform at every
  * scale above one blade, and that uniformity is the single largest structural
  * difference between this field and a hand-authored one.
- *
- * Three cells is about nine blades per tuft at the configured density, which
- * puts a tuft at roughly 35 cm across — the scale real grass clumps at.
  */
 const CLUMP_CELLS = 3;
-/** How far a tuft's centre wanders from its block centre. */
 const CLUMP_CENTER_JITTER = 0.15;
-/**
- * Hash salts for the per-tuft parameters. Each tuft resolves its own radius,
- * ellipse shape, ellipse orientation, and dominant growth direction from its
- * global coordinates, so two tiles that share a tuft agree on all four and the
- * field stops repeating one circular starburst.
- */
 const CLUMP_RADIUS_SALT = 0x5b;
 const CLUMP_ASPECT_SALT = 0x6d;
 const CLUMP_ELLIPSE_ANGLE_SALT = 0x7f;
@@ -149,52 +141,13 @@ const CLUMP_LEAN_SALT = 0xa5;
 const CLUMP_TALL_GROUP_SALT = 0xb7;
 const CLUMP_ASYMMETRY_SALT = 0xc9;
 const CLUMP_HOLE_SALT = 0xdb;
-/**
- * Per-blade height jitter within a tuft. Composed with the tuft's own scale
- * above, the product stays inside {@link INSTANCE_VERTICAL_SCALE_MAX}, which
- * the reserved bounds depend on.
- */
-const BLADE_HEIGHT_JITTER_MIN = 0.94;
-const BLADE_HEIGHT_JITTER_MAX = 1.06;
-/**
- * A field is not one population. Real grass carries a short understory filling
- * the gaps between ordinary blades and an occasional long blade breaking the
- * top line, and it is the *ratio* between those tiers rather than the blade
- * count that makes a canopy read as a volume instead of a lawn. One height
- * distribution centred on a single mean cannot produce either.
- *
- * This is a distribution over the blades already being placed, not a new layer.
- * A separate understory pass would spend a large share of the near-field
- * triangle ceiling drawing grass that is mostly occluded by the main tier
- * standing over it; re-weighting costs nothing and reaches every layer that
- * shares this placement, including the mid patches.
- *
- * The accent scale sits at the vertical ceiling the reserved bounds already
- * charge, so the tallest tufts saturate against it rather than growing out of
- * the box that culls them.
- */
-const BLADE_TIER_UNDERSTORY_SHARE = 0.42;
-const BLADE_TIER_ACCENT_SHARE = 0.07;
-const BLADE_TIER_UNDERSTORY_SCALE = 0.48;
-const BLADE_TIER_MAIN_SCALE = 0.84;
-const BLADE_TIER_ACCENT_SCALE = 1.2;
-/**
- * Low enough to let the understory tier through. Only maxima feed the reserved
- * bounds, so lowering the floor cannot invalidate them; the sub-pixel width
- * clamp is what keeps a short blade from sparkling at distance.
- */
-const INSTANCE_VERTICAL_SCALE_MIN = 0.3;
+const CLUMP_HEIGHT_SALT = 0x4f;
+const CLUMP_PLANE_SALT = 0xed;
 /**
  * Furthest a blade can end up from the cell that enumerated it, in cells: half
  * the block it belongs to, plus the tuft centre's own wander, plus the tuft's
  * own reach. The cached height lattice is grown by this so a tufted blade still
  * samples its normal from inside the cached area.
- *
- * The reach is now configuration-derived rather than a literal: a tuft's radius
- * scale and its ellipse are both hashed per tuft, and an ellipse rotated to an
- * arbitrary angle reaches `max(aspect, 1 / aspect)` times the circular radius
- * along its long axis. Leaving this tied to the old fixed 0.42 would silently
- * let a long tuft sample its normal from outside the cached lattice.
  */
 function resolveClumpMaxCellOffset(config: WorldConfig): number {
   const longestAxis = Math.max(
@@ -207,55 +160,22 @@ function resolveClumpMaxCellOffset(config: WorldConfig): number {
     config.grassClumpRadiusScaleMax * CLUMP_CELLS * longestAxis
   );
 }
-/**
- * Half the normal's own central-difference step, so the cached field still
- * resolves everything the normal is able to express. Measured worst-case
- * deviation from a directly sampled normal is under 0.07 degrees.
- */
 const HEIGHT_LATTICE_SPACING = TERRAIN_NORMAL_STEP * 0.5;
-/**
- * Slack on the acceptance threshold, covering the slope mask's error when the
- * normal comes from the lattice rather than from four direct height samples.
- *
- * The lattice normal deviates by well under a tenth of a degree, but suitability
- * is compared against a hard threshold, so a blade sitting exactly on it could
- * fall either way. Widening the test in the keep direction makes the accepted
- * set a superset of the directly sampled one: the tile can gain a couple of
- * borderline blades, never lose one. The slope mask's steepest slope is
- * 1.5 / 0.2 per unit of normal.y, so this covers roughly a half-degree of
- * deviation — several times the observed worst case.
- */
 const LATTICE_SUITABILITY_TOLERANCE = 0.05;
-/**
- * Reading the clock per blade cost more than 3% of a tile build, and closer to
- * a tenth of one once the sampling above got cheaper. Blades are uniform enough
- * that checking a block at a time still lands well inside a millisecond.
- */
 const DEADLINE_CHECK_INTERVAL = 256;
 const INSTANCE_HORIZONTAL_SCALE_MAX = 1.2;
+const INSTANCE_VERTICAL_SCALE_MIN = 0.3;
 const INSTANCE_VERTICAL_SCALE_MAX = 1.22;
 const MAXIMUM_ART_WIND_SCALE = 2;
 const MAXIMUM_INSTANCE_WIND_SCALE = 1.16;
 const MAXIMUM_WIND_STIFFNESS = 1.12;
 const INTERACTION_VERTICAL_SCALE = 0.2;
-/**
- * Covers the residual the analytic terms above do not name, plus the sub-pixel
- * width clamp, which can widen a blade's half-width by up to two centimetres
- * before the shader's own ceiling stops it.
- */
 const BOUNDS_SAFETY_MARGIN = 0.08;
 // 0.5 * 0.754877666 + 0.5 * 0.569840296 — the constant part of the vertex
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
-/**
- * Bumped whenever the placement *geometry* changes shape — tuft distribution,
- * heading rule, or transform composition. `GRASS_BIOME_VERSION` cannot carry
- * this: placement changes independently of biome data, and a cached tile built
- * against the previous rule would otherwise survive in the LRU and draw beside
- * freshly built neighbours.
- */
-const GRASS_PLACEMENT_VERSION = 7;
-/** Bound negative-placement memory while retaining far more than one view. */
+/** Bump whenever placement transforms or stable per-blade morphology changes. */
+const GRASS_PLACEMENT_VERSION = 8;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -281,8 +201,6 @@ interface WorldSingleBladePlacement extends TileBuildBuffers {
   key: string;
   bladeCount: number;
   sortedDithers: Float32Array;
-  // Reassigned when a parked placement is revived from the LRU: the previous
-  // buffers were released with the last mesh that referenced them.
   instanceMatrix: THREE.InstancedBufferAttribute;
   variationAttribute: THREE.InstancedBufferAttribute;
   coverageAttribute: THREE.InstancedBufferAttribute;
@@ -308,16 +226,12 @@ export class WorldSingleBladeTileFactory {
   private readonly matrix = new THREE.Matrix4();
   private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
   private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
+  private readonly clusterProfile: GrassClusterProfile = createGrassClusterProfile();
   private readonly placementCache = new Map<string, WorldSingleBladePlacement>();
   private readonly placementLru = new Map<string, WorldSingleBladePlacement>();
   private readonly emptyPlacementCache = new Map<string, true>();
   private readonly buildBufferPool = new Map<number, TileBuildBuffers[]>();
   private readonly latticePool: TerrainHeightLattice[] = [];
-  /**
-   * Height of the straight source blade, which the per-instance lean rotation
-   * is derived from. It has to match `createSingleBladeGeometry` exactly, or
-   * the tip would not land where the reserved bounds expect it.
-   */
   private readonly sourceBladeHeight: number;
 
   constructor(
@@ -389,7 +303,6 @@ export class WorldSingleBladeTileFactory {
       };
     }
     if (this.emptyPlacementCache.has(placementKey)) {
-      // Refresh insertion order so the bounded cache behaves as an LRU.
       this.emptyPlacementCache.delete(placementKey);
       this.emptyPlacementCache.set(placementKey, true);
       return null;
@@ -405,11 +318,6 @@ export class WorldSingleBladeTileFactory {
     const originZ = options.tileZ * tileSize;
     const tileCenterX = originX + tileSize * 0.5;
     const tileCenterZ = originZ + tileSize * 0.5;
-    // Tufting can push a blade a couple of cells outside the one it was
-    // enumerated from, it can leave the nominal tile entirely, and its normal
-    // taps reach a further step beyond that, so the cached area is grown on
-    // every side by all three. A few hundred samples here replace roughly
-    // eighteen thousand across the tile's blades.
     const latticeMargin =
       TERRAIN_NORMAL_STEP +
       resolveClumpMaxCellOffset(this.worldConfig) *
@@ -516,10 +424,6 @@ export class WorldSingleBladeTileFactory {
       processed += 1;
       const column = index % job.columns;
       const row = Math.floor(index / job.columns);
-      // Clump coordinates are global rather than tile-local, so a tuft that
-      // straddles a tile edge is generated identically from both sides. Cell
-      // width divides the tile exactly, so a tile's own cells are already a
-      // slice of one world-wide lattice.
       const globalColumn = job.options.tileX * job.columns + column;
       const globalRow = job.options.tileZ * job.rows + row;
       const clumpColumn = Math.floor(globalColumn / CLUMP_CELLS);
@@ -538,10 +442,6 @@ export class WorldSingleBladeTileFactory {
           2 *
           CLUMP_CENTER_JITTER *
           clumpSpanZ;
-      // Every tuft draws its own radius, ellipse, and orientation from its
-      // global coordinates. A tuft that is always a circle of one radius is
-      // recognisable at field scale no matter how random the blades inside it
-      // are — the repeated shape is the tell, not the values.
       const radiusScale =
         this.worldConfig.grassClumpRadiusScaleMin +
         (this.worldConfig.grassClumpRadiusScaleMax -
@@ -557,11 +457,6 @@ export class WorldSingleBladeTileFactory {
         TWO_PI;
       const dominantAngle =
         this.clumpValue(clumpColumn, clumpRow, CLUMP_DIRECTION_SALT) * TWO_PI;
-      // A radius sampled uniformly in [0, 1] is *not* uniform over disc area:
-      // its area density goes as 1/r, which piles most of a tuft onto its
-      // centre and is what made every clump read as a starburst. 0.5 is exactly
-      // area-uniform; the configured exponent sits just above it for a tuft
-      // that is still slightly denser at its core.
       const sampleAngle = job.random.range(0, TWO_PI);
       const sampleRadius = Math.pow(
         job.random.next(),
@@ -576,41 +471,18 @@ export class WorldSingleBladeTileFactory {
       const ellipseSin = Math.sin(ellipseAngle);
       const offsetX = ellipseX * ellipseCos - ellipseZ * ellipseSin;
       const offsetZ = ellipseX * ellipseSin + ellipseZ * ellipseCos;
-      // A few tufts keep a small internal hole so darker ground/thatch can be
-      // seen through the canopy. The hole is a stable angular sector of the
-      // clump, not a random missing blade. Keep it rare and small: mid patches
-      // have no holes, so a common near-field gap fills at the LOD handoff.
-      const holeIdentity = this.clumpValue(clumpColumn, clumpRow, CLUMP_HOLE_SALT);
-      if (
-        holeIdentity > 0.78 &&
-        sampleRadius > 0.22 &&
-        sampleRadius < 0.48 &&
-        Math.abs(
-          Math.sin(sampleAngle * 1.5 + holeIdentity * TWO_PI),
-        ) < 0.12
-      ) {
-        continue;
-      }
       const x = clumpCenterX + offsetX;
       const z = clumpCenterZ + offsetZ;
       const height = this.field.sampleHeight(x, z);
-      // Suitability is a product of masks in [0,1], so the slope-free part
-      // bounds the whole. Blades that already fail here can never pass, and
-      // rejecting now skips the four extra height samples a normal costs.
       const suitabilityWithoutSlope =
         this.field.sampleGrassSuitabilityWithoutSlope(x, z, height);
       if (suitabilityWithoutSlope < MIN_SUITABILITY) {
         continue;
       }
-      // Walking ways are tested after the terrain's own masks: the path field
-      // is the more expensive of the two, and a blade the biome has already
-      // rejected must not pay for it.
       const pathMask = this.field.samplePathGrassMask(x, z, height);
       if (pathMask <= 0) {
         continue;
       }
-      // Stones clear their footprint per blade; the stone field caches its
-      // cells, so this is a lattice lookup, not a placement recompute.
       const stoneMask = sampleStoneGrassClearance(x, z);
       if (stoneMask <= 0.02) {
         continue;
@@ -625,10 +497,6 @@ export class WorldSingleBladeTileFactory {
         continue;
       }
 
-      // Sampled only for blades that survive: the biome costs two noise
-      // octaves plus a binary search over the rank table, which is the same
-      // order as the terrain masks above, and most enumerated blades never get
-      // this far on broken ground or under a path.
       const biomeSample = sampleGrassBiome(x, z, this.biomeSample);
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
@@ -651,6 +519,25 @@ export class WorldSingleBladeTileFactory {
         clumpRow,
         this.worldConfig.seed,
       );
+      const tallGroup = this.clumpValue(
+        clumpColumn,
+        clumpRow,
+        CLUMP_TALL_GROUP_SALT,
+      );
+      const gapIdentity = this.clumpValue(
+        clumpColumn,
+        clumpRow,
+        CLUMP_HOLE_SALT,
+      );
+      resolveGrassClusterProfile(
+        archetype,
+        this.habitatSample,
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_HEIGHT_SALT),
+        tallGroup,
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_ASYMMETRY_SALT),
+        this.worldConfig,
+        this.clusterProfile,
+      );
 
       this.position.set(
         x,
@@ -659,11 +546,6 @@ export class WorldSingleBladeTileFactory {
       );
       job.bounds.expandByPoint(this.position);
       this.align.setFromUnitVectors(this.up, this.normal);
-      // A blade's heading is a blend of three directions rather than the
-      // outward radial one with a spread around it. Pure radial fanning is what
-      // made every tuft a starburst; pure randomness would dissolve the tuft
-      // into noise. The tuft-wide dominant direction carries most of the
-      // weight, so a tuft still reads as having grown together.
       const radialLength = Math.hypot(offsetX, offsetZ);
       const dominantX = Math.sin(dominantAngle);
       const dominantZ = Math.cos(dominantAngle);
@@ -682,27 +564,15 @@ export class WorldSingleBladeTileFactory {
         dominantZ * dominantWeight +
         radialZ * radialWeight +
         Math.cos(independentAngle) * independentWeight;
-      // The three can cancel; the tuft's own direction is the only meaningful
-      // answer when they do.
       const leanAngle =
         Math.hypot(headingX, headingZ) > 1e-4
           ? Math.atan2(headingX, headingZ)
           : dominantAngle;
-      // The blend decides which way the blade *leans*; which way its plane
-      // faces is drawn independently. Real grass can lean downhill while its
-      // face is turned anywhere, and coupling the two through one yaw is what
-      // made whole tufts present the same profile from any given camera.
-      const planeYaw = job.random.range(0, TWO_PI);
-      // Lean is a rotation about the horizontal axis perpendicular to the lean
-      // direction. Rotating (0,1,0) about (cos a, 0, -sin a) tilts the tip
-      // towards (sin a, cos a) — the same direction convention the heading
-      // blend above uses.
-      //
-      // The angle is scaled by the horizontal/vertical instance ceilings so the
-      // worst-case tip displacement is exactly the `bladeLeanMax * horizontal
-      // scale` the reserved bounds already charge: displacement is
-      // `height * verticalScale * sin(angle)`, which this keeps at or below
-      // `leanDistance * INSTANCE_HORIZONTAL_SCALE_MAX` for every instance.
+      const planeYaw = mixGrassAngle(
+        job.random.range(0, TWO_PI),
+        this.clumpValue(clumpColumn, clumpRow, CLUMP_PLANE_SALT) * TWO_PI,
+        this.clusterProfile.planeCoherence,
+      );
       const leanMin = this.grassConfig.geometry.bladeLeanMin;
       const leanMax = this.grassConfig.geometry.bladeLeanMax;
       const sharedLean =
@@ -710,12 +580,10 @@ export class WorldSingleBladeTileFactory {
         (leanMax - leanMin) *
           (this.clumpValue(clumpColumn, clumpRow, CLUMP_LEAN_SALT) * 0.62 +
             this.habitatSample.directionalLean * 0.38);
-      const flattenedLean =
-        archetype === GRASS_CLUSTER_FLATTENED
-          ? THREE.MathUtils.lerp(sharedLean, leanMax, 0.55)
-          : sharedLean;
       const leanDistance = THREE.MathUtils.clamp(
-        flattenedLean * job.random.range(0.88, 1.12),
+        sharedLean *
+          this.clusterProfile.leanScale *
+          job.random.range(0.92, 1.08),
         leanMin,
         leanMax,
       );
@@ -727,68 +595,37 @@ export class WorldSingleBladeTileFactory {
       this.yaw.setFromAxisAngle(this.up, planeYaw);
       this.leanAxis.set(Math.cos(leanAngle), 0, -Math.sin(leanAngle));
       this.lean.setFromAxisAngle(this.leanAxis, leanRotation);
-      // Terrain alignment, then lean, then the blade's own plane yaw: the root
-      // stays put, the blade stays planted on the slope, and the plane azimuth
-      // is free of the lean direction.
       this.align.multiply(this.lean).multiply(this.yaw);
+
       const vigor = sampleGrassMacroVigor(x, z);
-      let clumpHeightScale =
-        this.habitatSample.height *
-        (0.94 + this.clumpValue(clumpColumn, clumpRow, 0x4f) * 0.12);
-      if (archetype === GRASS_CLUSTER_TALL_WET) clumpHeightScale *= 1.14;
-      if (archetype === GRASS_CLUSTER_SHORT_DRY) clumpHeightScale *= 0.78;
-      if (archetype === GRASS_CLUSTER_FLATTENED) clumpHeightScale *= 0.8;
-      if (archetype === GRASS_CLUSTER_ACCENT) clumpHeightScale *= 1.1;
-      let understoryShare = BLADE_TIER_UNDERSTORY_SHARE;
-      let accentShare = 0;
-      const tallGroup =
-        this.clumpValue(clumpColumn, clumpRow, CLUMP_TALL_GROUP_SALT);
-      if (archetype === GRASS_CLUSTER_SHORT_DRY || archetype === GRASS_CLUSTER_FLATTENED) {
-        understoryShare = 0.56;
-      } else if (archetype === GRASS_CLUSTER_TALL_WET) {
-        understoryShare = 0.28;
-        accentShare = 0.18;
-      } else if (archetype === GRASS_CLUSTER_ACCENT) {
-        accentShare = 0.2;
-      } else if (archetype === GRASS_CLUSTER_SPARSE_OPEN) {
-        understoryShare = 0.3;
-        if (tallGroup > 0.84) accentShare = 0.08;
-      } else if (tallGroup > 0.62) {
-        accentShare = BLADE_TIER_ACCENT_SHARE + 0.05;
-      }
-      understoryShare = THREE.MathUtils.lerp(
-        understoryShare,
-        this.habitatSample.underlayer,
-        0.55,
-      );
-      understoryShare = Math.min(understoryShare, 1 - accentShare - 0.22);
       const bladeTier = job.random.next();
-      const isAccentBlade = accentShare > 0 && bladeTier >= 1 - accentShare;
+      const isAccentBlade =
+        this.clusterProfile.accentShare > 0 &&
+        bladeTier >= 1 - this.clusterProfile.accentShare;
       const tierScale = isAccentBlade
-        ? BLADE_TIER_ACCENT_SCALE
-        : bladeTier < understoryShare
-          ? BLADE_TIER_UNDERSTORY_SCALE
-          : BLADE_TIER_MAIN_SCALE;
-      const asymmetry =
-        0.05 +
-        this.clumpValue(clumpColumn, clumpRow, CLUMP_ASYMMETRY_SALT) * 0.2;
+        ? this.worldConfig.grassAccentHeightScale
+        : bladeTier < this.clusterProfile.understoryShare
+          ? this.worldConfig.grassUnderstoryHeightScale
+          : this.worldConfig.grassMainHeightScale;
       const side =
         radialLength > 1e-4
           ? (offsetX * dominantZ - offsetZ * dominantX) / radialLength
           : 0;
-      const sideHeight = 1 - asymmetry * Math.max(0, side);
+      const sideHeight =
+        1 - this.clusterProfile.asymmetry * Math.max(0, side);
+      const heightJitter = this.worldConfig.grassBladeHeightJitter;
       const verticalScale = THREE.MathUtils.clamp(
-        clumpHeightScale *
+        this.clusterProfile.heightScale *
           tierScale *
           sideHeight *
-          job.random.range(BLADE_HEIGHT_JITTER_MIN, BLADE_HEIGHT_JITTER_MAX),
+          job.random.range(1 - heightJitter, 1 + heightJitter),
         INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
       );
-      const clumpWidth = this.habitatSample.clumpScale *
-        (archetype === GRASS_CLUSTER_SPARSE_OPEN ? 1.1 : 1);
       const horizontalScale = THREE.MathUtils.clamp(
-        clumpHeightScale * job.random.range(...biomeProfile.widthBand) * clumpWidth,
+        this.clusterProfile.heightScale *
+          job.random.range(...biomeProfile.widthBand) *
+          this.clusterProfile.widthScale,
         0.76,
         INSTANCE_HORIZONTAL_SCALE_MAX,
       );
@@ -796,14 +633,13 @@ export class WorldSingleBladeTileFactory {
         horizontalScale,
         verticalScale,
         THREE.MathUtils.clamp(
-          clumpHeightScale * job.random.range(...biomeProfile.widthBand) * clumpWidth,
+          this.clusterProfile.heightScale *
+            job.random.range(...biomeProfile.widthBand) *
+            this.clusterProfile.widthScale,
           0.76,
           INSTANCE_HORIZONTAL_SCALE_MAX,
         ),
       );
-      // Tile-relative transforms let the mesh carry a real world position, so
-      // three can depth-sort tiles against each other instead of giving every
-      // one the scene origin as its sort key.
       this.localPosition.set(
         this.position.x - job.tileCenterX,
         this.position.y,
@@ -815,33 +651,31 @@ export class WorldSingleBladeTileFactory {
       job.variations[variationOffset] = job.random.next();
       job.variations[variationOffset + 1] =
         job.random.range(0.84, 1.16) * biomeProfile.windDamping;
-      // Whole-blade occlusion from the canopy around it, which is what gives a
-      // dense field depth rather than an even green sheet. Mid patches resolve
-      // it from the same function so the two LODs agree at the handoff.
       job.variations[variationOffset + 2] =
         resolveGrassCanopyAo(vigor, suitability) *
-        job.random.range(0.985, 1.015);
-      let dryness = this.habitatSample.dryness;
-      if (archetype === GRASS_CLUSTER_TALL_WET) dryness *= 0.52;
-      if (archetype === GRASS_CLUSTER_SHORT_DRY) {
-        dryness = Math.min(1, dryness + 0.1);
-      }
+        job.random.range(0.992, 1.008);
+      let dryness =
+        this.habitatSample.dryness * this.clusterProfile.drynessScale +
+        this.clusterProfile.drynessOffset;
       if (isAccentBlade && tallGroup > 0.7 && dryness > 0.12) {
-        dryness = Math.min(1, dryness + 0.16);
+        dryness = Math.min(1, dryness + 0.14);
       }
       job.variations[variationOffset + 3] = THREE.MathUtils.clamp(
-        dryness + job.random.range(-0.012, 0.012),
+        dryness + job.random.range(-0.008, 0.008),
         0,
         1,
       );
-      // Preserve the path/stone feather as density coverage instead of using
-      // it only as a placement gate. Otherwise every surviving verge blade
-      // becomes fully dense when the near LOD arrives and the path edge grows
-      // visibly around the moving camera.
-      const sparseCoverage =
-        archetype === GRASS_CLUSTER_SPARSE_OPEN ? 0.52 : 1;
+      const clusterCoverage = resolveGrassClusterCoverage(
+        this.clusterProfile,
+        sampleRadius,
+        sampleAngle,
+        gapIdentity,
+      );
       job.coverages[job.bladeCount] =
-        this.habitatSample.density * pathMask * stoneMask * sparseCoverage;
+        this.habitatSample.density *
+        pathMask *
+        stoneMask *
+        clusterCoverage;
       job.biomes[job.bladeCount] = biomeIndex;
       job.bladeCount += 1;
     }
@@ -1221,13 +1055,6 @@ export class WorldSingleBladeTileFactory {
       return;
     }
     placement.references -= 1;
-    // The last reference still disposes normally, which is what releases the
-    // instance attributes' GPU buffers: three only frees an attribute from
-    // WebGLGeometries.onGeometryDispose, so a placement parked with its
-    // attributes still attached would leak them for the rest of the session.
-    // What the LRU retains is the expensive half — the sampled, sorted CPU
-    // arrays — and re-entry rebuilds four attribute objects around them
-    // instead of resampling 4 608 blades and radix-sorting them again.
     this.geometryFactory.disposeInstancedMesh(
       tile.mesh,
       placement.references > 0,
@@ -1254,12 +1081,6 @@ export class WorldSingleBladeTileFactory {
     }
   }
 
-  /**
-   * Rebuilds the instance attributes around a revived placement's retained CPU
-   * arrays. The buffers they used to own were freed when the last tile holding
-   * them was disposed, so a revived placement needs fresh attribute objects to
-   * upload from.
-   */
   private rehydratePlacement(placement: WorldSingleBladePlacement): void {
     const bladeCount = placement.bladeCount;
     placement.instanceMatrix = new THREE.InstancedBufferAttribute(
@@ -1343,8 +1164,6 @@ export class WorldSingleBladeTileFactory {
       pool = [];
       this.buildBufferPool.set(requestedCount, pool);
     }
-    // Three fields can build concurrently. Keeping a small bounded reserve
-    // absorbs tile churn without retaining every buffer ever streamed.
     if (pool.length < 4) {
       pool.push({
         matrixValues: buffers.matrixValues,
@@ -1370,8 +1189,6 @@ export class WorldSingleBladeTileFactory {
       bladeHeight: this.grassConfig.geometry.bladeHeightMax,
       bladeWidth: this.grassConfig.geometry.bladeWidthMax,
       bladeLean: this.grassConfig.geometry.bladeLeanMax,
-      // Charged against the tallest configured blade, not the mean the source
-      // geometry is actually built at, so the bound stays above every instance.
       bladeCurveReach: calculateGrassBladeCurveReach(
         this.grassConfig.geometry.bladeHeightMax,
         this.grassConfig.geometry.bladeCurve,
@@ -1392,26 +1209,6 @@ export class WorldSingleBladeTileFactory {
     });
   }
 
-  /**
-   * The near source blade arcs along its own depth axis.
-   *
-   * Lean used to be baked into these vertices, which tied a blade's lean
-   * direction to its plane azimuth: one instance yaw rotated both, so a blade
-   * facing the camera always leaned the same way relative to its own face. Lean
-   * is now a rotation in the instance transform (see the sampling loop), which
-   * lets the two be chosen independently without a new attribute, a second
-   * geometry, or a second material.
-   *
-   * The rest curve went out with it, and should not have: it is a different
-   * quantity. Lean is *which way the blade grew*, and belongs to the instance;
-   * curve is *the shape of the leaf itself*, and rotates with the blade's own
-   * plane, so baking it here re-couples nothing. Without it every blade is a
-   * rigid tilted plank, which is what makes a dense field read as spikes.
-   *
-   * Every segment count uses the same strip topology: paired tapered rows and
-   * one apex vertex. This keeps width, winding, normals, and triangle counts
-   * consistent across the near LOD layers.
-   */
   private createSingleBladeGeometry(
     config: GrassConfig,
     segments: number,
@@ -1487,12 +1284,6 @@ export class WorldSingleBladeTileFactory {
     return geometry;
   }
 
-  /**
-   * A value in [0, 1) shared by every blade of one tuft. Blades of a tuft are
-   * not contiguous in the enumeration order — the tuft spans several rows — so
-   * these cannot come from the job's sequential stream and are hashed from the
-   * tuft's global coordinates instead.
-   */
   private clumpValue(clumpX: number, clumpZ: number, salt: number): number {
     return (
       this.hash(clumpX, clumpZ, (this.worldConfig.seed ^ salt) >>> 0) /
