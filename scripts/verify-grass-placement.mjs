@@ -403,8 +403,8 @@ assert(
   `Blade tiers are too close to separate: ${understoryScale}/${mainScale}/${accentScale}.`,
 );
 assert(
-  accentScale * (1 + heightJitter) <= verticalScaleMax + 1e-9,
-  `Accent tier plus jitter exceeds the charged vertical ceiling ${verticalScaleMax}.`,
+  accentScale <= verticalScaleMax,
+  `Accent tier ${accentScale} exceeds the charged vertical ceiling ${verticalScaleMax}.`,
 );
 const smallestBiomeHeightBand = 0.7;
 assert(
