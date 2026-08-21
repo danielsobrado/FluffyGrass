@@ -4,9 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
-const MAX_DESKTOP_BRIDGE_EXTRA_TRIANGLES = 180_000;
+// Reviewed after the 84 blades/m² canopy-closure pass. Compact keeps its
+// independent mobile budget below.
+const MAX_DESKTOP_BRIDGE_EXTRA_TRIANGLES = 215_000;
 const MAX_COMPACT_BRIDGE_EXTRA_TRIANGLES = 100_000;
-const MAX_DESKTOP_TOTAL_NEAR_TRIANGLES = 1_200_000;
+const MAX_DESKTOP_TOTAL_NEAR_TRIANGLES = 1_400_000;
 const MAX_COMPACT_TOTAL_NEAR_TRIANGLES = 600_000;
 const PHASE_SAMPLES = 64;
 
