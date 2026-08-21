@@ -9,6 +9,7 @@
 // FLUFFY_GRASS_LAYER (near/base/boost/bridge/mid/far isolation),
 // FLUFFY_PROFILE (desktop/compact runtime profile),
 // FLUFFY_NO_TERRAIN (hide terrain and water through the isolation harness),
+// FLUFFY_NO_GRASS (hide every grass population through the isolation harness),
 // FLUFFY_NO_WATER (hide only water through the isolation harness).
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -28,13 +29,16 @@ const GRASS_LAYER_QUERY = GRASS_LAYER
 const NO_TERRAIN_QUERY = process.env.FLUFFY_NO_TERRAIN === "1"
   ? "&noTerrain=1"
   : "";
+const NO_GRASS_QUERY = process.env.FLUFFY_NO_GRASS === "1"
+  ? "&noGrass=1"
+  : "";
 const NO_WATER_QUERY = process.env.FLUFFY_NO_WATER === "1"
   ? "&noWater=1"
   : "";
 const PROFILE_QUERY = RUNTIME_PROFILE
   ? `&profile=${encodeURIComponent(RUNTIME_PROFILE)}`
   : "";
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}`;
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
@@ -357,6 +361,7 @@ writeFileSync(
       runtimeProfile: RUNTIME_PROFILE ?? "desktop",
       grassLayer: GRASS_LAYER ?? "combined",
       terrainVisible: process.env.FLUFFY_NO_TERRAIN !== "1",
+      grassVisible: process.env.FLUFFY_NO_GRASS !== "1",
       waterVisible: process.env.FLUFFY_NO_WATER !== "1",
       runtime: runtimeReport,
       captures,

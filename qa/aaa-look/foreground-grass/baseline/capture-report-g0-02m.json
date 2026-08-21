@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "sourceRevision": null,
+  "requestedPoseFilter": "g0-02m",
+  "runtimeProfile": "desktop",
+  "grassLayer": "combined",
+  "terrainVisible": true,
+  "waterVisible": true,
+  "runtime": {
+    "version": 1,
+    "generatedAt": "2026-08-21T07:31:47.919Z",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/150.0.0.0 Safari/537.36",
+    "compact": false,
+    "viewport": {
+      "width": 1264,
+      "height": 625,
+      "devicePixelRatio": 1
+    },
+    "locations": {
+      "meadow": {
+        "x": 512,
+        "y": -2.9782870800466767,
+        "z": 604
+      },
+      "waterEdge": {
+        "x": 656,
+        "y": 1.5242357880454884,
+        "z": 316
+      },
+      "pathEdge": {
+        "x": 208,
+        "y": 2.0592732848384103,
+        "z": -36
+      },
+      "rocky": {
+        "x": 992,
+        "y": 6.637690861033025,
+        "z": 92
+      },
+      "stoneFormation": {
+        "x": 836.75,
+        "y": 25.229524086146704,
+        "z": 27.5
+      },
+      "slope": {
+        "x": 128,
+        "y": 43.091248988552195,
+        "z": 812
+      },
+      "dry": {
+        "x": 848,
+        "y": 28.260043418899,
+        "z": 12
+      },
+      "steppe": {
+        "x": 144,
+        "y": 31.975460044987855,
+        "z": 732
+      },
+      "alpine": {
+        "x": 128,
+        "y": 40.95430605583422,
+        "z": 748
+      },
+      "riverShallow": {
+        "x": 896,
+        "y": -2.5150076234068477,
+        "z": 732
+      },
+      "riverMedium": {
+        "x": 672,
+        "y": 1.4309847506201705,
+        "z": 716
+      },
+      "lakeDeep": {
+        "x": 656,
+        "y": 1.093479383379695,
+        "z": 268
+      },
+      "shore": {
+        "x": 656,
+        "y": 1.5242357880454884,
+        "z": 316
+      },
+      "wetBank": {
+        "x": 304,
+        "y": 11.227000992378086,
+        "z": -4
+      },
+      "stoneWake": {
+        "x": 672,
+        "y": 1.4309847506201705,
+        "z": 716
+      },
+      "kneeDeep": {
+        "x": 736,
+        "y": 6.764525656550562,
+        "z": 764
+      },
+      "waistDeep": {
+        "x": 496,
+        "y": 8.036334743957404,
+        "z": 60
+      },
+      "riverPool": {
+        "x": 736,
+        "y": 1.3403915979785368,
+        "z": 140
+      },
+      "riverRiffle": {
+        "x": 320,
+        "y": -4.33474017378653,
+        "z": 604
+      },
+      "riverStraight": {
+        "x": 256,
+        "y": 5.132394131178707,
+        "z": -36
+      },
+      "riverInsideBend": {
+        "x": 192,
+        "y": -1.7474652702775142,
+        "z": 588
+      },
+      "riverOutsideBend": {
+        "x": 688,
+        "y": 1.2137635825660191,
+        "z": 140
+      },
+      "waterfall": {
+        "x": 176,
+        "y": -1.7252970928726512,
+        "z": 588
+      }
+    },
+    "captures": [
+      {
+        "name": "g0-02m",
+        "camera": {
+          "position": [
+            586.4443650813896,
+            6.68,
+            370.4443650813896
+          ],
+          "target": [
+            588,
+            6.48,
+            372
+          ]
+        },
+        "hud": "Frame 3,001 · 144.0 FPS · running · fly\nFocus 586 / 7 / 370\nCamera 586 / 7 / 370\nAGL 1.5 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 59.8 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 60.1 ms\nGrass logical 21.07M · visible 6.57M · patch inst 25,531\nNear resident 382k unique · submit 241k inst / 500k tris\nMid submit 311,660 blades / 935k verts · Far 30,600 cards · Accents 515 cards\nDraws 30 · Triangles 4,144 · Scale 1.00 · Build 0.1 / peak 2.4 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.27 · terr 0.00 · stone 0.01 · grass 0.28 · draw 2.62 ms\nNear tiles 189 · Tile build 0.0 / peak 4.1 ms\nVis 600 meshes · unculled 44 · frustum 211 vis / 324 rej (61%) · inst 160k · pending 21 · probe 200µs",
+        "compact": false,
+        "frameStats": {
+          "samples": 101,
+          "meanMs": 6.94,
+          "p50Ms": 6.9,
+          "p95Ms": 7,
+          "p99Ms": 7,
+          "maxMs": 7.1
+        },
+        "renderer": {
+          "calls": 30,
+          "triangles": 4144,
+          "points": 0,
+          "lines": 0
+        }
+      }
+    ]
+  },
+  "captures": [
+    {
+      "name": "g0-02m",
+      "camera": {
+        "position": [
+          586.4443650813896,
+          6.68,
+          370.4443650813896
+        ],
+        "target": [
+          588,
+          6.48,
+          372
+        ]
+      },
+      "hud": "Frame 3,001 · 144.0 FPS · running · fly\nFocus 586 / 7 / 370\nCamera 586 / 7 / 370\nAGL 1.5 m · Speed 45.0 m/s\nInput idle · events 0\nTerrain 169 +0 · Build 0.0 / peak 59.8 ms\nStones 415 · 48 +0 batches · 73,900 tris · Build 0.0 / peak 60.1 ms\nGrass logical 21.07M · visible 6.57M · patch inst 25,531\nNear resident 382k unique · submit 241k inst / 500k tris\nMid submit 311,660 blades / 935k verts · Far 30,600 cards · Accents 515 cards\nDraws 30 · Triangles 4,144 · Scale 1.00 · Build 0.1 / peak 2.4 ms · GPU off (?gpuTiming=1)\nFrame ctrl 0.27 · terr 0.00 · stone 0.01 · grass 0.28 · draw 2.62 ms\nNear tiles 189 · Tile build 0.0 / peak 4.1 ms\nVis 600 meshes · unculled 44 · frustum 211 vis / 324 rej (61%) · inst 160k · pending 21 · probe 200µs",
+      "compact": false,
+      "frameStats": {
+        "samples": 101,
+        "meanMs": 6.94,
+        "p50Ms": 6.9,
+        "p95Ms": 7,
+        "p99Ms": 7,
+        "maxMs": 7.1
+      },
+      "renderer": {
+        "calls": 30,
+        "triangles": 4144,
+        "points": 0,
+        "lines": 0
+      }
+    }
+  ]
+}
