@@ -72,9 +72,8 @@ grassNearBridgeTransitionDistance: 2
 grassMicroDetailFadeStart: 3
 grassMicroDetailFadeEnd: 10
 
-# Natural near-grass tuft distribution. The field keeps stronger clump-level
-# direction and shape variation while retaining enough blade-level freedom to
-# avoid regular starbursts.
+# Natural near-grass tuft distribution. Shape, tiering, and blade-plane
+# coherence are clump-scale first; blade-level variation is deliberately small.
 grassClumpRadiusScaleMin: 0.30
 grassClumpRadiusScaleMax: 0.50
 grassClumpAspectMin: 0.70
@@ -82,6 +81,13 @@ grassClumpAspectMax: 1.38
 grassClumpRadialExponent: 0.60
 grassClumpDominantDirectionWeight: 0.60
 grassClumpRadialDirectionWeight: 0.14
+grassClumpPlaneCoherence: 0.24
+grassClumpEdgeCoverage: 0.82
+grassAccentBladeShare: 0.055
+grassUnderstoryHeightScale: 0.46
+grassMainHeightScale: 0.83
+grassAccentHeightScale: 1.18
+grassBladeHeightJitter: 0.04
 
 # Macro grass habitat. These modulate ecology rather than inventing a second field.
 # Strength is the look: wet banks, dry crowns, rock, and paths must read from
