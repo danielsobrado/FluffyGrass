@@ -387,7 +387,7 @@ When adding a world configuration value:
 
 Requirements:
 
-- Node.js 22.23.2+ on the 22.x LTS line, or Node.js 24.18.1+ on the 24.x LTS line, with npm. `.nvmrc` pins Node.js 24.18.1 for local development and production builds.
+- Node.js 22.20.0+ on the 22.x LTS line, or Node.js 24.18.1+ on the 24.x LTS line, with npm. `.nvmrc` pins Node.js 24.18.1 for local development and production builds.
 - A browser with WebGL support.
 
 Install and start the development server:

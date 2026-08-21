@@ -1,5 +1,5 @@
 const MINIMUM_NODE_BY_MAJOR = Object.freeze({
-  22: Object.freeze([22, 23, 2]),
+  22: Object.freeze([22, 20, 0]),
   24: Object.freeze([24, 18, 1]),
 });
 

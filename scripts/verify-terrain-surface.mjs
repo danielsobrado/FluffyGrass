@@ -22,7 +22,10 @@ const server = await createServer({
   configFile: false,
   root: REPOSITORY_ROOT,
   appType: "custom",
-  server: { middlewareMode: true },
+  server: {
+    middlewareMode: true,
+    watch: null,
+  },
   optimizeDeps: { noDiscovery: true },
 });
 

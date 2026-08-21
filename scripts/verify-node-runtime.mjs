@@ -25,11 +25,11 @@ function assertRejected(version) {
   }
 }
 
-assertAccepted("22.23.2");
+assertAccepted("22.20.0");
 assertAccepted("22.99.0");
 assertAccepted("24.18.1");
 assertAccepted("24.99.0");
-assertRejected("22.23.1");
+assertRejected("22.19.9");
 assertRejected("24.18.0");
 assertRejected("20.99.0");
 assertRejected("26.0.0");

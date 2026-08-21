@@ -72,7 +72,10 @@ const server = await createServer({
   root: REPOSITORY_ROOT,
   appType: "custom",
   logLevel: "silent",
-  server: { middlewareMode: true },
+  server: {
+    middlewareMode: true,
+    watch: null,
+  },
   optimizeDeps: { noDiscovery: true },
 });
 

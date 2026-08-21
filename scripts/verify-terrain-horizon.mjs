@@ -9,7 +9,10 @@ function assert(condition, message) {
 const server = await createServer({
   configFile: false,
   appType: "custom",
-  server: { middlewareMode: true },
+  server: {
+    middlewareMode: true,
+    watch: null,
+  },
 });
 
 try {
