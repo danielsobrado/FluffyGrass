@@ -173,9 +173,12 @@ assert(
     controller.includes("this.integrator.update(deltaSeconds)") &&
     controller.includes('disposeSafely(this.map, "Cloud shadow map")') &&
     lighting.includes("cloud.baseHeight - focus.y") &&
+    lighting.includes("sampleCloudShadowTransmittance(") &&
+    lighting.includes("SUN_DIRECTION,") &&
+    !lighting.includes("sampleCloudDirectTransmittance") &&
     lighting.includes("getAppliedDirectTransmittance(): number") &&
     lighting.includes("getWeatherState(): Readonly<WorldCloudWeatherState>"),
-  "Environment ownership must update/dispose one cloud-shadow wrapper while retaining coherent global weather diagnostics.",
+  "Environment ownership must update/dispose one cloud-shadow wrapper while global and spatial direct light use the same integrated focus field.",
 );
 assert(
   diagnostics.includes("Spatial cloud shadow") &&
@@ -212,5 +215,5 @@ assert(
 );
 
 console.log(
-  "[cloud-shadow] Bounded world-space transmittance, focus parity, direct-only terrain/grass/water/scenic integration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
+  "[cloud-shadow] Bounded world-space transmittance, integrated focus parity, direct-only terrain/grass/water/scenic integration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
 );
