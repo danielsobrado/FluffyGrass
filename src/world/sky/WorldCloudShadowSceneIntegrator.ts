@@ -49,19 +49,22 @@ export class WorldCloudShadowSceneIntegrator {
     if (!mesh.isMesh || !mesh.material) {
       return;
     }
-    const materials = Array.isArray(mesh.material)
-      ? mesh.material
-      : [mesh.material];
-    for (const material of materials) {
-      if (this.patched.has(material)) {
-        continue;
+    if (Array.isArray(mesh.material)) {
+      for (let index = 0; index < mesh.material.length; index += 1) {
+        this.patchOnce(object, mesh.material[index]);
       }
-      if (this.patchMaterial(object, material)) {
-        this.patched.add(material);
-        this.patchedCount += 1;
-      }
+      return;
     }
+    this.patchOnce(object, mesh.material);
   };
+
+  private patchOnce(object: THREE.Object3D, material: THREE.Material): void {
+    if (this.patched.has(material) || !this.patchMaterial(object, material)) {
+      return;
+    }
+    this.patched.add(material);
+    this.patchedCount += 1;
+  }
 
   private patchMaterial(object: THREE.Object3D, material: THREE.Material): boolean {
     const name = material.name;
