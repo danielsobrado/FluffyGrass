@@ -449,13 +449,13 @@ GRASS_TRAIL_BEND
 }
 
 if (grassKeepBlade) {
-// The far end of the micro fade keeps the wind/trail-oriented blade plane.
-// It no longer collapses every blade toward the same world-up normal.
-vNormal = normalize(mix(
-  vNormal,
-  grassBladePlaneNormalView,
-  1.0 - grassMicroFade
-));
+  // The far end of the micro fade keeps the wind/trail-oriented blade plane.
+  // It no longer collapses every blade toward the same world-up normal.
+  vNormal = normalize(mix(
+    vNormal,
+    grassBladePlaneNormalView,
+    1.0 - grassMicroFade
+  ));
 }
 
 `;
