@@ -153,7 +153,7 @@ export class WorldCloudShadowMap {
       !Number.isFinite(focus.x) ||
       !Number.isFinite(focus.y) ||
       !Number.isFinite(focus.z) ||
-      this.renderer.getContext().isContextLost()
+      this.isContextLost()
     ) {
       this.suspendSpatialShadows();
       return;
@@ -212,6 +212,7 @@ export class WorldCloudShadowMap {
     if (
       this.disposed ||
       !renderTarget ||
+      this.isContextLost() ||
       target.length < renderTarget.width * renderTarget.height * 4
     ) {
       return false;
@@ -255,6 +256,10 @@ export class WorldCloudShadowMap {
     this.consumerUniforms.uCloudShadowMap.value = null;
     this.consumerUniforms.uCloudFocusTransmittance.value = 1;
     this.releaseGpuResources();
+  }
+
+  private isContextLost(): boolean {
+    return this.renderer.getContext().isContextLost();
   }
 
   private suspendSpatialShadows(): void {
