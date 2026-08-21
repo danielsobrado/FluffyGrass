@@ -71,10 +71,28 @@ float cloudVerticalProfile(vec2 worldPosition, float heightFraction) {
   float topNoise = cloudValueNoise(
     worldPosition * uCloudMacroScale * 0.61 + vec2(23.7, -18.2)
   );
+  float baseNoise = cloudValueNoise(
+    worldPosition * uCloudMacroScale * 0.83 + vec2(-31.4, 14.9)
+  );
+  vec2 verticalOffset = vec2(
+    heightFraction * 7.1,
+    -heightFraction * 5.3
+  );
+  float bodyNoise = cloudValueNoise(
+    worldPosition * uCloudDetailScale * 0.42 +
+    vec2(9.2, -37.6) +
+    verticalOffset
+  );
   float top = mix(0.62, 1.0, topNoise);
-  float flatBase = smoothstep(0.0, 0.07, heightFraction);
+  float baseFeather = mix(0.045, 0.095, baseNoise);
+  float shapedBase = smoothstep(0.0, baseFeather, heightFraction);
   float irregularTop =
     1.0 - smoothstep(max(0.12, top - 0.16), top, heightFraction);
-  return flatBase * irregularTop;
+  float bodyErosion = mix(
+    0.78,
+    1.0,
+    smoothstep(0.28, 0.72, bodyNoise)
+  );
+  return shapedBase * irregularTop * bodyErosion;
 }
 `;
