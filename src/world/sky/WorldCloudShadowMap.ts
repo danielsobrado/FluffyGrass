@@ -46,12 +46,17 @@ export class WorldCloudShadowMap {
       this.consumerUniforms.uCloudShadowEnabled.value = 0;
       return;
     }
+
+    let renderTarget: THREE.WebGLRenderTarget | undefined;
+    let geometry: THREE.PlaneGeometry | undefined;
+    let material: THREE.ShaderMaterial | undefined;
+    let mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | undefined;
     try {
       const resolution = Math.min(
         profile.cloud.shadowMapResolution,
         renderer.capabilities.maxTextureSize,
       );
-      const renderTarget = new THREE.WebGLRenderTarget(resolution, resolution, {
+      renderTarget = new THREE.WebGLRenderTarget(resolution, resolution, {
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
         format: THREE.RGBAFormat,
@@ -64,9 +69,9 @@ export class WorldCloudShadowMap {
       renderTarget.texture.wrapT = THREE.ClampToEdgeWrapping;
       renderTarget.texture.generateMipmaps = false;
       renderTarget.texture.colorSpace = THREE.NoColorSpace;
-      const geometry = new THREE.PlaneGeometry(2, 2);
+      geometry = new THREE.PlaneGeometry(2, 2);
       const cloud = profile.cloud;
-      const material = new THREE.ShaderMaterial({
+      material = new THREE.ShaderMaterial({
         name: "world-cloud-shadow-map",
         vertexShader: WORLD_CLOUD_FULLSCREEN_VERTEX_SHADER,
         fragmentShader: WORLD_CLOUD_SHADOW_FRAGMENT_SHADER,
@@ -100,7 +105,7 @@ export class WorldCloudShadowMap {
         transparent: false,
         toneMapped: false,
       });
-      const mesh = new THREE.Mesh(geometry, material);
+      mesh = new THREE.Mesh(geometry, material);
       mesh.frustumCulled = false;
       this.scene.add(mesh);
       this.renderTarget = renderTarget;
@@ -109,6 +114,10 @@ export class WorldCloudShadowMap {
       this.mesh = mesh;
       this.consumerUniforms.uCloudShadowMap.value = renderTarget.texture;
     } catch (error) {
+      mesh?.removeFromParent();
+      geometry?.dispose();
+      material?.dispose();
+      renderTarget?.dispose();
       this.disableAfterFault("creation", error);
     }
   }
@@ -170,6 +179,9 @@ export class WorldCloudShadowMap {
     } finally {
       this.renderer.setRenderTarget(previousTarget);
     }
+    if (this.faulted) {
+      this.releaseGpuResources();
+    }
   }
 
   readDebugPixels(target: Uint8Array): boolean {
@@ -218,6 +230,10 @@ export class WorldCloudShadowMap {
     this.disposed = true;
     this.consumerUniforms.uCloudShadowEnabled.value = 0;
     this.consumerUniforms.uCloudShadowMap.value = null;
+    this.releaseGpuResources();
+  }
+
+  private releaseGpuResources(): void {
     this.mesh?.removeFromParent();
     this.geometry?.dispose();
     this.material?.dispose();
