@@ -268,3 +268,7 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 function mix(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
+
+function fract(value: number): number {
+  return value - Math.floor(value);
+}
