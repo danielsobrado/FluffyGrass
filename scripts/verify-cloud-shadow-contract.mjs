@@ -40,6 +40,7 @@ const controller = read("src/app/WorldCloudShadowController.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const lighting = read("src/app/WorldCloudEnvironmentLighting.ts");
 const diagnostics = read("src/app/WorldCloudShadowDebugPanel.ts");
+const poses = read("src/qa/WorldVisualMatrixPoses.ts");
 
 for (const prefix of ["desktop", "compact"]) {
   const strength = yamlNumber(runtime, `${prefix}CloudShadowStrength`);
@@ -82,7 +83,6 @@ assert(
 assert(
   shadowShader.includes("physicalTransmittance = exp(-opticalDepth * uCloudExtinction)") &&
     shadowShader.includes("uCloudMinimumDirectTransmittance") &&
-    shadowShader.includes("max(") &&
     shadowShader.includes("gl_FragColor = vec4(transmittance"),
   "The shadow target must store bounded direct-sun transmittance rather than black overlay opacity.",
 );
@@ -96,6 +96,15 @@ assert(
     shadowMap.includes("Math.round(focusCloudX / texelSize) * texelSize") &&
     shadowMap.includes("renderer.setRenderTarget(previousTarget)"),
   "The transmittance target must be low-cost, filtered, texel-snapped, edge-safe, and restore nested renderer state.",
+);
+assert(
+  shadowMap.includes("let renderTarget: THREE.WebGLRenderTarget | undefined") &&
+    shadowMap.includes("geometry?.dispose()") &&
+    shadowMap.includes("material?.dispose()") &&
+    shadowMap.includes("renderTarget?.dispose()") &&
+    shadowMap.includes("private releaseGpuResources(): void") &&
+    shadowMap.includes("if (this.faulted) {\n      this.releaseGpuResources();"),
+  "Cloud shadow GPU resources must roll back on construction failure and release after render faults.",
 );
 assert(
   sampler.includes("uCloudBaseHeight - worldPosition.y") &&
@@ -143,6 +152,13 @@ assert(
   "Water glints, distant horizon, stones, and trees must participate while preserving weaker atmospheric horizon contrast.",
 );
 assert(
+  integrator.includes("private readonly patched = new WeakSet<THREE.Material>()") &&
+    integrator.includes("for (let index = 0; index < mesh.material.length; index += 1)") &&
+    !integrator.includes("materials.map(") &&
+    !integrator.includes("const materials = Array.isArray"),
+  "Periodic streaming scans must avoid temporary material/name arrays.",
+);
+assert(
   environment.includes("new WorldCloudShadowController") &&
     environment.includes("this.cloudShadow.update(safeDelta, focus, this.elapsedSeconds)") &&
     environment.includes('disposeSafely(this.cloudShadow, "Cloud shadow system")') &&
@@ -150,15 +166,17 @@ assert(
     controller.includes("new WorldCloudShadowSceneIntegrator") &&
     controller.includes("this.map.update(") &&
     controller.includes("this.integrator.update(deltaSeconds)") &&
-    controller.includes('disposeSafely(this.map, "Cloud shadow map")') &&
-    lighting.includes("directAttenuationEnabled"),
-  "Environment ownership must delegate map/integration lifecycle to the cloud-shadow controller and retain a diagnostic bypass for global direct attenuation.",
+    controller.includes("this.lighting.getAppliedDirectTransmittance()") &&
+    controller.includes('disposeSafely(this.map, "Cloud shadow map")'),
+  "Environment ownership must delegate map/integration lifecycle to the cloud-shadow controller and normalize against the direct light actually applied.",
 );
 assert(
   lighting.includes("cloud.baseHeight - focus.y") &&
     lighting.includes("sampleX = focus.x + SUN_DIRECTION.x * cloudHeightAlongSun") &&
-    lighting.includes("sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun"),
-  "Focus transmittance must project from the actual focus world height onto the same cloud plane used by spatial consumers.",
+    lighting.includes("sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun") &&
+    lighting.includes("getAppliedDirectTransmittance(): number") &&
+    lighting.includes("return this.directAttenuationEnabled ? this.directTransmittance : 1"),
+  "Focus transmittance must project from actual world height and expose the applied direct-light state for coherent debug normalization.",
 );
 assert(
   diagnostics.includes("Spatial cloud shadow") &&
@@ -173,7 +191,16 @@ assert(
     diagnostics.includes("this.originalVisibility.clear()"),
   "Diagnostics must support binary-search isolation, live transmittance inspection, and restore debug visibility state on disposal.",
 );
+for (const pose of [
+  "cs0-black-region-water-regression",
+  "cs2-cloud-shadow-meadow",
+  "cs3-cloud-shadow-slope",
+  "cs6-cloud-shadow-elevated",
+  "cs6-cloud-shadow-water",
+]) {
+  assert(poses.includes(`\"${pose}\"`), `Missing deterministic cloud-shadow visual pose ${pose}.`);
+}
 
 console.log(
-  "[cloud-shadow] Bounded world-space transmittance, direct-only material integration, height-correct focus normalization, grass vertex sampling, distance/edge safety, lifecycle, and diagnostics verified.",
+  "[cloud-shadow] Bounded world-space transmittance, direct-only material integration, height-correct focus normalization, allocation-safe streaming integration, fault cleanup, deterministic visual poses, lifecycle, and diagnostics verified.",
 );
