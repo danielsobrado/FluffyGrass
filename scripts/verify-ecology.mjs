@@ -325,6 +325,17 @@ try {
     degradedLowDensityArchetype === GRASS_CLUSTER_SPARSE_OPEN,
     "A genuinely degraded low-density biome must retain the sparse-open archetype.",
   );
+  degradedLowDensityBiome.dryness = 0.8;
+  const degradedDryBiomeArchetype = resolveGrassClusterArchetype(
+    degradedLowDensityBiome,
+    4,
+    9,
+    config,
+  );
+  assert(
+    degradedDryBiomeArchetype === GRASS_CLUSTER_SPARSE_OPEN,
+    "Relative vegetation loss must remain sparse-open even in a naturally dry biome.",
+  );
 
   const climateFloor = 0.62;
   const lowDensityBiome = 0.42;

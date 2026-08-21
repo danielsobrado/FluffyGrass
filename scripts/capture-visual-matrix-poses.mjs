@@ -7,6 +7,7 @@
 //
 // Env overrides: FLUFFY_BROWSER (browser binary), FLUFFY_CDP_PORT,
 // FLUFFY_GRASS_LAYER (near/base/boost/bridge/mid/far isolation),
+// FLUFFY_PROFILE (desktop/compact runtime profile),
 // FLUFFY_NO_TERRAIN (hide terrain and water through the isolation harness),
 // FLUFFY_NO_WATER (hide only water through the isolation harness).
 import { spawn, execFileSync } from "node:child_process";
@@ -20,6 +21,7 @@ const WANTED = EXACT_POSE ? RAW_WANTED.slice(1) : RAW_WANTED;
 const OUT_DIR = process.argv[3] ?? ".tmp-screenshots/poses";
 const DEV_PORT = parsePort(process.argv[4] ?? 5221, "dev server");
 const GRASS_LAYER = process.env.FLUFFY_GRASS_LAYER;
+const RUNTIME_PROFILE = process.env.FLUFFY_PROFILE;
 const GRASS_LAYER_QUERY = GRASS_LAYER
   ? `&grassLayer=${encodeURIComponent(GRASS_LAYER)}`
   : "";
@@ -29,7 +31,10 @@ const NO_TERRAIN_QUERY = process.env.FLUFFY_NO_TERRAIN === "1"
 const NO_WATER_QUERY = process.env.FLUFFY_NO_WATER === "1"
   ? "&noWater=1"
   : "";
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_WATER_QUERY}`;
+const PROFILE_QUERY = RUNTIME_PROFILE
+  ? `&profile=${encodeURIComponent(RUNTIME_PROFILE)}`
+  : "";
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
@@ -349,6 +354,7 @@ writeFileSync(
       version: 1,
       sourceRevision: captures[0]?.hud?.match(/v[\d.]+\+([0-9a-f]+)/)?.[1] ?? null,
       requestedPoseFilter: WANTED,
+      runtimeProfile: RUNTIME_PROFILE ?? "desktop",
       grassLayer: GRASS_LAYER ?? "combined",
       terrainVisible: process.env.FLUFFY_NO_TERRAIN !== "1",
       waterVisible: process.env.FLUFFY_NO_WATER !== "1",
