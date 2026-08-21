@@ -80,7 +80,7 @@ grassClumpRadiusScaleMax: 0.50
 grassClumpAspectMin: 0.70
 grassClumpAspectMax: 1.38
 grassClumpRadialExponent: 0.60
-grassClumpDominantDirectionWeight: 0.62
+grassClumpDominantDirectionWeight: 0.60
 grassClumpRadialDirectionWeight: 0.14
 
 # Macro grass habitat. These modulate ecology rather than inventing a second field.
