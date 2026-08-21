@@ -96,7 +96,13 @@ export function sampleCloudShadowTransmittance(
     const sampleZ = cloudPlaneZ + sunDirection.z * distance;
     opticalDepth +=
       sampleCloudDensity(config, compact, sampleX, sampleZ, timeSeconds) *
-      sampleCloudVerticalProfile(config, sampleX, sampleZ, heightFraction);
+      sampleCloudVerticalProfile(
+        config,
+        sampleX,
+        sampleZ,
+        heightFraction,
+        timeSeconds,
+      );
   }
   opticalDepth /= stepCount;
   const physicalTransmittance = Math.exp(-opticalDepth * config.extinction);
@@ -189,18 +195,23 @@ function sampleCloudVerticalProfile(
   worldX: number,
   worldZ: number,
   heightFraction: number,
+  timeSeconds: number,
 ): number {
+  const macroX = worldX + config.windX * timeSeconds;
+  const macroZ = worldZ + config.windZ * timeSeconds;
+  const detailX = worldX + config.detailWindX * timeSeconds;
+  const detailZ = worldZ + config.detailWindZ * timeSeconds;
   const topNoise = valueNoise(
-    worldX * config.macroScale * 0.61 + 23.7,
-    worldZ * config.macroScale * 0.61 - 18.2,
+    macroX * config.macroScale * 0.61 + 23.7,
+    macroZ * config.macroScale * 0.61 - 18.2,
   );
   const baseNoise = valueNoise(
-    worldX * config.macroScale * 0.83 - 31.4,
-    worldZ * config.macroScale * 0.83 + 14.9,
+    macroX * config.macroScale * 0.83 - 31.4,
+    macroZ * config.macroScale * 0.83 + 14.9,
   );
   const bodyNoise = valueNoise(
-    worldX * config.detailScale * 0.42 + 9.2 + heightFraction * 7.1,
-    worldZ * config.detailScale * 0.42 - 37.6 - heightFraction * 5.3,
+    detailX * config.detailScale * 0.42 + 9.2 + heightFraction * 7.1,
+    detailZ * config.detailScale * 0.42 - 37.6 - heightFraction * 5.3,
   );
   const top = mix(0.62, 1, topNoise);
   const baseFeather = mix(0.045, 0.095, baseNoise);
