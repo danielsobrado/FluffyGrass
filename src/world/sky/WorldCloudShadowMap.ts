@@ -27,6 +27,8 @@ export class WorldCloudShadowMap {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.Camera();
   private readonly origin = new THREE.Vector2();
+  private readonly viewport = new THREE.Vector4();
+  private readonly scissor = new THREE.Vector4();
   private renderTarget?: THREE.WebGLRenderTarget;
   private geometry?: THREE.PlaneGeometry;
   private material?: THREE.ShaderMaterial;
@@ -175,14 +177,22 @@ export class WorldCloudShadowMap {
     this.material.uniforms.uTime.value = elapsedSeconds;
 
     const previousTarget = this.renderer.getRenderTarget();
+    const previousScissorTest = this.renderer.getScissorTest();
+    this.renderer.getViewport(this.viewport);
+    this.renderer.getScissor(this.scissor);
     try {
       this.renderer.setRenderTarget(this.renderTarget);
+      this.renderer.setViewport(0, 0, this.renderTarget.width, this.renderTarget.height);
+      this.renderer.setScissorTest(false);
       this.renderer.clear(true, false, false);
       this.renderer.render(this.scene, this.camera);
     } catch (error) {
       this.disableAfterFault("render", error);
     } finally {
       this.renderer.setRenderTarget(previousTarget);
+      this.renderer.setViewport(this.viewport);
+      this.renderer.setScissor(this.scissor);
+      this.renderer.setScissorTest(previousScissorTest);
     }
     if (this.faulted) {
       this.releaseGpuResources();
