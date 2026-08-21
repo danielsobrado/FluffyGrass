@@ -142,11 +142,14 @@ export function sampleGrassHabitat(
       sampleGrassMacroDryness(x, z) * GRASS_MACRO_DRYNESS_STRENGTH +
       (1 - moisture) * config.grassDryColorStrength * 0.72,
   );
-  target.clumpScale = lerp(0.72, 1.22, target.density);
+  // Dense habitats grow fuller clumps, while sparse ground opens enough that
+  // the soil can visually participate instead of every surviving blade keeping
+  // the same footprint.
+  target.clumpScale = lerp(0.68, 1.27, target.density);
   target.underlayer = clamp01(
-    lerp(0.32, 0.56, 1.08 - target.height) * (1 - disturbance * 0.72),
+    lerp(0.34, 0.6, 1.1 - target.height) * (1 - disturbance * 0.68),
   );
-  target.directionalLean = clamp01(disturbance * 0.72 + exposure * 0.18);
+  target.directionalLean = clamp01(disturbance * 0.76 + exposure * 0.16);
   target.accentChance = clamp01(
     accentDensity *
       fertility *
@@ -159,6 +162,8 @@ export function sampleGrassHabitat(
 
 /**
  * Stable tuft identity shared by every LOD that can name the same clump cell.
+ * A small identity bias softens hard habitat thresholds without inventing a
+ * second random scatter field.
  */
 export function resolveGrassClusterArchetype(
   habitat: GrassHabitatSample,
@@ -167,10 +172,15 @@ export function resolveGrassClusterArchetype(
   seed: number,
 ): number {
   const roll = hashLattice(clumpColumn, clumpRow, (seed ^ ARCHETYPE_SALT) >>> 0);
-  if (habitat.directionalLean > 0.48) return GRASS_CLUSTER_FLATTENED;
-  if (habitat.dryness > 0.42 && habitat.height < 0.98) return GRASS_CLUSTER_SHORT_DRY;
-  if (habitat.density < 0.52) return GRASS_CLUSTER_SPARSE_OPEN;
-  if (habitat.height > 1.02 && habitat.dryness < 0.34) return GRASS_CLUSTER_TALL_WET;
-  if (habitat.accentChance > 0.22 && roll > 0.68) return GRASS_CLUSTER_ACCENT;
+  const identityBias = (roll - 0.5) * 0.08;
+  if (habitat.directionalLean + identityBias > 0.45) return GRASS_CLUSTER_FLATTENED;
+  if (habitat.dryness + identityBias > 0.4 && habitat.height < 1) {
+    return GRASS_CLUSTER_SHORT_DRY;
+  }
+  if (habitat.density + identityBias < 0.55) return GRASS_CLUSTER_SPARSE_OPEN;
+  if (habitat.height + identityBias > 1.01 && habitat.dryness < 0.36) {
+    return GRASS_CLUSTER_TALL_WET;
+  }
+  if (habitat.accentChance > 0.2 && roll > 0.64) return GRASS_CLUSTER_ACCENT;
   return GRASS_CLUSTER_DENSE_NORMAL;
 }

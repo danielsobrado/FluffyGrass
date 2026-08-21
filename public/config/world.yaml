@@ -72,14 +72,16 @@ grassNearBridgeTransitionDistance: 2
 grassMicroDetailFadeStart: 3
 grassMicroDetailFadeEnd: 10
 
-# Natural near-grass tuft distribution.
-grassClumpRadiusScaleMin: 0.32
-grassClumpRadiusScaleMax: 0.48
-grassClumpAspectMin: 0.76
-grassClumpAspectMax: 1.28
-grassClumpRadialExponent: 0.58
-grassClumpDominantDirectionWeight: 0.55
-grassClumpRadialDirectionWeight: 0.2
+# Natural near-grass tuft distribution. The field keeps stronger clump-level
+# direction and shape variation while retaining enough blade-level freedom to
+# avoid regular starbursts.
+grassClumpRadiusScaleMin: 0.30
+grassClumpRadiusScaleMax: 0.50
+grassClumpAspectMin: 0.70
+grassClumpAspectMax: 1.38
+grassClumpRadialExponent: 0.60
+grassClumpDominantDirectionWeight: 0.62
+grassClumpRadialDirectionWeight: 0.14
 
 # Macro grass habitat. These modulate ecology rather than inventing a second field.
 # Strength is the look: wet banks, dry crowns, rock, and paths must read from
@@ -114,7 +116,7 @@ detailFoliagePathFringeStrength: 0.18
 # Underlayer is the tuft body: raising it (and thinning the mid-height band in
 # placement) is what makes 5-15 m grass read as masses instead of needles.
 grassMidBladeFraction: 1
-grassUnderlayerFraction: 0.46
+grassUnderlayerFraction: 0.48
 grassPatchJitter: 0.3
 
 # Character footfalls and landing pulse.
