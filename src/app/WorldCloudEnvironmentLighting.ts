@@ -71,8 +71,9 @@ export class WorldCloudEnvironmentLighting {
     elapsedSeconds: number,
   ): void {
     const cloud = this.profile.cloud;
+    const heightToCloud = Math.max(cloud.baseHeight - focus.y, 0);
     const cloudHeightAlongSun =
-      cloud.baseHeight / Math.max(SUN_DIRECTION.y, 0.01);
+      heightToCloud / Math.max(SUN_DIRECTION.y, 0.01);
     const sampleX = focus.x + SUN_DIRECTION.x * cloudHeightAlongSun;
     const sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun;
     const targetTransmittance = sampleCloudDirectTransmittance(
