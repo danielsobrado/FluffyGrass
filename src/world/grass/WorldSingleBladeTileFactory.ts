@@ -175,7 +175,7 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 8;
+const GRASS_PLACEMENT_VERSION = 9;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -580,8 +580,13 @@ export class WorldSingleBladeTileFactory {
         (leanMax - leanMin) *
           (this.clumpValue(clumpColumn, clumpRow, CLUMP_LEAN_SALT) * 0.62 +
             this.habitatSample.directionalLean * 0.38);
+      const shapedLean = THREE.MathUtils.lerp(
+        sharedLean,
+        leanMax,
+        this.clusterProfile.leanTowardMax,
+      );
       const leanDistance = THREE.MathUtils.clamp(
-        sharedLean *
+        shapedLean *
           this.clusterProfile.leanScale *
           job.random.range(0.92, 1.08),
         leanMin,
