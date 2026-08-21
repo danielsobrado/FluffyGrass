@@ -53,7 +53,7 @@ export class WorldCloudShadowController {
     this.map.update(
       focus,
       elapsedSeconds,
-      this.lighting.getDirectTransmittance(),
+      this.lighting.getAppliedDirectTransmittance(),
     );
     this.integrator.update(deltaSeconds);
     this.debug?.update(deltaSeconds);
