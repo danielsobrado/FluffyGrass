@@ -66,6 +66,17 @@ export interface WorldConfig {
   grassClumpRadialExponent: number;
   grassClumpDominantDirectionWeight: number;
   grassClumpRadialDirectionWeight: number;
+  /** Fraction of blade-plane azimuth inherited from stable clump identity. */
+  grassClumpPlaneCoherence: number;
+  /** Minimum retained coverage at the frayed outer edge of a clump. */
+  grassClumpEdgeCoverage: number;
+  /** Baseline share of blades reserved for the tall accent tier. */
+  grassAccentBladeShare: number;
+  grassUnderstoryHeightScale: number;
+  grassMainHeightScale: number;
+  grassAccentHeightScale: number;
+  /** Symmetric per-blade height jitter around the clump/tier height. */
+  grassBladeHeightJitter: number;
   grassMacroPatchWorldSize: number;
   grassMacroPatchStrength: number;
   grassWetDensityBoost: number;
