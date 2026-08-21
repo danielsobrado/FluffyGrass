@@ -68,6 +68,16 @@ assert(
   "Grass lighting must not hide dry-color errors behind a final-output luminance clamp.",
 );
 
+const sheenStrength = Number(
+  nearMaterial.match(/DEFAULT_SHEEN_STRENGTH\s*=\s*([0-9.]+)/)?.[1],
+);
+assert(
+  Number.isFinite(sheenStrength) &&
+    sheenStrength <= 0.04 &&
+    nearMaterial.includes("smoothstep(0.3, 0.92, vGrassProgress)"),
+  "Blade sheen must stay subtle and tip-weighted so roots cannot bleach into a pale band.",
+);
+
 const maximumBacklight = Math.max(
   ...Object.values(presets).map((preset) => preset.backlightStrength),
 );
@@ -80,5 +90,6 @@ console.log(
   `[grass-dry-lighting] Dry palette ${tuning.dryLuminanceScale.toFixed(2)}x, ` +
     `tip ${tuning.tipLuminanceScale.toFixed(2)}x, transmission ` +
     `${dryTransmission.toFixed(2)}-${wetTransmission.toFixed(2)}, ` +
-    `max preset backlight ${maximumBacklight.toFixed(2)} verified without output clamps.`,
+    `sheen ${sheenStrength.toFixed(3)}, max preset backlight ` +
+    `${maximumBacklight.toFixed(2)} verified without output clamps.`,
 );

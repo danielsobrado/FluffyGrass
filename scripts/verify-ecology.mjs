@@ -50,6 +50,7 @@ try {
     "/src/world/hydrology/HydrologyField.ts",
   );
   const {
+    GRASS_CLUSTER_SHORT_DRY,
     GRASS_CLUSTER_SPARSE_OPEN,
     createGrassHabitatSample,
     resolveGrassClusterArchetype,
@@ -325,16 +326,17 @@ try {
     degradedLowDensityArchetype === GRASS_CLUSTER_SPARSE_OPEN,
     "A genuinely degraded low-density biome must retain the sparse-open archetype.",
   );
-  degradedLowDensityBiome.dryness = 0.8;
+  normalLowDensityBiome.height = 0.8;
+  normalLowDensityBiome.dryness = 0.8;
   const degradedDryBiomeArchetype = resolveGrassClusterArchetype(
-    degradedLowDensityBiome,
+    normalLowDensityBiome,
     4,
     9,
     config,
   );
   assert(
-    degradedDryBiomeArchetype === GRASS_CLUSTER_SPARSE_OPEN,
-    "Relative vegetation loss must remain sparse-open even in a naturally dry biome.",
+    degradedDryBiomeArchetype === GRASS_CLUSTER_SHORT_DRY,
+    "Naturally dry, short habitat must retain short-dry morphology before sparse-open fallback.",
   );
 
   const climateFloor = 0.62;

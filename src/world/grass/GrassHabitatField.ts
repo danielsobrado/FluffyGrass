@@ -187,18 +187,20 @@ export function resolveGrassClusterArchetype(
     clumpColumn,
     clumpRow,
     (config.seed ^ ARCHETYPE_SALT) >>> 0,
-    );
-    const identityBias = (roll - 0.5) * 0.08;
-    if (habitat.directionalLean + identityBias > 0.45) return GRASS_CLUSTER_FLATTENED;
-    if (
-      habitat.densityRetention + identityBias <
-      config.grassSparseDensityRetentionThreshold
-    ) {
-      return GRASS_CLUSTER_SPARSE_OPEN;
-    }
-    if (habitat.dryness + identityBias > 0.4 && habitat.height < 1) {
-      return GRASS_CLUSTER_SHORT_DRY;
-    }
+  );
+  const identityBias = (roll - 0.5) * 0.08;
+  if (habitat.directionalLean + identityBias > 0.45) {
+    return GRASS_CLUSTER_FLATTENED;
+  }
+  if (habitat.dryness + identityBias > 0.4 && habitat.height < 1) {
+    return GRASS_CLUSTER_SHORT_DRY;
+  }
+  if (
+    habitat.densityRetention + identityBias <
+    config.grassSparseDensityRetentionThreshold
+  ) {
+    return GRASS_CLUSTER_SPARSE_OPEN;
+  }
   if (habitat.height + identityBias > 1.01 && habitat.dryness < 0.36) {
     return GRASS_CLUSTER_TALL_WET;
   }

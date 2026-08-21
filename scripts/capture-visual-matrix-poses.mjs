@@ -47,7 +47,7 @@ const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // share the same CDP port anyway.
 const BROWSER =
   process.env.FLUFFY_BROWSER ??
-  "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe";
+  "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const PROFILE_TAG = `chrome-profile-capture-${PORT}-owned`;
 const PROFILE = `${tmpdir().split("\\").join("/")}/${PROFILE_TAG}`;
 
@@ -266,10 +266,19 @@ const captures = [];
 
 for (const { name, index } of matches) {
   console.log(`\n=== ${name} (index ${index}) ===`);
+  const serializedName = JSON.stringify(name);
+  const applyCurrentPose = (resultExpression) =>
+    `(() => { const q = window.__FLUFFY_WORLD_VISUAL_QA__;
+      const currentIndex = q.poses.indexOf(${serializedName});
+      if (currentIndex < 0) throw new Error('pose disappeared during capture');
+      return q.apply(currentIndex).then((capture) => ${resultExpression}); })()`;
   // Establish the exact camera transform before measuring. The first sample is
   // deliberately discarded because its newly visible near tiles may be queued.
+  // Resolve the index again at apply time: Vite HMR can reorder the pose list
+  // while a long capture is running, and a stale numeric index silently frames
+  // the wrong landmark.
   await evaluate(
-    `window.__FLUFFY_WORLD_VISUAL_QA__.apply(${index}).then(() => true)`,
+    applyCurrentPose("true"),
   );
   let settled = false;
   let stableSamples = 0;
@@ -318,12 +327,18 @@ for (const { name, index } of matches) {
   }
   console.log(settled ? "  settled" : "  WARNING: never settled");
   const captureJson = await evaluate(
-    `window.__FLUFFY_WORLD_VISUAL_QA__.apply(${index}).then((capture) => JSON.stringify(capture))`,
+    applyCurrentPose("JSON.stringify(capture)"),
   );
   if (!captureJson) {
     throw new Error(`visual matrix did not return capture telemetry for ${name}`);
   }
-  captures.push(JSON.parse(captureJson));
+  const capture = JSON.parse(captureJson);
+  if (capture.name !== name) {
+    throw new Error(
+      `visual matrix returned ${capture.name} while capturing ${name}`,
+    );
+  }
+  captures.push(capture);
   const isolationHud =
     (await evaluate(
       `document.querySelector('#world-isolation-hud')?.textContent || ''`,

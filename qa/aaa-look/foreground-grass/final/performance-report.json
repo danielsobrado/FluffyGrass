@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "capturedAt": "2026-08-21",
+  "hardware": "NVIDIA GeForce RTX 4080 via ANGLE D3D11",
+  "viewport": "desktop 1264x625 at DPR 1",
+  "gpuTiming": "unavailable; runtime query was disabled",
+  "baselineMeadow": {
+    "meanFrameMs": 6.95,
+    "p50FrameMs": 6.9,
+    "p95FrameMs": 7.1,
+    "p99FrameMs": 7.1,
+    "maxFrameMs": 7.1,
+    "fps": 144,
+    "drawCalls": 28,
+    "rendererTriangles": 3808,
+    "grassCpuMs": 0.26,
+    "totalDrawMs": 3.8
+  },
+  "finalMeadow": {
+    "meanFrameMs": 6.95,
+    "p50FrameMs": 6.9,
+    "p95FrameMs": 7.1,
+    "p99FrameMs": 7.1,
+    "maxFrameMs": 7.1,
+    "fps": 144,
+    "drawCalls": 28,
+    "rendererTriangles": 3808,
+    "grassCpuMs": 0.2,
+    "totalDrawMs": 2.2,
+    "nearResidentUnique": 341000,
+    "nearSubmittedInstances": 252000,
+    "midSubmittedBlades": 372660,
+    "farCards": 30920
+  },
+  "handoff": {
+    "poses": ["g5-06m", "g5-10m", "g5-14m", "g5-18m", "g5-22m"],
+    "fps": [144, 144, 144, 144, 144],
+    "meanFrameMs": [6.95, 6.94, 6.94, 6.94, 6.94],
+    "grassCpuMs": [0.23, 0.23, 0.26, 0.26, 0.24],
+    "totalDrawMs": [3.15, 3.27, 3.36, 3.26, 3.35]
+  }
+}

@@ -772,10 +772,13 @@ assert(
   nearMaterial.includes(
     "grassSide * uGrassBladeCurvature * grassMicroFade",
   ) &&
+    nearMaterial.includes("grassBladePlaneNormalView") &&
+    nearMaterial.includes("1.0 - grassMicroFade") &&
     !nearMaterial.includes(
       "normalize(mat3(modelViewMatrix) * vec3(0.0, 1.0, 0.0))",
-    ),
-  "Blade trough normals must fade without pulling the complete blade normal toward world up.",
+    ) &&
+    !nearMaterial.includes("(1.0 - grassMicroFade) * 0.78"),
+  "Blade micro normals must converge on a wind-aware plane normal rather than world up.",
 );
 // Both single-blade tiles and mid patches must apply the macro field, at the
 // same world position and from the same functions, or the terms would show up

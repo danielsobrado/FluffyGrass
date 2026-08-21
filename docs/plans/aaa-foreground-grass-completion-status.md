@@ -1,6 +1,6 @@
 # AAA Foreground Grass Completion Status
 
-Status: implementation complete; runtime visual sign-off pending  
+Status: implementation complete; runtime visual sign-off complete  
 Date: 2026-08-21  
 Companion plan: `aaa-foreground-grass-clumping-shape-color-plan.md`
 
@@ -28,4 +28,4 @@ The pass does not increase configured blade density, grass segment count, ultra-
 
 Static/source contracts cover configuration bounds, tier relationships, deterministic placement, clump morphology relationships, absolute flattened-rest lean, near-to-mid/far tier-source parity, placement-cache versioning, dry-palette limits, dryness-aware transmission, and the absence of final-output luminance clamps.
 
-A complete local `npm run build`, runtime performance capture, and before/after visual-matrix capture still require an environment that can execute the project. Those are validation tasks, not missing implementation work. Manual sign-off should specifically inspect the existing meadow, dry, path-edge, low-camera, compact, and near-to-mid handoff poses.
+A local production build, runtime performance capture, and before/after visual-matrix pass are complete. The signed-off matrix covers meadow, dry, sparse, path-edge, water-edge, low-camera, compact, elevated, and the 6/10/14/18/22 m handoff ladder. See `aaa-foreground-grass-visual-iteration-status.md` for the plan audit and `qa/aaa-look/foreground-grass/final/` for the evidence bundle.

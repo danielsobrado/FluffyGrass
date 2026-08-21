@@ -238,10 +238,10 @@ uniform float uGrassLodThreshold;
 uniform float uGrassDistanceFade;
 `;
 
-// A real blade is troughed across its width, so its two edges catch the light
-// at different angles and every blade in the field carries its own gradient.
-// Flat quad normals biased towards the canopy give the whole field one shading
-// response instead, which is most of why procedural grass reads as a carpet.
+// Keep two normals for each blade. `objectNormal` retains the segmented source
+// geometry used at arm's length. `grassBladePlaneNormal` removes longitudinal
+// segmentation but preserves the direction the blade plane faces. The latter
+// is the stable macro normal that the source converges on as micro detail fades.
 //
 // The width direction is recovered from the flat quad's own face normal rather
 // than stored per vertex, so this works unchanged for the single-blade geometry
@@ -255,9 +255,13 @@ grassWidthAxis = grassWidthAxisLength > 0.0001
   ? grassWidthAxis / grassWidthAxisLength
   : vec3(1.0, 0.0, 0.0);
 float grassSide = uv.x * 2.0 - 1.0;
+vec3 grassBladePlaneNormal = normalize(cross(
+  grassWidthAxis,
+  vec3(0.0, 1.0, 0.0)
+));
 objectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp));
-objectNormal = normalize(
-  objectNormal + grassWidthAxis * (grassSide * uGrassBladeCurvature)
+grassBladePlaneNormal = normalize(
+  mix(grassBladePlaneNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp)
 );
 `;
 
@@ -311,6 +315,19 @@ float grassMicroFade = 1.0 - smoothstep(
   uGrassMicroFadeRange.y,
   grassCameraDistance
 );
+mat3 grassInstanceBasis = mat3(instanceMatrix);
+vec3 grassWidthAxisView = normalize(
+  normalMatrix * grassInstanceBasis * grassWidthAxis
+);
+vec3 grassBladePlaneNormalView = normalize(
+  normalMatrix * grassInstanceBasis * grassBladePlaneNormal
+);
+// Trough curvature is micro detail: progressively remove it without erasing
+// the direction of the blade plane itself.
+vNormal = normalize(
+  vNormal + grassWidthAxisView *
+    (grassSide * uGrassBladeCurvature * grassMicroFade)
+);
 float grassNearCoverage = 1.0 - smoothstep(
   uGrassNearDistance - uGrassTransitionDistance,
   uGrassNearDistance + uGrassTransitionDistance,
@@ -362,7 +379,6 @@ GRASS_SUBPIXEL_WIDTH
 
 if (grassKeepBlade && grassProgress > 0.001) {
   vec2 grassWindDirection = uGrassWindDirection;
-  mat3 grassInstanceBasis = mat3(instanceMatrix);
   float grassHorizontalScale = max(length(grassInstanceBasis[0]), 0.0001);
   float grassVerticalScale = max(length(grassInstanceBasis[1]), 0.0001);
   float grassDepthScale = max(length(grassInstanceBasis[2]), 0.0001);
@@ -422,15 +438,23 @@ if (grassKeepBlade && grassProgress > 0.001) {
       grassWindSin,
       grassWindCos
     ));
+    grassBladePlaneNormalView = normalize(grassRotateAroundAxis(
+      grassBladePlaneNormalView,
+      grassWindAxisView,
+      grassWindSin,
+      grassWindCos
+    ));
   }
 GRASS_TRAIL_BEND
 }
 
 if (grassKeepBlade) {
+// The far end of the micro fade keeps the wind/trail-oriented blade plane.
+// It no longer collapses every blade toward the same world-up normal.
 vNormal = normalize(mix(
   vNormal,
-  normalize(mat3(modelViewMatrix) * vec3(0.0, 1.0, 0.0)),
-  (1.0 - grassMicroFade) * 0.78
+  grassBladePlaneNormalView,
+  1.0 - grassMicroFade
 ));
 }
 
@@ -625,6 +649,12 @@ const VERTEX_TRAIL_BEND = `
           );
           vNormal = normalize(grassRotateAroundAxis(
             vNormal,
+            grassTrailAxisView,
+            grassTrailSin,
+            grassTrailCos
+          ));
+          grassBladePlaneNormalView = normalize(grassRotateAroundAxis(
+            grassBladePlaneNormalView,
             grassTrailAxisView,
             grassTrailSin,
             grassTrailCos

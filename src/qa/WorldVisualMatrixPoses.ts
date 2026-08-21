@@ -158,6 +158,38 @@ function stoneTruthPoses(): WorldVisualPose[] {
   ];
 }
 
+/**
+ * Stone LOD handoff ladder, on the same formation and the same bearing as the
+ * `s1-truth` poses so only the range changes between frames.
+ *
+ * The band that matters is not the detail/coarse geometry split. That runs off
+ * `stoneDetailRadius`, which counts terrain-chunk rings rather than metres, so
+ * chipped geometry survives far past anything a player reads as close. What
+ * actually switches off in the near field is the growth detail in the surface
+ * shader, which fades between 0.55x and 1x of `stoneGrowthDetailFadeDistance`
+ * — 13.2 m to 24 m at the shipped 24. The ladder brackets that: two frames
+ * inside it, one at each end, one past it. If moss coverage or luminance steps
+ * rather than ramps across `s2-13m` to `s2-24m`, the handoff is visible.
+ *
+ * Distances are literal rather than read from config because a pose set has to
+ * frame the same ground every run to be an A/B; if the fade distance is
+ * retuned, these move with it deliberately.
+ */
+function stoneDistancePoses(): WorldVisualPose[] {
+  const bands: Array<[string, number, number]> = [
+    ["s2-02m", 2.2, 1.3],
+    ["s2-05m", 5, 2.1],
+    ["s2-10m", 10, 3.4],
+    ["s2-13m", 13.2, 4.2],
+    ["s2-18m", 18, 5.4],
+    ["s2-24m", 24, 6.8],
+    ["s2-32m", 32, 8.6],
+  ];
+  return bands.map(([name, distance, height]) =>
+    look(name, STONE_TRUTH, distance, height, 0.72, 0.5),
+  );
+}
+
 function cloudShadowPoses(
   locations: WorldVisualLocations,
   meadow: WorldVisualPoint,
@@ -178,6 +210,7 @@ export function createWorldVisualPoses(
   return [
     ...cloudShadowPoses(locations, meadow),
     ...stoneTruthPoses(),
+    ...stoneDistancePoses(),
     ...abMeadowPoses(),
     ...distancePoses(AB_MEADOW),
     look("g10-meadow", AB_MEADOW, 7.5, 2.4, 0.55, 0.55),
