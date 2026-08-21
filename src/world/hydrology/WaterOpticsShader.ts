@@ -26,8 +26,11 @@ uniform float uWaterOpticsShoreFade;
 uniform float uWaterOpticsDeepStart;
 uniform float uWaterOpticsReflectionGain;
 uniform sampler2D tWaterRefraction;
+uniform sampler2D tWaterRefractionDepth;
 uniform vec2 uWaterRefractionSize;
 uniform float uWaterRefractionStrength;
+
+const float WATER_REFRACTION_BACKGROUND_DEPTH = 0.9999;
 
 /**
  * Optical depth along the view ray rather than straight down.
@@ -83,6 +86,13 @@ vec3 waterOpticsResolveColor(
      * offset shrinks as the column deepens because a distant bed is both harder
      * to see and less displaced by the same wave, and the whole term is weighted
      * by the depth blend so shallow water shows its bed and deep water hides it.
+     *
+     * The refraction target intentionally renders only terrain/bed/stone layers.
+     * Pixels with no refractable geometry therefore contain the target's clear
+     * colour. Sampling those pixels as real radiance is what produced the large
+     * pure-black water regions at grazing angles. The matching depth texture is
+     * authoritative: depth 1 means no refractable geometry, so keep the physical
+     * water colour instead of blending an empty target into the surface.
      */
     if (uWaterRefractionSize.x > 1.0) {
       vec2 screenUv = gl_FragCoord.xy / uWaterRefractionSize;
@@ -91,8 +101,15 @@ vec3 waterOpticsResolveColor(
         vec2(0.002),
         vec2(0.998)
       );
-      vec3 refracted = texture2D(tWaterRefraction, offsetUv).rgb;
-      color = mix(refracted * transmittance, color, waterOpticsDepthBlend(optical));
+      float refractionDepth = texture2D(tWaterRefractionDepth, offsetUv).r;
+      if (refractionDepth < WATER_REFRACTION_BACKGROUND_DEPTH) {
+        vec3 refracted = texture2D(tWaterRefraction, offsetUv).rgb;
+        color = mix(
+          refracted * transmittance,
+          color,
+          waterOpticsDepthBlend(optical)
+        );
+      }
     }
   }
   return color;
