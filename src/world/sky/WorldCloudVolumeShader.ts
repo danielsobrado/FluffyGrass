@@ -62,6 +62,24 @@ float cloudLayerDistance(float worldHeight, float rayVertical) {
   return (worldHeight - uCameraPosition.y) / max(rayVertical, 0.0001);
 }
 
+float cloudPreviewDensityAt(
+  vec3 rayDirection,
+  float baseDistance,
+  float topDistance,
+  float layerFraction
+) {
+  float previewDistance = mix(baseDistance, topDistance, layerFraction);
+  vec3 previewPosition =
+    uCameraPosition + rayDirection * previewDistance;
+  float previewWeather = 0.0;
+  float previewDetail = 0.0;
+  return cloudDensity(
+    previewPosition.xz,
+    previewWeather,
+    previewDetail
+  );
+}
+
 float cloudVolumeSelfShadow(
   vec2 worldPosition,
   float weatherAmount,
@@ -106,24 +124,23 @@ void main() {
   }
   baseDistance = max(baseDistance, 0.0);
 
-  float previewDistance = clamp(
-    cloudLayerDistance(
-      uCloudBaseHeight + uCloudThickness * 0.5,
-      rayDirection.y
-    ),
+  float previewDensity = cloudPreviewDensityAt(
+    rayDirection,
     baseDistance,
-    topDistance
+    topDistance,
+    0.5
   );
-  vec3 previewPosition =
-    uCameraPosition + rayDirection * previewDistance;
-  float previewWeather = 0.0;
-  float previewDetail = 0.0;
-  float previewDensity = cloudDensity(
-    previewPosition.xz,
-    previewWeather,
-    previewDetail
-  );
-  if (previewDensity <= 0.004) {
+  if (rayDirection.y < 0.35) {
+    previewDensity = max(
+      previewDensity,
+      cloudPreviewDensityAt(rayDirection, baseDistance, topDistance, 0.2)
+    );
+    previewDensity = max(
+      previewDensity,
+      cloudPreviewDensityAt(rayDirection, baseDistance, topDistance, 0.8)
+    );
+  }
+  if (previewDensity <= 0.0015) {
     gl_FragColor = vec4(0.0);
     return;
   }
