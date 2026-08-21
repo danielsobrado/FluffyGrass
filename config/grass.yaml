@@ -5,15 +5,17 @@ variantCount: 4
 bladesPerClump: 12
 bladeSegments: 3
 clumpRadius: 0.72
-bladeHeightMin: 0.50
-bladeHeightMax: 0.95
-bladeWidthMin: 0.045
-bladeWidthMax: 0.090
+bladeHeightMin: 0.46
+bladeHeightMax: 0.88
+# Carry more leaf area in the lower body while the geometric tip remains a
+# point. This closes the canopy more efficiently than adding more roots.
+bladeWidthMin: 0.060
+bladeWidthMax: 0.113
 bladeLeanMin: 0.025
-bladeLeanMax: 0.30
+bladeLeanMax: 0.28
 # Total turn of the blade's rest arc, root to tip, in radians. The height above
-# is spent as arc length, so a curved blade stands lower than a straight one.
-bladeCurve: 0.8
+# is spent as arc length, so a curved blade stands lower than a straight blade.
+bladeCurve: 0.92
 midBladesPerClump: 12
 midBladeSegments: 1
 midRadiusScale: 1
@@ -21,7 +23,7 @@ midHeightScale: 1
 midWidthScale: 1
 midLeanScale: 1
 seed: 1337
-rootSink: 0.02
+rootSink: 0.025
 maxSlopeDegrees: 48
 heightVariation: 0.16
 widthVariation: 0.12
@@ -37,11 +39,11 @@ flutterStrength: 0.03
 flutterSpeed: 3.8
 baseColor: "#2f7c35"
 tipColor: "#91dc63"
-dryColor: "#83a653"
+dryColor: "#788b4e"
 rootDarkening: 0.72
 normalUp: 0.72
 ambientBoost: 0.24
-backlightStrength: 0.22
+backlightStrength: 0.20
 nearMaxDistance: 12
 midMaxDistance: 30
 farMaxDistance: 80
