@@ -65,6 +65,16 @@ assert(
   "Water surface must stay transparent without depth writes and scale compact detail.",
 );
 assert(
+  waterOptics.includes("uniform sampler2D tWaterRefractionDepth") &&
+    waterOptics.includes("WATER_REFRACTION_BACKGROUND_DEPTH") &&
+    waterOptics.includes("texture2D(tWaterRefractionDepth, offsetUv).r") &&
+    waterOptics.includes("refractionDepth < WATER_REFRACTION_BACKGROUND_DEPTH") &&
+    waterMaterial.includes("tWaterRefractionDepth: { value: null }") &&
+    waterMaterial.includes("this.refraction.depthTexture ?? null") &&
+    refractionPass.includes("depthTexture: new THREE.DepthTexture"),
+  "Screen-space refraction must reject clear-target pixels using the matching depth texture instead of blending empty black radiance into water.",
+);
+assert(
   bedFunctions.includes("waterSampleRiverBed") &&
     bedShader.includes("waterSampleRiverBed") &&
     bedShader.includes("waterBedCaustic") &&
@@ -162,5 +172,5 @@ assert(
 );
 
 console.log(
-  "[water-render] Surface/bed ownership, opaque bed depth, absorption, refraction state restoration, failure-safe cleanup, and compact quality verified.",
+  "[water-render] Surface/bed ownership, opaque bed depth, absorption, depth-gated refraction, state restoration, failure-safe cleanup, and compact quality verified.",
 );
