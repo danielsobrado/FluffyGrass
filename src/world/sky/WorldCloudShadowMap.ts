@@ -144,14 +144,22 @@ export class WorldCloudShadowMap {
       this.faulted ||
       !this.runtimeEnabled ||
       !this.renderTarget ||
-      !this.material ||
-      !Number.isFinite(focus.x) ||
-      !Number.isFinite(focus.y) ||
-      !Number.isFinite(focus.z)
+      !this.material
     ) {
       this.consumerUniforms.uCloudFocusTransmittance.value = 1;
       return;
     }
+    if (
+      !Number.isFinite(focus.x) ||
+      !Number.isFinite(focus.y) ||
+      !Number.isFinite(focus.z) ||
+      this.renderer.getContext().isContextLost()
+    ) {
+      this.suspendSpatialShadows();
+      return;
+    }
+    this.consumerUniforms.uCloudShadowEnabled.value = 1;
+
     const sunVertical = Math.max(SUN_DIRECTION.y, 0.08);
     const heightToCloud = Math.max(this.profile.cloud.baseHeight - focus.y, 0);
     const focusCloudX =
@@ -247,6 +255,11 @@ export class WorldCloudShadowMap {
     this.consumerUniforms.uCloudShadowMap.value = null;
     this.consumerUniforms.uCloudFocusTransmittance.value = 1;
     this.releaseGpuResources();
+  }
+
+  private suspendSpatialShadows(): void {
+    this.consumerUniforms.uCloudShadowEnabled.value = 0;
+    this.consumerUniforms.uCloudFocusTransmittance.value = 1;
   }
 
   private releaseGpuResources(): void {
