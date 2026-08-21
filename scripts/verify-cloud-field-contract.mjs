@@ -21,8 +21,11 @@ function assert(condition, message) {
 const field = read("src/world/sky/WorldCloudFieldShader.ts");
 const sky = read("src/world/sky/WorldSkyCloudShader.ts");
 const volume = read("src/world/sky/WorldCloudVolumeShader.ts");
+const temporal = read("src/world/sky/WorldCloudTemporalShader.ts");
+const quality = read("src/world/sky/WorldCloudVolumeQuality.ts");
 const shadow = read("src/world/sky/WorldCloudShadowShader.ts");
 const weather = read("src/world/sky/WorldCloudWeather.ts");
+const runtime = read("public/config/runtime.yaml");
 
 assert(
   field.includes("export const WORLD_CLOUD_FIELD_GLSL") &&
@@ -37,9 +40,11 @@ assert(
 assert(
   field.includes("WORLD_CLOUD_VERTICAL_PROFILE_GLSL") &&
     field.includes("float cloudVerticalProfile(") &&
-    field.includes("flatBase") &&
-    field.includes("irregularTop"),
-  "The vertical cloud profile must be shared by the visible volume and the shadow integrator.",
+    field.includes("baseFeather") &&
+    field.includes("shapedBase") &&
+    field.includes("irregularTop") &&
+    field.includes("bodyErosion"),
+  "The shared vertical cloud profile must feather the base, retain an irregular top, and erode the body instead of producing a uniform slab.",
 );
 assert(
   sky.includes('from "./WorldCloudFieldShader"') &&
@@ -72,12 +77,51 @@ assert(
   "CPU focus lighting and GPU cloud fields must retain matching macro constants and weather thresholds.",
 );
 assert(
+  field.includes("uCloudMacroScale * 0.83") &&
+    field.includes("uCloudDetailScale * 0.42") &&
+    field.includes("heightFraction * 7.1") &&
+    field.includes("-heightFraction * 5.3") &&
+    weather.includes("config.macroScale * 0.83") &&
+    weather.includes("config.detailScale * 0.42") &&
+    weather.includes("heightFraction * 7.1") &&
+    weather.includes("heightFraction * 5.3"),
+  "CPU shadow diagnostics and GPU cloud/shadow integration must retain matching vertical erosion coordinates.",
+);
+assert(
   sky.includes("float cloudRayBreakup(") &&
     !sky.includes("sin(rayAngle * 17.0") &&
     !sky.includes("float rayBands"),
   "God rays must use irregular cloud-driven breakup instead of the visible angular sine bands from the old implementation.",
 );
+assert(
+  volume.includes("float cloudStepJitter(") &&
+    volume.includes("sampleIndex * 47.0") &&
+    volume.includes("sampleIndex * 89.0") &&
+    volume.includes("float sampleJitter = mix(") &&
+    volume.includes("cloudStepJitter(gl_FragCoord.xy, uFrameIndex, sampleOrdinal)") &&
+    !volume.includes("float jitter = cloudJitter("),
+  "Each volumetric raymarch stratum must have independent temporal jitter; shifting one shared sample lattice recreates concentric shell bands.",
+);
+assert(
+  volume.includes("worldHeight - uCameraPosition.y") &&
+    volume.includes("worldPosition.y - uCloudBaseHeight") &&
+    temporal.includes("cloudMidHeight - uCameraPosition.y"),
+  "Cloud volume intersection, height profile, and temporal reprojection must all be camera-height-correct.",
+);
+assert(
+  temporal.includes("float colorDifference = length(currentCloud.rgb - historyCloud.rgb)") &&
+    temporal.includes("float colorRejection = smoothstep(") &&
+    temporal.includes("float grazingConfidence = smoothstep(") &&
+    temporal.includes("max(alphaRejection, colorRejection)"),
+  "Temporal accumulation must reject stale radiance as well as opacity and reduce history confidence at grazing angles.",
+);
+assert(
+  runtime.includes("desktopCloudVolumetricSteps: 12") &&
+    runtime.includes("desktopCloudTemporalBlend: 0.84") &&
+    quality.includes("MEDIUM_MAX_STEPS = 8"),
+  "Desktop and medium cloud tiers must keep enough integration strata and current-frame weight to prevent visible raymarch shells.",
+);
 
 console.log(
-  "[cloud-field] Shared CPU/GPU cloud morphology, vertical profile reuse, and band-free god-ray breakup verified.",
+  "[cloud-field] Shared CPU/GPU morphology, vertically eroded cloud bodies, independent raymarch jitter, camera-correct reprojection, stale-history rejection, and band-free god-ray breakup verified.",
 );
