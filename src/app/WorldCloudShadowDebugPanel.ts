@@ -21,6 +21,13 @@ interface DebugState {
   water: boolean;
 }
 
+interface PreviewStats {
+  minTransmittance: number;
+  maxTransmittance: number;
+  minDensity: number;
+  maxDensity: number;
+}
+
 export class WorldCloudShadowDebugPanel {
   private readonly state: DebugState;
   private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
@@ -108,12 +115,18 @@ export class WorldCloudShadowDebugPanel {
 
     const canvas = document.createElement("canvas");
     canvas.style.width = "220px";
-    canvas.style.height = "120px";
+    canvas.style.height = "110px";
     canvas.style.objectFit = "fill";
     canvas.style.display = "block";
     canvas.style.marginTop = "6px";
     canvas.style.imageRendering = "auto";
     root.appendChild(canvas);
+
+    const legend = document.createElement("div");
+    legend.textContent = "transmittance | density";
+    legend.style.textAlign = "center";
+    legend.style.opacity = "0.8";
+    root.appendChild(legend);
 
     const readout = document.createElement("pre");
     readout.style.margin = "6px 0 0";
@@ -145,14 +158,23 @@ export class WorldCloudShadowDebugPanel {
     }
     this.updateCountdown = UPDATE_INTERVAL_SECONDS;
     const diagnostics = this.host.getDiagnostics();
+    const preview = this.updatePreview(diagnostics.resolution);
+    const weather = this.resolveWeatherRegime();
     this.readout.textContent = [
       `enabled: ${diagnostics.enabled}`,
+      `weather: ${weather}`,
+      `spatial/direct/sun: ${flag(this.state.spatial)}/${flag(this.state.direct)}/${flag(this.state.sunShadows)}`,
       `map: ${diagnostics.resolution}² / ${diagnostics.worldSize.toFixed(0)} m`,
       `focus T: ${diagnostics.focusTransmittance.toFixed(3)}`,
+      preview
+        ? `T range: ${preview.minTransmittance.toFixed(3)}–${preview.maxTransmittance.toFixed(3)}`
+        : "T range: unavailable",
+      preview
+        ? `density: ${preview.minDensity.toFixed(3)}–${preview.maxDensity.toFixed(3)}`
+        : "density: unavailable",
       `origin: ${diagnostics.originX.toFixed(1)}, ${diagnostics.originZ.toFixed(1)}`,
       `patched: ${diagnostics.patchedMaterials}`,
     ].join("\n");
-    this.updatePreview(diagnostics.resolution);
   }
 
   dispose(): void {
@@ -246,33 +268,65 @@ export class WorldCloudShadowDebugPanel {
     object.visible = false;
   }
 
-  private updatePreview(resolution: number): void {
+  private resolveWeatherRegime(): string {
+    const weather = this.scene.userData.worldCloudWeather as
+      | { regime?: unknown }
+      | undefined;
+    return typeof weather?.regime === "string" ? weather.regime : "unknown";
+  }
+
+  private updatePreview(resolution: number): PreviewStats | undefined {
     if (resolution <= 0 || !this.context || !this.canvas) {
-      return;
+      return undefined;
     }
     const byteCount = resolution * resolution * 4;
     if (!this.pixels || this.pixels.length !== byteCount) {
       this.pixels = new Uint8Array(byteCount);
-      this.imageData = this.context.createImageData(resolution, resolution);
-      this.canvas.width = resolution;
+      this.imageData = this.context.createImageData(resolution * 2, resolution);
+      this.canvas.width = resolution * 2;
       this.canvas.height = resolution;
     }
     if (!this.imageData || !this.pixels || !this.host.readPixels(this.pixels)) {
-      return;
+      return undefined;
     }
     const output = this.imageData.data;
+    let minTransmittance = 255;
+    let maxTransmittance = 0;
+    let minDensity = 255;
+    let maxDensity = 0;
     for (let y = 0; y < resolution; y += 1) {
       const sourceY = resolution - 1 - y;
       for (let x = 0; x < resolution; x += 1) {
         const source = (sourceY * resolution + x) * 4;
-        const target = (y * resolution + x) * 4;
-        const value = this.pixels[source];
-        output[target] = value;
-        output[target + 1] = value;
-        output[target + 2] = value;
-        output[target + 3] = 255;
+        const transmittance = this.pixels[source];
+        const density = this.pixels[source + 1];
+        minTransmittance = Math.min(minTransmittance, transmittance);
+        maxTransmittance = Math.max(maxTransmittance, transmittance);
+        minDensity = Math.min(minDensity, density);
+        maxDensity = Math.max(maxDensity, density);
+        const left = (y * resolution * 2 + x) * 4;
+        const right = (y * resolution * 2 + x + resolution) * 4;
+        writeGray(output, left, transmittance);
+        writeGray(output, right, density);
       }
     }
     this.context.putImageData(this.imageData, 0, 0);
+    return {
+      minTransmittance: minTransmittance / 255,
+      maxTransmittance: maxTransmittance / 255,
+      minDensity: minDensity / 255,
+      maxDensity: maxDensity / 255,
+    };
   }
+}
+
+function flag(value: boolean): string {
+  return value ? "on" : "off";
+}
+
+function writeGray(target: Uint8ClampedArray, offset: number, value: number): void {
+  target[offset] = value;
+  target[offset + 1] = value;
+  target[offset + 2] = value;
+  target[offset + 3] = 255;
 }
