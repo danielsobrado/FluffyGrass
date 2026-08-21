@@ -68,18 +68,20 @@ float cloudDensity(
 
 export const WORLD_CLOUD_VERTICAL_PROFILE_GLSL = /* glsl */ `
 float cloudVerticalProfile(vec2 worldPosition, float heightFraction) {
+  vec2 macroPosition = worldPosition + uCloudWind * uTime;
+  vec2 detailPosition = worldPosition + uCloudDetailWind * uTime;
   float topNoise = cloudValueNoise(
-    worldPosition * uCloudMacroScale * 0.61 + vec2(23.7, -18.2)
+    macroPosition * uCloudMacroScale * 0.61 + vec2(23.7, -18.2)
   );
   float baseNoise = cloudValueNoise(
-    worldPosition * uCloudMacroScale * 0.83 + vec2(-31.4, 14.9)
+    macroPosition * uCloudMacroScale * 0.83 + vec2(-31.4, 14.9)
   );
   vec2 verticalOffset = vec2(
     heightFraction * 7.1,
     -heightFraction * 5.3
   );
   float bodyNoise = cloudValueNoise(
-    worldPosition * uCloudDetailScale * 0.42 +
+    detailPosition * uCloudDetailScale * 0.42 +
     vec2(9.2, -37.6) +
     verticalOffset
   );
