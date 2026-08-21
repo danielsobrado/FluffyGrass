@@ -53,7 +53,8 @@ export const FLATTENED_ASYMMETRY_SCALE = 1.18;
 export const FLATTENED_DRYNESS_OFFSET = 0.04;
 export const FLATTENED_COVERAGE_SCALE = 0.9;
 export const FLATTENED_EDGE_SCALE = 0.74;
-export const FLATTENED_LEAN_SCALE = 1.75;
+export const FLATTENED_LEAN_SCALE = 1;
+export const FLATTENED_LEAN_TOWARD_MAX = 0.55;
 export const FLATTENED_GAP_STRENGTH = 0.46;
 
 export const ACCENT_HEIGHT_SCALE = 1.1;
