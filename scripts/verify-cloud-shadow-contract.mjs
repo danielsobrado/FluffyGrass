@@ -92,11 +92,16 @@ assert(
 );
 assert(
   weather.includes("sampleCloudShadowTransmittance(") &&
+    weather.includes("sampleCloudPointDirectTransmittance(") &&
+    weather.includes("worldY >= cloudTop") &&
+    weather.includes("startFraction") &&
+    weather.includes("remainingFraction") &&
+    weather.includes("sampleHeight - worldY") &&
     weather.includes("config.shadowSteps") &&
     weather.includes("sampleCloudVerticalProfile(") &&
-    weather.includes("Math.exp(-opticalDepth * config.extinction)") &&
+    weather.includes("resolveAuthoredTransmittance(config, opticalDepth)") &&
     weather.includes("config.minimumDirectTransmittance"),
-  "CPU focus normalization must mirror the GPU integrated shadow shape and floor.",
+  "CPU transmittance must mirror the GPU full-layer field while handling points inside or above the cloud layer.",
 );
 assert(
   shadowMap.includes("THREE.RGBAFormat") &&
@@ -106,7 +111,10 @@ assert(
     shadowMap.includes("depthBuffer: false") &&
     shadowMap.includes("generateMipmaps = false") &&
     shadowMap.includes("Math.round(focusCloudX / texelSize) * texelSize") &&
-    shadowMap.includes("sampleCloudShadowTransmittance(") &&
+    shadowMap.includes("sampleCloudPointDirectTransmittance(") &&
+    shadowMap.includes("focus.x,") &&
+    shadowMap.includes("focus.y,") &&
+    shadowMap.includes("focus.z,") &&
     shadowMap.includes("renderer.getViewport(this.viewport)") &&
     shadowMap.includes("renderer.getScissor(this.scissor)") &&
     shadowMap.includes("renderer.getScissorTest()") &&
@@ -115,12 +123,17 @@ assert(
     shadowMap.includes("renderer.setViewport(this.viewport)") &&
     shadowMap.includes("renderer.setScissor(this.scissor)") &&
     shadowMap.includes("renderer.setScissorTest(previousScissorTest)") &&
+    shadowMap.includes("private isContextLost(): boolean") &&
+    shadowMap.includes("this.renderer.getContext().isContextLost()") &&
+    shadowMap.includes("this.suspendSpatialShadows();") &&
+    shadowMap.includes("this.consumerUniforms.uCloudShadowEnabled.value = 1;") &&
+    shadowMap.includes("this.isContextLost() ||") &&
     shadowMap.includes("let renderTarget: THREE.WebGLRenderTarget | undefined") &&
     shadowMap.includes("geometry?.dispose()") &&
     shadowMap.includes("material?.dispose()") &&
     shadowMap.includes("renderTarget?.dispose()") &&
     shadowMap.includes("private releaseGpuResources(): void"),
-  "The transmittance target must be cheap, filtered, texel-snapped, focus-normalized, transactional, and restore render target/viewport/scissor state.",
+  "The transmittance target must be cheap, altitude-correct, filtered, texel-snapped, context-loss safe, transactional, and restore render target/viewport/scissor state.",
 );
 assert(
   sampler.includes("uCloudBaseHeight - worldPosition.y") &&
@@ -179,13 +192,16 @@ assert(
     controller.includes("this.map.update(focus, elapsedSeconds)") &&
     controller.includes("this.integrator.update(deltaSeconds)") &&
     controller.includes('disposeSafely(this.map, "Cloud shadow map")') &&
-    lighting.includes("cloud.baseHeight - focus.y") &&
-    lighting.includes("sampleCloudShadowTransmittance(") &&
+    lighting.includes("sampleCloudPointDirectTransmittance(") &&
+    lighting.includes("focus.x,") &&
+    lighting.includes("focus.y,") &&
+    lighting.includes("focus.z,") &&
     lighting.includes("SUN_DIRECTION,") &&
     !lighting.includes("sampleCloudDirectTransmittance") &&
+    !lighting.includes("sampleCloudShadowTransmittance") &&
     lighting.includes("getAppliedDirectTransmittance(): number") &&
     lighting.includes("getWeatherState(): Readonly<WorldCloudWeatherState>"),
-  "Environment ownership must update/dispose one cloud-shadow wrapper while global and spatial direct light use the same integrated focus field.",
+  "Environment ownership must update/dispose one cloud-shadow wrapper while global and spatial direct light share altitude-aware focus transmittance.",
 );
 assert(
   diagnostics.includes("Spatial cloud shadow") &&
@@ -222,5 +238,5 @@ assert(
 );
 
 console.log(
-  "[cloud-shadow] Bounded world-space transmittance, integrated focus parity, direct-only terrain/grass/water/scenic integration, full renderer-state restoration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
+  "[cloud-shadow] Bounded world-space transmittance, altitude-aware focus normalization, direct-only terrain/grass/water/scenic integration, context-loss-safe offscreen rendering, full renderer-state restoration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
 );
