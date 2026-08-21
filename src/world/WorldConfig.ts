@@ -59,6 +59,8 @@ export interface WorldConfig {
   grassMicroDetailFadeStart: number;
   /** Where micro detail is fully replaced by the flat canopy response. */
   grassMicroDetailFadeEnd: number;
+  /** Retained share of a biome's expected density below which a clump is sparse. */
+  grassSparseDensityRetentionThreshold: number;
   grassClumpRadiusScaleMin: number;
   grassClumpRadiusScaleMax: number;
   grassClumpAspectMin: number;

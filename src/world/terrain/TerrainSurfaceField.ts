@@ -71,11 +71,19 @@ export class TerrainSurfaceField {
       profileB?.accentDensity ?? profileA?.accentDensity ?? 0,
       biome.blend,
     );
+    const minimumClimateDensityRetention = THREE.MathUtils.lerp(
+      profileA?.minimumClimateDensityRetention ?? 0,
+      profileB?.minimumClimateDensityRetention ??
+        profileA?.minimumClimateDensityRetention ??
+        0,
+      biome.blend,
+    );
     sampleGrassHabitat(
       x,
       z,
       ecology,
       resolveGrassBiomeDensity(biome),
+      minimumClimateDensityRetention,
       heightMin,
       heightMax,
       drynessBias,

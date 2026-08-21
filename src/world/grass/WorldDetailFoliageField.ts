@@ -326,6 +326,7 @@ export class WorldDetailFoliageFactory {
         z,
         ecology,
         resolveGrassBiomeDensity(biomeSample),
+        profile.minimumClimateDensityRetention,
         profile.heightBand[0],
         profile.heightBand[1],
         profile.drynessBias,

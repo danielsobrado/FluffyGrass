@@ -65,12 +65,17 @@ grassNearBridgeDistance: 18
 grassNearBridgeTransitionDistance: 2
 
 # Where a blade stops being shaded as an individual leaf and starts being shaded
-# as canopy: the troughed normal flattens toward world up, per-blade tone
-# variation collapses, and flutter stops. Every near and mid layer uses this one
-# range, so the same blade at the same distance is lit the same way whichever
-# layer draws it. Keyed to the world, deliberately not to any LOD boundary.
+# as canopy: the high-frequency trough normal smooths back to the existing
+# canopy bias, per-blade tone variation collapses, and flutter stops. Every near
+# and mid layer uses this one range, so the same blade at the same distance is
+# lit the same way whichever layer draws it. Keyed to the world, deliberately
+# not to any LOD boundary.
 grassMicroDetailFadeStart: 3
 grassMicroDetailFadeEnd: 10
+
+# Sparse is relative to each biome's own expected density. This keeps normal
+# steppe/alpine open without applying the sparse-cluster suppression twice.
+grassSparseDensityRetentionThreshold: 0.55
 
 # Natural near-grass tuft distribution. Shape, tiering, and blade-plane
 # coherence are clump-scale first; blade-level variation is deliberately small.

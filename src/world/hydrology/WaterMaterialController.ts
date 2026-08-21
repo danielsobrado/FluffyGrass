@@ -23,7 +23,6 @@ import {
   WATER_VERTEX_DECLARATIONS,
   WATER_VERTEX_POSITION,
 } from "./WaterShader";
-
 export type WaterSurfaceLiveVisuals = Pick<
   WorldConfig,
   | "waterOpacity"
@@ -44,7 +43,6 @@ export type WaterSurfaceLiveVisuals = Pick<
   | "waterStoneWakeStrength"
   | "waterRoughness"
 >;
-
 export class WaterMaterialController {
   private readonly refraction = new WaterRefractionPass(0.5);
   readonly material: THREE.MeshPhysicalMaterial;
@@ -52,7 +50,6 @@ export class WaterMaterialController {
   private readonly uniforms: Record<string, THREE.IUniform>;
   private readonly detailScale: number;
   private disposed = false;
-
   constructor(config: WorldConfig, compact = false) {
     const flowNoiseTexture = createWaterFlowNoiseTexture(
       (config.seed ^ WATER_FLOW_NOISE_SEED_SALT) >>> 0,

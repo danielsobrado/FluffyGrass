@@ -13,6 +13,8 @@ import type { WorldConfig } from "../WorldConfig";
  */
 export interface GrassHabitatSample {
   density: number;
+  /** Final density as a retained share of this biome's expected baseline. */
+  densityRetention: number;
   height: number;
   dryness: number;
   clumpScale: number;
@@ -30,10 +32,12 @@ export const GRASS_CLUSTER_ACCENT = 5;
 export const GRASS_CLUSTER_ARCHETYPE_COUNT = 6;
 
 const ARCHETYPE_SALT = 0xa3;
+const GRASS_DENSITY_EPSILON = 0.0001;
 
 export function createGrassHabitatSample(): GrassHabitatSample {
   return {
     density: 1,
+    densityRetention: 1,
     height: 1,
     dryness: 0,
     clumpScale: 1,
@@ -90,6 +94,7 @@ export function sampleGrassHabitat(
   z: number,
   ecology: WorldEcologySample,
   biomeDensity: number,
+  minimumClimateDensityRetention: number,
   heightBandMin: number,
   heightBandMax: number,
   drynessBias: number,
@@ -115,10 +120,17 @@ export function sampleGrassHabitat(
     (1 - moisture) *
       config.grassDryDensityReduction *
       (0.62 + 0.38 * exposure);
+  density *= patchMul;
+  density = Math.max(
+    density,
+    biomeDensity * clamp01(minimumClimateDensityRetention),
+  );
   density *= 1 - rockiness * config.grassRockDensityReduction;
   density *= 1 - disturbance * config.grassDisturbanceDensityReduction;
-  density *= patchMul;
   target.density = clamp01(density);
+  target.densityRetention = clamp01(
+    target.density / Math.max(biomeDensity, GRASS_DENSITY_EPSILON),
+  );
 
   const biomeHeight = lerp(heightBandMin, heightBandMax, vigor * 0.55 + 0.45 * patch);
   target.height = Math.max(
@@ -169,15 +181,24 @@ export function resolveGrassClusterArchetype(
   habitat: GrassHabitatSample,
   clumpColumn: number,
   clumpRow: number,
-  seed: number,
+  config: WorldConfig,
 ): number {
-  const roll = hashLattice(clumpColumn, clumpRow, (seed ^ ARCHETYPE_SALT) >>> 0);
+  const roll = hashLattice(
+    clumpColumn,
+    clumpRow,
+    (config.seed ^ ARCHETYPE_SALT) >>> 0,
+  );
   const identityBias = (roll - 0.5) * 0.08;
   if (habitat.directionalLean + identityBias > 0.45) return GRASS_CLUSTER_FLATTENED;
   if (habitat.dryness + identityBias > 0.4 && habitat.height < 1) {
     return GRASS_CLUSTER_SHORT_DRY;
   }
-  if (habitat.density + identityBias < 0.55) return GRASS_CLUSTER_SPARSE_OPEN;
+  if (
+    habitat.densityRetention + identityBias <
+    config.grassSparseDensityRetentionThreshold
+  ) {
+    return GRASS_CLUSTER_SPARSE_OPEN;
+  }
   if (habitat.height + identityBias > 1.01 && habitat.dryness < 0.36) {
     return GRASS_CLUSTER_TALL_WET;
   }

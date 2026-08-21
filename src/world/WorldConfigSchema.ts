@@ -81,6 +81,7 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassNearBridgeTransitionDistance: POSITIVE_NUMBER_RULE,
   grassMicroDetailFadeStart: POSITIVE_NUMBER_RULE,
   grassMicroDetailFadeEnd: POSITIVE_NUMBER_RULE,
+  grassSparseDensityRetentionThreshold: { minimum: 0.05, maximum: 0.95 },
   grassClumpRadiusScaleMin: { minimum: 0.2, maximum: 0.5 },
   grassClumpRadiusScaleMax: { minimum: 0.2, maximum: 0.5 },
   grassClumpAspectMin: { minimum: 0.6, maximum: 1 },

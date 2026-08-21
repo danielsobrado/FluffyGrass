@@ -79,7 +79,7 @@ assert(
     factorySource.includes("resolveGrassClusterCoverage(") &&
     factorySource.includes("mixGrassAngle(") &&
     factorySource.includes("this.clusterProfile.leanTowardMax") &&
-    factorySource.includes("GRASS_PLACEMENT_VERSION = 9") &&
+    factorySource.includes("GRASS_PLACEMENT_VERSION = 11") &&
     factorySource.includes("placement-${GRASS_PLACEMENT_VERSION}"),
   "The tuft distribution must read its shape and morphology from configuration and version its placement cache key.",
 );

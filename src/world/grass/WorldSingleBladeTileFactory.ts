@@ -175,7 +175,7 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 9;
+const GRASS_PLACEMENT_VERSION = 11;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -506,6 +506,7 @@ export class WorldSingleBladeTileFactory {
         z,
         ecology,
         resolveGrassBiomeDensity(biomeSample),
+        biomeProfile.minimumClimateDensityRetention,
         biomeProfile.heightBand[0],
         biomeProfile.heightBand[1],
         biomeProfile.drynessBias,
@@ -517,7 +518,7 @@ export class WorldSingleBladeTileFactory {
         this.habitatSample,
         clumpColumn,
         clumpRow,
-        this.worldConfig.seed,
+        this.worldConfig,
       );
       const tallGroup = this.clumpValue(
         clumpColumn,

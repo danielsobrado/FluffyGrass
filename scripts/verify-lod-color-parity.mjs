@@ -928,37 +928,45 @@ console.log(
   `[lod-color] One-triangle blades resolve the palette at progress ${derivedRootProgress.toFixed(4)}; worst area-weighted mean delta against the per-fragment blade is ${formatPercent(worstTriangleDelta)}.`,
 );
 
-// --- Canopy fill: widened blades mix toward the shaded field mean, not an unlit hex.
+// --- Canopy fill: widened blades compensate toward their own biome and dryness.
 //
-// The mid-band width clamp pays invented coverage back in colour. That fill used
-// to be terrainGrassColor, a raw albedo 1.7–3× the luminance of the shaded
-// blade it replaced. It is now the area-weighted palette mean — the same chord
-// the one-triangle vertex palette uses — so the mix cannot lift the band.
-if (
-  !/export function setGrassCanopyColor\(/.test(paletteShaderSource) ||
-  !/setGrassCanopyColor\(/.test(nearMaterialSource)
-) {
+// The width clamp pays invented coverage back in colour. A single world canopy
+// target makes that payback distance-dependent in a multi-biome field: steppe
+// and alpine blades are pulled toward meadow precisely as their projected width
+// falls. Two bounded rows per biome retain the same vertex-only cost model while
+// letting instance dryness interpolate between the palette's healthy/dry means.
+if (!/export function setGrassCanopyColors\(/.test(paletteShaderSource)) {
   failures.push(
-    "uGrassCanopyColor must be derived through setGrassCanopyColor.",
+    "GrassPaletteShader must derive healthy and dry canopy endpoints through setGrassCanopyColors.",
   );
 }
 if (
-  /uGrassCanopyColor\.value\.set\(\s*direction\.terrainGrassColor/.test(
+  !/uniform vec3 uGrassBiomeCanopyHealthy\[GRASS_MAX_BIOMES\]/.test(
+    nearMaterialSource,
+  ) ||
+  !/uniform vec3 uGrassBiomeCanopyDry\[GRASS_MAX_BIOMES\]/.test(
+    nearMaterialSource,
+  )
+) {
+  failures.push("Sub-pixel canopy compensation must use bounded biome uniform arrays.");
+}
+if (
+  !/mix\(\s*uGrassBiomeCanopyHealthy\[grassBiomeRow\],\s*uGrassBiomeCanopyDry\[grassBiomeRow\],\s*instanceVariation\.w\s*\)/.test(
     nearMaterialSource,
   )
 ) {
   failures.push(
-    "uGrassCanopyColor must not be a raw unlit terrainGrassColor albedo.",
+    "Sub-pixel canopy compensation must index instanceBiome and interpolate with instanceVariation.w.",
   );
+}
+if (/uGrassCanopyColor/.test(nearMaterialSource)) {
+  failures.push("The obsolete single-world uGrassCanopyColor uniform must be removed.");
 }
 if (
   !/export const GRASS_CANOPY_MEAN_PROGRESS = 1 \/ 3/.test(
     paletteShaderSource,
   ) ||
   !/export const GRASS_CANOPY_MEAN_SHADE = 0\.5/.test(paletteShaderSource) ||
-  !/export const GRASS_CANOPY_MEAN_DRYNESS = VERTEX_PALETTE_REFERENCE_DRYNESS/.test(
-    paletteShaderSource,
-  ) ||
   !/export const GRASS_CANOPY_MEAN_ROOT_AO = 0\.95/.test(paletteShaderSource)
 ) {
   failures.push(
@@ -980,52 +988,107 @@ if (
 
 const GRASS_CANOPY_MEAN_PROGRESS = 1 / 3;
 const GRASS_CANOPY_MEAN_SHADE = 0.5;
-const GRASS_CANOPY_MEAN_DRYNESS = VERTEX_PALETTE_REFERENCE_DRYNESS;
 const GRASS_CANOPY_MEAN_ROOT_AO = 0.95;
+const CANOPY_DRYNESS_SAMPLES = [0, 0.25, 0.65, 1];
+const CANOPY_COVERAGE_SAMPLES = [1, 0.6, 0.2];
 
 let worstCanopyDelta = 0;
-for (const preset of Object.values(presets)) {
+for (const preset of biomeDirections) {
   const palette = createPalette(preset);
-  const fragmentMean = triangleAreaMean((progress) =>
-    luminance(
-      resolvePalette(
-        preset,
-        palette,
-        progress,
-        GRASS_CANOPY_MEAN_SHADE,
-        GRASS_CANOPY_MEAN_DRYNESS,
-        GRASS_CANOPY_MEAN_ROOT_AO,
-      ),
-    ),
-  );
-  const rootColor = resolvePalette(
+  const healthyRootColor = resolvePalette(
     preset,
     palette,
     derivedRootProgress,
     GRASS_CANOPY_MEAN_SHADE,
-    GRASS_CANOPY_MEAN_DRYNESS,
+    0,
     GRASS_CANOPY_MEAN_ROOT_AO,
   );
-  const tipColor = resolvePalette(
+  const healthyTipColor = resolvePalette(
     preset,
     palette,
     1,
     GRASS_CANOPY_MEAN_SHADE,
-    GRASS_CANOPY_MEAN_DRYNESS,
+    0,
     GRASS_CANOPY_MEAN_ROOT_AO,
   );
-  const canopy = mixColor(rootColor, tipColor, GRASS_CANOPY_MEAN_PROGRESS);
-  const delta =
-    Math.abs(luminance(canopy) - fragmentMean) / Math.max(fragmentMean, 1e-4);
-  worstCanopyDelta = Math.max(worstCanopyDelta, delta);
-  if (delta > MAX_AVERAGE_LUMINANCE_DELTA) {
-    failures.push(
-      `${preset.label} canopy fill luminance differs from the area-weighted blade mean by ${formatPercent(delta)}.`,
+  const healthyCanopy = mixColor(
+    healthyRootColor,
+    healthyTipColor,
+    GRASS_CANOPY_MEAN_PROGRESS,
+  );
+  const dryRootColor = resolvePalette(
+    preset,
+    palette,
+    derivedRootProgress,
+    GRASS_CANOPY_MEAN_SHADE,
+    1,
+    GRASS_CANOPY_MEAN_ROOT_AO,
+  );
+  const dryTipColor = resolvePalette(
+    preset,
+    palette,
+    1,
+    GRASS_CANOPY_MEAN_SHADE,
+    1,
+    GRASS_CANOPY_MEAN_ROOT_AO,
+  );
+  const dryCanopy = mixColor(
+    dryRootColor,
+    dryTipColor,
+    GRASS_CANOPY_MEAN_PROGRESS,
+  );
+  for (const dryness of CANOPY_DRYNESS_SAMPLES) {
+    const rootColor = resolvePalette(
+      preset,
+      palette,
+      derivedRootProgress,
+      GRASS_CANOPY_MEAN_SHADE,
+      dryness,
+      GRASS_CANOPY_MEAN_ROOT_AO,
     );
+    const tipColor = resolvePalette(
+      preset,
+      palette,
+      1,
+      GRASS_CANOPY_MEAN_SHADE,
+      dryness,
+      GRASS_CANOPY_MEAN_ROOT_AO,
+    );
+    const sourceMean = mixColor(rootColor, tipColor, GRASS_CANOPY_MEAN_PROGRESS);
+    // Mirror the runtime shader exactly: only the healthy/dry endpoints are
+    // uploaded, and the per-instance dryness interpolates between them.
+    const canopy = mixColor(healthyCanopy, dryCanopy, dryness);
+    for (const coverage of CANOPY_COVERAGE_SAMPLES) {
+      const compensatedRoot = mixColor(rootColor, canopy, 1 - coverage);
+      const compensatedTip = mixColor(tipColor, canopy, 1 - coverage);
+      const compensatedMean = mixColor(
+        compensatedRoot,
+        compensatedTip,
+        GRASS_CANOPY_MEAN_PROGRESS,
+      );
+      const delta =
+        Math.abs(luminance(compensatedMean) - luminance(sourceMean)) /
+        Math.max(luminance(sourceMean), 1e-4);
+      worstCanopyDelta = Math.max(worstCanopyDelta, delta);
+      if (delta > MAX_AVERAGE_LUMINANCE_DELTA) {
+        failures.push(
+          `${preset.label} canopy compensation changes mean luminance by ${formatPercent(delta)} at dryness ${dryness} and coverage ${coverage}.`,
+        );
+      }
+      if (
+        coverage === 1 &&
+        (colorDistance(compensatedRoot, rootColor) > 1e-12 ||
+          colorDistance(compensatedTip, tipColor) > 1e-12)
+      ) {
+        failures.push(
+          `${preset.label} full-coverage blades must retain their resolved palette exactly.`,
+        );
+      }
+    }
   }
 }
 console.log(
-  `[lod-color] Canopy fill is the area-weighted palette mean at shade ${GRASS_CANOPY_MEAN_SHADE}; worst luminance delta against the per-fragment blade is ${formatPercent(worstCanopyDelta)}.`,
+  `[lod-color] Biome-aware canopy compensation covers ${biomeDirections.length} shipped rows, ${CANOPY_DRYNESS_SAMPLES.length} dryness values, and ${CANOPY_COVERAGE_SAMPLES.length} coverage levels; worst mean luminance delta is ${formatPercent(worstCanopyDelta)}.`,
 );
 
 if (failures.length > 0) {

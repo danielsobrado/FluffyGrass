@@ -35,10 +35,11 @@ try {
   const { TerrainSurfaceField } = await server.ssrLoadModule(
     "/src/world/terrain/TerrainSurfaceField.ts",
   );
-  const {
-    createHydrologySample,
-  } = await server.ssrLoadModule(
+  const { createHydrologySample } = await server.ssrLoadModule(
     "/src/world/hydrology/HydrologyField.ts",
+  );
+  const { resolveGrassWaterMask } = await server.ssrLoadModule(
+    "/src/world/hydrology/HydrologyCoverage.ts",
   );
   const { RiverField, createRiverSample } = await server.ssrLoadModule(
     "/src/world/hydrology/RiverField.ts",
@@ -74,6 +75,53 @@ try {
   );
   const { WATER_VISIBLE_COVERAGE_THRESHOLD } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterMaterialTuning.ts",
+  );
+  assert(
+    typeof resolveGrassWaterMask === "function",
+    "Hydrology must expose the water-to-grass shoreline mask for regression coverage.",
+  );
+  assertClose(
+    resolveGrassWaterMask(0, 0, 0.1),
+    1,
+    "Dry ground must retain grass coverage.",
+  );
+  assert(
+    resolveGrassWaterMask(
+      WATER_VISIBLE_COVERAGE_THRESHOLD * 0.5,
+      0,
+      0.1,
+    ) > 0 &&
+      resolveGrassWaterMask(
+        WATER_VISIBLE_COVERAGE_THRESHOLD * 0.5,
+        0,
+        0.1,
+      ) < 1,
+    "Grass must feather through the sub-visible shoreline interval.",
+  );
+  assertClose(
+    resolveGrassWaterMask(WATER_VISIBLE_COVERAGE_THRESHOLD, 0, 0.1),
+    0,
+    "Grass must be fully cleared where the transparent water surface becomes visible.",
+  );
+  assertClose(
+    resolveGrassWaterMask(1, 0, 0.1),
+    0,
+    "Open water must fully reject grass.",
+  );
+  assertClose(
+    resolveGrassWaterMask(0, 1, 0.1),
+    0,
+    "The shoreline edge must reject grass even between coarse water vertices.",
+  );
+  assertClose(
+    resolveGrassWaterMask(0, 0.98, 0.1),
+    0,
+    "The full water-cell clearance footprint must reject grass.",
+  );
+  assertClose(
+    resolveGrassWaterMask(0, 0.85, 0.1),
+    1,
+    "Grass outside the shoreline feather must remain unchanged.",
   );
   const { setStoneClearanceField } = await server.ssrLoadModule(
     "/src/world/stones/StoneClearance.ts",

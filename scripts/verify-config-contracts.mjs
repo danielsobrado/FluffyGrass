@@ -38,7 +38,10 @@ const server = await createServer({
   root: REPOSITORY_ROOT,
   appType: "custom",
   logLevel: "silent",
-  server: { middlewareMode: true },
+  server: {
+    middlewareMode: true,
+    watch: null,
+  },
   optimizeDeps: { noDiscovery: true },
 });
 
@@ -126,12 +129,28 @@ try {
       world.grassFarImpostorsPerPatch === 1,
       "World config must retain the one-instance/four-card far-impostor contract.",
     );
+    assert(
+      world.grassSparseDensityRetentionThreshold === 0.55,
+      "World config must parse the shipped biome-relative sparse threshold exactly.",
+    );
     assert(grass.material.baseColor.startsWith("#"), "Grass colors must parse.");
     assert(
       runtime.desktop.shadowMapSize > 0 && runtime.compact.shadowMapSize > 0,
       "Runtime shadow-map sizes must parse.",
     );
 
+    await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "grassSparseDensityRetentionThreshold: 0.55",
+            "grassSparseDensityRetentionThreshold: 1",
+          ),
+        ),
+      /grassSparseDensityRetentionThreshold must be at most 0.95/,
+      "Sparse density retention threshold must remain a fractional biome-relative value.",
+    );
     await expectReject(
       () => load(worldLoader, `${worldSource}\nunknownProductionSetting: 1\n`),
       /Unknown world config value: unknownProductionSetting/,

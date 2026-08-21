@@ -195,7 +195,6 @@ export const GRASS_VERTEX_PALETTE_ROOT_PROGRESS_GLSL = toGlslFloat(
  */
 export const GRASS_CANOPY_MEAN_PROGRESS = 1 / 3;
 export const GRASS_CANOPY_MEAN_SHADE = 0.5;
-export const GRASS_CANOPY_MEAN_DRYNESS = VERTEX_PALETTE_REFERENCE_DRYNESS;
 export const GRASS_CANOPY_MEAN_ROOT_AO = 0.95;
 
 const paletteScratch = new THREE.Color();
@@ -271,9 +270,54 @@ export function resolveGrassPaletteColor(
   return target;
 }
 
-/** Area-weighted mean of the palette at mean shade and occlusion, after balancing. */
-export function setGrassCanopyColor(
+function resolveGrassCanopyColor(
   target: THREE.Color,
+  baseColor: THREE.Color,
+  tipColor: THREE.Color,
+  dryColor: THREE.Color,
+  dryness: number,
+  rootDarkening: number,
+  tipColorStrength: number,
+): void {
+  resolveGrassPaletteColor(
+    target,
+    baseColor,
+    tipColor,
+    dryColor,
+    GRASS_VERTEX_PALETTE_ROOT_PROGRESS,
+    GRASS_CANOPY_MEAN_SHADE,
+    dryness,
+    GRASS_CANOPY_MEAN_ROOT_AO,
+    tipColorStrength,
+    rootDarkening,
+  );
+  resolveGrassPaletteColor(
+    canopyScratchResolvedTip,
+    baseColor,
+    tipColor,
+    dryColor,
+    1,
+    GRASS_CANOPY_MEAN_SHADE,
+    dryness,
+    GRASS_CANOPY_MEAN_ROOT_AO,
+    tipColorStrength,
+    rootDarkening,
+  );
+  // (2/3)·root + (1/3)·tip: the tapering triangle's own area-weighted mean.
+  target.lerp(canopyScratchResolvedTip, GRASS_CANOPY_MEAN_PROGRESS);
+}
+
+/**
+ * Healthy and dry area-weighted palette means for one biome row.
+ *
+ * The endpoints pass through the same balancing and palette resolver as the
+ * blade itself. A vertex can therefore interpolate them with its existing
+ * per-instance dryness without introducing a second colour model. Scratch
+ * colours are module-owned so live art-direction updates allocate nothing.
+ */
+export function setGrassCanopyColors(
+  healthyTarget: THREE.Color,
+  dryTarget: THREE.Color,
   baseColor: THREE.ColorRepresentation,
   tipColor: THREE.ColorRepresentation,
   dryColor: THREE.ColorRepresentation,
@@ -288,32 +332,24 @@ export function setGrassCanopyColor(
     tipColor,
     dryColor,
   );
-  resolveGrassPaletteColor(
-    target,
+  resolveGrassCanopyColor(
+    healthyTarget,
     canopyScratchBase,
     canopyScratchTip,
     canopyScratchDry,
-    GRASS_VERTEX_PALETTE_ROOT_PROGRESS,
-    GRASS_CANOPY_MEAN_SHADE,
-    GRASS_CANOPY_MEAN_DRYNESS,
-    GRASS_CANOPY_MEAN_ROOT_AO,
-    tipColorStrength,
+    0,
     rootDarkening,
+    tipColorStrength,
   );
-  resolveGrassPaletteColor(
-    canopyScratchResolvedTip,
+  resolveGrassCanopyColor(
+    dryTarget,
     canopyScratchBase,
     canopyScratchTip,
     canopyScratchDry,
     1,
-    GRASS_CANOPY_MEAN_SHADE,
-    GRASS_CANOPY_MEAN_DRYNESS,
-    GRASS_CANOPY_MEAN_ROOT_AO,
-    tipColorStrength,
     rootDarkening,
+    tipColorStrength,
   );
-  // (2/3)·root + (1/3)·tip: the tapering triangle's own area-weighted mean.
-  target.lerp(canopyScratchResolvedTip, GRASS_CANOPY_MEAN_PROGRESS);
 }
 
 // One palette function is injected into both the real-blade and impostor

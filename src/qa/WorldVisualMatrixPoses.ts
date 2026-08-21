@@ -200,6 +200,11 @@ export function createWorldVisualPoses(
     look("g10-slope", locations.slope, 8, 2.6, -0.55, 0.7),
     look("g10-dry", locations.dry, 7, 2.3, -0.8, 0.25),
     look("g10-steppe", locations.steppe, 8, 2.4, 0.35, 0.8),
+    // Raised coverage view of a normal low-density biome. Before relative
+    // density retention, the steppe baseline itself selected SPARSE_OPEN and
+    // the cluster profile suppressed it a second time; this pose keeps that
+    // accidental baldness visible without conflating it with rocks or paths.
+    look("g10-sparse", locations.steppe, 12, 5.5, 0.35, 0.8),
     look("g10-alpine", locations.alpine, 8.5, 2.8, -0.7, 0.45),
     look("g10-grazing", meadow, 18, 1.35, 0.95, 0.3),
     look("g10-grazing-horizon", meadow, 42, 1.15, 0.98, 0.12),
@@ -254,6 +259,14 @@ function distancePoses(point: WorldVisualPoint): WorldVisualPose[] {
     ["g0-50m", 50, 8],
     ["g0-120m", 120, 16],
     ["g0-far", 250, 28],
+    // Density-boost / bridge overlap audit. One shared prefix lets the capture
+    // script collect the whole distance sequence in one browser session while
+    // FLUFFY_GRASS_LAYER isolates each population independently.
+    ["g5-06m", 6, 1.9],
+    ["g5-10m", 10, 2.2],
+    ["g5-14m", 14, 2.8],
+    ["g5-18m", 18, 3.4],
+    ["g5-22m", 22, 4],
   ];
   return bands.map(([name, distance, height]) =>
     look(name, point, distance, height, 0.72, 0.72),

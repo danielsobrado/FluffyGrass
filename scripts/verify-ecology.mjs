@@ -50,6 +50,7 @@ try {
     "/src/world/hydrology/HydrologyField.ts",
   );
   const {
+    GRASS_CLUSTER_SPARSE_OPEN,
     createGrassHabitatSample,
     resolveGrassClusterArchetype,
     sampleGrassHabitat,
@@ -226,7 +227,7 @@ try {
     disturbance: 0.05,
     rockiness: 0.04,
   };
-  sampleGrassHabitat(12, -8, healthy, 1, 0.9, 1.12, 0, 0.2, config, habitat);
+  sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, config, habitat);
   const healthyDensity = habitat.density;
   const healthyHeight = habitat.height;
   for (const name of Object.keys(habitat)) {
@@ -240,6 +241,7 @@ try {
     -8,
     { ...healthy, moisture: 0.12, fertility: 0.28 },
     1,
+    0,
     0.9,
     1.12,
     0.2,
@@ -258,6 +260,7 @@ try {
     -8,
     { ...healthy, rockiness: 0.86 },
     1,
+    0,
     0.9,
     1.12,
     0,
@@ -274,6 +277,7 @@ try {
     -8,
     { ...healthy, disturbance: 0.92 },
     1,
+    0,
     0.9,
     1.12,
     0,
@@ -285,14 +289,103 @@ try {
     habitat.density <= healthyDensity + 1e-9,
     "Disturbed ground must not grow denser than the equivalent healthy sample.",
   );
-  sampleGrassHabitat(12, -8, healthy, 1, 0.9, 1.12, 0, 0.2, config, habitat);
-  const firstArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config.seed);
-  const secondArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config.seed);
+  sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, config, habitat);
+  const firstArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config);
+  const secondArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config);
   assert(
     firstArchetype === secondArchetype &&
       firstArchetype >= 0 &&
       firstArchetype <= 5,
     "Cluster archetypes must be stable for the same clump cell.",
+  );
+
+  const normalLowDensityBiome = createGrassHabitatSample();
+  normalLowDensityBiome.density = 0.42;
+  normalLowDensityBiome.densityRetention = 1;
+  const normalLowDensityArchetype = resolveGrassClusterArchetype(
+    normalLowDensityBiome,
+    4,
+    9,
+    config,
+  );
+  assert(
+    normalLowDensityArchetype !== GRASS_CLUSTER_SPARSE_OPEN,
+    "A normal low-density biome must not become sparse solely because its baseline density is below meadow density.",
+  );
+
+  normalLowDensityBiome.density = 0.2;
+  normalLowDensityBiome.densityRetention = 0.2 / 0.42;
+  const degradedLowDensityArchetype = resolveGrassClusterArchetype(
+    normalLowDensityBiome,
+    4,
+    9,
+    config,
+  );
+  assert(
+    degradedLowDensityArchetype === GRASS_CLUSTER_SPARSE_OPEN,
+    "A genuinely degraded low-density biome must retain the sparse-open archetype.",
+  );
+
+  const climateFloor = 0.62;
+  const lowDensityBiome = 0.42;
+  const harshClimate = {
+    moisture: 0,
+    fertility: 0,
+    exposure: 1,
+    disturbance: 0,
+    rockiness: 0,
+  };
+  sampleGrassHabitat(
+    12,
+    -8,
+    harshClimate,
+    lowDensityBiome,
+    climateFloor,
+    0.72,
+    0.94,
+    0.48,
+    0.6,
+    config,
+    habitat,
+  );
+  assert(
+    habitat.density + 1e-9 >= lowDensityBiome * climateFloor,
+    "Climate and macro variation must retain the biome-level density floor.",
+  );
+  const climateOnlyDensity = habitat.density;
+  sampleGrassHabitat(
+    12,
+    -8,
+    { ...harshClimate, rockiness: 0.9 },
+    lowDensityBiome,
+    climateFloor,
+    0.72,
+    0.94,
+    0.48,
+    0.6,
+    config,
+    habitat,
+  );
+  assert(
+    habitat.density < climateOnlyDensity,
+    "Rockiness must reduce density after the climate-retention floor.",
+  );
+  sampleGrassHabitat(
+    12,
+    -8,
+    { ...harshClimate, disturbance: 0.9 },
+    lowDensityBiome,
+    climateFloor,
+    0.72,
+    0.94,
+    0.48,
+    0.6,
+    config,
+    habitat,
+  );
+  assert(
+    habitat.density < climateOnlyDensity,
+    "Disturbance must reduce density after the climate-retention floor.",
   );
 
   console.log(

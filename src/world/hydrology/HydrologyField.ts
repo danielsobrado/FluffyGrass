@@ -2,14 +2,9 @@ import type { WorldConfig } from "../WorldConfig";
 import { createLakeSample, LakeField } from "./LakeField";
 import { createRiverSample, RiverField } from "./RiverField";
 import { createWaterfallSample, WaterfallField } from "./WaterfallField";
-import {
-  resolveRiverFallStep,
-  resolveRiverSurface,
-} from "./RiverLongProfile";
-import {
-  collectCascadeSites,
-  type CascadeSite,
-} from "./WaterCascadeSites";
+import { resolveRiverFallStep, resolveRiverSurface } from "./RiverLongProfile";
+import { collectCascadeSites, type CascadeSite } from "./WaterCascadeSites";
+import { resolveGrassWaterMask } from "./HydrologyCoverage";
 
 export type { CascadeSite };
 
@@ -126,6 +121,7 @@ export class HydrologyField {
   private carvedSampleX = Number.NaN;
   private carvedSampleZ = Number.NaN;
   private carvedSampleHeight = Number.NaN;
+  private readonly grassWaterClearanceRatio: number;
 
   /**
    * `sampleRawHeight` is the terrain before carving. Hydrology needs it to read
@@ -140,6 +136,8 @@ export class HydrologyField {
     this.rivers = new RiverField(config);
     this.lakes = new LakeField(config);
     this.waterfalls = new WaterfallField(config);
+    this.grassWaterClearanceRatio = (config.chunkSize * Math.SQRT2) /
+      ((config.terrainNearResolution - 1) * config.waterHumidityRadius);
   }
 
   carveHeight(x: number, z: number, height: number): number {
@@ -229,7 +227,7 @@ export class HydrologyField {
     target.waterCoverage = clamp01(waterCoverage * (1 - emerged));
     target.waterProximity = clamp01(waterProximity);
     target.humidityBoost = clamp01(waterProximity * 0.68);
-    target.grassMask = 1 - smoothstep(waterCoverage, 0.03, 0.28);
+    target.grassMask = resolveGrassWaterMask(target.waterCoverage, target.waterProximity, this.grassWaterClearanceRatio);
     target.waterLevel = waterLevel;
     // Both components fade with the same emergence, or the packed flow vector
     // outruns the coverage it is scaled by.

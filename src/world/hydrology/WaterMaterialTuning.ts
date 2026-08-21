@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
+export { WATER_VISIBLE_COVERAGE_THRESHOLD } from "./HydrologyCoverage";
 
 export const WATER_MATERIAL_CACHE_KEY = "world-water-hydrology-v11-optics";
 export const WATER_BED_MATERIAL_CACHE_KEY = "world-water-bed-v5";
-export const WATER_VISIBLE_COVERAGE_THRESHOLD = 0.012;
 export const WATER_FLOW_NOISE_SEED_SALT = 0x6c8e9cf5;
 export const WATER_BED_NOISE_SEED_SALT = 0x3b1f7a2d;
 export const WATER_CASCADE_CACHE_KEY = "world-water-cascade-v2-sill";

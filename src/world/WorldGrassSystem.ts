@@ -288,7 +288,7 @@ export class WorldGrassSystem {
   ) {
     this.material = new GrassNearMaterial({
       name: "world-grass-mid-material",
-      cacheKey: `grass-near-material-v26-mid-vertex-palette-no-sheen-${
+      cacheKey: `grass-near-material-v27-mid-vertex-palette-no-sheen-${
         profile.compact ? "sine" : "noise"
       }`,
       // The mid layer draws exactly the blades the near layer drops.
@@ -1104,6 +1104,7 @@ export class WorldGrassSystem {
         z,
         ecology,
         resolveGrassBiomeDensity(biomeSample),
+        biomeProfile.minimumClimateDensityRetention,
         biomeProfile.heightBand[0],
         biomeProfile.heightBand[1],
         biomeProfile.drynessBias,

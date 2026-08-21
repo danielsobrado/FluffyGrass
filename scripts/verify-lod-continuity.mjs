@@ -769,8 +769,13 @@ assert(
   "Gust fronts must scale the configured bend down, never add to it.",
 );
 assert(
-  nearMaterial.includes("grassWidthAxis * (grassSide * uGrassBladeCurvature)"),
-  "Blades must carry a normal curved across their width.",
+  nearMaterial.includes(
+    "grassSide * uGrassBladeCurvature * grassMicroFade",
+  ) &&
+    !nearMaterial.includes(
+      "normalize(mat3(modelViewMatrix) * vec3(0.0, 1.0, 0.0))",
+    ),
+  "Blade trough normals must fade without pulling the complete blade normal toward world up.",
 );
 // Both single-blade tiles and mid patches must apply the macro field, at the
 // same world position and from the same functions, or the terms would show up

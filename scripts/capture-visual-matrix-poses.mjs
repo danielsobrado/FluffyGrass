@@ -5,15 +5,31 @@
 // Usage: node scripts/capture-visual-matrix-poses.mjs <substring> <outDir> [devPort]
 // Requires a dev server already running (npm run dev -- --port <devPort>).
 //
-// Env overrides: FLUFFY_BROWSER (browser binary), FLUFFY_CDP_PORT.
+// Env overrides: FLUFFY_BROWSER (browser binary), FLUFFY_CDP_PORT,
+// FLUFFY_GRASS_LAYER (near/base/boost/bridge/mid/far isolation),
+// FLUFFY_NO_TERRAIN (hide terrain and water through the isolation harness),
+// FLUFFY_NO_WATER (hide only water through the isolation harness).
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const WANTED = (process.argv[2] ?? "s0-formation").toLowerCase();
+const RAW_WANTED = (process.argv[2] ?? "s0-formation").toLowerCase();
+const EXACT_POSE = RAW_WANTED.startsWith("=");
+const WANTED = EXACT_POSE ? RAW_WANTED.slice(1) : RAW_WANTED;
 const OUT_DIR = process.argv[3] ?? ".tmp-screenshots/poses";
 const DEV_PORT = parsePort(process.argv[4] ?? 5221, "dev server");
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1`;
+const GRASS_LAYER = process.env.FLUFFY_GRASS_LAYER;
+const GRASS_LAYER_QUERY = GRASS_LAYER
+  ? `&grassLayer=${encodeURIComponent(GRASS_LAYER)}`
+  : "";
+const NO_TERRAIN_QUERY = process.env.FLUFFY_NO_TERRAIN === "1"
+  ? "&noTerrain=1"
+  : "";
+const NO_WATER_QUERY = process.env.FLUFFY_NO_WATER === "1"
+  ? "&noWater=1"
+  : "";
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_WATER_QUERY}`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
@@ -24,7 +40,7 @@ const BROWSER =
   process.env.FLUFFY_BROWSER ??
   "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe";
 const PROFILE_TAG = `chrome-profile-capture-${PORT}-owned`;
-const PROFILE = `${process.cwd().split("\\").join("/")}/.tmp-screenshots/${PROFILE_TAG}`;
+const PROFILE = `${tmpdir().split("\\").join("/")}/${PROFILE_TAG}`;
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -227,40 +243,78 @@ await sleep(2000);
 
 const matches = poses
   .map((name, index) => ({ name, index }))
-  .filter((entry) => entry.name.toLowerCase().includes(WANTED));
+  .filter((entry) => {
+    const candidate = entry.name.toLowerCase();
+    return EXACT_POSE ? candidate === WANTED : candidate.includes(WANTED);
+  });
 console.log(`poses: ${poses.length}, matched "${WANTED}": ${matches.length}`);
 if (matches.length === 0) {
   console.log(poses.join("\n"));
   throw new Error(`no pose matching ${WANTED}`);
 }
 
+const captures = [];
+
 for (const { name, index } of matches) {
   console.log(`\n=== ${name} (index ${index}) ===`);
+  // Establish the exact camera transform before measuring. The first sample is
+  // deliberately discarded because its newly visible near tiles may be queued.
   await evaluate(
     `window.__FLUFFY_WORLD_VISUAL_QA__.apply(${index}).then(() => true)`,
   );
   let settled = false;
+  let stableSamples = 0;
+  let lastGrassQueue = Number.NaN;
+  let lastNearResident = Number.NaN;
   for (let attempt = 0; attempt < 150; attempt += 1) {
     const text = (await evaluate(`document.body.innerText || ''`)) ?? "";
     const terrain = /Terrain\s+(\d+)\s*\+(\d+)/.exec(text);
     const stones = /Stones\s+(\d+)\s*·\s*(\d+)\s*\+(\d+)/.exec(text);
-    // Both counters must actually parse. Treating an unmatched HUD as zero is
+    const grass = /pending\s+(\d+)/.exec(text);
+    const nearResident = /Near resident\s+([\d,.]+)([kM]?)/.exec(text);
+    // All counters must actually parse. Treating an unmatched HUD as zero is
     // how the first run "settled" on a world that had not started streaming.
     const terrainQueue = terrain ? Number(terrain[2]) : Number.NaN;
     const stoneQueue = stones ? Number(stones[3]) : Number.NaN;
+    // Some isolation modes omit the visibility line entirely. A stable sentinel
+    // still lets near-residency prove that the camera has stopped rebuilding.
+    const grassQueue = grass ? Number(grass[1]) : -1;
+    const nearResidentCount = nearResident
+      ? Number(nearResident[1].replaceAll(",", "")) *
+        (nearResident[2] === "M" ? 1_000_000 : nearResident[2] === "k" ? 1_000 : 1)
+      : Number.NaN;
     if (attempt % 20 === 19) {
       console.log(
-        `  settling ${attempt}s terrain +${terrainQueue} stone +${stoneQueue}`,
+        `  settling ${attempt}s terrain +${terrainQueue} stone +${stoneQueue} grass +${grassQueue} resident ${nearResidentCount}`,
       );
     }
-    if (terrainQueue === 0 && stoneQueue === 0) {
-      await sleep(6000);
+    if (
+      terrainQueue === 0 &&
+      stoneQueue === 0 &&
+      grassQueue === lastGrassQueue &&
+      nearResidentCount === lastNearResident
+    ) {
+      stableSamples += 1;
+    } else {
+      stableSamples = 0;
+    }
+    lastGrassQueue = grassQueue;
+    lastNearResident = nearResidentCount;
+    if (stableSamples >= 5) {
+      await sleep(3000);
       settled = true;
       break;
     }
     await sleep(1000);
   }
   console.log(settled ? "  settled" : "  WARNING: never settled");
+  const captureJson = await evaluate(
+    `window.__FLUFFY_WORLD_VISUAL_QA__.apply(${index}).then((capture) => JSON.stringify(capture))`,
+  );
+  if (!captureJson) {
+    throw new Error(`visual matrix did not return capture telemetry for ${name}`);
+  }
+  captures.push(JSON.parse(captureJson));
   const isolationHud =
     (await evaluate(
       `document.querySelector('#world-isolation-hud')?.textContent || ''`,
@@ -282,6 +336,30 @@ for (const { name, index } of matches) {
     console.log("  wrote", out);
   }
 }
+
+const runtimeReportJson = await evaluate(
+  `JSON.stringify(window.__FLUFFY_WORLD_VISUAL_QA__.report || null)`,
+);
+const runtimeReport = runtimeReportJson ? JSON.parse(runtimeReportJson) : null;
+const reportPath = `${OUT_DIR}/capture-report-${WANTED.replaceAll(/[^a-z0-9-]+/g, "-")}.json`;
+writeFileSync(
+  reportPath,
+  `${JSON.stringify(
+    {
+      version: 1,
+      sourceRevision: captures[0]?.hud?.match(/v[\d.]+\+([0-9a-f]+)/)?.[1] ?? null,
+      requestedPoseFilter: WANTED,
+      grassLayer: GRASS_LAYER ?? "combined",
+      terrainVisible: process.env.FLUFFY_NO_TERRAIN !== "1",
+      waterVisible: process.env.FLUFFY_NO_WATER !== "1",
+      runtime: runtimeReport,
+      captures,
+    },
+    null,
+    2,
+  )}\n`,
+);
+console.log("wrote", reportPath);
 
 socket.close();
 cleanupBrowser();

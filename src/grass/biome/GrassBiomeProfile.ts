@@ -23,6 +23,7 @@ export interface GrassBiomeProfile {
   tipColorStrength: number;
   worldShare: number;
   density: number;
+  minimumClimateDensityRetention: number;
   heightBand: readonly [number, number];
   widthBand: readonly [number, number];
   drynessBias: number;
@@ -67,7 +68,7 @@ export const GRASS_BIOME_HEIGHT_BAND_LIMIT = Object.freeze([0.7, 1.14] as const)
 export const GRASS_BIOME_WIDTH_BAND_LIMIT = Object.freeze([0.76, 1.1] as const);
 export const GRASS_BIOME_WIND_DAMPING_LIMIT = Object.freeze([0.7, 1] as const);
 
-export const GRASS_BIOME_VERSION = 3;
+export const GRASS_BIOME_VERSION = 4;
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
@@ -220,6 +221,12 @@ function validate(key: string, raw: Record<string, unknown>): GrassBiomeProfile 
       `Biome ${key} worldShare`,
     ),
     density: assertFiniteInRange(raw.density, 0.0001, 1, `Biome ${key} density`),
+    minimumClimateDensityRetention: assertFiniteInRange(
+      raw.minimumClimateDensityRetention,
+      0,
+      1,
+      `Biome ${key} minimumClimateDensityRetention`,
+    ),
     heightBand: assertBand(
       raw.heightBand,
       GRASS_BIOME_HEIGHT_BAND_LIMIT,

@@ -8,12 +8,21 @@ const MAX_ABS_POSITION_VALUE = 1_000_000;
 const MIN_CAMERA_NEAR = 0.01;
 const MAX_CAMERA_NEAR = 100;
 
-export type GrassIsolationLayer = "near" | "mid" | "far";
+export type GrassIsolationLayer =
+  | "near"
+  | "near-base"
+  | "near-boost"
+  | "near-bridge"
+  | "near-detail"
+  | "near-ultra"
+  | "mid"
+  | "far";
 
 interface IsolationOptions {
   enabled: boolean;
   noGrass: boolean;
   noTerrain: boolean;
+  noWater: boolean;
   noStones: boolean;
   noScenic: boolean;
   noCharacter: boolean;
@@ -222,6 +231,11 @@ class IsolationState {
         return;
       }
 
+      if (this.options.noWater && isWaterObject(object)) {
+        this.hideObject(object);
+        return;
+      }
+
       if (this.options.noStones && stoneObject) {
         this.hideObject(object);
         return;
@@ -239,7 +253,7 @@ class IsolationState {
       if (
         this.options.noGrass ||
         (this.options.grassLayer !== undefined &&
-          grassLayer !== this.options.grassLayer)
+          !matchesGrassLayer(this.options.grassLayer, grassLayer))
       ) {
         this.hideObject(object);
       }
@@ -507,6 +521,7 @@ class IsolationState {
     const flags: string[] = [];
     if (this.options.noGrass) flags.push("noGrass");
     if (this.options.noTerrain) flags.push("noTerrain");
+    if (this.options.noWater) flags.push("noWater");
     if (this.options.noStones) flags.push("noStones");
     if (this.options.noScenic) flags.push("noScenic");
     if (this.options.noCharacter) flags.push("noCharacter");
@@ -642,6 +657,7 @@ function resolveIsolationOptions(params: URLSearchParams): IsolationOptions {
     enabled,
     noGrass: enabled && params.get("noGrass") === "1",
     noTerrain: enabled && params.get("noTerrain") === "1",
+    noWater: enabled && params.get("noWater") === "1",
     noStones: enabled && params.get("noStones") === "1",
     noScenic: enabled && params.get("noScenic") === "1",
     noCharacter: enabled && params.get("noCharacter") === "1",
@@ -656,9 +672,26 @@ function resolveIsolationOptions(params: URLSearchParams): IsolationOptions {
 function resolveGrassLayer(
   value: string | null,
 ): GrassIsolationLayer | undefined {
-  return value === "near" || value === "mid" || value === "far"
-    ? value
-    : undefined;
+  switch (value) {
+    case "near":
+    case "near-base":
+    case "near-boost":
+    case "near-bridge":
+    case "near-detail":
+    case "near-ultra":
+    case "mid":
+    case "far":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function matchesGrassLayer(
+  requested: GrassIsolationLayer,
+  actual: GrassIsolationLayer,
+): boolean {
+  return requested === actual || (requested === "near" && actual.startsWith("near-"));
 }
 
 function resolveCameraNear(value: string | null): number | undefined {
@@ -692,6 +725,36 @@ function classifyGrassObject(
     return "mid";
   }
   if (
+    objectName.startsWith("world-grass-near-density-boost") ||
+    joinedMaterials.includes("world-grass-near-density-boost-material")
+  ) {
+    return "near-boost";
+  }
+  if (
+    objectName.startsWith("world-grass-near-bridge") ||
+    joinedMaterials.includes("world-grass-near-bridge-material")
+  ) {
+    return "near-bridge";
+  }
+  if (
+    objectName.startsWith("world-grass-ultra-near-base-detail") ||
+    joinedMaterials.includes("world-grass-base-detail-material")
+  ) {
+    return "near-detail";
+  }
+  if (
+    objectName.startsWith("world-grass-ultra-near-blades") ||
+    joinedMaterials.includes("world-grass-ultra-near-single-blade-material")
+  ) {
+    return "near-ultra";
+  }
+  if (
+    objectName.startsWith("world-grass-single-blades") ||
+    joinedMaterials.includes("world-grass-single-blade-material")
+  ) {
+    return "near-base";
+  }
+  if (
     objectName.startsWith("world-grass-") ||
     objectName.includes("detail-foliage") ||
     joinedMaterials.includes("grass") ||
@@ -710,6 +773,11 @@ function isTerrainObject(object: THREE.Object3D): boolean {
     name === "world-horizon-shell" ||
     name === "world-water-cascades"
   );
+}
+
+function isWaterObject(object: THREE.Object3D): boolean {
+  const name = object.name.toLowerCase();
+  return name.startsWith("water-") || name === "world-water-cascades";
 }
 
 function isStoneObject(object: THREE.Object3D): boolean {

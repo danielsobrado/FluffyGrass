@@ -23,7 +23,7 @@ import {
   GRASS_PALETTE_GLSL,
   GRASS_VERTEX_PALETTE_ROOT_PROGRESS_GLSL,
   setBalancedGrassPaletteColors,
-  setGrassCanopyColor,
+  setGrassCanopyColors,
 } from "./GrassPaletteShader";
 import {
   GRASS_BIOME_PROFILES,
@@ -36,7 +36,7 @@ const DEFAULT_TRAIL_WOBBLE_AMPLITUDE = 0.16;
 
 /** How far the normal tilts towards each edge of the blade's trough. */
 const DEFAULT_BLADE_CURVATURE = 0.55;
-const DEFAULT_SHEEN_STRENGTH = 0.09;
+const DEFAULT_SHEEN_STRENGTH = 0.035;
 const DEFAULT_SHEEN_POWER = 42;
 const DEFAULT_SHEEN_FADE_DISTANCE = 18;
 
@@ -683,14 +683,20 @@ grassPaletteColor = mix(
   uGrassBiomeTip[grassBiomeRow],
   grassGustNoise * uGrassGustTipBoost * grassProgress
 );
-vGrassColor = mix(grassPaletteColor, uGrassCanopyColor, 1.0 - grassCoverage);
+vec3 grassBiomeCanopy = mix(
+  uGrassBiomeCanopyHealthy[grassBiomeRow],
+  uGrassBiomeCanopyDry[grassBiomeRow],
+  instanceVariation.w
+);
+vGrassColor = mix(grassPaletteColor, grassBiomeCanopy, 1.0 - grassCoverage);
 vGrassProgress = grassProgress;
 vGrassDryness = instanceVariation.w;
 `;
 
 const VERTEX_PALETTE_DECLARATIONS = `
 ${BIOME_PALETTE_DECLARATIONS}
-uniform vec3 uGrassCanopyColor;
+uniform vec3 uGrassBiomeCanopyHealthy[GRASS_MAX_BIOMES];
+uniform vec3 uGrassBiomeCanopyDry[GRASS_MAX_BIOMES];
 varying vec3 vGrassColor;
 varying float vGrassProgress;
 varying float vGrassDryness;
@@ -816,7 +822,8 @@ const FRAGMENT_SHEEN_OUTPUT = `
       : normal;
     grassSheen = directionalLights[0].color * (
       pow(saturate(dot(normal, grassHalfVector)), uGrassSheenPower) *
-      uGrassSheenStrength * vGrassSheen.x
+      uGrassSheenStrength * vGrassSheen.x *
+      smoothstep(0.3, 0.92, vGrassProgress)
     );
   }
 `;
@@ -949,6 +956,12 @@ export class GrassNearMaterial {
       value: createBiomeColorRows(this.colorControls.dryColor),
     },
     uGrassBiomeShade: { value: createBiomeShadeRows(0.55, 0.5) },
+    uGrassBiomeCanopyHealthy: {
+      value: createBiomeColorRows(this.colorControls.baseColor),
+    },
+    uGrassBiomeCanopyDry: {
+      value: createBiomeColorRows(this.colorControls.dryColor),
+    },
     // Backlight tint only. The transmission term is a fraction of a fraction,
     // so it reads the art direction's tip colour rather than spending three
     // more varyings to carry a per-biome one into the fragment stage.
@@ -969,7 +982,6 @@ export class GrassNearMaterial {
     uGrassDetailNearDistance: { value: 0 },
     uGrassDetailTransitionDistance: { value: 1 },
     uGrassArtDensityScale: { value: 1 },
-    uGrassCanopyColor: { value: new THREE.Color("#4d923f") },
     uGrassBladeCurvature: { value: DEFAULT_BLADE_CURVATURE },
     uGrassSheenStrength: { value: DEFAULT_SHEEN_STRENGTH },
     uGrassSheenPower: { value: DEFAULT_SHEEN_POWER },
@@ -1282,6 +1294,8 @@ export class GrassNearMaterial {
     const tip = this.uniforms.uGrassBiomeTip.value;
     const dry = this.uniforms.uGrassBiomeDry.value;
     const shade = this.uniforms.uGrassBiomeShade.value;
+    const canopyHealthy = this.uniforms.uGrassBiomeCanopyHealthy.value;
+    const canopyDry = this.uniforms.uGrassBiomeCanopyDry.value;
     setBalancedGrassPaletteColors(
       base[0],
       tip[0],
@@ -1292,6 +1306,15 @@ export class GrassNearMaterial {
     );
     shade[0].set(this.artRootDarkening, this.artTipColorStrength);
     this.uniforms.uGrassTipColor.value.copy(tip[0]);
+    setGrassCanopyColors(
+      canopyHealthy[0],
+      canopyDry[0],
+      this.colorControls.baseColor,
+      this.colorControls.tipColor,
+      this.colorControls.dryColor,
+      this.artRootDarkening,
+      this.artTipColorStrength,
+    );
 
     for (let row = 1; row < GRASS_MAX_BIOMES; row += 1) {
       const profile = GRASS_BIOME_PROFILES[row];
@@ -1300,6 +1323,8 @@ export class GrassNearMaterial {
         tip[row].copy(tip[0]);
         dry[row].copy(dry[0]);
         shade[row].copy(shade[0]);
+        canopyHealthy[row].copy(canopyHealthy[0]);
+        canopyDry[row].copy(canopyDry[0]);
         continue;
       }
       setBalancedGrassPaletteColors(
@@ -1311,20 +1336,16 @@ export class GrassNearMaterial {
         profile.dryColor,
       );
       shade[row].set(profile.rootDarkening, profile.tipColorStrength);
+      setGrassCanopyColors(
+        canopyHealthy[row],
+        canopyDry[row],
+        profile.baseColor,
+        profile.tipColor,
+        profile.dryColor,
+        profile.rootDarkening,
+        profile.tipColorStrength,
+      );
     }
-
-    // Widened sub-pixel blades mix toward this. It has to be the palette at the
-    // field's mean progress and occlusion, not a raw albedo: the unlit hex was
-    // 1.7–3× brighter than the shaded blade it replaced, and that lift sat in
-    // the 45–62 m band where the width clamp pays invented coverage back.
-    setGrassCanopyColor(
-      this.uniforms.uGrassCanopyColor.value,
-      this.colorControls.baseColor,
-      this.colorControls.tipColor,
-      this.colorControls.dryColor,
-      this.artRootDarkening,
-      this.artTipColorStrength,
-    );
   }
 
   /**

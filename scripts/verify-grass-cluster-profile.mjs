@@ -47,6 +47,7 @@ function readSourceNumber(source, key) {
 const worldSource = read("public/config/world.yaml");
 const grassSource = read("public/config/grass.yaml");
 const profileSource = read("src/world/grass/GrassClusterProfile.ts");
+const habitatSource = read("src/world/grass/GrassHabitatField.ts");
 const tuningSource = read("src/world/grass/GrassClusterProfileTuning.ts");
 const nearFactorySource = read("src/world/grass/WorldSingleBladeTileFactory.ts");
 const patchFactorySource = read("src/world/grass/WorldGrassPatchGeometryFactory.ts");
@@ -60,6 +61,10 @@ const config = {
   planeCoherence: readYamlNumber(worldSource, "grassClumpPlaneCoherence"),
   edgeCoverage: readYamlNumber(worldSource, "grassClumpEdgeCoverage"),
   heightJitter: readYamlNumber(worldSource, "grassBladeHeightJitter"),
+  sparseDensityRetentionThreshold: readYamlNumber(
+    worldSource,
+    "grassSparseDensityRetentionThreshold",
+  ),
   bladeLeanMin: readYamlNumber(grassSource, "bladeLeanMin"),
   bladeLeanMax: readYamlNumber(grassSource, "bladeLeanMax"),
 };
@@ -84,6 +89,14 @@ assert(
 assert(
   config.heightJitter > 0 && config.heightJitter <= 0.1,
   "Blade height jitter must remain subordinate to clump and tier height.",
+);
+assert(
+  config.sparseDensityRetentionThreshold > 0 &&
+    config.sparseDensityRetentionThreshold < 1 &&
+    habitatSource.includes("densityRetention") &&
+    habitatSource.includes("config.grassSparseDensityRetentionThreshold") &&
+    !/habitat\.density\s*\+\s*identityBias\s*<\s*0\.55/.test(habitatSource),
+  "Sparse-open classification must compare biome-relative density retention against world configuration.",
 );
 
 for (const token of [
@@ -112,7 +125,7 @@ assert(
     shapedLeanPattern.test(nearFactorySource) &&
     leanDistancePattern.test(nearFactorySource) &&
     nearFactorySource.includes("CLUMP_PLANE_SALT") &&
-    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 9"),
+    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 11"),
   "Near grass must consume the shared clump profile, including absolute flattened-rest lean, and version its placement cache.",
 );
 
