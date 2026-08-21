@@ -4,6 +4,12 @@ export const WORLD_CLOUD_TIME_WRAP_SECONDS = 86_400;
 
 export type CloudWeatherRegime = "clear" | "fair" | "overcast" | "storm";
 
+export interface CloudSunDirection {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
 const FBM_ROTATION_COS = 0.8;
 const FBM_ROTATION_SIN = 0.6;
 const FBM_FREQUENCY = 2.02;
@@ -65,6 +71,38 @@ export function sampleCloudDirectTransmittance(
   return Math.max(
     config.minimumDirectTransmittance,
     1 - density * config.shadowStrength,
+  );
+}
+
+/** CPU equivalent of the GPU shadow pass at one cloud-plane position. */
+export function sampleCloudShadowTransmittance(
+  config: Readonly<RuntimeCloudConfig>,
+  compact: boolean,
+  cloudPlaneX: number,
+  cloudPlaneZ: number,
+  timeSeconds: number,
+  sunDirection: CloudSunDirection,
+): number {
+  if (!config.enabled) {
+    return 1;
+  }
+  const stepCount = Math.max(1, Math.trunc(config.shadowSteps));
+  const sunVertical = Math.max(sunDirection.y, 0.08);
+  let opticalDepth = 0;
+  for (let sampleIndex = 0; sampleIndex < stepCount; sampleIndex += 1) {
+    const heightFraction = (sampleIndex + 0.5) / stepCount;
+    const distance = (heightFraction * config.thickness) / sunVertical;
+    const sampleX = cloudPlaneX + sunDirection.x * distance;
+    const sampleZ = cloudPlaneZ + sunDirection.z * distance;
+    opticalDepth +=
+      sampleCloudDensity(config, compact, sampleX, sampleZ, timeSeconds) *
+      sampleCloudVerticalProfile(config, sampleX, sampleZ, heightFraction);
+  }
+  opticalDepth /= stepCount;
+  const physicalTransmittance = Math.exp(-opticalDepth * config.extinction);
+  return Math.max(
+    config.minimumDirectTransmittance,
+    Math.min(1, mix(1, physicalTransmittance, config.shadowStrength)),
   );
 }
 
@@ -144,6 +182,23 @@ function sampleCloudDensity(
     threshold + config.softness,
     field,
   );
+}
+
+function sampleCloudVerticalProfile(
+  config: Readonly<RuntimeCloudConfig>,
+  worldX: number,
+  worldZ: number,
+  heightFraction: number,
+): number {
+  const topNoise = valueNoise(
+    worldX * config.macroScale * 0.61 + 23.7,
+    worldZ * config.macroScale * 0.61 - 18.2,
+  );
+  const top = mix(0.62, 1, topNoise);
+  const flatBase = smoothstep(0, 0.07, heightFraction);
+  const irregularTop =
+    1 - smoothstep(Math.max(0.12, top - 0.16), top, heightFraction);
+  return flatBase * irregularTop;
 }
 
 function fbm(x: number, y: number, octaves: 2 | 3): number {
