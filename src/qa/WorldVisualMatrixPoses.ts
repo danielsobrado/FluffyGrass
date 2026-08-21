@@ -158,11 +158,25 @@ function stoneTruthPoses(): WorldVisualPose[] {
   ];
 }
 
+function cloudShadowPoses(
+  locations: WorldVisualLocations,
+  meadow: WorldVisualPoint,
+): WorldVisualPose[] {
+  return [
+    look("cs0-black-region-water-regression", locations.waterEdge, 28, 3.2, 0.82, 0.28),
+    look("cs2-cloud-shadow-meadow", meadow, 48, 4.5, 0.82, 0.28),
+    look("cs3-cloud-shadow-slope", locations.slope, 30, 8, -0.55, 0.7),
+    look("cs6-cloud-shadow-elevated", meadow, 72, 26, 0.82, 0.28),
+    topDown("cs6-cloud-shadow-water", locations.lakeDeep, 20),
+  ];
+}
+
 export function createWorldVisualPoses(
   locations: WorldVisualLocations,
 ): WorldVisualPose[] {
   const meadow = locations.meadow;
   return [
+    ...cloudShadowPoses(locations, meadow),
     ...stoneTruthPoses(),
     ...abMeadowPoses(),
     ...distancePoses(meadow),
