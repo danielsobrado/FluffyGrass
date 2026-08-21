@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import {
   resolveCloudWeatherRegime,
-  sampleCloudShadowTransmittance,
+  sampleCloudPointDirectTransmittance,
   sampleCloudWeatherAmount,
   type CloudWeatherRegime,
 } from "../world/sky/WorldCloudWeather";
@@ -71,19 +71,20 @@ export class WorldCloudEnvironmentLighting {
     elapsedSeconds: number,
   ): void {
     const cloud = this.profile.cloud;
+    const targetTransmittance = sampleCloudPointDirectTransmittance(
+      cloud,
+      this.profile.compact,
+      focus.x,
+      focus.y,
+      focus.z,
+      elapsedSeconds,
+      SUN_DIRECTION,
+    );
     const heightToCloud = Math.max(cloud.baseHeight - focus.y, 0);
     const cloudHeightAlongSun =
       heightToCloud / Math.max(SUN_DIRECTION.y, 0.01);
     const sampleX = focus.x + SUN_DIRECTION.x * cloudHeightAlongSun;
     const sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun;
-    const targetTransmittance = sampleCloudShadowTransmittance(
-      cloud,
-      this.profile.compact,
-      sampleX,
-      sampleZ,
-      elapsedSeconds,
-      SUN_DIRECTION,
-    );
     const targetWeather = sampleCloudWeatherAmount(
       cloud,
       sampleX,
