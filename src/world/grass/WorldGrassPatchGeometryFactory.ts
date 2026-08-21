@@ -24,9 +24,7 @@ export interface WorldGrassPatchGeometryVariants {
    * Every mid blade's LOD dither, descending, in the order the triangles were
    * written. The mid shader keeps a blade when its dither is *above* a
    * distance-derived threshold, so with the blades in this order the survivors
-   * are always a leading run and a batch's draw can be cut with `drawRange`
-   * instead of submitting a quarter of a million vertices that collapse to zero
-   * area. One array per variant, indexed alongside {@link mid}.
+   * are always a leading run and a batch's draw can be cut with `drawRange`.
    */
   midSortedDithers: Float32Array[];
   bladeVariants: readonly (readonly WorldGrassBladeSpec[])[];
@@ -34,12 +32,6 @@ export interface WorldGrassPatchGeometryVariants {
   midBladesPerPatch: number;
 }
 
-/**
- * The dither the mid vertex shader derives for a blade, minus the per-instance
- * term the mid material is compiled without. Shade and phase are properties of
- * the geometry, so this is fully known at build time — which is the whole point
- * of dropping the instance term.
- */
 export function resolveMidBladeDither(
   spec: WorldGrassBladeSpec,
   ditherSeed: number,
@@ -52,13 +44,12 @@ export function resolveMidBladeDither(
 const TWO_PI = Math.PI * 2;
 const VARIANT_SEED_STEP = 0x9e3779b9;
 const POSITION_JITTER = 0.44;
-const UNDERLAYER_HEIGHT_MIN = 0.36;
-const UNDERLAYER_HEIGHT_MAX = 0.58;
-const MAIN_HEIGHT_MIN = 0.82;
-const MAIN_HEIGHT_MAX = 0.96;
-const ACCENT_HEIGHT_MIN = 1.12;
-const ACCENT_HEIGHT_MAX = 1.22;
-const ACCENT_FRACTION_SCALE = 0.22;
+const UNDERLAYER_WIDTH_SCALE = 0.8;
+const MAIN_WIDTH_SCALE = 1;
+const ACCENT_WIDTH_SCALE = 0.88;
+const UNDERLAYER_LEAN_SCALE = 0.64;
+const MAIN_LEAN_SCALE = 1;
+const ACCENT_LEAN_SCALE = 1.06;
 
 export class WorldGrassPatchGeometryFactory {
   createLodVariants(
@@ -94,23 +85,15 @@ export class WorldGrassPatchGeometryFactory {
     const bladeVariants: WorldGrassBladeSpec[][] = [];
 
     try {
-      // Only the mid geometry is built. The near clump variant used to be
-      // generated alongside it, but the streamed near clump mesh is gone and,
-      // at grassMidBladeFraction 1 with unit mid scales, the two geometries held
-      // exactly the same blade set anyway.
       for (let variant = 0; variant < variantCount; variant += 1) {
         const specs = this.createBladeSpecs(
           nearBladesPerPatch,
           world.grassPatchSize,
-          world.grassUnderlayerFraction,
           seed + variant * VARIANT_SEED_STEP,
           grass,
+          world,
         );
         bladeVariants.push(specs);
-        // lodRank selects *which* blades the mid layer keeps when it is allowed
-        // fewer than the source set; the dither order decides in what order they
-        // are written, which is what makes the draw truncatable. The two are
-        // independent, so both are applied.
         const midSpecs = [...specs]
           .sort((left, right) => left.lodRank - right.lodRank)
           .slice(0, midBladesPerPatch)
@@ -143,9 +126,9 @@ export class WorldGrassPatchGeometryFactory {
   private createBladeSpecs(
     count: number,
     patchSize: number,
-    underlayerFraction: number,
     seed: number,
     grass: GrassGeometryConfig,
+    world: WorldConfig,
   ): WorldGrassBladeSpec[] {
     const random = new SeededRandom(seed);
     const columns = Math.ceil(Math.sqrt(count));
@@ -154,18 +137,34 @@ export class WorldGrassPatchGeometryFactory {
     const cellDepth = patchSize / rows;
     const halfPatch = patchSize * 0.5;
     const specs: WorldGrassBladeSpec[] = [];
+    const understoryShare = world.grassUnderlayerFraction;
+    const remainingShare = Math.max(1 - understoryShare, Number.EPSILON);
+    const accentProbability = Math.min(
+      1,
+      world.grassAccentBladeShare / remainingShare,
+    );
+    const heightJitter = world.grassBladeHeightJitter;
 
     for (let index = 0; index < count; index += 1) {
       const column = index % columns;
       const row = Math.floor(index / columns);
-      const underlayer = random.next() < underlayerFraction;
-      const accent =
-        !underlayer && random.next() < underlayerFraction * ACCENT_FRACTION_SCALE;
-      const layerHeight = underlayer
-        ? random.range(UNDERLAYER_HEIGHT_MIN, UNDERLAYER_HEIGHT_MAX)
+      const underlayer = random.next() < understoryShare;
+      const accent = !underlayer && random.next() < accentProbability;
+      const tierHeightScale = underlayer
+        ? world.grassUnderstoryHeightScale
         : accent
-          ? random.range(ACCENT_HEIGHT_MIN, ACCENT_HEIGHT_MAX)
-          : random.range(MAIN_HEIGHT_MIN, MAIN_HEIGHT_MAX);
+          ? world.grassAccentHeightScale
+          : world.grassMainHeightScale;
+      const widthScale = underlayer
+        ? UNDERLAYER_WIDTH_SCALE
+        : accent
+          ? ACCENT_WIDTH_SCALE
+          : MAIN_WIDTH_SCALE;
+      const leanScale = underlayer
+        ? UNDERLAYER_LEAN_SCALE
+        : accent
+          ? ACCENT_LEAN_SCALE
+          : MAIN_LEAN_SCALE;
       const rootX =
         -halfPatch +
         (column + 0.5) * cellWidth +
@@ -182,14 +181,13 @@ export class WorldGrassPatchGeometryFactory {
         rootZ,
         facingAngle,
         leanAngle,
-        lean:
-          random.range(grass.bladeLeanMin, grass.bladeLeanMax) *
-          (underlayer ? 0.62 : accent ? 1.08 : 1),
+        lean: random.range(grass.bladeLeanMin, grass.bladeLeanMax) * leanScale,
         height:
-          random.range(grass.bladeHeightMin, grass.bladeHeightMax) * layerHeight,
+          random.range(grass.bladeHeightMin, grass.bladeHeightMax) *
+          tierHeightScale *
+          random.range(1 - heightJitter, 1 + heightJitter),
         width:
-          random.range(grass.bladeWidthMin, grass.bladeWidthMax) *
-          (underlayer ? 0.78 : accent ? 0.86 : 1),
+          random.range(grass.bladeWidthMin, grass.bladeWidthMax) * widthScale,
         phase: random.next(),
         shade: underlayer
           ? random.range(0, 0.2)

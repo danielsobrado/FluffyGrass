@@ -65,6 +65,21 @@ export function validateWorldConfig(config: WorldConfig): void {
         "of a blade's heading to independent randomness.",
     );
   }
+  if (config.grassUnderlayerFraction + config.grassAccentBladeShare > 0.78) {
+    throw new Error(
+      "Grass understory and accent shares must leave at least 22% for the main tier.",
+    );
+  }
+  if (
+    !(
+      config.grassUnderstoryHeightScale < config.grassMainHeightScale &&
+      config.grassMainHeightScale < config.grassAccentHeightScale
+    )
+  ) {
+    throw new Error(
+      "Grass tier height scales must increase from understory to main to accent.",
+    );
+  }
   if (
     config.detailFoliageClumpWorldSize >
     config.detailFoliageColonyWorldSize * 0.5
