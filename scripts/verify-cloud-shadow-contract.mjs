@@ -107,13 +107,20 @@ assert(
     shadowMap.includes("generateMipmaps = false") &&
     shadowMap.includes("Math.round(focusCloudX / texelSize) * texelSize") &&
     shadowMap.includes("sampleCloudShadowTransmittance(") &&
+    shadowMap.includes("renderer.getViewport(this.viewport)") &&
+    shadowMap.includes("renderer.getScissor(this.scissor)") &&
+    shadowMap.includes("renderer.getScissorTest()") &&
+    shadowMap.includes("renderer.setScissorTest(false)") &&
     shadowMap.includes("renderer.setRenderTarget(previousTarget)") &&
+    shadowMap.includes("renderer.setViewport(this.viewport)") &&
+    shadowMap.includes("renderer.setScissor(this.scissor)") &&
+    shadowMap.includes("renderer.setScissorTest(previousScissorTest)") &&
     shadowMap.includes("let renderTarget: THREE.WebGLRenderTarget | undefined") &&
     shadowMap.includes("geometry?.dispose()") &&
     shadowMap.includes("material?.dispose()") &&
     shadowMap.includes("renderTarget?.dispose()") &&
     shadowMap.includes("private releaseGpuResources(): void"),
-  "The transmittance target must be cheap, filtered, texel-snapped, focus-normalized, transactional, and renderer-state safe.",
+  "The transmittance target must be cheap, filtered, texel-snapped, focus-normalized, transactional, and restore render target/viewport/scissor state.",
 );
 assert(
   sampler.includes("uCloudBaseHeight - worldPosition.y") &&
@@ -215,5 +222,5 @@ assert(
 );
 
 console.log(
-  "[cloud-shadow] Bounded world-space transmittance, integrated focus parity, direct-only terrain/grass/water/scenic integration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
+  "[cloud-shadow] Bounded world-space transmittance, integrated focus parity, direct-only terrain/grass/water/scenic integration, full renderer-state restoration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
 );
