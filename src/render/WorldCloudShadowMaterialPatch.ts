@@ -5,7 +5,7 @@ import {
 } from "../world/sky/WorldCloudShadowUniforms";
 import { WORLD_CLOUD_SHADOW_SAMPLER_GLSL } from "../world/sky/WorldCloudShadowSamplerShader";
 
-const PATCH_CACHE_KEY = "world-cloud-shadow-v2";
+const PATCH_CACHE_KEY = "world-cloud-shadow-v3";
 const WORLD_POSITION_VARYING = "varying vec3 vWorldCloudPosition;";
 const CLOUD_SCALE_VARYING = "varying float vWorldCloudDirectScale;";
 const WORLD_POSITION_VERTEX = `
@@ -23,6 +23,14 @@ export function patchStandardCloudShadowMaterial(
 ): void {
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey;
+  const waterSurface = material.name === "world-hydrology-water-material";
+  const waterBed = material.name === "world-hydrology-water-bed-material";
+  const directScaleName = waterSurface
+    ? "waterCloudDirectScale"
+    : waterBed
+      ? "waterBedCloudDirectScale"
+      : "worldCloudDirectScale";
+
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     Object.assign(shader.uniforms, asWorldCloudShadowUniformRecord(uniforms));
@@ -35,6 +43,16 @@ export function patchStandardCloudShadowMaterial(
         "#include <project_vertex>",
         `#include <project_vertex>${WORLD_POSITION_VERTEX}`,
       );
+
+    const genericScale =
+      waterSurface || waterBed
+        ? ""
+        : createDirectScaleDeclaration(
+            "worldCloudDirectScale",
+            "vWorldCloudPosition",
+            "distance(cameraPosition, vWorldCloudPosition)",
+            responseStrength,
+          );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
@@ -43,35 +61,49 @@ export function patchStandardCloudShadowMaterial(
       .replace(
         "#include <lights_fragment_end>",
         `#include <lights_fragment_end>
-float worldCloudDirectScale = mix(
-  1.0,
-  resolveRelativeCloudDirectLight(sampleWorldCloudTransmittance(
-    vWorldCloudPosition,
-    distance(cameraPosition, vWorldCloudPosition)
-  )),
-  ${responseStrength.toFixed(3)}
-);
-reflectedLight.directDiffuse *= worldCloudDirectScale;
-reflectedLight.directSpecular *= worldCloudDirectScale;`,
+${genericScale}
+reflectedLight.directDiffuse *= ${directScaleName};
+reflectedLight.directSpecular *= ${directScaleName};`,
       );
+
     if (material.name === "world-terrain-material") {
       shader.fragmentShader = shader.fragmentShader.replace(
-        "outgoingLight += directionalLights[0].color * (",
-        "outgoingLight += directionalLights[0].color * worldCloudDirectScale * (",
+        "outgoingLight += directionalLights[0].color *\n      (",
+        "outgoingLight += directionalLights[0].color * worldCloudDirectScale *\n      (",
       );
     }
-    if (material.name === "world-hydrology-water-material") {
+    if (waterSurface) {
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "float waterDistance = distance(cameraPosition, vWaterWorldPosition);",
           `float waterDistance = distance(cameraPosition, vWaterWorldPosition);
-float waterCloudDirectScale = resolveRelativeCloudDirectLight(
-  sampleWorldCloudTransmittance(vWaterWorldPosition, waterDistance)
-);`,
+${createDirectScaleDeclaration(
+  "waterCloudDirectScale",
+  "vWaterWorldPosition",
+  "waterDistance",
+  responseStrength,
+)}`,
         )
         .replace(
           "float waterGlint = waterSunSpecular * waterGlintBreakup *",
           "float waterGlint = waterSunSpecular * waterGlintBreakup * waterCloudDirectScale *",
+        );
+    }
+    if (waterBed) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "float waterBedShallow =",
+          `${createDirectScaleDeclaration(
+            "waterBedCloudDirectScale",
+            "vWaterBedWorldPosition",
+            "distance(cameraPosition, vWaterBedWorldPosition)",
+            responseStrength,
+          )}
+float waterBedShallow =`,
+        )
+        .replace(
+          "  uWaterCausticStrength;",
+          "  uWaterCausticStrength * waterBedCloudDirectScale;",
         );
     }
   };
@@ -154,4 +186,20 @@ float worldCloudDirectScale = resolveRelativeCloudDirectLight(
   material.customProgramCacheKey = () =>
     `${material.type}|${material.name}|${PATCH_CACHE_KEY}|grass-custom`;
   material.needsUpdate = true;
+}
+
+function createDirectScaleDeclaration(
+  target: string,
+  worldPosition: string,
+  cameraDistance: string,
+  responseStrength: number,
+): string {
+  return `float ${target} = mix(
+  1.0,
+  resolveRelativeCloudDirectLight(sampleWorldCloudTransmittance(
+    ${worldPosition},
+    ${cameraDistance}
+  )),
+  ${responseStrength.toFixed(3)}
+);`;
 }
