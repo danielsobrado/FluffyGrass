@@ -16,12 +16,14 @@ interface DebugState {
   spatial: boolean;
   direct: boolean;
   sunShadows: boolean;
+  terrain: boolean;
   grass: boolean;
   water: boolean;
 }
 
 export class WorldCloudShadowDebugPanel {
   private readonly state: DebugState;
+  private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
   private readonly root?: HTMLDivElement;
   private readonly readout?: HTMLPreElement;
   private readonly canvas?: HTMLCanvasElement;
@@ -46,6 +48,7 @@ export class WorldCloudShadowDebugPanel {
       params.has("cloudShadows") ||
       params.has("cloudDirect") ||
       params.has("sunShadows") ||
+      params.has("terrain") ||
       params.has("grass") ||
       params.has("water");
     return requested
@@ -62,6 +65,7 @@ export class WorldCloudShadowDebugPanel {
       spatial: params.get("cloudShadows") !== "off",
       direct: params.get("cloudDirect") !== "off",
       sunShadows: params.get("sunShadows") !== "off",
+      terrain: params.get("terrain") !== "off",
       grass: params.get("grass") !== "off",
       water: params.get("water") !== "off",
     };
@@ -98,6 +102,7 @@ export class WorldCloudShadowDebugPanel {
     this.addToggle(root, "Spatial cloud shadow", "spatial");
     this.addToggle(root, "Global cloud direct", "direct");
     this.addToggle(root, "Sun shadow map", "sunShadows");
+    this.addToggle(root, "Terrain", "terrain");
     this.addToggle(root, "Grass", "grass");
     this.addToggle(root, "Water", "water");
 
@@ -155,6 +160,10 @@ export class WorldCloudShadowDebugPanel {
       return;
     }
     this.disposed = true;
+    for (const [object, visible] of this.originalVisibility) {
+      object.visible = visible;
+    }
+    this.originalVisibility.clear();
     this.root?.remove();
     this.pixels = undefined;
     this.imageData = undefined;
@@ -174,7 +183,7 @@ export class WorldCloudShadowDebugPanel {
     input.style.marginRight = "6px";
     input.addEventListener("change", () => {
       this.state[key] = input.checked;
-      if (key === "grass" || key === "water") {
+      if (key === "terrain" || key === "grass" || key === "water") {
         this.applyVisibilityState();
       } else {
         this.applyLightingState();
@@ -193,26 +202,38 @@ export class WorldCloudShadowDebugPanel {
   private applyVisibilityState(): void {
     this.scene.traverse((object) => {
       const mesh = object as THREE.Mesh;
-      if (!mesh.isMesh) {
+      if (!mesh.isMesh || !mesh.material) {
         return;
       }
       const materials = Array.isArray(mesh.material)
         ? mesh.material
         : [mesh.material];
-      const materialNames = materials.map((material) => material?.name ?? "");
-      if (
-        object.name.startsWith("world-grass-") ||
-        materialNames.some((name) => name.startsWith("world-grass-"))
-      ) {
-        object.visible = this.state.grass;
+      let isTerrain = false;
+      let isGrass = object.name.startsWith("world-grass-");
+      let isWater = object.name.startsWith("world-hydrology-water");
+      for (const material of materials) {
+        const name = material?.name ?? "";
+        isTerrain ||= name === "world-terrain-material";
+        isGrass ||= name.startsWith("world-grass-");
+        isWater ||= name === "world-hydrology-water-material";
       }
-      if (
-        object.name.startsWith("world-hydrology-water") ||
-        materialNames.includes("world-hydrology-water-material")
-      ) {
-        object.visible = this.state.water;
+      if (isTerrain) {
+        this.setDebugVisibility(object, this.state.terrain);
+      } else if (isGrass) {
+        this.setDebugVisibility(object, this.state.grass);
+      } else if (isWater) {
+        this.setDebugVisibility(object, this.state.water);
       }
     });
+  }
+
+  private setDebugVisibility(object: THREE.Object3D, enabled: boolean): void {
+    if (!this.originalVisibility.has(object)) {
+      this.originalVisibility.set(object, object.visible);
+    }
+    object.visible = enabled
+      ? (this.originalVisibility.get(object) ?? true)
+      : false;
   }
 
   private updatePreview(resolution: number): void {
