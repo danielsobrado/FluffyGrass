@@ -5,6 +5,20 @@ import { WorldCloudShadowSceneIntegrator } from "../world/sky/WorldCloudShadowSc
 import { WorldCloudShadowDebugPanel } from "./WorldCloudShadowDebugPanel";
 import type { WorldCloudEnvironmentLighting } from "./WorldCloudEnvironmentLighting";
 
+export interface WorldCloudShadowControllerDiagnostics {
+  enabled: boolean;
+  resolution: number;
+  worldSize: number;
+  focusTransmittance: number;
+  originX: number;
+  originZ: number;
+  patchedMaterials: number;
+  globalDirectTransmittance: number;
+  appliedDirectTransmittance: number;
+  weatherAmount: number;
+  weatherRegime: "clear" | "fair" | "overcast" | "storm";
+}
+
 export class WorldCloudShadowController {
   private readonly map: WorldCloudShadowMap;
   private readonly integrator: WorldCloudShadowSceneIntegrator;
@@ -51,21 +65,20 @@ export class WorldCloudShadowController {
     if (this.disposed) {
       return;
     }
-    this.map.update(
-      focus,
-      elapsedSeconds,
-      this.lighting.getAppliedDirectTransmittance(),
-    );
+    this.map.update(focus, elapsedSeconds);
     this.integrator.update(deltaSeconds);
     this.debug?.update(deltaSeconds);
   }
 
-  getDiagnostics(): ReturnType<WorldCloudShadowMap["getDiagnostics"]> & {
-    patchedMaterials: number;
-  } {
+  getDiagnostics(): WorldCloudShadowControllerDiagnostics {
+    const weather = this.lighting.getWeatherState();
     return {
       ...this.map.getDiagnostics(),
       ...this.integrator.getDiagnostics(),
+      globalDirectTransmittance: weather.directTransmittance,
+      appliedDirectTransmittance: this.lighting.getAppliedDirectTransmittance(),
+      weatherAmount: weather.amount,
+      weatherRegime: weather.regime,
     };
   }
 
