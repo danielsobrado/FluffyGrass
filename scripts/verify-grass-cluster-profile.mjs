@@ -101,12 +101,16 @@ for (const token of [
   assert(profileSource.includes(token), `GrassClusterProfile must retain ${token}.`);
 }
 
+const shapedLeanPattern =
+  /const shapedLean = THREE\.MathUtils\.lerp\(\s*sharedLean,\s*leanMax,\s*this\.clusterProfile\.leanTowardMax,\s*\);/;
+const leanDistancePattern =
+  /const leanDistance = THREE\.MathUtils\.clamp\(\s*shapedLean \*\s*this\.clusterProfile\.leanScale \*/;
 assert(
   nearFactorySource.includes("resolveGrassClusterProfile(") &&
     nearFactorySource.includes("resolveGrassClusterCoverage(") &&
     nearFactorySource.includes("mixGrassAngle(") &&
-    nearFactorySource.includes("this.clusterProfile.leanTowardMax") &&
-    nearFactorySource.includes("THREE.MathUtils.lerp(") &&
+    shapedLeanPattern.test(nearFactorySource) &&
+    leanDistancePattern.test(nearFactorySource) &&
     nearFactorySource.includes("CLUMP_PLANE_SALT") &&
     nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 9"),
   "Near grass must consume the shared clump profile, including absolute flattened-rest lean, and version its placement cache.",
