@@ -364,10 +364,11 @@ const maximumPresetNearFade = Math.max(
   ),
 );
 
-assert(desktopDensity === 72 && patchDesktopDensity === 72, "Desktop LOD density must remain 72 blades/m².");
+assert(desktopDensity === 84 && patchDesktopDensity === 84, "Desktop LOD density must remain 84 blades/m².");
 // Compact density is now a reviewed ceiling rather than a fixed value: the
 // mobile plan's A/B lowered it from 48 to 40 blades/m² (32 opened visible
-// ground holes at third-person distance). Desktop is unchanged and stays exact.
+// ground holes at third-person distance). Desktop stays exact after its own
+// reviewed canopy-closure pass.
 assert(
   compactDensity === patchCompactDensity &&
     compactDensity <= 48 &&
@@ -385,7 +386,7 @@ const patchesPerBatch = (patchesPerAxis / batchesPerAxis) ** 2;
 assert(patchesPerBatch === 64, "Each render batch must contain at most 64 source patches.");
 
 for (const [profile, density, expectedBladesPerPatch] of [
-  ["desktop", patchDesktopDensity, 1152],
+  ["desktop", patchDesktopDensity, 1344],
   ["compact", patchCompactDensity, Math.round(patchSize ** 2 * patchCompactDensity)],
 ]) {
   const bladesPerPatch = Math.round(patchSize ** 2 * density);
@@ -398,7 +399,7 @@ for (const [profile, density, expectedBladesPerPatch] of [
   assert(midBladesPerPatch === bladesPerPatch, `${profile} mid blades no longer retain the full patch source.`);
   assert(farInstancesPerBatch === 64, `${profile} far-instance batch count changed.`);
   assert(farTrianglesPerBatch === 512, `${profile} far-subpatch triangle count changed.`);
-  assert(midTrianglesPerBatch + farTrianglesPerBatch <= (profile === "desktop" ? 74240 : 49664), `${profile} mid/far batch triangle ceiling exceeded.`);
+  assert(midTrianglesPerBatch + farTrianglesPerBatch <= (profile === "desktop" ? 87000 : 49664), `${profile} mid/far batch triangle ceiling exceeded.`);
 }
 
 const nearParameters = {
@@ -427,9 +428,9 @@ const maximumNearBaselineRatio = Math.max(
 // The density-boost layer carries the extra population out to 20 m on
 // one-triangle blades (residency 14 + 6 + 2 = 22 m). That is the cost of
 // closing the 6-7 m density cliff without spending six-triangle silhouettes
-// past 7 m. Ceiling raised from 1,000,000 to 1,250,000 to leave headroom
-// around the measured desktop max; compact stays at 600,000.
-assert(desktopNear.maximum <= 1_250_000, `Desktop near-field triangle ceiling exceeded: ${desktopNear.maximum}.`);
+// past 7 m. The canopy-closure pass raises the reviewed desktop ceiling to
+// 1,450,000; compact stays at 600,000.
+assert(desktopNear.maximum <= 1_450_000, `Desktop near-field triangle ceiling exceeded: ${desktopNear.maximum}.`);
 assert(compactNear.maximum <= 600_000, `Compact near-field triangle ceiling exceeded: ${compactNear.maximum}.`);
 assert(desktopNear.average / desktopNear.legacyAverage <= 0.36, "Desktop near-field optimization regressed.");
 assert(compactNear.average / compactNear.legacyAverage <= 0.36, "Compact near-field optimization regressed.");
@@ -470,8 +471,8 @@ for (const [key, direction] of Object.entries(presets)) {
     const ratio = currentSubmission / baselineSubmission;
     submissionRatios.push(ratio);
     assert(
-      Number.isFinite(ratio) && ratio <= 1.02,
-      `${direction.label} ${profile} mid/far submission ratio ${ratio.toFixed(3)} exceeds 1.02.`,
+      Number.isFinite(ratio) && ratio <= 1.18,
+      `${direction.label} ${profile} mid/far submission ratio ${ratio.toFixed(3)} exceeds 1.18.`,
     );
   }
 }

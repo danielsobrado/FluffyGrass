@@ -89,6 +89,9 @@ uniform vec3 uTerrainSoilDry;
 uniform vec3 uTerrainPathSoil;
 uniform vec3 uTerrainPathDust;
 uniform vec3 uTerrainPathGrit;
+uniform vec3 uTerrainStoneContactSoil;
+uniform float uTerrainStoneContactReach;
+uniform float uTerrainStoneContactDarkening;
 varying vec3 vTerrainWorldPosition;
 varying vec3 vTerrainPath;
 varying vec4 vTerrainEcology;
@@ -302,6 +305,53 @@ terrainSurfaceColor = mix(
   terrainCanopy,
   terrainFarMerge * terrainCoverage
 );
+
+/**
+ * Stone contact ecology.
+ *
+ * terrainStoneClearance already thins the grass around a footprint, but thinner
+ * grass over unchanged ground is exactly what makes a stone read as a prop set
+ * down on the meadow: the soil it stands in is the same soil as everywhere
+ * else. A stone that has sat here has changed what it sits in - compacted and
+ * shaded earth against the body, mineral grit worked up in the rim where runoff
+ * comes off it.
+ *
+ * The clearance mask arrives as a vertex attribute, so this band is only as
+ * sharp as the terrain grid, which is metres between vertices at near
+ * resolution. The noise below is not decoration: it is what stops that
+ * interpolation reading as a smooth painted halo. A crisp centimetre-scale
+ * compaction rim is not reachable from here and wants per-stone geometry.
+ *
+ * The noise is windowed by proximity rather than added flat. Added flat it
+ * swings +-0.35 everywhere, and every patch of open meadow that happened to sit
+ * high in the noise would come out as bare disturbed soil.
+ */
+float terrainStoneProximity = 1.0 - terrainStoneClearance;
+float terrainStoneEdge = smoothstep(0.0, 0.22, terrainStoneProximity);
+float terrainStoneContact = saturate(
+  terrainStoneProximity * uTerrainStoneContactReach +
+    ((terrainBaseNoise.r - 0.5) * 0.42 +
+      (terrainMesoNoise.g - 0.5) * 0.30 * terrainMesoWeight) *
+      terrainStoneEdge
+);
+if (terrainStoneContact > 0.001) {
+  float terrainStoneDisturbed = smoothstep(0.16, 0.70, terrainStoneContact);
+  float terrainStoneCompacted = smoothstep(0.54, 0.96, terrainStoneContact);
+  // Damp ground holds the compaction dark; dry ground gives up pale mineral
+  // fines instead, which is the same distinction the shoreline mix makes.
+  vec3 terrainStoneSoil = mix(
+    mix(uTerrainStoneContactSoil, uTerrainPathGrit, 0.34),
+    uTerrainStoneContactSoil,
+    terrainHumidity
+  );
+  terrainSurfaceColor = mix(
+    terrainSurfaceColor,
+    terrainStoneSoil,
+    saturate(terrainStoneDisturbed * 0.58 + terrainStoneCompacted * 0.32)
+  );
+  terrainSurfaceColor *= 1.0 -
+    uTerrainStoneContactDarkening * terrainStoneCompacted;
+}
 
 float terrainDryFibrePulse = smoothstep(0.68, 0.9, terrainMicroNoise.a);
 float terrainDryFibreAmount = terrainDryness * terrainCoverage *

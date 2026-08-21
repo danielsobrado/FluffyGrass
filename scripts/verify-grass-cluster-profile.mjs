@@ -125,8 +125,20 @@ assert(
     shapedLeanPattern.test(nearFactorySource) &&
     leanDistancePattern.test(nearFactorySource) &&
     nearFactorySource.includes("CLUMP_PLANE_SALT") &&
-    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 11"),
+    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 12") &&
+    nearFactorySource.includes("STONE_FRINGE_UNDERSTORY_SHARE") &&
+    nearFactorySource.includes("isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1"),
   "Near grass must consume the shared clump profile, including absolute flattened-rest lean, and version its placement cache.",
+);
+
+assert(
+  readSourceNumber(patchFactorySource, "UNDERLAYER_WIDTH_SCALE") > 1 &&
+    readSourceNumber(nearFactorySource, "UNDERSTORY_WIDTH_SCALE") > 1,
+  "Understory blades must carry more width than the readable main tier at near and middle LODs.",
+);
+assert(
+  readSourceNumber(tuningSource, "HABITAT_UNDERSTORY_BLEND") <= 0.35,
+  "Habitat variation must not erase the authored healthy-meadow carpet share.",
 );
 
 for (const key of [

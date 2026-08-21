@@ -5,7 +5,9 @@ const CACHE_LIMIT = 512;
 const EXPANDED_CACHE_LIMIT = 256;
 const CELL_KEY_MARGIN = 4;
 const EDGE_EPSILON = 1e-6;
-const CLEARANCE_INNER_SCALE = 0.72;
+// The fully bare region stays within the physical contact footprint. Most of
+// the configured feather can therefore be occupied by a short grass fringe.
+const CLEARANCE_INNER_SCALE = 0.84;
 
 interface StoneClearanceCandidate {
   x: number;

@@ -260,7 +260,7 @@ export class GrassLodController {
    * what the shader keeps. It can only ever submit blades the shader would have
    * dropped, never drop one it would have kept.
    *
-   * Without this the batch under the camera submitted all 64 instances x 1152
+   * Without this the batch under the camera submitted all 64 instances x 1344
    * blades regardless of how many collapse, which was the single largest vertex
    * cost in the scene. The trim only stays cheap if the near fade still covers
    * that 32 m batch: if `near + transition` is shorter than the batch, the

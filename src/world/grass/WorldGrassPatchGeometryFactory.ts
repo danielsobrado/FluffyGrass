@@ -44,7 +44,9 @@ export function resolveMidBladeDither(
 const TWO_PI = Math.PI * 2;
 const VARIANT_SEED_STEP = 0x9e3779b9;
 const POSITION_JITTER = 0.44;
-const UNDERLAYER_WIDTH_SCALE = 0.8;
+// The short tier carries canopy mass at middle distance. Making it narrower
+// than the readable main tier exposed soil even when every source root survived.
+const UNDERLAYER_WIDTH_SCALE = 1.15;
 const MAIN_WIDTH_SCALE = 1;
 const ACCENT_WIDTH_SCALE = 0.88;
 const UNDERLAYER_LEAN_SCALE = 0.64;

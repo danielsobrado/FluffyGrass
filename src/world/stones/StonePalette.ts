@@ -67,13 +67,24 @@ function palette(
   };
 }
 
+/**
+ * Stone values sit under the meadow, not above it.
+ *
+ * The lit tones and especially the edge accents were pale enough that a stone
+ * carried more light than any grass around it, and a body brighter than its
+ * surroundings reads as chalk laid on the field however well its facets are
+ * shaded. The lights come down and the edge accents come down further, since a
+ * worn arris catches light without turning white. Each family also holds a
+ * mineral bias - sage green, warm sediment, warm neutral granite - so that
+ * lowering the values does not collapse the four into one grey.
+ */
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
     "#41483b",
-    "#6d7661",
-    "#98a486",
-    "#c6cfaa",
+    "#68715c",
+    "#8b9679",
+    "#a8b18c",
     "#566f41",
     "#9da276",
     0.82,
@@ -81,9 +92,9 @@ export const STONE_PALETTES = {
   steppeTan: palette(
     "steppe-tan",
     "#51462f",
-    "#807157",
-    "#a99a78",
-    "#d2c3a2",
+    "#796b52",
+    "#9c8e6d",
+    "#b4a684",
     "#72764a",
     "#b4aa72",
     0.78,
@@ -91,9 +102,9 @@ export const STONE_PALETTES = {
   graniteGrey: palette(
     "granite-grey",
     "#41433f",
-    "#676a63",
-    "#8f9289",
-    "#b9bcb3",
+    "#63645d",
+    "#85857b",
+    "#a09d92",
     "#586f47",
     "#a6ad8d",
     0.86,
@@ -101,9 +112,9 @@ export const STONE_PALETTES = {
   mossy: palette(
     "mossy",
     "#394337",
-    "#5d6a54",
-    "#839374",
-    "#b2c09d",
+    "#586550",
+    "#798768",
+    "#97a381",
     "#526d41",
     "#929d70",
     0.72,

@@ -7,8 +7,10 @@ bladeSegments: 3
 clumpRadius: 0.72
 bladeHeightMin: 0.46
 bladeHeightMax: 0.88
-bladeWidthMin: 0.052
-bladeWidthMax: 0.098
+# Carry more leaf area in the lower body while the geometric tip remains a
+# point. This closes the canopy more efficiently than adding more roots.
+bladeWidthMin: 0.060
+bladeWidthMax: 0.113
 bladeLeanMin: 0.025
 bladeLeanMax: 0.28
 # Total turn of the blade's rest arc, root to tip, in radians. The height above

@@ -14,7 +14,8 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v9-canopy-mean";
+const MATERIAL_CACHE_KEY =
+  "world-terrain-ecosystem-surface-v10-stone-contact";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -69,6 +70,15 @@ export class TerrainMaterialController {
         uTerrainPathSoil: { value: new THREE.Color("#574833") },
         uTerrainPathDust: { value: new THREE.Color("#8d7350") },
         uTerrainPathGrit: { value: new THREE.Color("#a1968a") },
+        /**
+         * Ground worked over by a stone sitting in it. Darker and less red than
+         * uTerrainSoilRich because it is soil in permanent shade holding
+         * moisture, not open topsoil; the dry side of the mix in the shader
+         * borrows uTerrainPathGrit for the mineral fines instead.
+         */
+        uTerrainStoneContactSoil: { value: new THREE.Color("#33291f") },
+        uTerrainStoneContactReach: { value: 1.35 },
+        uTerrainStoneContactDarkening: { value: 0.26 },
         /**
          * Cliff rock. Two tones close together on purpose: a wide span between
          * a near-black and a pale grey turns every wisp of the continuous noise

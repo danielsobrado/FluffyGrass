@@ -71,5 +71,9 @@ export const NORMAL_ACCENT_SHARE_SCALE = 1.8;
 export const SPARSE_ACCENT_SHARE_SCALE = 1.35;
 export const WET_ACCENT_SHARE_SCALE = 2.7;
 export const ACCENT_SHARE_SCALE = 3.2;
-export const DEFAULT_GAP_STRENGTH = 0.12;
-export const HABITAT_UNDERSTORY_BLEND = 0.55;
+// Healthy meadow cores should read as one canopy. Dry, flattened, and sparse
+// archetypes retain their much stronger authored interior openings below.
+export const DEFAULT_GAP_STRENGTH = 0.05;
+// Preserve the authored meadow carpet. Habitat still opens or thickens it,
+// but should not pull a healthy 58% baseline back into the mid-forties.
+export const HABITAT_UNDERSTORY_BLEND = 0.3;

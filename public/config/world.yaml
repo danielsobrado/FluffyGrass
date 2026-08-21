@@ -32,12 +32,12 @@ grassPatchSize: 4
 grassRenderBatchesPerAxis: 2
 # One instance now contains four genuine 2x2 m subpatch impostors.
 grassFarImpostorsPerPatch: 1
-grassBladesPerSquareMeterDesktop: 72
+grassBladesPerSquareMeterDesktop: 84
 grassBladesPerSquareMeterCompact: 40
 
 # Closest LOD uses individually instanced blades in streamed eight-metre tiles.
 grassNearTileSize: 8
-grassNearBladesPerSquareMeterDesktop: 72
+grassNearBladesPerSquareMeterDesktop: 84
 grassNearBladesPerSquareMeterCompact: 40
 
 # An additional single-blade layer doubles density, and the segmented blade
@@ -79,15 +79,15 @@ grassSparseDensityRetentionThreshold: 0.55
 
 # Natural near-grass tuft distribution. Shape, tiering, and blade-plane
 # coherence are clump-scale first; blade-level variation is deliberately small.
-grassClumpRadiusScaleMin: 0.30
-grassClumpRadiusScaleMax: 0.50
+grassClumpRadiusScaleMin: 0.40
+grassClumpRadiusScaleMax: 0.62
 grassClumpAspectMin: 0.70
 grassClumpAspectMax: 1.38
 grassClumpRadialExponent: 0.60
 grassClumpDominantDirectionWeight: 0.60
 grassClumpRadialDirectionWeight: 0.14
 grassClumpPlaneCoherence: 0.24
-grassClumpEdgeCoverage: 0.82
+grassClumpEdgeCoverage: 0.90
 grassAccentBladeShare: 0.055
 grassUnderstoryHeightScale: 0.46
 grassMainHeightScale: 0.83
@@ -127,7 +127,7 @@ detailFoliagePathFringeStrength: 0.18
 # Underlayer is the tuft body: raising it (and thinning the mid-height band in
 # placement) is what makes 5-15 m grass read as masses instead of needles.
 grassMidBladeFraction: 1
-grassUnderlayerFraction: 0.48
+grassUnderlayerFraction: 0.58
 grassPatchJitter: 0.3
 
 # Character footfalls and landing pulse.
@@ -269,7 +269,9 @@ stoneClusterShoulderRatio: 0.78
 stoneClusterHaloRatio: 1.12
 stoneClusterDensityResponse: 6
 stoneSingletonChance: 0.17
-stoneGrassClearanceFeather: 0.4
+# Keep the bare contact strip inside the stone footprint and recover quickly
+# through a short-grass fringe instead of exposing a broad soil halo.
+stoneGrassClearanceFeather: 0.24
 stoneRadiusDesktop: 6
 stoneRadiusCompact: 3
 # Chipped geometry is only useful in the near field; compact keeps it to one

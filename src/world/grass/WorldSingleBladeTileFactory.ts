@@ -125,6 +125,17 @@ export interface WorldSingleBladeTileBuildResult {
 const TWO_PI = Math.PI * 2;
 const MIN_SUITABILITY = 0.08;
 /**
+ * Height a blade keeps where it stands hard against a stone footprint.
+ *
+ * The stone clearance mask already decides how many blades survive near a
+ * stone, but the ones that do survive were coming up at full height right to
+ * the rock, which draws a clean line between two intact materials and is a
+ * large part of why stones read as set on the meadow. Ground in a stone's rim
+ * is compacted and in shade for most of the day, and the grass in it is
+ * shorter, not just sparser.
+ */
+const STONE_CONTACT_HEIGHT_FLOOR = 0.46;
+/**
  * Cells per axis in a tuft. Grass does not grow on a lattice: it grows in
  * tufts whose blades share a root, fan outwards, and match each other in
  * height. A jittered grid of independently oriented blades is uniform at every
@@ -166,6 +177,10 @@ const DEADLINE_CHECK_INTERVAL = 256;
 const INSTANCE_HORIZONTAL_SCALE_MAX = 1.2;
 const INSTANCE_VERTICAL_SCALE_MIN = 0.3;
 const INSTANCE_VERTICAL_SCALE_MAX = 1.22;
+const UNDERSTORY_WIDTH_SCALE = 1.15;
+const STONE_FRINGE_UNDERSTORY_SHARE = 0.88;
+const STONE_FRINGE_INNER_MASK = 0.5;
+const STONE_FRINGE_OUTER_MASK = 0.98;
 const MAXIMUM_ART_WIND_SCALE = 2;
 const MAXIMUM_INSTANCE_WIND_SCALE = 1.16;
 const MAXIMUM_WIND_STIFFNESS = 1.12;
@@ -175,7 +190,7 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 11;
+const GRASS_PLACEMENT_VERSION = 12;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -605,12 +620,27 @@ export class WorldSingleBladeTileFactory {
 
       const vigor = sampleGrassMacroVigor(x, z);
       const bladeTier = job.random.next();
+      const stoneFringe =
+        1 -
+        THREE.MathUtils.smoothstep(
+          stoneMask,
+          STONE_FRINGE_INNER_MASK,
+          STONE_FRINGE_OUTER_MASK,
+        );
+      const accentShare =
+        this.clusterProfile.accentShare * (1 - stoneFringe);
+      const understoryShare = THREE.MathUtils.lerp(
+        this.clusterProfile.understoryShare,
+        STONE_FRINGE_UNDERSTORY_SHARE,
+        stoneFringe,
+      );
       const isAccentBlade =
-        this.clusterProfile.accentShare > 0 &&
-        bladeTier >= 1 - this.clusterProfile.accentShare;
+        accentShare > 0 && bladeTier >= 1 - accentShare;
+      const isUnderstoryBlade =
+        !isAccentBlade && bladeTier < understoryShare;
       const tierScale = isAccentBlade
         ? this.worldConfig.grassAccentHeightScale
-        : bladeTier < this.clusterProfile.understoryShare
+        : isUnderstoryBlade
           ? this.worldConfig.grassUnderstoryHeightScale
           : this.worldConfig.grassMainHeightScale;
       const side =
@@ -620,10 +650,14 @@ export class WorldSingleBladeTileFactory {
       const sideHeight =
         1 - this.clusterProfile.asymmetry * Math.max(0, side);
       const heightJitter = this.worldConfig.grassBladeHeightJitter;
+      const stoneContactHeight =
+        STONE_CONTACT_HEIGHT_FLOOR +
+        (1 - STONE_CONTACT_HEIGHT_FLOOR) * stoneMask;
       const verticalScale = THREE.MathUtils.clamp(
         this.clusterProfile.heightScale *
           tierScale *
           sideHeight *
+          stoneContactHeight *
           job.random.range(1 - heightJitter, 1 + heightJitter),
         INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
@@ -631,7 +665,8 @@ export class WorldSingleBladeTileFactory {
       const horizontalScale = THREE.MathUtils.clamp(
         this.clusterProfile.heightScale *
           job.random.range(...biomeProfile.widthBand) *
-          this.clusterProfile.widthScale,
+          this.clusterProfile.widthScale *
+          (isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1),
         0.76,
         INSTANCE_HORIZONTAL_SCALE_MAX,
       );
@@ -641,7 +676,8 @@ export class WorldSingleBladeTileFactory {
         THREE.MathUtils.clamp(
           this.clusterProfile.heightScale *
             job.random.range(...biomeProfile.widthBand) *
-            this.clusterProfile.widthScale,
+            this.clusterProfile.widthScale *
+            (isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1),
           0.76,
           INSTANCE_HORIZONTAL_SCALE_MAX,
         ),

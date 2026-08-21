@@ -332,7 +332,7 @@ export class StoneField {
             continue;
           }
           const distance = Math.sqrt(distanceSquared);
-          mask *= smoothstep(distance, radius * 0.72, reach);
+          mask *= smoothstep(distance, radius * 0.84, reach);
           if (mask <= 0.02) {
             return 0;
           }

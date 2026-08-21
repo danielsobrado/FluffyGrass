@@ -70,16 +70,16 @@ try {
     Math.round(
       world.grassPatchSize ** 2 *
         world.grassBladesPerSquareMeterDesktop,
-    ) === 1152,
-    "The shipped desktop source patch must remain the reviewed 1,152 blades.",
+    ) === 1344,
+    "The shipped desktop source patch must remain the reviewed 1,344 blades.",
   );
   assert(
     Math.round(
       world.grassNearTileSize ** 2 *
         world.grassNearBladesPerSquareMeterDesktop *
         (2 * world.grassUltraNearDensityMultiplier - 1),
-    ) === 13824,
-    "The shipped desktop near-tile stack must remain the reviewed 13,824 blades.",
+    ) === 16128,
+    "The shipped desktop near-tile stack must remain the reviewed 16,128 blades.",
   );
 
   expectReject(

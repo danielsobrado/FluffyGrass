@@ -3,8 +3,17 @@ import type { StoneArchetypeId } from "./StoneRecipe";
 export const STONE_SNAP_EPSILON = 1e-3;
 export const STONE_MESH_QUANTIZE = 5e-4;
 export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
-export const STONE_CONTACT_SHADE_FLOOR = 0.82;
-export const STONE_CONTACT_SHADE_HEIGHT = 0.22;
+/**
+ * Occlusion in the seam where the body meets the ground.
+ *
+ * A stone reads as resting on the meadow rather than in it when nothing darkens
+ * at the join: the turf goes bright right up to a body that is bright too, and
+ * the eye gets no contact to sit the mass on. The floor is deep enough for the
+ * seam to be visible at the distances stones are actually seen from, and the
+ * height keeps it a seam rather than a gradient up the flank.
+ */
+export const STONE_CONTACT_SHADE_FLOOR = 0.64;
+export const STONE_CONTACT_SHADE_HEIGHT = 0.3;
 export const STONE_MOSS_CLIMB = 0.42;
 export const STONE_MOSS_PATCH_SIZE = 0.26;
 export const STONE_INDENTATION_MINIMUM_AREA = 0.035;

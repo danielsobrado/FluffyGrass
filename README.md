@@ -83,7 +83,7 @@ The normal near LOD is owned by `WorldNearGrassField` and uses individually inst
 Default densities:
 
 ```yaml
-grassNearBladesPerSquareMeterDesktop: 72
+grassNearBladesPerSquareMeterDesktop: 84
 grassNearBladesPerSquareMeterCompact: 40
 ```
 

@@ -3,7 +3,7 @@ import type { WorldConfig } from "./WorldConfig";
 /**
  * Absolute allocation ceilings for valid-but-pathological world tuning.
  *
- * The shipped world uses 1,152 source blades per patch and 13,824 stacked
+ * The shipped world uses 1,344 source blades per patch and 16,128 stacked
  * near-field blades per tile (base + ultra-near extra + density-boost extra).
  * These limits leave several times that tuning headroom while preventing a
  * large patch/tile size from turning one build job into an unbounded

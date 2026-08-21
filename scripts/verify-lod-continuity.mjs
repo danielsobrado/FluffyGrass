@@ -567,8 +567,8 @@ assert(
   "Mid grass must retain every source blade.",
 );
 assert(
-  patchDensityDesktop === 72 && nearDensityDesktop === 72,
-  "Desktop near and mid density must match at 72 blades/m².",
+  patchDensityDesktop === 84 && nearDensityDesktop === 84,
+  "Desktop near and mid density must match at 84 blades/m².",
 );
 // What continuity requires is that the two layers agree, not a particular
 // value: a near band denser than the mid band it hands off to would thin
