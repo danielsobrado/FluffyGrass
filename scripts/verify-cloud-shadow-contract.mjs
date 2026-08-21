@@ -29,12 +29,14 @@ function yamlNumber(source, key) {
 const runtime = read("public/config/runtime.yaml");
 const runtimeType = read("src/runtime/RuntimeConfig.ts");
 const loader = read("src/runtime/RuntimeConfigLoader.ts");
+const cloudReader = read("src/runtime/RuntimeCloudConfigReader.ts");
 const shadowMap = read("src/world/sky/WorldCloudShadowMap.ts");
 const shadowShader = read("src/world/sky/WorldCloudShadowShader.ts");
 const sampler = read("src/world/sky/WorldCloudShadowSamplerShader.ts");
 const uniforms = read("src/world/sky/WorldCloudShadowUniforms.ts");
 const patch = read("src/render/WorldCloudShadowMaterialPatch.ts");
 const integrator = read("src/world/sky/WorldCloudShadowSceneIntegrator.ts");
+const controller = read("src/app/WorldCloudShadowController.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const lighting = read("src/app/WorldCloudEnvironmentLighting.ts");
 const diagnostics = read("src/app/WorldCloudShadowDebugPanel.ts");
@@ -70,11 +72,12 @@ for (const key of [
   assert(runtimeType.includes(`${key}: number`), `RuntimeCloudConfig must expose ${key}.`);
 }
 assert(
-  loader.includes('key("ShadowMapResolution")') &&
-    loader.includes('key("ShadowWorldSize")') &&
-    loader.includes('key("ShadowSteps")') &&
-    loader.includes("shadowDistanceFadeEnd <= shadowDistanceFadeStart"),
-  "Cloud shadow quality knobs must be validated by RuntimeConfigLoader.",
+  loader.includes("readRuntimeCloudConfig(reader, prefix)") &&
+    cloudReader.includes('key("ShadowMapResolution")') &&
+    cloudReader.includes('key("ShadowWorldSize")') &&
+    cloudReader.includes('key("ShadowSteps")') &&
+    cloudReader.includes("shadowDistanceFadeEnd <= shadowDistanceFadeStart"),
+  "Cloud shadow quality knobs must be read by the dedicated validated runtime cloud config reader.",
 );
 assert(
   shadowShader.includes("physicalTransmittance = exp(-opticalDepth * uCloudExtinction)") &&
@@ -140,25 +143,37 @@ assert(
   "Water glints, distant horizon, stones, and trees must participate while preserving weaker atmospheric horizon contrast.",
 );
 assert(
-  environment.includes("new WorldCloudShadowMap") &&
-    environment.includes("new WorldCloudShadowSceneIntegrator") &&
-    environment.includes("this.cloudShadow.update(") &&
-    environment.includes("this.cloudShadowIntegrator.update(safeDelta)") &&
-    environment.includes("disposeSafely(this.cloudShadow") &&
+  environment.includes("new WorldCloudShadowController") &&
+    environment.includes("this.cloudShadow.update(safeDelta, focus, this.elapsedSeconds)") &&
+    environment.includes('disposeSafely(this.cloudShadow, "Cloud shadow system")') &&
+    controller.includes("new WorldCloudShadowMap") &&
+    controller.includes("new WorldCloudShadowSceneIntegrator") &&
+    controller.includes("this.map.update(") &&
+    controller.includes("this.integrator.update(deltaSeconds)") &&
+    controller.includes('disposeSafely(this.map, "Cloud shadow map")') &&
     lighting.includes("directAttenuationEnabled"),
-  "Environment ownership must update and dispose the spatial field and retain a diagnostic bypass for global direct attenuation.",
+  "Environment ownership must delegate map/integration lifecycle to the cloud-shadow controller and retain a diagnostic bypass for global direct attenuation.",
+);
+assert(
+  lighting.includes("cloud.baseHeight - focus.y") &&
+    lighting.includes("sampleX = focus.x + SUN_DIRECTION.x * cloudHeightAlongSun") &&
+    lighting.includes("sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun"),
+  "Focus transmittance must project from the actual focus world height onto the same cloud plane used by spatial consumers.",
 );
 assert(
   diagnostics.includes("Spatial cloud shadow") &&
     diagnostics.includes("Global cloud direct") &&
     diagnostics.includes("Sun shadow map") &&
+    diagnostics.includes("Terrain") &&
     diagnostics.includes("Grass") &&
     diagnostics.includes("Water") &&
     diagnostics.includes("readPixels") &&
-    diagnostics.includes("focus T"),
-  "Diagnostics must support binary-search toggles and a live transmittance-map/readout view.",
+    diagnostics.includes("focus T") &&
+    diagnostics.includes("originalVisibility") &&
+    diagnostics.includes("this.originalVisibility.clear()"),
+  "Diagnostics must support binary-search isolation, live transmittance inspection, and restore debug visibility state on disposal.",
 );
 
 console.log(
-  "[cloud-shadow] Bounded world-space transmittance, direct-only material integration, grass vertex sampling, distance/edge safety, lifecycle, and diagnostics verified.",
+  "[cloud-shadow] Bounded world-space transmittance, direct-only material integration, height-correct focus normalization, grass vertex sampling, distance/edge safety, lifecycle, and diagnostics verified.",
 );
