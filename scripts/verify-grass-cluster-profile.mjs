@@ -34,7 +34,9 @@ function readYamlNumber(source, key) {
 
 function readSourceNumber(source, key) {
   const value = Number(
-    source.match(new RegExp(`const ${key}\\s*=\\s*([0-9.]+)`))?.[1],
+    source.match(
+      new RegExp(`(?:export\\s+)?const ${key}\\s*=\\s*([0-9.]+)`),
+    )?.[1],
   );
   if (!Number.isFinite(value)) {
     fail(`Unable to read source constant ${key}.`);
@@ -44,6 +46,7 @@ function readSourceNumber(source, key) {
 
 const worldSource = read("public/config/world.yaml");
 const profileSource = read("src/world/grass/GrassClusterProfile.ts");
+const tuningSource = read("src/world/grass/GrassClusterProfileTuning.ts");
 const nearFactorySource = read("src/world/grass/WorldSingleBladeTileFactory.ts");
 const patchFactorySource = read("src/world/grass/WorldGrassPatchGeometryFactory.ts");
 
@@ -89,6 +92,7 @@ for (const token of [
   "GRASS_CLUSTER_ACCENT",
   "resolveGrassClusterCoverage",
   "mixGrassAngle",
+  'import * as Tuning from "./GrassClusterProfileTuning"',
 ]) {
   assert(profileSource.includes(token), `GrassClusterProfile must retain ${token}.`);
 }
@@ -124,36 +128,36 @@ const dense = {
   lean: 1,
 };
 const sparse = {
-  height: dense.height * readSourceNumber(profileSource, "SPARSE_HEIGHT_SCALE"),
-  coverage: readSourceNumber(profileSource, "SPARSE_COVERAGE_SCALE"),
+  height: dense.height * readSourceNumber(tuningSource, "SPARSE_HEIGHT_SCALE"),
+  coverage: readSourceNumber(tuningSource, "SPARSE_COVERAGE_SCALE"),
   drynessScale: 1,
-  drynessOffset: readSourceNumber(profileSource, "SPARSE_DRYNESS_OFFSET"),
-  lean: readSourceNumber(profileSource, "SPARSE_LEAN_SCALE"),
+  drynessOffset: readSourceNumber(tuningSource, "SPARSE_DRYNESS_OFFSET"),
+  lean: readSourceNumber(tuningSource, "SPARSE_LEAN_SCALE"),
 };
 const tallWet = {
-  height: dense.height * readSourceNumber(profileSource, "WET_HEIGHT_SCALE"),
+  height: dense.height * readSourceNumber(tuningSource, "WET_HEIGHT_SCALE"),
   coverage: 1,
-  drynessScale: readSourceNumber(profileSource, "WET_DRYNESS_SCALE"),
+  drynessScale: readSourceNumber(tuningSource, "WET_DRYNESS_SCALE"),
   drynessOffset: 0,
-  lean: readSourceNumber(profileSource, "WET_LEAN_SCALE"),
+  lean: readSourceNumber(tuningSource, "WET_LEAN_SCALE"),
 };
 const shortDry = {
-  height: dense.height * readSourceNumber(profileSource, "DRY_HEIGHT_SCALE"),
-  coverage: readSourceNumber(profileSource, "DRY_COVERAGE_SCALE"),
-  drynessScale: readSourceNumber(profileSource, "DRY_DRYNESS_SCALE"),
-  drynessOffset: readSourceNumber(profileSource, "DRY_DRYNESS_OFFSET"),
-  lean: readSourceNumber(profileSource, "DRY_LEAN_SCALE"),
+  height: dense.height * readSourceNumber(tuningSource, "DRY_HEIGHT_SCALE"),
+  coverage: readSourceNumber(tuningSource, "DRY_COVERAGE_SCALE"),
+  drynessScale: readSourceNumber(tuningSource, "DRY_DRYNESS_SCALE"),
+  drynessOffset: readSourceNumber(tuningSource, "DRY_DRYNESS_OFFSET"),
+  lean: readSourceNumber(tuningSource, "DRY_LEAN_SCALE"),
 };
 const flattened = {
   height:
-    dense.height * readSourceNumber(profileSource, "FLATTENED_HEIGHT_SCALE"),
-  coverage: readSourceNumber(profileSource, "FLATTENED_COVERAGE_SCALE"),
+    dense.height * readSourceNumber(tuningSource, "FLATTENED_HEIGHT_SCALE"),
+  coverage: readSourceNumber(tuningSource, "FLATTENED_COVERAGE_SCALE"),
   drynessScale: 1,
   drynessOffset: readSourceNumber(
-    profileSource,
+    tuningSource,
     "FLATTENED_DRYNESS_OFFSET",
   ),
-  lean: readSourceNumber(profileSource, "FLATTENED_LEAN_SCALE"),
+  lean: readSourceNumber(tuningSource, "FLATTENED_LEAN_SCALE"),
 };
 
 assert(tallWet.height > dense.height, "Tall-wet clumps must be taller than normal.");
