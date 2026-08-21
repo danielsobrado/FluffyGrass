@@ -32,6 +32,16 @@ function readYamlNumber(source, key) {
   return value;
 }
 
+function readSourceNumber(source, key) {
+  const value = Number(
+    source.match(new RegExp(`const ${key}\\s*=\\s*([0-9.]+)`))?.[1],
+  );
+  if (!Number.isFinite(value)) {
+    fail(`Unable to read source constant ${key}.`);
+  }
+  return value;
+}
+
 const worldSource = read("public/config/world.yaml");
 const profileSource = read("src/world/grass/GrassClusterProfile.ts");
 const nearFactorySource = read("src/world/grass/WorldSingleBladeTileFactory.ts");
@@ -106,8 +116,6 @@ for (const key of [
   );
 }
 
-// Relationships are more stable than exact art values. These reproduce the
-// semantic deltas in the profile resolver against one neutral habitat.
 const dense = {
   height: 1,
   coverage: 1,
@@ -116,32 +124,36 @@ const dense = {
   lean: 1,
 };
 const sparse = {
-  height: dense.height * 0.96,
-  coverage: 0.56,
+  height: dense.height * readSourceNumber(profileSource, "SPARSE_HEIGHT_SCALE"),
+  coverage: readSourceNumber(profileSource, "SPARSE_COVERAGE_SCALE"),
   drynessScale: 1,
-  drynessOffset: 0.015,
-  lean: 0.95,
+  drynessOffset: readSourceNumber(profileSource, "SPARSE_DRYNESS_OFFSET"),
+  lean: readSourceNumber(profileSource, "SPARSE_LEAN_SCALE"),
 };
 const tallWet = {
-  height: dense.height * 1.14,
+  height: dense.height * readSourceNumber(profileSource, "WET_HEIGHT_SCALE"),
   coverage: 1,
-  drynessScale: 0.5,
+  drynessScale: readSourceNumber(profileSource, "WET_DRYNESS_SCALE"),
   drynessOffset: 0,
-  lean: 0.78,
+  lean: readSourceNumber(profileSource, "WET_LEAN_SCALE"),
 };
 const shortDry = {
-  height: dense.height * 0.78,
-  coverage: 0.88,
-  drynessScale: 1.02,
-  drynessOffset: 0.1,
-  lean: 1.05,
+  height: dense.height * readSourceNumber(profileSource, "DRY_HEIGHT_SCALE"),
+  coverage: readSourceNumber(profileSource, "DRY_COVERAGE_SCALE"),
+  drynessScale: readSourceNumber(profileSource, "DRY_DRYNESS_SCALE"),
+  drynessOffset: readSourceNumber(profileSource, "DRY_DRYNESS_OFFSET"),
+  lean: readSourceNumber(profileSource, "DRY_LEAN_SCALE"),
 };
 const flattened = {
-  height: dense.height * 0.8,
-  coverage: 0.9,
+  height:
+    dense.height * readSourceNumber(profileSource, "FLATTENED_HEIGHT_SCALE"),
+  coverage: readSourceNumber(profileSource, "FLATTENED_COVERAGE_SCALE"),
   drynessScale: 1,
-  drynessOffset: 0.04,
-  lean: 1.25,
+  drynessOffset: readSourceNumber(
+    profileSource,
+    "FLATTENED_DRYNESS_OFFSET",
+  ),
+  lean: readSourceNumber(profileSource, "FLATTENED_LEAN_SCALE"),
 };
 
 assert(tallWet.height > dense.height, "Tall-wet clumps must be taller than normal.");
@@ -152,6 +164,10 @@ assert(
   tallWet.drynessScale < shortDry.drynessScale &&
     shortDry.drynessOffset > tallWet.drynessOffset,
   "Wet and dry archetypes must separate in dryness as well as height.",
+);
+assert(
+  flattened.coverage < dense.coverage && flattened.height < dense.height,
+  "Flattened clumps must keep a low, opened rest silhouette.",
 );
 
 console.log(
