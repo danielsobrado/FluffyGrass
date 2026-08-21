@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { WorldCloudShadowDiagnostics } from "../world/sky/WorldCloudShadowMap";
+import { WorldCloudShadowDebugPreview } from "./WorldCloudShadowDebugPreview";
 import {
   WorldCloudShadowDebugVisibility,
   type WorldCloudShadowDebugVisibilityState,
@@ -30,22 +31,12 @@ interface DebugState extends WorldCloudShadowDebugVisibilityState {
   sunShadows: boolean;
 }
 
-interface PreviewStats {
-  minTransmittance: number;
-  maxTransmittance: number;
-  minDensity: number;
-  maxDensity: number;
-}
-
 export class WorldCloudShadowDebugPanel {
   private readonly state: DebugState;
   private readonly visibility: WorldCloudShadowDebugVisibility;
   private readonly root?: HTMLDivElement;
   private readonly readout?: HTMLPreElement;
-  private readonly canvas?: HTMLCanvasElement;
-  private readonly context?: CanvasRenderingContext2D;
-  private pixels?: Uint8Array;
-  private imageData?: ImageData;
+  private readonly preview?: WorldCloudShadowDebugPreview;
   private updateCountdown = 0;
   private visibilityCountdown = 0;
   private disposed = false;
@@ -145,9 +136,15 @@ export class WorldCloudShadowDebugPanel {
     document.body.appendChild(root);
 
     this.root = root;
-    this.canvas = canvas;
-    this.context = canvas.getContext("2d", { alpha: false }) ?? undefined;
     this.readout = readout;
+    const context = canvas.getContext("2d", { alpha: false });
+    this.preview = context
+      ? new WorldCloudShadowDebugPreview(
+          canvas,
+          context,
+          (target) => this.host.readPixels(target),
+        )
+      : undefined;
   }
 
   update(deltaSeconds: number): void {
@@ -159,7 +156,7 @@ export class WorldCloudShadowDebugPanel {
       this.visibilityCountdown = VISIBILITY_SCAN_INTERVAL_SECONDS;
       this.applyVisibilityState();
     }
-    if (!this.root || !this.context || !this.canvas || !this.readout) {
+    if (!this.root || !this.readout) {
       return;
     }
     this.updateCountdown -= Math.max(0, deltaSeconds);
@@ -168,7 +165,7 @@ export class WorldCloudShadowDebugPanel {
     }
     this.updateCountdown = UPDATE_INTERVAL_SECONDS;
     const diagnostics = this.host.getDiagnostics();
-    const preview = this.updatePreview(diagnostics.resolution);
+    const preview = this.preview?.update(diagnostics.resolution);
     this.readout.textContent = [
       `enabled: ${diagnostics.enabled}`,
       `weather: ${diagnostics.weatherRegime} ${diagnostics.weatherAmount.toFixed(3)}`,
@@ -193,9 +190,8 @@ export class WorldCloudShadowDebugPanel {
     }
     this.disposed = true;
     this.visibility.dispose();
+    this.preview?.dispose();
     this.root?.remove();
-    this.pixels = undefined;
-    this.imageData = undefined;
   }
 
   private addToggle(
@@ -231,59 +227,8 @@ export class WorldCloudShadowDebugPanel {
   private applyVisibilityState(): void {
     this.visibility.update(this.state);
   }
-
-  private updatePreview(resolution: number): PreviewStats | undefined {
-    if (resolution <= 0 || !this.context || !this.canvas) {
-      return undefined;
-    }
-    const byteCount = resolution * resolution * 4;
-    if (!this.pixels || this.pixels.length !== byteCount) {
-      this.pixels = new Uint8Array(byteCount);
-      this.imageData = this.context.createImageData(resolution * 2, resolution);
-      this.canvas.width = resolution * 2;
-      this.canvas.height = resolution;
-    }
-    if (!this.imageData || !this.pixels || !this.host.readPixels(this.pixels)) {
-      return undefined;
-    }
-    const output = this.imageData.data;
-    let minTransmittance = 255;
-    let maxTransmittance = 0;
-    let minDensity = 255;
-    let maxDensity = 0;
-    for (let y = 0; y < resolution; y += 1) {
-      const sourceY = resolution - 1 - y;
-      for (let x = 0; x < resolution; x += 1) {
-        const source = (sourceY * resolution + x) * 4;
-        const transmittance = this.pixels[source];
-        const density = this.pixels[source + 1];
-        minTransmittance = Math.min(minTransmittance, transmittance);
-        maxTransmittance = Math.max(maxTransmittance, transmittance);
-        minDensity = Math.min(minDensity, density);
-        maxDensity = Math.max(maxDensity, density);
-        const left = (y * resolution * 2 + x) * 4;
-        const right = (y * resolution * 2 + x + resolution) * 4;
-        writeGray(output, left, transmittance);
-        writeGray(output, right, density);
-      }
-    }
-    this.context.putImageData(this.imageData, 0, 0);
-    return {
-      minTransmittance: minTransmittance / 255,
-      maxTransmittance: maxTransmittance / 255,
-      minDensity: minDensity / 255,
-      maxDensity: maxDensity / 255,
-    };
-  }
 }
 
 function flag(value: boolean): string {
   return value ? "on" : "off";
-}
-
-function writeGray(target: Uint8ClampedArray, offset: number, value: number): void {
-  target[offset] = value;
-  target[offset + 1] = value;
-  target[offset + 2] = value;
-  target[offset + 3] = 255;
 }
