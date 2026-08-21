@@ -205,15 +205,19 @@ export class WorldCloudShadowDebugPanel {
       if (!mesh.isMesh || !mesh.material) {
         return;
       }
-      const materials = Array.isArray(mesh.material)
-        ? mesh.material
-        : [mesh.material];
       let isTerrain = false;
       let isGrass = object.name.startsWith("world-grass-");
       let isWater = object.name.startsWith("world-hydrology-water");
-      for (const material of materials) {
-        const name = material?.name ?? "";
-        isTerrain ||= name === "world-terrain-material";
+      if (Array.isArray(mesh.material)) {
+        for (let index = 0; index < mesh.material.length; index += 1) {
+          const name = mesh.material[index].name;
+          isTerrain ||= name === "world-terrain-material";
+          isGrass ||= name.startsWith("world-grass-");
+          isWater ||= name === "world-hydrology-water-material";
+        }
+      } else {
+        const name = mesh.material.name;
+        isTerrain = name === "world-terrain-material";
         isGrass ||= name.startsWith("world-grass-");
         isWater ||= name === "world-hydrology-water-material";
       }
@@ -228,12 +232,18 @@ export class WorldCloudShadowDebugPanel {
   }
 
   private setDebugVisibility(object: THREE.Object3D, enabled: boolean): void {
+    if (enabled) {
+      const original = this.originalVisibility.get(object);
+      if (original !== undefined) {
+        object.visible = original;
+        this.originalVisibility.delete(object);
+      }
+      return;
+    }
     if (!this.originalVisibility.has(object)) {
       this.originalVisibility.set(object, object.visible);
     }
-    object.visible = enabled
-      ? (this.originalVisibility.get(object) ?? true)
-      : false;
+    object.visible = false;
   }
 
   private updatePreview(resolution: number): void {
