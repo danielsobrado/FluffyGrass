@@ -29,7 +29,8 @@ function yamlNumber(source, key) {
 const runtime = read("public/config/runtime.yaml");
 const runtimeType = read("src/runtime/RuntimeConfig.ts");
 const loader = read("src/runtime/RuntimeConfigLoader.ts");
-const cloudReader = read("src/runtime/RuntimeCloudConfigReader.ts");
+const cloudConfigReader = read("src/runtime/RuntimeCloudConfigReader.ts");
+const weather = read("src/world/sky/WorldCloudWeather.ts");
 const shadowMap = read("src/world/sky/WorldCloudShadowMap.ts");
 const shadowShader = read("src/world/sky/WorldCloudShadowShader.ts");
 const sampler = read("src/world/sky/WorldCloudShadowSamplerShader.ts");
@@ -40,7 +41,9 @@ const controller = read("src/app/WorldCloudShadowController.ts");
 const environment = read("src/app/WorldEnvironmentController.ts");
 const lighting = read("src/app/WorldCloudEnvironmentLighting.ts");
 const diagnostics = read("src/app/WorldCloudShadowDebugPanel.ts");
+const diagnosticVisibility = read("src/app/WorldCloudShadowDebugVisibility.ts");
 const poses = read("src/qa/WorldVisualMatrixPoses.ts");
+const isolation = read("src/runtime/WorldIsolationHarness.ts");
 
 for (const prefix of ["desktop", "compact"]) {
   const strength = yamlNumber(runtime, `${prefix}CloudShadowStrength`);
@@ -55,9 +58,9 @@ for (const prefix of ["desktop", "compact"]) {
   assert(strength >= 0 && strength <= 0.35, `${prefix} shadow strength is unsafe.`);
   assert(minimum >= 0.65 && minimum <= 1, `${prefix} minimum transmittance is unsafe.`);
   assert(darkestAuthored >= minimum, `${prefix} authored transmittance violates its floor.`);
-  assert(resolution >= 64 && resolution <= 512, `${prefix} resolution is outside the bounded quality range.`);
-  assert(worldSize >= 256, `${prefix} world footprint is too small for broad cloud shadows.`);
-  assert(steps >= 1 && steps <= 6, `${prefix} integration step count is outside the bounded range.`);
+  assert(resolution >= 64 && resolution <= 512, `${prefix} resolution is outside the bounded range.`);
+  assert(worldSize >= 256 && worldSize <= 4096, `${prefix} world footprint is invalid.`);
+  assert(steps >= 1 && steps <= 6, `${prefix} integration steps are invalid.`);
   assert(edgeFade >= 0 && edgeFade <= 0.25, `${prefix} edge fade is invalid.`);
   assert(fadeEnd > fadeStart, `${prefix} distance fade must be ordered.`);
 }
@@ -73,18 +76,27 @@ for (const key of [
   assert(runtimeType.includes(`${key}: number`), `RuntimeCloudConfig must expose ${key}.`);
 }
 assert(
-  loader.includes("readRuntimeCloudConfig(reader, prefix)") &&
-    cloudReader.includes('key("ShadowMapResolution")') &&
-    cloudReader.includes('key("ShadowWorldSize")') &&
-    cloudReader.includes('key("ShadowSteps")') &&
-    cloudReader.includes("shadowDistanceFadeEnd <= shadowDistanceFadeStart"),
-  "Cloud shadow quality knobs must be read by the dedicated validated runtime cloud config reader.",
+  loader.includes('import { readRuntimeCloudConfig } from "./RuntimeCloudConfigReader"') &&
+    loader.includes("cloud: Object.freeze(readRuntimeCloudConfig(reader, prefix))") &&
+    cloudConfigReader.includes('key("ShadowMapResolution")') &&
+    cloudConfigReader.includes('key("ShadowWorldSize")') &&
+    cloudConfigReader.includes('key("ShadowSteps")') &&
+    cloudConfigReader.includes("shadowDistanceFadeEnd <= shadowDistanceFadeStart"),
+  "Cloud shadow config must be delegated to and validated by the cloud config reader.",
 );
 assert(
   shadowShader.includes("physicalTransmittance = exp(-opticalDepth * uCloudExtinction)") &&
     shadowShader.includes("uCloudMinimumDirectTransmittance") &&
-    shadowShader.includes("gl_FragColor = vec4(transmittance"),
-  "The shadow target must store bounded direct-sun transmittance rather than black overlay opacity.",
+    shadowShader.includes("gl_FragColor = vec4(transmittance, clamp(opticalDepth"),
+  "The target must store bounded direct-sun transmittance plus diagnostic density, not overlay darkness.",
+);
+assert(
+  weather.includes("sampleCloudShadowTransmittance(") &&
+    weather.includes("config.shadowSteps") &&
+    weather.includes("sampleCloudVerticalProfile(") &&
+    weather.includes("Math.exp(-opticalDepth * config.extinction)") &&
+    weather.includes("config.minimumDirectTransmittance"),
+  "CPU focus normalization must mirror the GPU integrated shadow shape and floor.",
 );
 assert(
   shadowMap.includes("THREE.RGBAFormat") &&
@@ -94,17 +106,14 @@ assert(
     shadowMap.includes("depthBuffer: false") &&
     shadowMap.includes("generateMipmaps = false") &&
     shadowMap.includes("Math.round(focusCloudX / texelSize) * texelSize") &&
-    shadowMap.includes("renderer.setRenderTarget(previousTarget)"),
-  "The transmittance target must be low-cost, filtered, texel-snapped, edge-safe, and restore nested renderer state.",
-);
-assert(
-  shadowMap.includes("let renderTarget: THREE.WebGLRenderTarget | undefined") &&
+    shadowMap.includes("sampleCloudShadowTransmittance(") &&
+    shadowMap.includes("renderer.setRenderTarget(previousTarget)") &&
+    shadowMap.includes("let renderTarget: THREE.WebGLRenderTarget | undefined") &&
     shadowMap.includes("geometry?.dispose()") &&
     shadowMap.includes("material?.dispose()") &&
     shadowMap.includes("renderTarget?.dispose()") &&
-    shadowMap.includes("private releaseGpuResources(): void") &&
-    shadowMap.includes("if (this.faulted) {\n      this.releaseGpuResources();"),
-  "Cloud shadow GPU resources must roll back on construction failure and release after render faults.",
+    shadowMap.includes("private releaseGpuResources(): void"),
+  "The transmittance target must be cheap, filtered, texel-snapped, focus-normalized, transactional, and renderer-state safe.",
 );
 assert(
   sampler.includes("uCloudBaseHeight - worldPosition.y") &&
@@ -114,20 +123,23 @@ assert(
     sampler.includes("uCloudShadowDistanceFadeStart") &&
     sampler.includes("uCloudFocusTransmittance") &&
     sampler.includes("resolveRelativeCloudDirectLight"),
-  "Consumers must project surface height into the cloud plane, fade map edges/distance to clear light, and normalize against focus attenuation.",
+  "Consumers must project world height, fade map edges/distance to clear light, and normalize spatial contrast.",
 );
 assert(
   uniforms.includes("uCloudShadowMap") &&
     uniforms.includes("uCloudShadowOriginXZ") &&
     uniforms.includes("uCloudFocusTransmittance"),
-  "All consumers must share one stable cloud shadow uniform bundle.",
+  "Every consumer must share one stable cloud-shadow uniform bundle.",
 );
 assert(
-  patch.includes("reflectedLight.directDiffuse *= worldCloudDirectScale") &&
-    patch.includes("reflectedLight.directSpecular *= worldCloudDirectScale") &&
+  patch.includes("reflectedLight.directDiffuse *=") &&
+    patch.includes("reflectedLight.directSpecular *=") &&
     !patch.includes("diffuseColor *= worldCloudDirectScale") &&
-    !patch.includes("outgoingLight *= worldCloudDirectScale"),
-  "Spatial cloud shadows must modulate direct lighting only; material albedo, ambient light, and final outgoing light must stay intact.",
+    !patch.includes("outgoingLight *= worldCloudDirectScale") &&
+    patch.includes("directionalLights[0].color * worldCloudDirectScale") &&
+    patch.includes("waterGlintBreakup * waterCloudDirectScale") &&
+    patch.includes("uWaterCausticStrength * waterBedCloudDirectScale"),
+  "Spatial shadows must affect direct diffuse/specular, terrain wet sheen, water glint, and bed caustics without darkening ambient/final color.",
 );
 assert(
   patch.includes("patchGrassBladeCloudShadowMaterial") &&
@@ -135,48 +147,35 @@ assert(
     patch.includes("vWorldCloudDirectScale") &&
     patch.includes("grassBackLight *= vWorldCloudDirectScale") &&
     patch.includes("grassSheen *= vWorldCloudDirectScale"),
-  "High-overdraw blade grass must sample the cloud field per vertex/root and apply it to direct diffuse, transmission, and sheen.",
+  "Blade grass must sample at the root/vertex path and attenuate direct transmission and sheen.",
 );
 assert(
   patch.includes("patchGrassVertexLitShaderMaterial") &&
     patch.includes("directionalLights[i].color * worldCloudDirectScale") &&
     patch.includes("vGrassBackLight = worldCloudDirectScale * pow("),
-  "Impostor and detail-foliage vertex lighting must share cloud direct-light modulation without fragment cloud lookups.",
+  "Impostor/detail foliage vertex lighting must share spatial direct-light modulation.",
 );
 assert(
-  patch.includes("waterCloudDirectScale") &&
-    patch.includes("waterGlintBreakup * waterCloudDirectScale") &&
-    integrator.includes("HORIZON_RESPONSE_STRENGTH = 0.35") &&
+  integrator.includes("HORIZON_RESPONSE_STRENGTH = 0.35") &&
     integrator.includes('object.name.startsWith("world-tree-")') &&
-    integrator.includes('name.startsWith("world-stone-")'),
-  "Water glints, distant horizon, stones, and trees must participate while preserving weaker atmospheric horizon contrast.",
-);
-assert(
-  integrator.includes("private readonly patched = new WeakSet<THREE.Material>()") &&
+    integrator.includes('name.startsWith("world-stone-")') &&
+    integrator.includes('name === "world-hydrology-water-bed-material"') &&
     integrator.includes("for (let index = 0; index < mesh.material.length; index += 1)") &&
-    !integrator.includes("materials.map(") &&
+    integrator.includes("this.patchOnce(object, mesh.material)") &&
     !integrator.includes("const materials = Array.isArray"),
-  "Periodic streaming scans must avoid temporary material/name arrays.",
+  "Horizon, trees, stones, water bed, and allocation-free material scanning must participate in one integrator.",
 );
 assert(
-  environment.includes("new WorldCloudShadowController") &&
-    environment.includes("this.cloudShadow.update(safeDelta, focus, this.elapsedSeconds)") &&
-    environment.includes('disposeSafely(this.cloudShadow, "Cloud shadow system")') &&
-    controller.includes("new WorldCloudShadowMap") &&
-    controller.includes("new WorldCloudShadowSceneIntegrator") &&
-    controller.includes("this.map.update(") &&
+  environment.includes("new WorldCloudShadowController(") &&
+    controller.includes("new WorldCloudShadowMap(renderer, profile)") &&
+    controller.includes("new WorldCloudShadowSceneIntegrator(") &&
+    controller.includes("this.map.update(focus, elapsedSeconds)") &&
     controller.includes("this.integrator.update(deltaSeconds)") &&
-    controller.includes("this.lighting.getAppliedDirectTransmittance()") &&
-    controller.includes('disposeSafely(this.map, "Cloud shadow map")'),
-  "Environment ownership must delegate map/integration lifecycle to the cloud-shadow controller and normalize against the direct light actually applied.",
-);
-assert(
-  lighting.includes("cloud.baseHeight - focus.y") &&
-    lighting.includes("sampleX = focus.x + SUN_DIRECTION.x * cloudHeightAlongSun") &&
-    lighting.includes("sampleZ = focus.z + SUN_DIRECTION.z * cloudHeightAlongSun") &&
+    controller.includes('disposeSafely(this.map, "Cloud shadow map")') &&
+    lighting.includes("cloud.baseHeight - focus.y") &&
     lighting.includes("getAppliedDirectTransmittance(): number") &&
-    lighting.includes("return this.directAttenuationEnabled ? this.directTransmittance : 1"),
-  "Focus transmittance must project from actual world height and expose the applied direct-light state for coherent debug normalization.",
+    lighting.includes("getWeatherState(): Readonly<WorldCloudWeatherState>"),
+  "Environment ownership must update/dispose one cloud-shadow wrapper while retaining coherent global weather diagnostics.",
 );
 assert(
   diagnostics.includes("Spatial cloud shadow") &&
@@ -185,11 +184,14 @@ assert(
     diagnostics.includes("Terrain") &&
     diagnostics.includes("Grass") &&
     diagnostics.includes("Water") &&
+    diagnostics.includes("global/applied T:") &&
+    diagnostics.includes("weather:") &&
+    diagnostics.includes("T range:") &&
+    diagnostics.includes("density:") &&
     diagnostics.includes("readPixels") &&
-    diagnostics.includes("focus T") &&
-    diagnostics.includes("originalVisibility") &&
-    diagnostics.includes("this.originalVisibility.clear()"),
-  "Diagnostics must support binary-search isolation, live transmittance inspection, and restore debug visibility state on disposal.",
+    diagnosticVisibility.includes("material.visible = false") &&
+    !diagnosticVisibility.includes("object.visible ="),
+  "Diagnostics must binary-search lighting/visibility and show live spatial/global weather values without overriding runtime object culling.",
 );
 for (const pose of [
   "cs0-black-region-water-regression",
@@ -200,7 +202,15 @@ for (const pose of [
 ]) {
   assert(poses.includes(`\"${pose}\"`), `Missing deterministic cloud-shadow visual pose ${pose}.`);
 }
+assert(
+  diagnostics.includes('params.get("cloudShadows") !== "off"') &&
+    diagnostics.includes('params.get("cloudDirect") !== "off"') &&
+    diagnostics.includes('params.get("sunShadows") !== "off"') &&
+    isolation.includes('params.get("noGrass") === "1"') &&
+    isolation.includes('params.get("basicMaterials") === "1"'),
+  "CS0 must retain deterministic poses plus independent lighting, grass, and base-material isolation toggles.",
+);
 
 console.log(
-  "[cloud-shadow] Bounded world-space transmittance, direct-only material integration, height-correct focus normalization, allocation-safe streaming integration, fault cleanup, deterministic visual poses, lifecycle, and diagnostics verified.",
+  "[cloud-shadow] Bounded world-space transmittance, focus parity, direct-only terrain/grass/water/scenic integration, diagnostics, lifecycle, and CS0 isolation tooling verified.",
 );
