@@ -58,6 +58,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 const HASH_UNIT = 1 / 4294967296;
 const GROWTH_SEED_SALT = 0x43b0d7;
 const GROWTH_EPSILON = 1e-4;
+/** Keep altitude weathering secondary to the descriptor's actual geology. */
+const GRANITE_SECONDARY_BLEND_MAX = 0.48;
 
 /** Packs one placed stone into a static render batch without per-vertex objects. */
 export class StoneRenderInstanceWriter {
@@ -92,13 +94,17 @@ export class StoneRenderInstanceWriter {
     batch?: StoneRenderBatchNeighbours,
   ): void {
     const palette = STONE_PALETTES[instance.paletteKey];
+    const graniteBlend = Math.min(
+      instance.graniteBlend,
+      GRANITE_SECONDARY_BLEND_MAX,
+    );
     const tint = {
       valueScale: instance.valueScale,
       secondary:
-        instance.graniteBlend > 0.01 && palette !== STONE_PALETTES.graniteGrey
+        graniteBlend > 0.01 && palette !== STONE_PALETTES.graniteGrey
           ? STONE_PALETTES.graniteGrey
           : undefined,
-      secondaryBlend: instance.graniteBlend,
+      secondaryBlend: graniteBlend,
     };
     const growthColors = resolveStoneGrowthColors(palette, tint);
     const growthSeed =
