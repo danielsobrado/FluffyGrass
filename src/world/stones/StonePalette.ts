@@ -87,37 +87,37 @@ function palette(
 
 /**
  * Warm mineral ramps calibrated under the world's Neutral tone mapping and
- * exposure. Direct sun supplies the bright cream highlight; the albedo itself
- * stays below chalk-white so exposed meadow stones retain beige/brown identity.
+ * exposure. Direct sun supplies the bright cream highlight; side planes keep a
+ * brown mineral identity instead of inheriting the meadow's green cast.
  */
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
-    "#464238",
-    "#655d4f",
-    "#887b67",
-    "#9a8b74",
-    "#536942",
+    "#493d32",
+    "#6c5b49",
+    "#9f8d73",
+    "#b19d80",
+    "#4f633e",
     "#928f6d",
-    0.6,
-    "#a49881",
-    "#684832",
+    0.58,
+    "#b9a98d",
+    "#724630",
     "#2b211a",
-    0.5,
+    0.48,
   ),
   steppeTan: palette(
     "steppe-tan",
-    "#4b3e2d",
-    "#6e5b45",
-    "#90765d",
-    "#a0886c",
-    "#6c7048",
+    "#4b3829",
+    "#72543e",
+    "#9c795d",
+    "#b18d6d",
+    "#666a43",
     "#aaa06b",
-    0.6,
-    "#ab9477",
-    "#6b4932",
+    0.58,
+    "#bea080",
+    "#704832",
     "#30231b",
-    0.6,
+    0.58,
   ),
   graniteGrey: palette(
     "granite-grey",
@@ -127,11 +127,11 @@ export const STONE_PALETTES = {
     "#8d8276",
     "#536844",
     "#969779",
-    0.64,
+    0.62,
     "#988d80",
     "#604936",
     "#2b2521",
-    0.52,
+    0.5,
   ),
   mossy: palette(
     "mossy",
@@ -141,11 +141,11 @@ export const STONE_PALETTES = {
     "#878975",
     "#50683f",
     "#878f69",
-    0.54,
+    0.52,
     "#918b78",
     "#584431",
     "#251f19",
-    0.4,
+    0.38,
   ),
 } as const;
 
@@ -161,7 +161,7 @@ export interface StoneTintParams {
  * Light thrown back onto the lower body by the surrounding turf. It is one
  * colour for every palette because it belongs to the field, not to the rock.
  */
-const TURF_BOUNCE = linearFromHex("#61763f");
+const TURF_BOUNCE = linearFromHex("#5a603f");
 
 /**
  * Only a trace of value stepping remains. Shape separation now comes from broad
