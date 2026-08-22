@@ -2,7 +2,7 @@
  * Stone palettes and the tone→colour ramp.
  *
  * Stone paint and biological growth are resolved separately. The base mesh
- * keeps broad value bands while the shared stone shader applies moss and
+ * keeps broad value variation while the shared stone shader applies moss and
  * lichen masks, so close-range colony breakup can reveal the original stone.
  */
 
@@ -86,68 +86,66 @@ function palette(
 }
 
 /**
- * Stone values sit under the meadow, not above it.
- *
- * The ramps keep their biome identity but share a warm mineral backbone. This
- * prevents open faces from turning chalk-white or vegetation-green while still
- * allowing sage, sediment, granite, and damp families to read separately.
+ * Warm mineral ramps calibrated under the world's Neutral tone mapping and
+ * exposure. Direct sun supplies the bright cream highlight; the albedo itself
+ * stays below chalk-white so exposed meadow stones retain beige/brown identity.
  */
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
-    "#49483f",
-    "#6d6b5a",
-    "#98927a",
-    "#aaa187",
-    "#566f41",
-    "#9d9c74",
-    0.76,
-    "#b6ad91",
-    "#74583f",
-    "#2d2118",
-    0.7,
+    "#464238",
+    "#655d4f",
+    "#887b67",
+    "#9a8b74",
+    "#536942",
+    "#928f6d",
+    0.6,
+    "#a49881",
+    "#684832",
+    "#2b211a",
+    0.5,
   ),
   steppeTan: palette(
     "steppe-tan",
-    "#514631",
-    "#7b6950",
-    "#a08e6e",
-    "#b3a080",
-    "#72764a",
-    "#b4aa72",
-    0.74,
-    "#c0ae8b",
-    "#76563a",
-    "#31241a",
-    0.82,
+    "#4b3e2d",
+    "#6e5b45",
+    "#90765d",
+    "#a0886c",
+    "#6c7048",
+    "#aaa06b",
+    0.6,
+    "#ab9477",
+    "#6b4932",
+    "#30231b",
+    0.6,
   ),
   graniteGrey: palette(
     "granite-grey",
-    "#47433e",
-    "#676057",
-    "#8a8175",
-    "#a2998b",
-    "#586f47",
-    "#a6a886",
-    0.8,
-    "#b2a795",
-    "#69513e",
-    "#2c2520",
-    0.74,
+    "#44413c",
+    "#5d574f",
+    "#797067",
+    "#8d8276",
+    "#536844",
+    "#969779",
+    0.64,
+    "#988d80",
+    "#604936",
+    "#2b2521",
+    0.52,
   ),
   mossy: palette(
     "mossy",
-    "#3e4338",
-    "#5c6250",
-    "#7c8268",
-    "#95967c",
-    "#526d41",
-    "#929d70",
-    0.68,
-    "#a49f86",
-    "#5d4934",
-    "#261f18",
-    0.5,
+    "#3c4036",
+    "#565b4b",
+    "#70745f",
+    "#878975",
+    "#50683f",
+    "#878f69",
+    0.54,
+    "#918b78",
+    "#584431",
+    "#251f19",
+    0.4,
   ),
 } as const;
 
@@ -161,18 +159,16 @@ export interface StoneTintParams {
 
 /**
  * Light thrown back onto the lower body by the surrounding turf. It is one
- * colour for every palette because it belongs to the field, not to the rock,
- * and it is the difference between a stone standing in grass and a stone
- * standing on top of it.
+ * colour for every palette because it belongs to the field, not to the rock.
  */
 const TURF_BOUNCE = linearFromHex("#61763f");
 
 /**
- * A trace of stepping keeps the ramp stylized. The old strength quantized tone
- * into four visible plateaus, which fought the smoothed facets by drawing hard
- * value bands straight across a curve.
+ * Only a trace of value stepping remains. Shape separation now comes from broad
+ * facets and coherent mineral regions; stronger quantization redraws unwanted
+ * horizontal contour bands across otherwise continuous faces.
  */
-const RAMP_BANDING_STRENGTH = 0.2;
+const RAMP_BANDING_STRENGTH = 0.08;
 
 function mixChannel(a: number, b: number, amount: number): number {
   return a + (b - a) * amount;
@@ -293,11 +289,6 @@ export function colorizeStoneVertices(
       edgeStrength = mixChannel(edgeStrength, secondary.edgeStrength, blend);
     }
 
-    // Crust before cavity, and both before the arris and the turf bounce.
-    // A crack cuts through crust, because the crack is younger than the
-    // weathering it exposes; the worn arris sits on top of whichever of the two
-    // it runs through; and the bounce is the field's light arriving last on all
-    // of it.
     const weathering = (weatherings[index] - 0.5) * 2 * crustStrength;
     if (weathering > 0) {
       r = mixChannel(r, crustR, weathering);
@@ -331,9 +322,6 @@ export function colorizeStoneVertices(
       b = mixChannel(b, TURF_BOUNCE.b, bounce);
     }
 
-    // Last, and after the turf bounce on purpose: a face pressed against the
-    // next boulder is not receiving light from the field either, so the shade
-    // has to be able to take the bounce back off again.
     const contact = contacts ? contacts[index] * STONE_CONTACT_OCCLUSION : 0;
     if (contact > 0) {
       r = mixChannel(r, cavityR, contact);
