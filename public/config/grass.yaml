@@ -37,7 +37,7 @@ gustScale: 0.08
 gustSpeed: 0.65
 flutterStrength: 0.025
 flutterSpeed: 3.8
-baseColor: "#5a8d2f"
+baseColor: "#2f7c35"
 tipColor: "#c7dc61"
 dryColor: "#9f9552"
 rootDarkening: 0.42
