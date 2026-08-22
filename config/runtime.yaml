@@ -1,7 +1,7 @@
 # Responsive rendering and presentation profile.
 compactMaxWidth: 820
 
-desktopCameraFov: 60
+desktopCameraFov: 52
 desktopCameraMargin: 1.18
 desktopCameraElevation: 0.72
 # Grass overdraw is fill-bound. 1.25 keeps a retina edge without a 2.25× pixel
@@ -59,7 +59,7 @@ desktopCloudAmbientColor: "#d8e1e8"
 desktopCloudShadowColor: "#9fb0bf"
 desktopCloudSunlitColor: "#fff6e7"
 
-compactCameraFov: 56
+compactCameraFov: 50
 compactCameraMargin: 1.28
 compactCameraElevation: 1.05
 compactMaxPixelRatio: 1.35

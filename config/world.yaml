@@ -98,19 +98,19 @@ grassBladeHeightJitter: 0.04
 # Strength is the look: wet banks, dry crowns, rock, and paths must read from
 # a standing camera, not only from a habitat debug overlay.
 grassMacroPatchWorldSize: 36
-grassMacroPatchStrength: 0.48
+grassMacroPatchStrength: 0.52
 grassWetDensityBoost: 0.45
 grassDryDensityReduction: 0.68
 grassRockDensityReduction: 0.82
 # Bare ground. Coverage is the share of the meadow that opens up; strength is
 # how completely it opens. Strength 1 is real negative space -- density reaches
 # zero, blades stop, and the terrain shader stops tinting that ground as grass.
-grassClearingCoverage: 0.20
+grassClearingCoverage: 0.28
 grassClearingStrength: 1.0
 grassDisturbanceDensityReduction: 0.88
 grassWetHeightBoost: 0.32
 grassDryHeightReduction: 0.42
-grassDryColorStrength: 0.64
+grassDryColorStrength: 0.58
 
 # Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
 detailFoliageDensity: 20.0
@@ -250,12 +250,12 @@ pathGrassClearance: 0.15
 
 # Shared ground/grass procedural surface. Detail fades reuse grass LOD ranges.
 terrainGroundNoiseWorldSize: 64
-terrainGroundMesoStrength: 0.14
-terrainGroundMicroStrength: 0.09
-terrainGroundNormalStrength: 0.24
-terrainGroundCanopyDarkening: 0.34
-terrainPathCoreDarkening: 0.13
-terrainPathVergeDryness: 0.32
+terrainGroundMesoStrength: 0.18
+terrainGroundMicroStrength: 0.12
+terrainGroundNormalStrength: 0.30
+terrainGroundCanopyDarkening: 0.22
+terrainPathCoreDarkening: 0.08
+terrainPathVergeDryness: 0.38
 
 grassMinAltitude: -20
 grassMaxAltitude: 118
@@ -302,13 +302,13 @@ stoneGrainSize: 0.6
 stoneGrainFadeDistance: 18
 
 # Biological growth.
-stoneGrowthDetailStrength: 0.82
+stoneGrowthDetailStrength: 0.56
 stoneGrowthDetailSize: 0.32
 stoneGrowthDetailFadeDistance: 24
-stoneMossExposureStrength: 0.68
+stoneMossExposureStrength: 0.44
 stoneMossExposureAzimuthDegrees: 32
 stoneMossExposureElevationDegrees: 49
-stoneMossStreakStrength: 0.32
+stoneMossStreakStrength: 0.22
 
 grassNearDistance: 28
 grassMidDistance: 80
@@ -343,14 +343,14 @@ characterJumpHoldGravityScale: 0.42
 characterLandingRecoveryTime: 0.3
 characterLandingImpactForFullEffect: 10.5
 
-characterCameraDistance: 4
+characterCameraDistance: 4.5
 characterCameraMinDistance: 2.8
 characterCameraMaxDistance: 10
-characterCameraLookHeight: 1.28
-characterCameraElevationDegrees: 14
-characterCameraMinElevationDegrees: 6
-characterCameraMaxElevationDegrees: 58
-characterCameraFollowRate: 4.5
+characterCameraLookHeight: 1.05
+characterCameraElevationDegrees: 38
+characterCameraMinElevationDegrees: 20
+characterCameraMaxElevationDegrees: 62
+characterCameraFollowRate: 5
 characterCameraGroundClearance: 0.7
 characterMouseLookSensitivity: 0.0022
 characterTouchLookSensitivity: 0.004
