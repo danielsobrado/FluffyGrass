@@ -177,6 +177,12 @@ export class WorldDetailFoliageAtlasFactory {
       case "broadleaf-rosette":
         this.drawBroadleafRosette(context, random, row);
         break;
+      case "clover-patch":
+        this.drawCloverPatch(context, random, row);
+        break;
+      case "leaf-litter":
+        this.drawLeafLitter(context, random, row);
+        break;
       default:
         throw new Error(
           `No detail foliage drawing routine for species ${species.key}.`,
@@ -815,6 +821,117 @@ export class WorldDetailFoliageAtlasFactory {
     context.quadraticCurveTo(length * 0.22, -half * 0.55, 0, 0);
     context.closePath();
     context.fill();
+  }
+
+  /**
+   * Trifoliate leaflets on short stems, spread across a card 2.1x as wide as it
+   * is tall. Progress stays mid-range: clover is fresh growth, so it should
+   * resolve near the blade palette's middle rather than at the dark root.
+   */
+  private drawCloverPatch(
+    context: CanvasRenderingContext2D,
+    random: SeededRandom,
+    variant: number,
+  ): void {
+    const lush = variant % 2 === 1;
+    const clusters = Math.round(lush ? random.range(7, 9) : random.range(5, 7));
+    const halfWidth = 0.85;
+    for (let index = 0; index < clusters; index += 1) {
+      const along = clusters === 1 ? 0.5 : index / (clusters - 1);
+      const centerX = (along * 2 - 1) * halfWidth + random.range(-0.07, 0.07);
+      const stemTop = random.range(0.3, lush ? 0.68 : 0.55);
+      const shade = random.range(0.3, 0.46);
+      context.fillStyle = encode(0.22, shade * 0.8, 0);
+      context.beginPath();
+      context.moveTo(centerX - 0.012, 0);
+      context.lineTo(centerX + 0.012, 0);
+      context.lineTo(centerX + 0.006, stemTop);
+      context.lineTo(centerX - 0.006, stemTop);
+      context.closePath();
+      context.fill();
+
+      const leafletRadius = random.range(0.1, 0.13);
+      const spin = random.range(0, Math.PI * 2);
+      for (let leaflet = 0; leaflet < 3; leaflet += 1) {
+        const angle = spin + (leaflet / 3) * Math.PI * 2;
+        context.save();
+        context.translate(
+          centerX + Math.cos(angle) * leafletRadius * 0.72,
+          stemTop + Math.sin(angle) * leafletRadius * 0.5,
+        );
+        context.fillStyle = encode(
+          random.range(0.52, 0.68),
+          shade * random.range(0.95, 1.15),
+          0,
+        );
+        context.beginPath();
+        context.ellipse(
+          0,
+          0,
+          leafletRadius,
+          leafletRadius * 0.72,
+          angle,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+        context.restore();
+      }
+    }
+  }
+
+  /**
+   * A flat mat of fallen leaf fragments and moss. The widest, shortest card in
+   * the catalogue, and the only one drawn almost entirely below its own
+   * mid-height: it exists to close the gap between soil and the shortest blade.
+   * Progress stays low so it resolves near the palette root, which is what
+   * makes it read as ground rather than as foliage lying on ground.
+   */
+  private drawLeafLitter(
+    context: CanvasRenderingContext2D,
+    random: SeededRandom,
+    variant: number,
+  ): void {
+    const deep = variant % 2 === 1;
+    const fragments = Math.round(deep ? random.range(16, 22) : random.range(11, 15));
+    const halfWidth = 1.15;
+    for (let index = 0; index < fragments; index += 1) {
+      const centerX = random.range(-halfWidth, halfWidth);
+      const centerY = random.range(0.02, deep ? 0.6 : 0.46);
+      const length = random.range(0.12, 0.2);
+      const shade = random.range(0.24, 0.44);
+      context.save();
+      context.translate(centerX, centerY);
+      context.rotate(random.range(-0.5, 0.5));
+      context.fillStyle = encode(
+        random.range(0.08, 0.26),
+        shade,
+        0,
+      );
+      context.beginPath();
+      context.ellipse(0, 0, length, length * random.range(0.3, 0.5), 0, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+    }
+    const specks = deep ? 14 : 9;
+    for (let index = 0; index < specks; index += 1) {
+      context.fillStyle = encode(
+        random.range(0.3, 0.45),
+        random.range(0.34, 0.52),
+        0,
+      );
+      context.beginPath();
+      context.ellipse(
+        random.range(-halfWidth, halfWidth),
+        random.range(0.02, 0.3),
+        random.range(0.03, 0.06),
+        random.range(0.02, 0.04),
+        0,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+    }
   }
 
   private drawSeedHead(

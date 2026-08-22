@@ -39,13 +39,21 @@ const NO_WATER_QUERY = process.env.FLUFFY_NO_WATER === "1"
 // the very number it reports. Turn it on deliberately when a capture is being
 // taken to answer a cost question rather than a look question — with the
 // framerate pinned to vsync, CPU-side FPS says nothing about headroom.
-const GPU_TIMING_QUERY = process.env.FLUFFY_GPU_TIMING === "1"
-  ? "&gpuTiming=1"
-  : "";
+const GPU_TIMING = process.env.FLUFFY_GPU_TIMING === "1";
+const GPU_TIMING_QUERY = GPU_TIMING ? "&gpuTiming=1" : "";
+// stats-gl and the custom GPU timer both issue EXT_disjoint_timer_query
+// queries, and only one query can be active at a time, so the runtime resolves
+// the conflict by suppressing its own timer whenever the stats panel is up
+// (`options.gpuTiming && !options.statsPanelEnabled`). This script used to ask
+// for both unconditionally, which meant FLUFFY_GPU_TIMING=1 silently reported
+// "GPU off" and every cost question got answered with a vsync-pinned CPU
+// number instead. The panel is the one that gives way: its FPS graph is
+// redundant with the diagnostics HUD, which runs off debug=1.
+const STATS_QUERY = GPU_TIMING ? "" : "&stats=1";
 const PROFILE_QUERY = RUNTIME_PROFILE
   ? `&profile=${encodeURIComponent(RUNTIME_PROFILE)}`
   : "";
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}${GPU_TIMING_QUERY}`;
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly${STATS_QUERY}&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}${GPU_TIMING_QUERY}`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine

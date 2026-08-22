@@ -39,11 +39,12 @@ assert(
   "Species slots 1 and 7 must be low-shrub and broadleaf-rosette.",
 );
 assert(
-  species.includes("GRASS_MAX_ACCENT_SPECIES = 8") &&
-    [...species.matchAll(/key: "([a-z-]+)",\s+category:/g)].length === 8 &&
+  species.includes("GRASS_MAX_ACCENT_SPECIES = 10") &&
+    [...species.matchAll(/key: "([a-z-]+)",\s+category:/g)].length === 10 &&
     species.includes('| "shrub"') &&
-    species.includes('| "broadleaf"'),
-  "The accent catalogue must stay at eight species and include shrub and broadleaf.",
+    species.includes('| "broadleaf"') &&
+    species.includes('| "groundcover"'),
+  "The accent catalogue must stay at ten species and include shrub, broadleaf, and groundcover.",
 );
 assert(
   biomeProfile.includes("GRASS_MAX_ACCENT_PROFILE_ENTRIES = 16") &&
@@ -118,12 +119,14 @@ assert(
     atlas.includes("private drawBroadleafRosette(") &&
     /drawLowShrub\([\s\S]*variant % 2 === 1/.test(atlas) &&
     /drawBroadleafRosette\([\s\S]*variant % 2 === 1/.test(atlas) &&
+    atlas.includes("private drawCloverPatch(") &&
+    atlas.includes("private drawLeafLitter(") &&
     atlas.includes("DETAIL_FOLIAGE_CELL_RESOLUTION = 112") &&
     atlas.includes("DETAIL_FOLIAGE_VARIANT_ROWS = 2") &&
     atlas.includes("columns * cellSize") &&
     !atlas.includes("drawSprig") &&
     !atlas.includes('case "tall-tuft"'),
-  "Atlas must draw shrub and rosette phenotypes on the existing 8x2 1024x256 layout.",
+  "Atlas must draw shrub, rosette, and ground-layer phenotypes on the 10x2 1280x256 layout.",
 );
 assert(
   species.includes('key: "daisy"') &&

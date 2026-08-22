@@ -799,7 +799,7 @@ const declaredTints = [
   ...accentSpeciesSource.matchAll(/\{ key: "([a-z-]+)", color:/g),
 ].map((match) => match[1]);
 assert(
-  maxAccentSpecies === 8 &&
+  maxAccentSpecies === 10 &&
     maxAccentTints === 8 &&
     declaredSpecies.length === maxAccentSpecies &&
     declaredTints.length === maxAccentTints &&
@@ -863,9 +863,9 @@ assert(
         /DETAIL_FOLIAGE_VARIANT_ROWS = (\d+)/,
       )?.[1],
     ) === 2 &&
-    maxAccentSpecies === 8 &&
+    maxAccentSpecies === 10 &&
     nearField.includes("DETAIL_FOLIAGE_TILES_PER_FRAME = 1"),
-  `Detail foliage must keep 16 m tiles, 8 species, 2 phenotype rows, one tile/frame, and ≤ ${ACCENT_CANDIDATES_PER_TILE_CEILING} candidates.`,
+  `Detail foliage must keep 16 m tiles, 10 species, 2 phenotype rows, one tile/frame, and ≤ ${ACCENT_CANDIDATES_PER_TILE_CEILING} candidates.`,
 );
 assert(
   detailFoliageField.includes("castShadow = false") &&

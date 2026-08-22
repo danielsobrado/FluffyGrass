@@ -30,7 +30,9 @@
       { "species": "grass-tuft", "tint": "none", "weight": 3.60 },
       { "species": "broadleaf-rosette", "tint": "none", "weight": 1.70 },
       { "species": "low-shrub", "tint": "none", "weight": 0.55 },
-      { "species": "seed-head", "tint": "straw", "weight": 0.25 }
+      { "species": "seed-head", "tint": "straw", "weight": 0.25 },
+      { "species": "clover-patch", "tint": "none", "weight": 2.60 },
+      { "species": "leaf-litter", "tint": "none", "weight": 1.40 }
     ]
   },
   "dry-steppe": {
@@ -58,7 +60,8 @@
       { "species": "broadleaf-rosette", "tint": "none", "weight": 0.25 },
       { "species": "round-bloom", "tint": "buttercup", "weight": 0.50 },
       { "species": "round-bloom", "tint": "cream", "weight": 0.20 },
-      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.08 }
+      { "species": "round-bloom", "tint": "poppy-red", "weight": 0.08 },
+      { "species": "leaf-litter", "tint": "none", "weight": 0.90 }
     ]
   },
   "alpine": {
@@ -88,7 +91,9 @@
       { "species": "daisy", "tint": "cream", "weight": 0.30 },
       { "species": "daisy", "tint": "sky-blue", "weight": 0.30 },
       { "species": "round-bloom", "tint": "lavender", "weight": 0.55 },
-      { "species": "round-bloom", "tint": "pink", "weight": 0.20 }
+      { "species": "round-bloom", "tint": "pink", "weight": 0.20 },
+      { "species": "clover-patch", "tint": "none", "weight": 1.10 },
+      { "species": "leaf-litter", "tint": "none", "weight": 1.60 }
     ]
   }
 }

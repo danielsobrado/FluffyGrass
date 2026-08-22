@@ -102,6 +102,11 @@ grassMacroPatchStrength: 0.48
 grassWetDensityBoost: 0.45
 grassDryDensityReduction: 0.68
 grassRockDensityReduction: 0.82
+# Bare ground. Coverage is the share of the meadow that opens up; strength is
+# how completely it opens. Strength 1 is real negative space -- density reaches
+# zero, blades stop, and the terrain shader stops tinting that ground as grass.
+grassClearingCoverage: 0.20
+grassClearingStrength: 1.0
 grassDisturbanceDensityReduction: 0.88
 grassWetHeightBoost: 0.32
 grassDryHeightReduction: 0.42
@@ -115,7 +120,15 @@ detailFoliageColonyStrength: 0.94
 detailFoliageDominantFamilyShare: 0.90
 detailFoliageTintCoherence: 1
 detailFoliageQuietZoneThreshold: 0.34
-detailFoliageBackgroundSuppression: 0.34
+# The only lever that creates quiet ground, despite the name of the threshold
+# above: quietZoneThreshold was measured at 0.34, 0.50, and 0.62 and moved the
+# quiet-cell ratio not at all, while this one moves it directly. Dropping it to
+# 0.34 for card count took the ratio to zero -- the accent layer became a
+# uniform sprinkle with no colonies or negative space -- and that went unnoticed
+# because verify-detail-foliage-distribution was still testing a stale 0.35
+# density. 0.50 is the smallest value that keeps the ratio inside its 20-60%
+# contract (0.217).
+detailFoliageBackgroundSuppression: 0.50
 detailFoliageCoreHeightBias: 0.12
 detailFoliageMaturePhenotypeBias: 0.62
 detailFoliageEcologyStrength: 0.72

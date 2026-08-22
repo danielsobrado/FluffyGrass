@@ -154,8 +154,13 @@ export class WorldTreeField implements CanopyShadeSource {
       y: height,
       z,
       yaw,
-      height: 2.4 + heightRoll * 1.8,
-      canopyScale: 0.85 + canopyRoll * 0.55,
+      // A 2.4-4.2 m trunk under a 1.15-1.89 m crown is a sapling, and a
+      // meadow dressed in saplings casts no usable shade. These are trees:
+      // 4.6-8.8 m tall under a 3.2-5.5 m crown radius (canopyScale times
+      // TREE_CANOPY_RADIUS_SCALE), which is what makes the canopy a fraction
+      // of the ground rather than a rounding error on it.
+      height: 4.6 + heightRoll * 4.2,
+      canopyScale: 2.4 + canopyRoll * 1.7,
       leanX: normal.x * 0.18,
       leanZ: normal.z * 0.18,
     };

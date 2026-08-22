@@ -45,21 +45,47 @@ function format6(value) {
   return value.toFixed(6);
 }
 
+/**
+ * Read from the shipped config rather than restated here.
+ *
+ * These were duplicated as literals and silently went stale: the config had
+ * moved to 20 cards/m2 and a 0.34 background suppression while this block still
+ * declared 0.35 and 0.58, so every distribution assertion below was validating
+ * a field the game had not rendered in a long time -- including the one number
+ * that changed by 97x. Deriving them makes that drift impossible instead of
+ * merely fixed once.
+ */
+function readWorldNumber(key) {
+  const prefix = `${key}:`;
+  for (const line of worldConfigSource.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(prefix)) {
+      continue;
+    }
+    const value = Number(trimmed.slice(prefix.length).trim());
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+  throw new Error(`[detail-foliage] world.yaml is missing ${key}.`);
+}
+
+const worldConfigSource = read("public/config/world.yaml");
 const PRODUCTION_TUNING = {
-  density: 0.35,
-  colonyWorldSize: 11,
-  clumpWorldSize: 2.25,
-  colonyStrength: 0.94,
-  dominantFamilyShare: 0.9,
-  tintCoherence: 1,
-  quietZoneThreshold: 0.34,
-  backgroundSuppression: 0.58,
-  coreHeightBias: 0.12,
-  maturePhenotypeBias: 0.62,
-  ecologyStrength: 0.72,
-  edgeCompanionStrength: 0.3,
-  stoneFringeStrength: 0.38,
-  pathFringeStrength: 0.18,
+  density: readWorldNumber("detailFoliageDensity"),
+  colonyWorldSize: readWorldNumber("detailFoliageColonyWorldSize"),
+  clumpWorldSize: readWorldNumber("detailFoliageClumpWorldSize"),
+  colonyStrength: readWorldNumber("detailFoliageColonyStrength"),
+  dominantFamilyShare: readWorldNumber("detailFoliageDominantFamilyShare"),
+  tintCoherence: readWorldNumber("detailFoliageTintCoherence"),
+  quietZoneThreshold: readWorldNumber("detailFoliageQuietZoneThreshold"),
+  backgroundSuppression: readWorldNumber("detailFoliageBackgroundSuppression"),
+  coreHeightBias: readWorldNumber("detailFoliageCoreHeightBias"),
+  maturePhenotypeBias: readWorldNumber("detailFoliageMaturePhenotypeBias"),
+  ecologyStrength: readWorldNumber("detailFoliageEcologyStrength"),
+  edgeCompanionStrength: readWorldNumber("detailFoliageEdgeCompanionStrength"),
+  stoneFringeStrength: readWorldNumber("detailFoliageStoneFringeStrength"),
+  pathFringeStrength: readWorldNumber("detailFoliagePathFringeStrength"),
 };
 
 const MEADOW_ECOLOGY = {
@@ -127,7 +153,11 @@ try {
   const { GRASS_BIOME_PROFILES } = await server.ssrLoadModule(
     "/src/grass/biome/GrassBiomeProfile.ts",
   );
-  const { GRASS_ACCENT_SPECIES, GRASS_MAX_ACCENT_TINTS } =
+  const {
+    GRASS_ACCENT_SPECIES,
+    GRASS_MAX_ACCENT_SPECIES,
+    GRASS_MAX_ACCENT_TINTS,
+  } =
     await server.ssrLoadModule("/src/grass/biome/GrassAccentSpecies.ts");
 
   const tuning = normalizeDetailFoliageTuning(PRODUCTION_TUNING);
@@ -185,6 +215,7 @@ try {
             meadow,
             MEADOW_ECOLOGY,
             0.28,
+            0,
             0.88,
             0.92,
             0,
@@ -334,6 +365,7 @@ try {
             meadow,
             MEADOW_ECOLOGY,
             0.28,
+            0,
             0.88,
             0.92,
             0,
@@ -616,8 +648,8 @@ try {
 
   for (const item of clustered) {
     assert(
-      item.speciesIndex >= 0 && item.speciesIndex <= 7,
-      "Selected speciesIndex must stay inside 0..7.",
+      item.speciesIndex >= 0 && item.speciesIndex < GRASS_MAX_ACCENT_SPECIES,
+      "Selected speciesIndex must stay inside the species ceiling.",
     );
     assert(
       item.tintRow >= 0 && item.tintRow < GRASS_MAX_ACCENT_TINTS,

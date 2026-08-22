@@ -5,9 +5,23 @@ import type { DeerVariant } from "../../creatures/deer/DeerGeometry";
 export const TREE_CELL_SIZE = 22;
 export const TREE_DESKTOP_RADIUS = 96;
 export const TREE_COMPACT_RADIUS = 52;
-export const TREE_OCCUPANCY = 0.28;
+/**
+ * Share of cells that carry a tree before the ecology filters below run.
+ *
+ * Raised with the crown scale, not instead of it. Occupancy alone could not
+ * fix the canopy: at a 1.9 m maximum crown radius on a 22 m cell, every cell
+ * in the world could germinate and the canopy would still cover under half a
+ * per cent of the ground, so the shade channel had nothing to shade.
+ */
+export const TREE_OCCUPANCY = 0.46;
 export const TREE_MIN_FERTILITY = 0.22;
-export const TREE_MAX_FERTILITY = 0.72;
+/**
+ * Trees want ground poorer than the lushest meadow, but this sat exactly on
+ * the meadow's own fertility (0.72), which put every meadow cell on the
+ * rejection boundary and is the second reason crowns were absent from the one
+ * biome the shade work was authored for.
+ */
+export const TREE_MAX_FERTILITY = 0.86;
 export const TREE_MIN_MOISTURE = 0.28;
 export const TREE_MAX_ROCKINESS = 0.55;
 export const TREE_MIN_NORMAL_Y = 0.78;

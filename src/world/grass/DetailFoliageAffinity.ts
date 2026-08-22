@@ -118,6 +118,22 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     disturbance: [0.08, 0.3],
     shade: [0.6, 0.5],
   },
+  "clover-patch": {
+    moisture: [0.68, 0.6],
+    fertility: [0.72, 0.55],
+    exposure: [0.5, 0.75],
+    rockiness: [0.25, 0.6],
+    disturbance: [0.3, 0.6],
+    shade: [0.4, 0.75],
+  },
+  "leaf-litter": {
+    moisture: [0.5, 0.7],
+    fertility: [0.35, 0.7],
+    exposure: [0.4, 0.7],
+    rockiness: [0.55, 0.7],
+    disturbance: [0.55, 0.7],
+    shade: [0.72, 0.55],
+  },
 });
 
 const CATEGORY_INDEX: Record<GrassAccentCategory, number> = {
@@ -127,15 +143,27 @@ const CATEGORY_INDEX: Record<GrassAccentCategory, number> = {
   broadleaf: 3,
   flower: 4,
   seed: 5,
+  groundcover: 6,
 };
 
+/**
+ * How welcome a species is beside an already-chosen neighbour, indexed
+ * [dominant][candidate] by {@link CATEGORY_INDEX}.
+ *
+ * Row and column 6 are the ground layer, and it is the one category that
+ * competes with nothing: it occupies the space *under* every other silhouette
+ * rather than beside it, so it stays welcome next to all of them and is itself
+ * largely indifferent to what stands over it. Its one reservation is seed
+ * heads, which mark the dry, thin ground a closed mat of clover is not on.
+ */
 const COMPATIBILITY = [
-  [1, 0.65, 0.65, 0.75, 0.7, 0.7],
-  [0.9, 1, 0.65, 0.9, 0.3, 0.25],
-  [0.8, 0.55, 1, 0.9, 0.25, 0.15],
-  [0.85, 0.75, 0.85, 1, 0.45, 0.2],
-  [0.85, 0.25, 0.3, 0.65, 0.55, 0.3],
-  [0.9, 0.3, 0.15, 0.2, 0.3, 1],
+  [1, 0.65, 0.65, 0.75, 0.7, 0.7, 0.95],
+  [0.9, 1, 0.65, 0.9, 0.3, 0.25, 0.9],
+  [0.8, 0.55, 1, 0.9, 0.25, 0.15, 1],
+  [0.85, 0.75, 0.85, 1, 0.45, 0.2, 0.95],
+  [0.85, 0.25, 0.3, 0.65, 0.55, 0.3, 0.9],
+  [0.9, 0.3, 0.15, 0.2, 0.3, 1, 0.8],
+  [0.95, 0.85, 0.95, 0.9, 0.85, 0.7, 1],
 ];
 
 function clamp01(value: number): number {
@@ -200,9 +228,21 @@ function edgeBoost(
   pathFringe: number,
   stoneFringe: number,
   habitatDryness: number,
+  openness: number,
   tuning: DetailFoliageTuning,
 ): number {
   const edge = tuning.edgeCompanionStrength;
+  // The ground layer follows the gaps the blades left. Without this the two
+  // systems disagree: clearings open, and the species that should be lying in
+  // them stay scattered evenly across the closed canopy instead, which reads
+  // as bare mud rather than as meadow floor. Litter answers hardest because it
+  // is the one species with no stake in the canopy at all.
+  if (key === "leaf-litter") {
+    return 1 + openness * 2.6;
+  }
+  if (key === "clover-patch") {
+    return 1 + openness * 1.7;
+  }
   if (key === "fern" || key === "small-fern" || key === "broadleaf-rosette") {
     return 1 + stoneFringe * tuning.stoneFringeStrength * edge;
   }
@@ -224,6 +264,7 @@ function adjustedWeight(
   habitatDryness: number,
   pathFringe: number,
   stoneFringe: number,
+  openness: number,
   tuning: DetailFoliageTuning,
 ): number {
   const species = GRASS_ACCENT_SPECIES[entry.speciesIndex];
@@ -234,7 +275,14 @@ function adjustedWeight(
   }
   return (
     weight *
-    edgeBoost(species.key, pathFringe, stoneFringe, habitatDryness, tuning)
+    edgeBoost(
+      species.key,
+      pathFringe,
+      stoneFringe,
+      habitatDryness,
+      openness,
+      tuning,
+    )
   );
 }
 
@@ -244,6 +292,7 @@ function companionScaledWeight(
   habitatDryness: number,
   pathFringe: number,
   stoneFringe: number,
+  openness: number,
   tuning: DetailFoliageTuning,
   dominantCategory: GrassAccentCategory | undefined,
 ): number {
@@ -253,6 +302,7 @@ function companionScaledWeight(
     habitatDryness,
     pathFringe,
     stoneFringe,
+    openness,
     tuning,
   );
   if (weight <= 0 || dominantCategory === undefined) {
@@ -276,6 +326,7 @@ function pickWeightedEntry(
   habitatDryness: number,
   pathFringe: number,
   stoneFringe: number,
+  openness: number,
   tuning: DetailFoliageTuning,
   roll: number,
   dominantCategory: GrassAccentCategory | undefined,
@@ -288,6 +339,7 @@ function pickWeightedEntry(
       habitatDryness,
       pathFringe,
       stoneFringe,
+      openness,
       tuning,
       dominantCategory,
     );
@@ -308,6 +360,7 @@ function pickWeightedEntry(
       habitatDryness,
       pathFringe,
       stoneFringe,
+      openness,
       tuning,
       dominantCategory,
     );
@@ -468,6 +521,7 @@ export function resolveDetailFoliageSelection(
   profile: GrassBiomeProfile,
   ecology: WorldEcologySample,
   habitatDryness: number,
+  openness: number,
   pathMask: number,
   stoneMask: number,
   stoneSkirt: number,
@@ -493,6 +547,7 @@ export function resolveDetailFoliageSelection(
     habitatDryness,
     pathFringe,
     stoneFringe,
+    openness,
     tuning,
     distribution.familyRoll,
     undefined,
@@ -517,6 +572,7 @@ export function resolveDetailFoliageSelection(
       habitatDryness,
       pathFringe,
       stoneFringe,
+      openness,
       tuning,
       companionRoll,
       GRASS_ACCENT_SPECIES[dominant.speciesIndex]?.category,
@@ -529,6 +585,7 @@ export function resolveDetailFoliageSelection(
         habitatDryness,
         pathFringe,
         stoneFringe,
+        openness,
         tuning,
         companionRoll,
         undefined,

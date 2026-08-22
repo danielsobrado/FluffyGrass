@@ -22,8 +22,16 @@
 const DRYNESS_PERIOD = 27;
 /** Metres per lattice cell of the vigour field, deliberately not a multiple. */
 const VIGOR_PERIOD = 19;
+/**
+ * Metres per lattice cell of the clearing field, and deliberately the shortest
+ * of the three. Dryness and vigour band the meadow at regional scale; a
+ * clearing has to read from a standing camera as a gap between clumps, which
+ * is a handful of metres, not tens of them.
+ */
+const CLEARING_PERIOD = 7;
 const DRYNESS_SEED = 0x51_7c_c1_b7;
 const VIGOR_SEED = 0x27_22_0a_95;
+const CLEARING_SEED = 0x6d_1f_93_2b;
 
 /**
  * How much of a blade's dryness comes from the macro field. Applied identically
@@ -90,6 +98,59 @@ export function sampleGrassMacroDryness(x: number, z: number): number {
  */
 export function sampleGrassMacroVigor(x: number, z: number): number {
   return patchNoise(x, z, VIGOR_PERIOD, VIGOR_SEED);
+}
+
+/**
+ * Open ground, in [0, 1]. High where the meadow simply has no grass on it.
+ *
+ * This is the one macro field that is not a modulation of how *well* grass
+ * grows: dryness and vigour scale a canopy that is still there, and every
+ * ecological term upstream is floored by the biome's climate retention so a
+ * meadow cannot climate itself bald. That floor is correct, and it is also why
+ * the field read as one opaque carpet — nothing downstream of it could reach
+ * zero, so bare ground was unreachable at any ecology. A clearing is not poor
+ * climate; it is ground with nothing on it, so it applies after the floor and
+ * is allowed to take density to zero.
+ */
+export function sampleGrassMacroClearing(x: number, z: number): number {
+  return patchNoise(x, z, CLEARING_PERIOD, CLEARING_SEED);
+}
+
+/**
+ * Clearing-field value above which a given share of ground lies, measured from
+ * the field itself over a 160 000-sample grid.
+ *
+ * Two smoothed octaves averaged together do not produce a uniform variate: the
+ * field's median is 0.505 and it reaches 0.8 only in the top few per cent, so
+ * the obvious `threshold = 1 - coverage` is wrong by roughly an order of
+ * magnitude at the useful end. Authoring against it opened 3% of the ground
+ * when it asked for 20%. These are the measured quantiles, so the config lever
+ * means the share of ground it says it means.
+ *
+ * Index i is the threshold for a coverage of `(i + 1) * 0.05`.
+ */
+const CLEARING_THRESHOLD_BY_COVERAGE = [
+  0.7650, 0.7139, 0.6777, 0.6468, 0.6200, 0.5949, 0.5716, 0.5486,
+] as const;
+
+/**
+ * Resolves the clearing threshold for a target open-ground share, in [0, 0.4].
+ * Coverage counts ground thinned by at least half, which is where the ramp in
+ * {@link sampleGrassHabitat} crosses 0.5.
+ */
+export function resolveGrassClearingThreshold(coverage: number): number {
+  const table = CLEARING_THRESHOLD_BY_COVERAGE;
+  if (coverage <= 0) {
+    return 1.1;
+  }
+  const position = coverage / 0.05 - 1;
+  if (position <= 0) {
+    // Below the first measured anchor, interpolate toward "nothing opens".
+    return table[0] + (1.1 - table[0]) * -position;
+  }
+  const low = Math.min(Math.floor(position), table.length - 1);
+  const high = Math.min(low + 1, table.length - 1);
+  return table[low] + (table[high] - table[low]) * (position - low);
 }
 
 /**

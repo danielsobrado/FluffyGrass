@@ -84,6 +84,8 @@ export interface WorldConfig {
   grassWetDensityBoost: number;
   grassDryDensityReduction: number;
   grassRockDensityReduction: number;
+  grassClearingCoverage: number;
+  grassClearingStrength: number;
   grassDisturbanceDensityReduction: number;
   grassWetHeightBoost: number;
   grassDryHeightReduction: number;

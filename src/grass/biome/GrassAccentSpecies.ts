@@ -9,12 +9,19 @@
  * weights as a bounded uniform array. One catalogue keeps those four in step —
  * the same reason the biome profiles themselves are loaded once and validated.
  *
- * Both tables are capped at eight entries: the shader indexes them with a
+ * Both tables are bounded: the shader indexes them with a
  * per-instance row, exactly like the biome palette arrays, so their length is a
  * uniform-array size and never a draw-call or program count.
  */
 
-export const GRASS_MAX_ACCENT_SPECIES = 8;
+/**
+ * Ten species, eight tints. The cap is a uniform-array size, not a draw-call or
+ * program count, so it was raised from eight to admit the sub-canopy ground
+ * layer: two more rows of `uSpeciesWind` and two more atlas columns
+ * (1280x256 instead of 1024x256). It stays a hard bound because the shader
+ * indexes it with a per-instance row.
+ */
+export const GRASS_MAX_ACCENT_SPECIES = 10;
 export const GRASS_MAX_ACCENT_TINTS = 8;
 
 /**
@@ -26,6 +33,7 @@ export const GRASS_MAX_ACCENT_TINTS = 8;
  * without any extra noise of its own.
  */
 export type GrassAccentCategory =
+  | "groundcover"
   | "tuft"
   | "shrub"
   | "fern"
@@ -147,6 +155,24 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
           aspect: 1.45,
           windWeight: 0.42,
           canopyHeightBand: [0.85, 1.35],
+        },
+        {
+          // The sub-canopy layer. Both sit below 0.5 canopies, so they are read
+          // as ground the blades stand in rather than as another thing standing
+          // in it: wide, near-flat cards that close the gap between the soil and
+          // the shortest blade instead of competing at the canopy line.
+          key: "clover-patch",
+          category: "groundcover",
+          aspect: 2.1,
+          windWeight: 0.34,
+          canopyHeightBand: [0.24, 0.42],
+        },
+        {
+          key: "leaf-litter",
+          category: "groundcover",
+          aspect: 2.8,
+          windWeight: 0.3,
+          canopyHeightBand: [0.12, 0.24],
         },
       ] as const
     ).map((definition, index) =>

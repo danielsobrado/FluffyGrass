@@ -101,6 +101,8 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassWetDensityBoost: { minimum: 0, maximum: 0.6 },
   grassDryDensityReduction: { minimum: 0, maximum: 0.8 },
   grassRockDensityReduction: { minimum: 0, maximum: 0.9 },
+  grassClearingCoverage: { minimum: 0, maximum: 0.6 },
+  grassClearingStrength: { minimum: 0, maximum: 1 },
   grassDisturbanceDensityReduction: { minimum: 0, maximum: 0.95 },
   grassWetHeightBoost: { minimum: 0, maximum: 0.4 },
   grassDryHeightReduction: { minimum: 0, maximum: 0.5 },

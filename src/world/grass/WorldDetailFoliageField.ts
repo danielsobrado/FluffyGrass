@@ -435,6 +435,7 @@ export class WorldDetailFoliageFactory {
           profile,
           ecology,
           this.habitatSample.dryness,
+          this.habitatSample.openness,
           pathMask,
           stoneMask,
           stoneSkirt,

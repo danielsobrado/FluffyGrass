@@ -1,5 +1,7 @@
 import {
   GRASS_MACRO_DRYNESS_STRENGTH,
+  resolveGrassClearingThreshold,
+  sampleGrassMacroClearing,
   sampleGrassMacroDryness,
   sampleGrassMacroVigor,
 } from "../../grass/GrassFieldVariation";
@@ -21,6 +23,14 @@ export interface GrassHabitatSample {
   underlayer: number;
   directionalLean: number;
   accentChance: number;
+  /**
+   * How open this ground is, in [0, 1]: 0 is closed canopy, 1 is the core of a
+   * clearing where no blade survives. Published because the accent layer needs
+   * the same number the blades were thinned by -- a clearing is where the
+   * ground layer belongs, and recomputing the field there would risk the two
+   * disagreeing about where the gap is.
+   */
+  openness: number;
 }
 
 export const GRASS_CLUSTER_DENSE_NORMAL = 0;
@@ -44,6 +54,7 @@ export function createGrassHabitatSample(): GrassHabitatSample {
     underlayer: 0.34,
     directionalLean: 0,
     accentChance: 0,
+    openness: 0,
   };
 }
 
@@ -53,6 +64,11 @@ function clamp01(value: number): number {
 
 function lerp(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const amount = clamp01((value - edge0) / (edge1 - edge0));
+  return amount * amount * (3 - 2 * amount);
 }
 
 function hashLattice(x: number, z: number, seed: number): number {
@@ -127,7 +143,35 @@ export function sampleGrassHabitat(
   );
   density *= 1 - rockiness * config.grassRockDensityReduction;
   density *= 1 - disturbance * config.grassDisturbanceDensityReduction;
+  // Clearings are applied last, after the climate retention floor above, and
+  // are the only term permitted to reach zero. Everything before this point is
+  // a statement about how well grass grows; this one is a statement about
+  // whether it is there at all, which is what lets the substrate show through.
+  // The same density lands in the terrain shader's grass-tint amount through
+  // TerrainSurfaceField, so a gap in the blades uncovers soil rather than a
+  // green patch of ground pretending to be grass.
+  // The ramp is centred on the threshold rather than starting at it, so the
+  // half-open contour lands exactly on the measured quantile and the coverage
+  // lever stays truthful; the width is what keeps clearing edges ragged
+  // instead of stamping a hard circle into the canopy.
+  const clearingThreshold = resolveGrassClearingThreshold(
+    clamp01(config.grassClearingCoverage),
+  );
+  const openness = smoothstep(
+    clearingThreshold - 0.07,
+    clearingThreshold + 0.07,
+    sampleGrassMacroClearing(x, z),
+  );
+  // Kept before the clearing is applied, because a clearing is bare of blades
+  // and not of ground: the sub-canopy species are what should still be
+  // standing in one. This does not bind in a fertile meadow, where
+  // accentChance clears the field's 0.06 cutoff either way, but it is load
+  // bearing on marginal ground -- a dry-steppe clearing computes about 0.031
+  // against that cutoff and would lose its ground layer entirely.
+  const canopyDensity = clamp01(density);
+  density *= 1 - openness * clamp01(config.grassClearingStrength);
   target.density = clamp01(density);
+  target.openness = openness;
   target.densityRetention = clamp01(
     target.density / Math.max(biomeDensity, GRASS_DENSITY_EPSILON),
   );
@@ -167,7 +211,7 @@ export function sampleGrassHabitat(
       fertility *
       (1 - disturbance) *
       (0.35 + moisture * 0.65) *
-      (0.4 + target.density * 0.6),
+      (0.4 + canopyDensity * 0.6),
   );
   return target;
 }

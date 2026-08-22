@@ -85,7 +85,7 @@ try {
         world.detailFoliageDominantFamilyShare === 0.9 &&
         world.detailFoliageTintCoherence === 1 &&
         world.detailFoliageQuietZoneThreshold === 0.34 &&
-        world.detailFoliageBackgroundSuppression === 0.34 &&
+        world.detailFoliageBackgroundSuppression === 0.5 &&
         world.detailFoliageCoreHeightBias === 0.12 &&
         world.detailFoliageMaturePhenotypeBias === 0.62 &&
         world.detailFoliageEcologyStrength === 0.72 &&
