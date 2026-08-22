@@ -153,6 +153,19 @@ export const STONE_BOUNCE_STRENGTH = 0.52;
  */
 export const STONE_TONE_FLOOR = 0.42;
 export const STONE_TONE_RANGE = 0.56;
+
+/**
+ * Broad mineral value variation baked into the mesh.
+ *
+ * The patch is intentionally much larger than the surface grain. It groups
+ * neighbouring facets into one mineral body instead of giving every polygon an
+ * unrelated random tint, while a small residual face jitter keeps fresh cuts
+ * from becoming perfectly uniform.
+ */
+export const STONE_MINERAL_PATCH_SIZE = 0.68;
+export const STONE_MINERAL_TINT_STRENGTH = 0.055;
+export const STONE_MINERAL_FACE_JITTER = 0.018;
+
 /**
  * Crust deposition.
  *
@@ -175,6 +188,10 @@ export const STONE_CRUST_BAND = 0.1;
  * something to be read against.
  */
 export const STONE_STAIN_THRESHOLD = 0.26;
+/** Lower-body soil deposition, expressed as a fraction of stone height. */
+export const STONE_SOIL_STAIN_HEIGHT = 0.23;
+/** Maximum field bias toward stain at the buried foot. */
+export const STONE_SOIL_STAIN_STRENGTH = 0.16;
 
 /**
  * Cavity depth.
