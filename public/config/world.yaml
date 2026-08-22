@@ -113,11 +113,11 @@ grassDryHeightReduction: 0.42
 grassDryColorStrength: 0.58
 
 # Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
-detailFoliageDensity: 12.0
+detailFoliageDensity: 20.0
 detailFoliageColonyWorldSize: 11
 detailFoliageClumpWorldSize: 2.25
 detailFoliageColonyStrength: 0.94
-detailFoliageDominantFamilyShare: 0.84
+detailFoliageDominantFamilyShare: 0.90
 detailFoliageTintCoherence: 1
 detailFoliageQuietZoneThreshold: 0.34
 # The only lever that creates quiet ground, despite the name of the threshold
@@ -129,8 +129,8 @@ detailFoliageQuietZoneThreshold: 0.34
 # density. 0.50 is the smallest value that keeps the ratio inside its 20-60%
 # contract (0.217).
 detailFoliageBackgroundSuppression: 0.50
-detailFoliageCoreHeightBias: 0.08
-detailFoliageMaturePhenotypeBias: 0.58
+detailFoliageCoreHeightBias: 0.12
+detailFoliageMaturePhenotypeBias: 0.62
 detailFoliageEcologyStrength: 0.72
 detailFoliageEdgeCompanionStrength: 0.30
 detailFoliageStoneFringeStrength: 0.38
