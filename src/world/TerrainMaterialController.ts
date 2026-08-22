@@ -65,18 +65,18 @@ export class TerrainMaterialController {
         uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
         uTerrainWetSheenStrength: { value: 0.55 },
         uTerrainWetSheenPower: { value: 42 },
-        uTerrainSoilRich: { value: new THREE.Color("#40382b") },
-        uTerrainSoilDry: { value: new THREE.Color("#66513b") },
-        uTerrainPathSoil: { value: new THREE.Color("#574833") },
-        uTerrainPathDust: { value: new THREE.Color("#8d7350") },
-        uTerrainPathGrit: { value: new THREE.Color("#a1968a") },
+        uTerrainSoilRich: { value: new THREE.Color("#5b4931") },
+        uTerrainSoilDry: { value: new THREE.Color("#9a794b") },
+        uTerrainPathSoil: { value: new THREE.Color("#795a38") },
+        uTerrainPathDust: { value: new THREE.Color("#c49a62") },
+        uTerrainPathGrit: { value: new THREE.Color("#b7a47f") },
         /**
          * Ground worked over by a stone sitting in it. Darker and less red than
          * uTerrainSoilRich because it is soil in permanent shade holding
          * moisture, not open topsoil; the dry side of the mix in the shader
          * borrows uTerrainPathGrit for the mineral fines instead.
          */
-        uTerrainStoneContactSoil: { value: new THREE.Color("#33291f") },
+        uTerrainStoneContactSoil: { value: new THREE.Color("#4a3626") },
         uTerrainStoneContactReach: { value: 1.35 },
         uTerrainStoneContactDarkening: { value: 0.26 },
         /**
@@ -85,8 +85,8 @@ export class TerrainMaterialController {
          * into a marble vein, which is exactly how the first pass at this read.
          * Lithology supplies the variation now, and it needs far less range.
          */
-        uTerrainRockBase: { value: new THREE.Color("#4a453e") },
-        uTerrainRockWarm: { value: new THREE.Color("#5d5347") },
+        uTerrainRockBase: { value: new THREE.Color("#6f604d") },
+        uTerrainRockWarm: { value: new THREE.Color("#91704e") },
         uTerrainRockReliefStrength: { value: 0.85 },
         uTerrainBiomeBase: { value: this.palette.base },
         uTerrainBiomeTip: { value: this.palette.tip },
