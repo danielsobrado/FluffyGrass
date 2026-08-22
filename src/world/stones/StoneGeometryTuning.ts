@@ -6,14 +6,12 @@ export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
 /**
  * Occlusion in the seam where the body meets the ground.
  *
- * A stone reads as resting on the meadow rather than in it when nothing darkens
- * at the join: the turf goes bright right up to a body that is bright too, and
- * the eye gets no contact to sit the mass on. The floor is deep enough for the
- * seam to be visible at the distances stones are actually seen from, and the
- * height keeps it a seam rather than a gradient up the flank.
+ * Contact shading is intentionally shallow. A broad height ramp turns the
+ * entire lower profile into a horizontal belt, while the real neighbour and
+ * terrain-contact terms already provide the dark seam where the mass touches.
  */
-export const STONE_CONTACT_SHADE_FLOOR = 0.64;
-export const STONE_CONTACT_SHADE_HEIGHT = 0.3;
+export const STONE_CONTACT_SHADE_FLOOR = 0.72;
+export const STONE_CONTACT_SHADE_HEIGHT = 0.18;
 export const STONE_MOSS_CLIMB = 0.42;
 export const STONE_MOSS_PATCH_SIZE = 0.26;
 export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
@@ -21,26 +19,16 @@ export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
 /**
  * Facet softening.
  *
- * The body is a convex polyhedron, so its many profile facets are an
- * approximation of one weathered curve rather than real fractures. Averaging
- * normals across the shallow breaks lets that curve read as a curve, while the
- * dihedral limit keeps cuts, chips, and notch rims crisp. The softening itself
- * writes nothing but the normal attribute — silhouette and counts are untouched
- * by it; the centre-fan retessellation below is what adds triangles.
- *
- * The limit is per archetype because the assumption behind it is per archetype.
- * A boulder's profile rings really are one weathered curve sampled coarsely, so
- * a wide limit is telling the truth about the shape. A shard, block, or slab is
- * meant to read as fracture: its ring boundaries are the fractures, and
- * averaging across a 58° break shades away exactly the planarity that separates
- * those families from a boulder. Six archetypes with one softening rule is six
- * silhouettes with one surface.
+ * The body is a convex polyhedron, so shallow profile facets can share normals,
+ * but the reference look still depends on a handful of broad readable planes.
+ * The default limit therefore softens edges without rounding the boulder into
+ * an icosphere-like dome.
  */
-export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 1.02;
+export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.9;
 export const STONE_SOFT_NORMAL_COS_LIMIT = Math.cos(
   STONE_SOFT_NORMAL_ANGLE_LIMIT,
 );
-export const STONE_SOFT_NORMAL_STRENGTH = 0.82;
+export const STONE_SOFT_NORMAL_STRENGTH = 0.74;
 
 /**
  * Edge accents begin exactly where softening stops.
@@ -50,10 +38,6 @@ export const STONE_SOFT_NORMAL_STRENGTH = 0.82;
  * rather than set beside it: an independent angle would drift into the smoothed
  * range and draw a bright line or a dark seam across a surface that no longer
  * has a visible break there.
- *
- * This is why softening cannot be tuned per archetype on its own. Moving the
- * limit without moving these moves the accents into or out of the smoothed
- * range; the two travel together, which is what `StoneFacetSoftening` bundles.
  */
 export const STONE_WEAR_ANGLE_START = STONE_SOFT_NORMAL_ANGLE_LIMIT;
 export const STONE_WEAR_ANGLE_FULL = STONE_SOFT_NORMAL_ANGLE_LIMIT + 0.5;
@@ -75,30 +59,21 @@ export interface StoneFacetSoftening {
 }
 
 /**
- * Dihedral limit and averaging strength per archetype, hardest first.
+ * Dihedral limit and averaging strength per archetype.
  *
- * `boulder` keeps the values the single global rule used, so the family the
- * rule was originally tuned against is unchanged; every other family moves
- * toward its own material. The strength falls with the limit on purpose: on a
- * fractured body even the breaks that stay inside the limit should only be
- * taken off full flatness, not rounded.
+ * Rounded families retain some continuity while fractured families keep the
+ * planar transitions that define them. The values intentionally stop short of
+ * fully smooth boulders so medium-distance silhouettes still read as sculpted.
  */
 const STONE_FACET_SOFTENING_BY_ARCHETYPE: Readonly<
   Record<StoneArchetypeId, readonly [angleLimit: number, strength: number]>
 > = {
-  // Weathered curve sampled as facets. Widest limit, fullest averaging.
   boulder: [STONE_SOFT_NORMAL_ANGLE_LIMIT, STONE_SOFT_NORMAL_STRENGTH],
-  // Tumbled and small: nearly as round, but on-screen at a size where a fully
-  // smooth pebble loses the last of its silhouette read.
-  pebble: [0.92, 0.8],
-  // Bedded mass with a rounded crown: curve above, structure at the bedding.
-  outcrop: [0.78, 0.7],
-  // Bedding planes are the point of a slab; they must survive as planes.
-  slab: [0.6, 0.58],
-  // Jointed block. Near-orthogonal faces meeting at hard arrises.
-  block: [0.52, 0.52],
-  // Fresh fracture, no weathering history to soften it.
-  shard: [0.42, 0.44],
+  pebble: [0.84, 0.72],
+  outcrop: [0.7, 0.62],
+  slab: [0.56, 0.52],
+  block: [0.5, 0.48],
+  shard: [0.4, 0.42],
 };
 
 const STONE_FACET_SOFTENING: Readonly<
@@ -139,8 +114,8 @@ export const STONE_CENTROID_FAN_MIN_CORNERS = 5;
 /** Concave dihedrals darken; the same signal drives crease occlusion. */
 export const STONE_CREASE_SHADE = 0.42;
 /** Height fraction reached by bounce light thrown up from the surrounding turf. */
-export const STONE_BOUNCE_HEIGHT = 0.34;
-export const STONE_BOUNCE_STRENGTH = 0.52;
+export const STONE_BOUNCE_HEIGHT = 0.3;
+export const STONE_BOUNCE_STRENGTH = 0.38;
 
 /**
  * Value ramp driven by how far a corner faces up.
@@ -174,7 +149,7 @@ export const STONE_MINERAL_FACE_JITTER = 0.018;
  * as texture, and at a metre a two-metre boulder gets one boundary and looks
  * dipped. The band is narrow because a wide one produces a gradient, and a
  * gradient reads as light falling on the stone rather than as a different
- * material sitting on it — which is the whole point of having a second axis.
+ * material sitting on it.
  */
 export const STONE_CRUST_PATCH_SIZE = 0.22;
 export const STONE_CRUST_BLOTCH = 0.62;
@@ -189,9 +164,9 @@ export const STONE_CRUST_BAND = 0.1;
  */
 export const STONE_STAIN_THRESHOLD = 0.26;
 /** Lower-body soil deposition, expressed as a fraction of stone height. */
-export const STONE_SOIL_STAIN_HEIGHT = 0.23;
+export const STONE_SOIL_STAIN_HEIGHT = 0.16;
 /** Maximum field bias toward stain at the buried foot. */
-export const STONE_SOIL_STAIN_STRENGTH = 0.16;
+export const STONE_SOIL_STAIN_STRENGTH = 0.09;
 
 /**
  * Cavity depth.
