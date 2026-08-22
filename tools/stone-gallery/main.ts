@@ -8,12 +8,14 @@ import { resolveQualityStoneRecipe } from "../../src/world/stones/StoneShapeQual
 import { generateStoneMesh } from "../../src/world/stones/StoneGeometry";
 import { WorldConfigLoader } from "../../src/world/WorldConfigLoader";
 import {
+  WORLD_DEFAULT_EXPOSURE,
   WORLD_DEFAULT_HEMISPHERE_GROUND,
   WORLD_DEFAULT_HEMISPHERE_INTENSITY,
   WORLD_DEFAULT_HEMISPHERE_SKY,
   WORLD_DEFAULT_SUN,
   WORLD_DEFAULT_SUN_INTENSITY,
   WORLD_SUN_DIRECTION,
+  WORLD_TONE_MAPPING,
 } from "../../src/app/WorldEnvironmentTuning";
 import { resolveStoneVertexWetness } from "../../src/world/stones/StoneWetness";
 import { applyStoneSurfaceShader } from "../../src/world/stones/StoneGrowthShader";
@@ -92,7 +94,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = WORLD_TONE_MAPPING;
+renderer.toneMappingExposure = WORLD_DEFAULT_EXPOSURE;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#bfd4df");
@@ -116,8 +119,7 @@ controls.target.set(0, 0.4, 0);
 controls.update();
 
 // Stone paint is judged against exposure, so the probe has to stand under the
-// world's own lights. A brighter ambient here would flatten every value read
-// and send tuning off toward colours that go dark in the real field.
+// world's own lights and tone-mapping curve.
 scene.add(
   new THREE.HemisphereLight(
     WORLD_DEFAULT_HEMISPHERE_SKY,
