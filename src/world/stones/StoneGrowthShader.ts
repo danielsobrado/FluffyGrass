@@ -176,26 +176,22 @@ if (stoneDetailWeight > 0.001) {
     stoneStainMask * stoneDetailWeight
   );
 
-  // Sedimentary families carry two or three near-horizontal partings through
-  // the body. Local normalized height keeps them geological when placement
-  // tilts the stone, while the same close noise used by the weathering edge
-  // makes the seam wander rather than drawing a ruler-straight shader stripe.
-  // The mask is one of the alignment bytes already paid for by the wet stream;
-  // non-bedded families leave this branch coherent at zero.
+  // Bedding is a broken geological accent, never a continuous contour map.
+  // Two local-height partings are enough to imply sediment while a broad
+  // body-space breakup field removes long horizontal rings around the mesh.
   if (vStoneBedding > 0.001) {
     float stoneBedPhase = stoneGrowthHash(
       vec2(vStoneGrowthSeed * 91.7 + 3.1, vStoneGrowthSeed * 47.3 + 8.9)
     );
     float stoneBedHeight =
-      vStoneGrowthPosition.y + (stoneWeatherNoise - 0.5) * 0.045;
-    float stoneBedA = 0.25 + (stoneBedPhase - 0.5) * 0.08;
-    float stoneBedB = 0.52 + (0.5 - stoneBedPhase) * 0.1;
-    float stoneBedC = 0.74 + (stoneBedPhase - 0.5) * 0.07;
+      vStoneGrowthPosition.y + (stoneWeatherNoise - 0.5) * 0.055;
+    float stoneBedA = 0.31 + (stoneBedPhase - 0.5) * 0.1;
+    float stoneBedB = 0.66 + (0.5 - stoneBedPhase) * 0.12;
     float stoneBedDistance = min(
       abs(stoneBedHeight - stoneBedA),
-      min(abs(stoneBedHeight - stoneBedB), abs(stoneBedHeight - stoneBedC))
+      abs(stoneBedHeight - stoneBedB)
     );
-    float stoneBedHalfWidth = mix(0.006, 0.013, vStoneBedding);
+    float stoneBedHalfWidth = mix(0.006, 0.011, vStoneBedding);
     float stoneBedAntialias = max(fwidth(stoneBedHeight), 0.004);
     float stoneBedSeam = 1.0 - smoothstep(
       stoneBedHalfWidth,
@@ -207,12 +203,24 @@ if (stoneDetailWeight > 0.001) {
       0.58,
       1.0 - abs(stoneSurfaceNormal.y)
     );
+    float stoneBedBreakup = smoothstep(
+      0.44,
+      0.68,
+      stoneGrowthNoise(
+        vStoneGrowthPosition.xz * 2.2 +
+        vec2(vStoneGrowthSeed * 19.3, vStoneGrowthSeed * 31.7)
+      )
+    );
     float stoneBedMask =
-      stoneBedSeam * stoneBedSide * vStoneBedding * stoneDetailWeight;
+      stoneBedSeam *
+      stoneBedSide *
+      stoneBedBreakup *
+      vStoneBedding *
+      stoneDetailWeight;
     diffuseColor.rgb = mix(
       diffuseColor.rgb,
-      diffuseColor.rgb * vec3(0.52, 0.44, 0.35),
-      stoneBedMask * 0.74
+      diffuseColor.rgb * vec3(0.76, 0.68, 0.58),
+      stoneBedMask * 0.55
     );
   }
 }
@@ -566,7 +574,7 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v14-bedding-sky:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v15-broken-bedding:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 
