@@ -247,13 +247,13 @@ export function generateStoneMesh(
     embed: recipe.embed,
     bedding:
       recipe.archetype === "slab"
-        ? 1
+        ? 0.24
         : recipe.archetype === "outcrop"
-          ? 0.86
+          ? 0.18
           : recipe.silhouetteVariant === "capstone"
-            ? 0.58
+            ? 0.12
             : recipe.archetype === "block"
-              ? 0.22
+              ? 0.05
               : 0,
     silhouetteVariant: recipe.silhouetteVariant,
     fractureAzimuth: resolveStoneFractureAzimuth(faces),
@@ -329,7 +329,6 @@ function resolveMeshCounts(faces: readonly WorkingStoneFace[]): {
   }
   return { vertexCount, triangleCount };
 }
-
 
 function fingerprintMesh(
   positions: Float32Array,
