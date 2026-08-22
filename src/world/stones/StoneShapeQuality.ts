@@ -11,6 +11,7 @@ import {
 const ATTEMPTS = 4;
 const QUALITY_CACHE_LIMIT = 256;
 const QUALITY_SEED_SALT = 0x41727479;
+const TWO_PI = Math.PI * 2;
 const qualityRecipeCache = new Map<string, StoneRecipe>();
 
 function polygonArea(face: StonePolygon): number {
@@ -51,9 +52,27 @@ function ringSupport(
   );
 }
 
+function coefficientOfVariation(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  if (!(Math.abs(mean) > 1e-6)) return 0;
+  const variance =
+    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+    values.length;
+  return Math.sqrt(variance) / Math.abs(mean);
+}
+
+function targetScore(value: number, target: number, width: number): number {
+  return Math.max(0, 1 - Math.abs(value - target) / width);
+}
+
 function profileArtDirection(recipe: StoneRecipe): number {
   let turnScore = 0;
   let monotonicTaper = 0;
+  const shoulderRatios: number[] = [];
+  const topRatios: number[] = [];
+  const angleGaps: number[] = [];
+
   for (let side = 0; side < recipe.sideAngles.length; side += 1) {
     const heights = resolveStoneProfileHeights(recipe.profileRings, side);
     const slopes: number[] = [];
@@ -74,6 +93,17 @@ function profileArtDirection(recipe: StoneRecipe): number {
       const turn = Math.abs(slopes[index] - slopes[index - 1]);
       turnScore += Math.min(1, turn / 0.22);
     }
+
+    const belly = ringSupport(recipe, 1, side);
+    const shoulder = ringSupport(recipe, 2, side);
+    const top = ringSupport(recipe, recipe.profileRings.length - 1, side);
+    shoulderRatios.push(shoulder / Math.max(0.05, belly));
+    topRatios.push(top / Math.max(0.05, shoulder));
+
+    const next = (side + 1) % recipe.sideAngles.length;
+    const nextAngle =
+      next === 0 ? recipe.sideAngles[next] + TWO_PI : recipe.sideAngles[next];
+    angleGaps.push(nextAngle - recipe.sideAngles[side]);
   }
 
   const sideCount = recipe.sideAngles.length;
@@ -96,7 +126,22 @@ function profileArtDirection(recipe: StoneRecipe): number {
     0,
     1 - Math.abs(centerWander - wanderTarget) / (wanderTarget * 1.5),
   );
-  return turnShare * 1.4 + wanderScore * 0.45 - monotonicShare * 0.9;
+
+  const shoulderVariation = coefficientOfVariation(shoulderRatios);
+  const topVariation = coefficientOfVariation(topRatios);
+  const gapVariation = coefficientOfVariation(angleGaps);
+  const shoulderTarget = recipe.archetype === "boulder" ? 0.105 : 0.07;
+  const irregularityScore =
+    targetScore(shoulderVariation, shoulderTarget, 0.11) * 0.38 +
+    targetScore(topVariation, 0.1, 0.12) * 0.2 +
+    targetScore(gapVariation, 0.2, 0.2) * 0.18;
+
+  return (
+    turnShare * 1.25 +
+    wanderScore * 0.45 +
+    irregularityScore -
+    monotonicShare * 0.9
+  );
 }
 
 /** Scores the final macro body, before optional near-range chips. */
@@ -114,7 +159,8 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
   const shares = entries
     .map((entry) => entry.area / total)
     .sort((left, right) => right - left);
-  const primary = shares.slice(0, 6).reduce((sum, share) => sum + share, 0);
+  const primarySix = shares.slice(0, 6).reduce((sum, share) => sum + share, 0);
+  const primaryFour = shares.slice(0, 4).reduce((sum, share) => sum + share, 0);
   const tiny = shares
     .filter((share) => share < 0.015)
     .reduce((sum, share) => sum + share, 0);
@@ -154,13 +200,22 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
             ? 0.07
             : 0.14;
 
+  // A stump combines a long near-vertical body with a pinched roof. Neither
+  // measurement is sufficient alone: tall blocks are valid, and broad low tops
+  // are valid, but their combination is the cut-masonry silhouette to avoid.
+  const topDeficit = Math.max(0, targetTop - topShare) / targetTop;
+  const stumpPenalty = longWallShare * topDeficit;
+  const dominantPlaneScore = Math.min(1, primaryFour / 0.42);
+
   return (
-    primary * 4.5 -
+    primarySix * 4.2 +
+    dominantPlaneScore * 0.55 -
     tiny * 7.5 -
     Math.abs(topShare - targetTop) * 2 -
-    longWallShare * 5 +
-    Math.min(mediumCount, 9) * 0.055 +
-    Math.min(asymmetry, 0.26) * 2.1 +
+    longWallShare * 4.6 -
+    stumpPenalty * 4.2 +
+    Math.min(mediumCount, 9) * 0.05 +
+    Math.min(asymmetry, 0.28) * 2.15 +
     profileArtDirection(recipe)
   );
 }
