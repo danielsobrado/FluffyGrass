@@ -150,7 +150,9 @@ if (configRequest.status !== 200 && configRequest.status !== 0) {
 const config = new WorldConfigLoader().parse(configRequest.responseText);
 const material = new THREE.MeshLambertMaterial({ vertexColors: true });
 material.dithering = true;
-applyStoneSurfaceShader(material, config);
+const grainTexture =
+  config.stoneGrainStrength > 0 ? createProbeGrainTexture() : undefined;
+applyStoneSurfaceShader(material, config, grainTexture);
 
 const paletteColumns: StonePalette[] = paletteParam
   ? [STONE_PALETTES[paletteParam]]
@@ -299,6 +301,18 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
 
 if (out) {
   out.textContent = `${shownArchetypes.length * columns} stones · ${totalTriangles.toLocaleString()} tris · ${totalVertices.toLocaleString()} verts · rows: ${shownArchetypes.join(", ")}`;
+}
+
+function createProbeGrainTexture(): THREE.Texture {
+  const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
+  texture.name = "stone-gallery-grain";
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  return texture;
 }
 
 function render(): void {
