@@ -667,7 +667,9 @@ function addEdgeChamferPlanes(
       faceA.role === "bottom" ||
       faceB.role === "bottom" ||
       faceA.role === "contact-bevel" ||
-      faceB.role === "contact-bevel"
+      faceB.role === "contact-bevel" ||
+      edge.a.y <= POINT_MERGE_EPSILON * 4 ||
+      edge.b.y <= POINT_MERGE_EPSILON * 4
     ) {
       continue;
     }
@@ -707,11 +709,27 @@ function addEdgeChamferPlanes(
     const unitY = ny / length;
     const unitZ = nz / length;
     const edgeConstant = unitX * edge.a.x + unitY * edge.a.y + unitZ * edge.a.z;
+    let maximumGroundProjection = Number.NEGATIVE_INFINITY;
+    for (const face of faces) {
+      for (const point of face.points) {
+        if (Math.abs(point.y) <= POINT_MERGE_EPSILON * 4) {
+          maximumGroundProjection = Math.max(
+            maximumGroundProjection,
+            unitX * point.x + unitY * point.y + unitZ * point.z,
+          );
+        }
+      }
+    }
+    const guardedConstant =
+      maximumGroundProjection > Number.NEGATIVE_INFINITY
+        ? Math.max(edgeConstant - depth, maximumGroundProjection + 0.005)
+        : edgeConstant - depth;
+
     chamfers.push({
       nx: unitX,
       ny: unitY,
       nz: unitZ,
-      constant: edgeConstant - depth,
+      constant: guardedConstant,
       id: `edge-bevel:${chamfers.length}`,
       role: "edge-bevel",
     });

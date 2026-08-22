@@ -367,8 +367,8 @@ export function resolveStoneRecipe(
   let topBevelHeight = rangeOf(shape, spec.topBevelHeight);
   if (silhouetteVariant === "capstone") {
     topScale = Math.min(
-      0.98,
-      Math.max(0.86, topScale + shape.range(0.16, 0.24)),
+      0.99,
+      Math.max(0.9, topScale + shape.range(0.18, 0.28)),
     );
     topBevelHeight = shape.range(0.1, 0.15);
   }

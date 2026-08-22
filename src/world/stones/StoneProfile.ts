@@ -336,7 +336,9 @@ export function resolveStoneProfile(
       (base - input.taper) *
         input.topScale *
         (1 + crownVariation * family.crownVariation * 0.55) *
-        Math.max(0.62, 1 - compression * 0.9 - shoulderBreak * 0.55),
+        (input.silhouetteVariant === "capstone"
+          ? 1
+          : Math.max(0.62, 1 - compression * 0.9 - shoulderBreak * 0.55)),
     );
     const sector = random.fork(`profile-sector:${side}`);
     const crownRadius =
@@ -397,7 +399,11 @@ export function resolveStoneProfile(
       const span = heights[ringIndex] - heights[ringIndex - 1];
       let slope = (supports[ringIndex] - supports[ringIndex - 1]) / span;
       if (Number.isFinite(previousSlope)) {
-        let maximumSlope = previousSlope - family.slopeTurn;
+        let maximumSlope =
+          previousSlope -
+          (input.silhouetteVariant === "capstone"
+            ? family.slopeTurn * 0.4
+            : family.slopeTurn);
         if (ringIndex >= 2) {
           maximumSlope = Math.min(0, maximumSlope);
         }
