@@ -52,13 +52,16 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.025,
   },
   boulder: {
-    bellyBulge: { min: 0.09, max: 0.19 },
-    bellyVariation: 0.085,
-    shoulderVariation: 0.095,
-    crownVariation: 0.07,
-    centerWander: { min: 0.07, max: 0.17 },
-    verticalVariation: 0.065,
-    slopeTurn: 0.06,
+    // A boulder should be a few broad masses, not a swollen radial dome.
+    // Lower belly expansion keeps the side planes quieter while stronger
+    // slope turns and centre wander preserve the asymmetric geological read.
+    bellyBulge: { min: 0.04, max: 0.1 },
+    bellyVariation: 0.06,
+    shoulderVariation: 0.08,
+    crownVariation: 0.055,
+    centerWander: { min: 0.08, max: 0.18 },
+    verticalVariation: 0.07,
+    slopeTurn: 0.08,
   },
   slab: {
     bellyBulge: { min: 0.035, max: 0.09 },
