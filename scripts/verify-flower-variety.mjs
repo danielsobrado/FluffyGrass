@@ -77,8 +77,13 @@ heightBands.forEach((match, index) => {
   maxHeight = Math.max(maxHeight, high);
   maxWidth = Math.max(maxWidth, high * aspects[index]);
 });
+// The envelope the accent layer reserves, as multiples of canopy height.
+// Raised from 1.72/1.314 when the structural species (ferns, rosettes, shrubs)
+// were grown past the flowers: at the old ceiling a fern was 0.84 m in 0.73 m
+// grass and read as a tall blade. These bounds are what the tile bounding
+// sphere is padded by, so they are a culling cost and not a free knob.
 assert(
-  maxHeight <= 1.72 && maxWidth <= 1.314,
+  maxHeight <= 2.05 && maxWidth <= 1.96,
   `Accent canopy bounds exceeded: height ${maxHeight}, width ${maxWidth}.`,
 );
 const shrubAspect = Number(

@@ -78,6 +78,11 @@ export default defineConfig({
 	build: {
 		sourcemap: false,
 	},
+	server: {
+		watch: {
+			ignored: ["**/.tmp-screenshots/**", "**/.shots/**"],
+		},
+	},
 	define: {
 		__APP_VERSION__: JSON.stringify(
 			`v${packageMetadata.version}+${SOURCE_REVISION}`

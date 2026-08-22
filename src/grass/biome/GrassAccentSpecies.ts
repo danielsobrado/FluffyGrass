@@ -81,30 +81,36 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
         {
           key: "grass-tuft",
           category: "tuft",
-          aspect: 0.9,
+          aspect: 1.05,
           windWeight: 0.85,
-          canopyHeightBand: [0.7, 0.95],
+          canopyHeightBand: [0.9, 1.25],
         },
         {
           key: "low-shrub",
           category: "shrub",
-          aspect: 1.2,
+          aspect: 1.25,
           windWeight: 0.35,
-          canopyHeightBand: [0.62, 0.98],
+          canopyHeightBand: [0.85, 1.3],
         },
         {
           key: "fern",
           category: "fern",
-          aspect: 1,
+          // A frond is the layer's largest silhouette, so it is sized to the
+          // reserved bounds envelope rather than to the canopy it stands in:
+          // 2.05 canopies is ~1.5 m of frond over 0.73 m grass. Growing the
+          // structural species past the flowers is what widened the reserved
+          // bounds envelope from 1.72/1.314 to 2.05/1.96; the cost is a more
+          // conservative tile bounding sphere, paid once in frustum culling.
+          aspect: 0.95,
           windWeight: 0.35,
-          canopyHeightBand: [0.85, 1.15],
+          canopyHeightBand: [1.35, 2.05],
         },
         {
           key: "small-fern",
           category: "fern",
-          aspect: 0.95,
+          aspect: 1.05,
           windWeight: 0.4,
-          canopyHeightBand: [0.58, 0.82],
+          canopyHeightBand: [1, 1.5],
         },
         {
           key: "daisy",
@@ -135,9 +141,12 @@ export const GRASS_ACCENT_SPECIES: readonly GrassAccentSpeciesDefinition[] =
         {
           key: "broadleaf-rosette",
           category: "broadleaf",
-          aspect: 1.1,
+          // Widest card in the catalogue and deliberately the lowest of the
+          // large species: broad leaves read as ground mass under the ferns
+          // rather than competing with them at the canopy line.
+          aspect: 1.45,
           windWeight: 0.42,
-          canopyHeightBand: [0.52, 0.78],
+          canopyHeightBand: [0.85, 1.35],
         },
       ] as const
     ).map((definition, index) =>

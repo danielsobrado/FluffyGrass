@@ -162,8 +162,8 @@ export class WorldDetailFoliageAtlasFactory {
         this.drawFrond(context, random, 1, 0, 0.98);
         break;
       case "small-fern":
-        this.drawFrond(context, random, 0.68, -0.42, 0.72);
-        this.drawFrond(context, random, 0.66, 0.44, 0.7);
+        this.drawFrond(context, random, 0.68, -0.2, 0.72);
+        this.drawFrond(context, random, 0.66, 0.21, 0.7);
         break;
       case "daisy":
         this.drawDaisy(context, random, row);
@@ -271,7 +271,7 @@ export class WorldDetailFoliageAtlasFactory {
       const stemX = baseX + tipLean * along * along;
       const stemY = height * along;
       const length =
-        (1 - along * 0.8) * 0.4 * scale * random.range(0.85, 1.1);
+        (1 - along * 0.8) * 0.46 * scale * random.range(0.85, 1.1);
       const thickness = length * 0.42;
       const droop = 0.18 + along * 0.35;
       const progress = 0.3 + along * 0.7;
@@ -768,7 +768,7 @@ export class WorldDetailFoliageAtlasFactory {
         -Math.PI * 0.5 + index * spacing + random.range(-jitter, jitter);
       const sideScale = Math.cos(angle) >= 0 ? otherSide : oneSide;
       const length =
-        (mature ? random.range(0.28, 0.52) : random.range(0.3, 0.46)) *
+        (mature ? random.range(0.42, 0.62) : random.range(0.44, 0.6)) *
         sideScale;
       const width =
         length *
