@@ -95,7 +95,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     bellyVariation: 0.1,
     shoulderVariation: 0.1,
     crownVariation: 0.075,
-    centerWander: { min: 0.08, max: 0.19 },
+    centerWander: { min: 0.07, max: 0.16 },
     verticalVariation: 0.075,
     slopeTurn: 0.065,
   },
@@ -233,8 +233,8 @@ export function resolveStoneProfile(
     wander,
     primaryAngle,
     secondaryAngle,
-    0.32,
-    1,
+    0.42,
+    0.85,
   );
   const centers: readonly (readonly [number, number])[] = [
     [0, 0],
@@ -360,7 +360,10 @@ export function resolveStoneProfile(
       const span = heights[ringIndex] - heights[ringIndex - 1];
       let slope = (supports[ringIndex] - supports[ringIndex - 1]) / span;
       if (Number.isFinite(previousSlope)) {
-        const maximumSlope = previousSlope - family.slopeTurn;
+        let maximumSlope = previousSlope - family.slopeTurn;
+        if (ringIndex >= 2) {
+          maximumSlope = Math.min(0, maximumSlope);
+        }
         if (slope > maximumSlope) {
           const projection =
             directionX * centers[ringIndex][0] +

@@ -351,8 +351,8 @@ export function resolveStoneRecipe(
     // The result is a table-like cap in silhouette, still inside the convex
     // half-space grammar rather than a second mesh balanced on top.
     topScale = Math.min(
-      0.97,
-      Math.max(0.84, topScale + shape.range(0.14, 0.21)),
+      0.98,
+      Math.max(0.86, topScale + shape.range(0.16, 0.24)),
     );
     topBevelHeight = shape.range(0.1, 0.15);
   }

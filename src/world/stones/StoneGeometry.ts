@@ -278,23 +278,46 @@ function centerStoneContact(
   polygons: ReturnType<typeof buildStonePolyhedron>,
   uniquePoints: ReadonlySet<StoneVec3>,
 ): void {
-  let contactX = 0;
-  let contactZ = 0;
-  let contactCount = 0;
+  let area2Total = 0;
+  let cxTotal = 0;
+  let czTotal = 0;
   for (const polygon of polygons) {
     if (polygon.role !== "bottom") continue;
-    for (const point of polygon.points) {
-      contactX += point.x;
-      contactZ += point.z;
-      contactCount += 1;
+    const points = polygon.points;
+    const count = points.length;
+    for (let index = 0; index < count; index += 1) {
+      const current = points[index];
+      const next = points[(index + 1) % count];
+      const cross = current.x * next.z - next.x * current.z;
+      area2Total += cross;
+      cxTotal += (current.x + next.x) * cross;
+      czTotal += (current.z + next.z) * cross;
     }
   }
-  if (contactCount === 0) {
+  if (Math.abs(area2Total) < 1e-9) {
+    let contactX = 0;
+    let contactZ = 0;
+    let contactCount = 0;
+    for (const polygon of polygons) {
+      if (polygon.role !== "bottom") continue;
+      for (const point of polygon.points) {
+        contactX += point.x;
+        contactZ += point.z;
+        contactCount += 1;
+      }
+    }
+    if (contactCount === 0) return;
+    contactX /= contactCount;
+    contactZ /= contactCount;
+    for (const point of uniquePoints) {
+      point.x -= contactX;
+      point.z -= contactZ;
+    }
     return;
   }
 
-  contactX /= contactCount;
-  contactZ /= contactCount;
+  const contactX = cxTotal / (3 * area2Total);
+  const contactZ = czTotal / (3 * area2Total);
   for (const point of uniquePoints) {
     point.x -= contactX;
     point.z -= contactZ;
