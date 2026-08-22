@@ -104,28 +104,28 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
   },
   boulder: {
     id: "boulder",
-    // Boulder silhouettes need enough short facets to imply a weathered curve.
-    // With 7–9 sectors the gallery's broad side-on spans read as straight,
-    // manufactured cuts rather than stylized natural stone.
-    sideCount: [10, 12],
-    radiusJitter: { min: 0.14, max: 0.28 },
-    silhouetteAsymmetry: { min: 0.1, max: 0.21 },
-    taper: { min: 0.12, max: 0.22 },
-    topScale: { min: 0.56, max: 0.76 },
-    topBevelHeight: { min: 0.18, max: 0.29 },
-    topTiltMax: 0.18,
+    // Broad sectors and a wide crown give the reference's sculpted planes.
+    // Normal softening still rounds shallow breaks without turning the mass
+    // into the many-sided radial dome produced by the old 10–12-sector body.
+    sideCount: [8, 10],
+    radiusJitter: { min: 0.12, max: 0.24 },
+    silhouetteAsymmetry: { min: 0.11, max: 0.23 },
+    taper: { min: 0.08, max: 0.16 },
+    topScale: { min: 0.65, max: 0.84 },
+    topBevelHeight: { min: 0.13, max: 0.22 },
+    topTiltMax: 0.22,
     contactInset: { min: 0.05, max: 0.11 },
     contactBevelHeight: { min: 0.09, max: 0.15 },
-    lean: { min: 0.05, max: 0.17 },
+    lean: { min: 0.06, max: 0.18 },
     cutCount: [0, 2],
     cutDepth: { min: 0.075, max: 0.18 },
     cutNormalY: { min: 0.12, max: 0.68 },
-    heightRatio: { min: 0.62, max: 0.86 },
-    depthRatio: { min: 0.8, max: 1.45 },
+    heightRatio: { min: 0.7, max: 0.98 },
+    depthRatio: { min: 0.82, max: 1.38 },
     chipCount: [1, 3],
     chipDepth: { min: 0.015, max: 0.045 },
     edgeWear: 0.42,
-    embed: { min: 0.16, max: 0.27 },
+    embed: { min: 0.18, max: 0.28 },
   },
   slab: {
     id: "slab",
