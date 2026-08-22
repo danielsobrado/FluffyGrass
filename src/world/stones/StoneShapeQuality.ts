@@ -86,7 +86,12 @@ function profileArtDirection(recipe: StoneRecipe): number {
     top.centerX - contact.centerX,
     top.centerZ - contact.centerZ,
   );
-  const wanderTarget = recipe.archetype === "pebble" ? 0.025 : 0.075;
+  const wanderTarget =
+    recipe.archetype === "pebble"
+      ? 0.025
+      : recipe.archetype === "boulder"
+        ? 0.11
+        : 0.075;
   const wanderScore = Math.max(
     0,
     1 - Math.abs(centerWander - wanderTarget) / (wanderTarget * 1.5),
@@ -142,10 +147,12 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
     recipe.silhouetteVariant === "capstone"
       ? 0.22
       : recipe.archetype === "slab"
-      ? 0.2
-      : recipe.archetype === "shard"
-        ? 0.07
-        : 0.14;
+        ? 0.2
+        : recipe.archetype === "boulder"
+          ? 0.18
+          : recipe.archetype === "shard"
+            ? 0.07
+            : 0.14;
 
   return (
     primary * 4.5 -
