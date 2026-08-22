@@ -16,7 +16,7 @@
     "drynessBias": 0,
     "windDamping": 1,
     "shapeFamily": "blade",
-    "accentDensity": 1,
+    "accentDensity": 0.6,
     "accentSpecies": [
       { "species": "daisy", "tint": "white", "weight": 0.65 },
       { "species": "daisy", "tint": "cream", "weight": 0.35 },
