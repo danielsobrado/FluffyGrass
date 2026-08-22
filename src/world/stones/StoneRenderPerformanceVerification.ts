@@ -367,6 +367,10 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     attribute(geometry, "stoneLichenColor"),
     "stoneLichenColor",
   );
+  const bedding = requireInterleaved(
+    attribute(geometry, "stoneBedding"),
+    "stoneBedding",
+  );
   const byteData = color.data;
   assert(
     byteData.array instanceof Uint8Array &&
@@ -375,12 +379,14 @@ export function verifyStoneRenderPerformance(configSource: string): string {
       seed.data === byteData &&
       mossColor.data === byteData &&
       lichenColor.data === byteData &&
+      bedding.data === byteData &&
       color.normalized &&
       moss.normalized &&
       lichen.normalized &&
       seed.normalized &&
       mossColor.normalized &&
-      lichenColor.normalized,
+      lichenColor.normalized &&
+      bedding.normalized,
     "Stone color, growth, and seed data must share one normalized Uint8 stream.",
   );
   assert(
@@ -395,8 +401,9 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   // Raised from 36 for the wet channel. Stones needed one byte per vertex to
   // carry the baked waterline, and an interleaved byte stream must stay
   // four-byte aligned, so the smallest step available was 12 bytes to 16. The
-  // three spare bytes are alignment, not headroom to spend casually: the next
-  // per-vertex byte is free, the one after that costs another four.
+  // three spare bytes are alignment, not headroom to spend casually. Wetness,
+  // weathering, and bedding now use those bytes; the next per-vertex byte is
+  // still free, and the one after that costs another four.
   assert(
     bytesPerVertex <= 40,
     `Stone vertex payload regressed to ${bytesPerVertex} bytes.`,

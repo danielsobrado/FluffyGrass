@@ -43,8 +43,11 @@ export function verifyStoneShaderPerformance(configSource: string): string {
   assert(
     detailed.fragmentShader.includes("stoneGrowthDistanceSquared") &&
       detailed.fragmentShader.includes("stoneColony(") &&
+      detailed.fragmentShader.includes("stoneBedDistance") &&
+      detailed.vertexShader.includes("stoneBedding") &&
+      detailed.fragmentShader.includes("stoneSkySide") &&
       !detailed.fragmentShader.includes("distance(stoneGrowthLocalPosition"),
-    "Detailed stone shader must use squared distance gates and colony tests.",
+    "Detailed stone shader must keep bounded close detail and sky-side ambient.",
   );
 
   const coarseMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -54,11 +57,13 @@ export function verifyStoneShaderPerformance(configSource: string): string {
     !coarse.fragmentShader.includes("stoneGrowthNoise") &&
       !coarse.fragmentShader.includes("cameraPosition") &&
       !coarse.vertexShader.includes("stoneGrowthPosition") &&
+      !coarse.fragmentShader.includes("stoneBedDistance") &&
+      coarse.fragmentShader.includes("stoneSkySide") &&
       coarse.fragmentShader.includes("vStoneMoss"),
-    "Coarse stone shader must stay free of camera-distance and procedural-noise work.",
+    "Coarse stone shader must keep sky ambient without near procedural work.",
   );
 
   detailedMaterial.dispose();
   coarseMaterial.dispose();
-  return "squared near SDF/fades · noise-free coarse shader";
+  return "bounded near bedding/fades · shared sky-side ambient · noise-free coarse shader";
 }

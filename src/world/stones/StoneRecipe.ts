@@ -26,6 +26,18 @@ export const STONE_ARCHETYPE_IDS: readonly StoneArchetypeId[] = [
   "outcrop",
 ];
 
+/** Broad, planar crowns are reserved for a minority of geological bodies. */
+export type StoneSilhouetteVariant = "weathered" | "capstone";
+
+const CAPSTONE_CHANCE: Readonly<Record<StoneArchetypeId, number>> = {
+  pebble: 0,
+  boulder: 0.18,
+  slab: 0.3,
+  block: 0,
+  shard: 0,
+  outcrop: 0.42,
+};
+
 interface Band {
   readonly min: number;
   readonly max: number;
@@ -217,6 +229,7 @@ export interface StoneCut {
 export interface StoneRecipe {
   readonly archetype: StoneArchetypeId;
   readonly seed: number;
+  readonly silhouetteVariant: StoneSilhouetteVariant;
   /** Final local dimensions in metres before placement scale. */
   readonly width: number;
   readonly height: number;
@@ -257,9 +270,20 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+export function resolveStoneSilhouetteVariant(
+  archetypeId: StoneArchetypeId,
+  seed: number,
+): StoneSilhouetteVariant {
+  const roll = StoneRandom.fromSeed(seed)
+    .fork(`archetype:${archetypeId}`)
+    .fork("silhouette-variant");
+  return roll.chance(CAPSTONE_CHANCE[archetypeId]) ? "capstone" : "weathered";
+}
+
 export function resolveStoneRecipe(
   archetypeId: StoneArchetypeId,
   seed: number,
+  silhouetteVariant = resolveStoneSilhouetteVariant(archetypeId, seed),
 ): StoneRecipe {
   const spec = ARCHETYPES[archetypeId];
   const root = StoneRandom.fromSeed(seed).fork(`archetype:${archetypeId}`);
@@ -320,10 +344,23 @@ export function resolveStoneRecipe(
 
   const shape = root.fork("shape");
   const taper = rangeOf(shape, spec.taper);
-  const topScale = rangeOf(shape, spec.topScale);
-  const topBevelHeight = rangeOf(shape, spec.topBevelHeight);
+  let topScale = rangeOf(shape, spec.topScale);
+  let topBevelHeight = rangeOf(shape, spec.topBevelHeight);
+  if (silhouetteVariant === "capstone") {
+    // Keep the roof close to the shoulder and make its final transition short.
+    // The result is a table-like cap in silhouette, still inside the convex
+    // half-space grammar rather than a second mesh balanced on top.
+    topScale = Math.min(
+      0.97,
+      Math.max(0.84, topScale + shape.range(0.14, 0.21)),
+    );
+    topBevelHeight = shape.range(0.1, 0.15);
+  }
   const topTiltAngle = shape.range(0, TWO_PI);
-  const topTiltStrength = shape.range(0.3, 1) * spec.topTiltMax;
+  const topTiltStrength =
+    shape.range(0.3, 1) *
+    spec.topTiltMax *
+    (silhouetteVariant === "capstone" ? 0.68 : 1);
   const topTiltX = Math.cos(topTiltAngle) * topTiltStrength;
   const topTiltZ = Math.sin(topTiltAngle) * topTiltStrength;
   const contactInset = rangeOf(shape, spec.contactInset);
@@ -338,6 +375,7 @@ export function resolveStoneRecipe(
   const profileRings = resolveStoneProfile(
     {
       archetype: archetypeId,
+      silhouetteVariant,
       seed,
       sideAngles,
       sideRadii,
@@ -409,6 +447,7 @@ export function resolveStoneRecipe(
   return {
     archetype: archetypeId,
     seed,
+    silhouetteVariant,
     width,
     height,
     depth,

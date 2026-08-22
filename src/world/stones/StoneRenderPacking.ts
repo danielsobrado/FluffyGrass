@@ -26,10 +26,10 @@ export const STONE_GROWTH_POSITION_OFFSET = 3;
 /**
  * Twelve bytes of data in a sixteen-byte stride.
  *
- * The wet channel is the thirteenth byte and weathering the fourteenth, inside
- * a stride that has to be four-byte aligned anyway. Two bytes of the four the
- * alignment costs are now spent; the fifteenth and sixteenth remain free, and
- * the byte after those costs another four.
+ * The wet channel is the thirteenth byte, weathering the fourteenth, and
+ * bedding the fifteenth, inside a stride that has to be four-byte aligned
+ * anyway. Three bytes of the four the alignment costs are now spent; the
+ * sixteenth remains free, and the byte after it costs another four.
  */
 export const STONE_BYTE_STRIDE = 16;
 export const STONE_COLOR_OFFSET = 0;
@@ -40,6 +40,7 @@ export const STONE_MOSS_COLOR_OFFSET = 6;
 export const STONE_LICHEN_COLOR_OFFSET = 9;
 export const STONE_WET_OFFSET = 12;
 export const STONE_WEATHERING_OFFSET = 13;
+export const STONE_BEDDING_OFFSET = 14;
 
 export function packStoneUnitByte(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * STONE_BYTE_MAX);
@@ -168,6 +169,15 @@ export function createStoneRenderGeometry(
       byteData,
       1,
       STONE_WEATHERING_OFFSET,
+      true,
+    ),
+  );
+  geometry.setAttribute(
+    "stoneBedding",
+    new THREE.InterleavedBufferAttribute(
+      byteData,
+      1,
+      STONE_BEDDING_OFFSET,
       true,
     ),
   );

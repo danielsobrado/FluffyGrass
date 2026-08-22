@@ -213,6 +213,7 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     const growthPositions = new Float32Array(mesh.mosses.length * 3);
     const mossColors = new Float32Array(mesh.mosses.length * 3);
     const wets = new Float32Array(mesh.mosses.length);
+    const beddings = new Float32Array(mesh.mosses.length);
     const lichenColors = new Float32Array(mesh.mosses.length * 3);
     const inverseGrowthRadius =
       0.5 / Math.max(mesh.metrics.footprintRadius, GROWTH_EPSILON);
@@ -247,8 +248,13 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
               mesh.positions[offset + 1],
             )
           : 0;
+      beddings[vertex] = mesh.metrics.bedding;
     }
     geometry.setAttribute("stoneWet", new THREE.BufferAttribute(wets, 1));
+    geometry.setAttribute(
+      "stoneBedding",
+      new THREE.BufferAttribute(beddings, 1),
+    );
     geometry.setAttribute(
       "stoneWeathering",
       new THREE.BufferAttribute(mesh.weatherings, 1),

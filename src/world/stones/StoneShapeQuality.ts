@@ -3,6 +3,7 @@ import { resolveStoneProfileHeights } from "./StoneProfile";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import {
   resolveStoneRecipe,
+  resolveStoneSilhouetteVariant,
   type StoneArchetypeId,
   type StoneRecipe,
 } from "./StoneRecipe";
@@ -138,7 +139,9 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
       ) / recipe.sideRadii.length,
     ) / mean;
   const targetTop =
-    recipe.archetype === "slab"
+    recipe.silhouetteVariant === "capstone"
+      ? 0.22
+      : recipe.archetype === "slab"
       ? 0.2
       : recipe.archetype === "shard"
         ? 0.07
@@ -184,12 +187,17 @@ export function resolveQualityStoneRecipe(
   }
 
   const archetypeSeed = resolveArchetypeSeed(archetype, seed);
-  let best = resolveStoneRecipe(archetype, archetypeSeed);
+  // A best-of-four art-direction pass must not silently select away a named
+  // silhouette family. Choose the family once from the public variant seed,
+  // then compare geometry only within that family.
+  const silhouetteVariant = resolveStoneSilhouetteVariant(archetype, seed);
+  let best = resolveStoneRecipe(archetype, archetypeSeed, silhouetteVariant);
   let bestScore = scoreStoneShape(best);
   for (let attempt = 1; attempt < ATTEMPTS; attempt += 1) {
     const candidate = resolveStoneRecipe(
       archetype,
       hashStoneCell(archetypeSeed, attempt, 0x5175616c),
+      silhouetteVariant,
     );
     const candidateScore = scoreStoneShape(candidate);
     if (candidateScore > bestScore) {

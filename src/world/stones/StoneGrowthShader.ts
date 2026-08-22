@@ -6,6 +6,8 @@ attribute float stoneWet;
 varying float vStoneWet;
 attribute float stoneWeathering;
 varying float vStoneWeathering;
+attribute float stoneBedding;
+varying float vStoneBedding;
 attribute float stoneMoss;
 attribute float stoneLichen;
 attribute float stoneGrowthSeed;
@@ -25,6 +27,7 @@ varying vec3 vStoneLichenColor;
 const VERTEX_POSITION = `
 vStoneWet = stoneWet;
 vStoneWeathering = stoneWeathering;
+vStoneBedding = stoneBedding;
 vStoneWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vStoneWorldNormal = mat3(modelMatrix) * objectNormal;
 vStoneMoss = stoneMoss;
@@ -70,6 +73,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
 const GROWTH_FRAGMENT_COMMON = `
 uniform float uStoneCrustBreakup;
 varying float vStoneWeathering;
+varying float vStoneBedding;
 uniform float uStoneWetDarken;
 uniform float uStoneWetSheenStrength;
 uniform float uStoneWetSheenPower;
@@ -154,10 +158,11 @@ if (stoneDetailWeight > 0.001) {
   vec2 stoneWeatherUv =
     stoneGrowthProjection(vStoneWorldPosition, stoneSurfaceNormal) *
     uStoneGrowthDetailScale;
+  float stoneWeatherNoise =
+    stoneGrowthNoise(stoneWeatherUv * 1.15 + vec2(5.71, 31.43));
   float stoneWeatherField =
     vStoneWeathering +
-    (stoneGrowthNoise(stoneWeatherUv * 1.15 + vec2(5.71, 31.43)) - 0.5) *
-      uStoneCrustBreakup;
+    (stoneWeatherNoise - 0.5) * uStoneCrustBreakup;
   float stoneCrustMask = smoothstep(0.6, 0.78, stoneWeatherField);
   float stoneStainMask = 1.0 - smoothstep(0.26, 0.44, stoneWeatherField);
   diffuseColor.rgb = mix(
@@ -170,6 +175,46 @@ if (stoneDetailWeight > 0.001) {
     diffuseColor.rgb * vec3(0.9, 0.82, 0.68),
     stoneStainMask * stoneDetailWeight
   );
+
+  // Sedimentary families carry two or three near-horizontal partings through
+  // the body. Local normalized height keeps them geological when placement
+  // tilts the stone, while the same close noise used by the weathering edge
+  // makes the seam wander rather than drawing a ruler-straight shader stripe.
+  // The mask is one of the alignment bytes already paid for by the wet stream;
+  // non-bedded families leave this branch coherent at zero.
+  if (vStoneBedding > 0.001) {
+    float stoneBedPhase = stoneGrowthHash(
+      vec2(vStoneGrowthSeed * 91.7 + 3.1, vStoneGrowthSeed * 47.3 + 8.9)
+    );
+    float stoneBedHeight =
+      vStoneGrowthPosition.y + (stoneWeatherNoise - 0.5) * 0.045;
+    float stoneBedA = 0.25 + (stoneBedPhase - 0.5) * 0.08;
+    float stoneBedB = 0.52 + (0.5 - stoneBedPhase) * 0.1;
+    float stoneBedC = 0.74 + (stoneBedPhase - 0.5) * 0.07;
+    float stoneBedDistance = min(
+      abs(stoneBedHeight - stoneBedA),
+      min(abs(stoneBedHeight - stoneBedB), abs(stoneBedHeight - stoneBedC))
+    );
+    float stoneBedHalfWidth = mix(0.006, 0.013, vStoneBedding);
+    float stoneBedAntialias = max(fwidth(stoneBedHeight), 0.004);
+    float stoneBedSeam = 1.0 - smoothstep(
+      stoneBedHalfWidth,
+      stoneBedHalfWidth + stoneBedAntialias,
+      stoneBedDistance
+    );
+    float stoneBedSide = smoothstep(
+      0.16,
+      0.58,
+      1.0 - abs(stoneSurfaceNormal.y)
+    );
+    float stoneBedMask =
+      stoneBedSeam * stoneBedSide * vStoneBedding * stoneDetailWeight;
+    diffuseColor.rgb = mix(
+      diffuseColor.rgb,
+      diffuseColor.rgb * vec3(0.52, 0.44, 0.35),
+      stoneBedMask * 0.74
+    );
+  }
 }
 
 if ((vStoneMoss + vStoneLichen) > 0.001) {
@@ -418,6 +463,31 @@ outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.34);
 `;
 
 /**
+ * Cool open-sky fill on the face turned away from the key light.
+ *
+ * Uses the renderer's live hemisphere and directional lights, so cloud grades
+ * and gallery lighting stay honest. The term is directional rather than a
+ * global ambient lift: top planes already have the key, undersides see ground,
+ * and only an open side opposite the sun gets the blue separation.
+ */
+const SKY_SIDE_AMBIENT = `
+#if NUM_DIR_LIGHTS > 0 && NUM_HEMI_LIGHTS > 0
+  float stoneSunFacing = saturate(
+    dot(normal, directionalLights[0].direction)
+  );
+  float stoneSkyFacing = saturate(
+    dot(normal, hemisphereLights[0].direction) * 0.5 + 0.5
+  );
+  float stoneSkySide =
+    (1.0 - smoothstep(0.08, 0.46, stoneSunFacing)) *
+    smoothstep(0.18, 0.78, stoneSkyFacing);
+  outgoingLight +=
+    diffuseColor.rgb * hemisphereLights[0].skyColor *
+    vec3(0.72, 0.92, 1.18) * (stoneSkySide * 0.2);
+#endif
+`;
+
+/**
  * How far the close-range noise may drag a weathering boundary off the mesh.
  * Large enough to hide the facet, small enough that a body cannot flip from
  * crusted to stained on noise alone.
@@ -491,12 +561,12 @@ export function applyStoneSurfaceShader(
       )
       .replace(
         "#include <opaque_fragment>",
-        `${LIGHTING_FLOOR}${WET_SHEEN}#include <opaque_fragment>`,
+        `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}${WET_SHEEN}#include <opaque_fragment>`,
       );
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v13:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v14-bedding-sky:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 
@@ -522,9 +592,9 @@ export function applyStoneCoarseSurfaceShader(
       )
       .replace(
         "#include <opaque_fragment>",
-        `${LIGHTING_FLOOR}#include <opaque_fragment>`,
+        `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}#include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => "world-stone-coarse-v1";
+  material.customProgramCacheKey = () => "world-stone-coarse-v2-sky";
   material.needsUpdate = true;
 }

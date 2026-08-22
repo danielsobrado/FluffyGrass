@@ -26,6 +26,11 @@ function planeDistance(
 /** Ensures the clipper consumes the same effective ring profile the scorer sees. */
 export function verifyStoneProfiles(): string {
   let profilesChecked = 0;
+  let capstonesChecked = 0;
+  let capstoneUpperRatio = 0;
+  let capstoneUpperSamples = 0;
+  let weatheredUpperRatio = 0;
+  let weatheredUpperSamples = 0;
 
   for (const archetype of STONE_ARCHETYPE_IDS) {
     for (let seed = 0; seed < SEEDS_PER_ARCHETYPE; seed += 1) {
@@ -34,6 +39,19 @@ export function verifyStoneProfiles(): string {
       assert(rings.length === 5, `${archetype}:${seed} must have five profile rings.`);
       const planes = buildStonePlanes(recipe);
       const planesById = new Map(planes.map((plane) => [plane.id, plane]));
+      const isCapstone = recipe.silhouetteVariant === "capstone";
+      if (isCapstone) {
+        capstonesChecked += 1;
+        assert(
+          archetype === "boulder" || archetype === "slab" || archetype === "outcrop",
+          `${archetype}:${seed} selected an unsupported capstone silhouette.`,
+        );
+        assert(
+          recipe.topBevelHeight <= 0.150001 &&
+            planes.filter((plane) => plane.role === "top").length === 1,
+          `${archetype}:${seed} capstone lost its short bevel or single planar roof.`,
+        );
+      }
 
       for (let side = 0; side < recipe.sideAngles.length; side += 1) {
         const heights = resolveStoneProfileHeights(rings, side);
@@ -62,6 +80,25 @@ export function verifyStoneProfiles(): string {
         const angle = recipe.sideAngles[side];
         const directionX = Math.cos(angle);
         const directionZ = Math.sin(angle);
+        if (archetype === "boulder" || archetype === "slab" || archetype === "outcrop") {
+          const shoulder = rings[rings.length - 3];
+          const top = rings[rings.length - 1];
+          const shoulderSupport =
+            shoulder.radii[side] +
+            directionX * shoulder.centerX +
+            directionZ * shoulder.centerZ;
+          const topSupport =
+            top.radii[side] +
+            directionX * top.centerX +
+            directionZ * top.centerZ;
+          if (isCapstone) {
+            capstoneUpperRatio += topSupport / shoulderSupport;
+            capstoneUpperSamples += 1;
+          } else {
+            weatheredUpperRatio += topSupport / shoulderSupport;
+            weatheredUpperSamples += 1;
+          }
+        }
         for (let segment = 0; segment < rings.length - 1; segment += 1) {
           const plane = planesById.get(`profile:${segment}:${side}`);
           assert(
@@ -91,5 +128,15 @@ export function verifyStoneProfiles(): string {
     }
   }
 
-  return `${profilesChecked} layered profiles`;
+  assert(capstonesChecked > 0, "Capstone silhouette family was not exercised.");
+  const averageCapstoneUpperRatio = capstoneUpperRatio / capstoneUpperSamples;
+  const averageWeatheredUpperRatio = weatheredUpperRatio / weatheredUpperSamples;
+  assert(
+    capstoneUpperSamples > 0 &&
+      weatheredUpperSamples > 0 &&
+      averageCapstoneUpperRatio >= averageWeatheredUpperRatio + 0.08,
+    `Capstone roofs must remain materially broader than weathered roofs (${averageCapstoneUpperRatio.toFixed(3)} vs ${averageWeatheredUpperRatio.toFixed(3)}).`,
+  );
+
+  return `${profilesChecked} layered profiles · ${capstonesChecked} capstones`;
 }

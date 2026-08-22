@@ -139,6 +139,15 @@ function profileHeights(recipe: StoneRecipe, side: number): number[] {
 }
 
 function addTopPlanes(planes: StonePlane[], recipe: StoneRecipe): void {
+  // The capstone family gets its identity from one broad planar roof. Splitting
+  // that roof into the usual low ridge turns it back into the rounded family
+  // even when the upper profile is wide enough.
+  if (recipe.silhouetteVariant === "capstone") {
+    planes.push(
+      normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
+    );
+    return;
+  }
   const ridgeRoll = hashStoneCell(recipe.seed, 0x52696467, 0x546f7052) / 4294967296;
   if (ridgeRoll >= RIDGE_CHANCE[recipe.archetype]) {
     planes.push(

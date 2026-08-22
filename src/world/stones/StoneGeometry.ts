@@ -52,6 +52,9 @@ export interface StoneMeshMetrics {
   readonly contactRadius: number;
   readonly footprintRadius: number;
   readonly embed: number;
+  /** Strength of close-range horizontal bedding seams for this body. */
+  readonly bedding: number;
+  readonly silhouetteVariant: StoneRecipe["silhouetteVariant"];
   /**
    * Axial bearing of this body's dominant fracture set, in mesh-local space.
    *
@@ -242,6 +245,17 @@ export function generateStoneMesh(
     contactRadius,
     footprintRadius,
     embed: recipe.embed,
+    bedding:
+      recipe.archetype === "slab"
+        ? 1
+        : recipe.archetype === "outcrop"
+          ? 0.86
+          : recipe.silhouetteVariant === "capstone"
+            ? 0.58
+            : recipe.archetype === "block"
+              ? 0.22
+              : 0,
+    silhouetteVariant: recipe.silhouetteVariant,
     fractureAzimuth: resolveStoneFractureAzimuth(faces),
     fingerprint: fingerprintMesh(positions, tones),
   };

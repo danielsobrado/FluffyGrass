@@ -14,6 +14,7 @@ import {
 import {
   STONE_BYTE_MAX,
   STONE_BYTE_STRIDE,
+  STONE_BEDDING_OFFSET,
   STONE_COLOR_OFFSET,
   STONE_GROWTH_POSITION_OFFSET,
   STONE_GROWTH_SEED_OFFSET,
@@ -246,6 +247,8 @@ export class StoneRenderInstanceWriter {
       // facet.
       buffers.packedBytes[byteTarget + STONE_WEATHERING_OFFSET] =
         packStoneUnitByte(variant.weatherings[index]);
+      buffers.packedBytes[byteTarget + STONE_BEDDING_OFFSET] =
+        packStoneUnitByte(variant.metrics.bedding);
       buffers.packedBytes[byteTarget + STONE_WET_OFFSET] = packStoneUnitByte(
         resolveStoneVertexWetness(instance.wetness, worldY),
       );

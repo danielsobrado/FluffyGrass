@@ -1,5 +1,8 @@
 import { hashStoneCell, StoneRandom } from "./StoneRandom";
-import type { StoneArchetypeId } from "./StoneRecipe";
+import type {
+  StoneArchetypeId,
+  StoneSilhouetteVariant,
+} from "./StoneRecipe";
 
 export interface StoneProfileRing {
   readonly height: number;
@@ -12,6 +15,7 @@ export interface StoneProfileRing {
 
 export interface StoneProfileInput {
   readonly archetype: StoneArchetypeId;
+  readonly silhouetteVariant: StoneSilhouetteVariant;
   readonly seed: number;
   readonly sideAngles: readonly number[];
   readonly sideRadii: readonly number[];
@@ -193,7 +197,7 @@ export function resolveStoneProfile(
   const crownHeight = clamp(
     1 - input.topBevelHeight,
     shoulderHeight + AUTHORED_MIN_RING_GAP,
-    0.88,
+    input.silhouetteVariant === "capstone" ? 0.9 : 0.88,
   );
   const baseHeights = [0, bellyHeight, shoulderHeight, crownHeight, 1] as const;
 
@@ -295,12 +299,20 @@ export function resolveStoneProfile(
         (1 + crownVariation * family.crownVariation * 0.55),
     );
     const sector = random.fork(`profile-sector:${side}`);
-    const crownRadius = Math.max(
-      topRadius + 0.025,
-      shoulderRadius * sector.range(0.7, 0.86) +
-        topRadius * sector.range(0.14, 0.3) +
-        base * crownVariation * family.crownVariation,
-    );
+    const crownRadius =
+      input.silhouetteVariant === "capstone"
+        ? Math.max(
+            topRadius + 0.018,
+            shoulderRadius * sector.range(0.82, 0.91) +
+              topRadius * sector.range(0.12, 0.2) +
+              base * crownVariation * family.crownVariation * 0.65,
+          )
+        : Math.max(
+            topRadius + 0.025,
+            shoulderRadius * sector.range(0.7, 0.86) +
+              topRadius * sector.range(0.14, 0.3) +
+              base * crownVariation * family.crownVariation,
+          );
 
     desired[0].push(contactRadius);
     desired[1].push(bellyRadius);

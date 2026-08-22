@@ -255,6 +255,13 @@ try {
     "Terrain vegetation coverage must include stone clearance.",
   );
   assert(
+    TERRAIN_DETAIL_COLOR.includes("terrainStoneContact") &&
+      TERRAIN_DETAIL_COLOR.includes("terrainStoneDisturbed") &&
+      TERRAIN_DETAIL_COLOR.includes("terrainStoneCompacted") &&
+      TERRAIN_DETAIL_COLOR.includes("uTerrainStoneContactSoil"),
+    "Stone clearance must also resolve disturbed and compacted soil at the base.",
+  );
+  assert(
     TERRAIN_DETAIL_NORMAL.includes("terrainSurfaceNormalMask"),
     "Terrain micro normals must stay restricted to ecological ground and paths.",
   );
