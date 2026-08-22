@@ -6,6 +6,17 @@ import { StoneField } from "../../src/world/stones/StoneField";
 import { WorldStoneSystem } from "../../src/world/stones/WorldStoneSystem";
 import type { WorldConfig } from "../../src/world/WorldConfig";
 import {
+  WORLD_DEFAULT_EXPOSURE,
+  WORLD_DEFAULT_FOG,
+  WORLD_DEFAULT_HEMISPHERE_GROUND,
+  WORLD_DEFAULT_HEMISPHERE_INTENSITY,
+  WORLD_DEFAULT_HEMISPHERE_SKY,
+  WORLD_DEFAULT_SUN,
+  WORLD_DEFAULT_SUN_INTENSITY,
+  WORLD_SUN_DIRECTION,
+  WORLD_TONE_MAPPING,
+} from "../../src/app/WorldEnvironmentTuning";
+import {
   readStoneClusterQueryOverrides,
   StoneClusterTuningMenu,
   STONE_CLUSTER_QUERY_KEYS,
@@ -150,14 +161,24 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(1);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = WORLD_TONE_MAPPING;
+renderer.toneMappingExposure = WORLD_DEFAULT_EXPOSURE;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#bfd4df");
-scene.fog = new THREE.FogExp2("#bfd4df", 0.00105);
-scene.add(new THREE.HemisphereLight(0xdceeff, 0x3f3a2d, 1.45));
-const sun = new THREE.DirectionalLight(0xfff3d7, 2.4);
-sun.position.set(350, 500, 220).normalize().multiplyScalar(200);
+scene.fog = new THREE.FogExp2(WORLD_DEFAULT_FOG, 0.00105);
+scene.add(
+  new THREE.HemisphereLight(
+    WORLD_DEFAULT_HEMISPHERE_SKY,
+    WORLD_DEFAULT_HEMISPHERE_GROUND,
+    WORLD_DEFAULT_HEMISPHERE_INTENSITY,
+  ),
+);
+const sun = new THREE.DirectionalLight(
+  WORLD_DEFAULT_SUN,
+  WORLD_DEFAULT_SUN_INTENSITY,
+);
+sun.position.set(...WORLD_SUN_DIRECTION).normalize().multiplyScalar(200);
 scene.add(sun);
 
 const resolution = 192;
