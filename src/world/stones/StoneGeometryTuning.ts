@@ -10,8 +10,8 @@ export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
  * entire lower profile into a horizontal belt, while the real neighbour and
  * terrain-contact terms already provide the dark seam where the mass touches.
  */
-export const STONE_CONTACT_SHADE_FLOOR = 0.72;
-export const STONE_CONTACT_SHADE_HEIGHT = 0.18;
+export const STONE_CONTACT_SHADE_FLOOR = 0.8;
+export const STONE_CONTACT_SHADE_HEIGHT = 0.11;
 export const STONE_MOSS_CLIMB = 0.42;
 export const STONE_MOSS_PATCH_SIZE = 0.26;
 export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
@@ -24,11 +24,11 @@ export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
  * The default limit therefore softens edges without rounding the boulder into
  * an icosphere-like dome.
  */
-export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.9;
+export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.78;
 export const STONE_SOFT_NORMAL_COS_LIMIT = Math.cos(
   STONE_SOFT_NORMAL_ANGLE_LIMIT,
 );
-export const STONE_SOFT_NORMAL_STRENGTH = 0.74;
+export const STONE_SOFT_NORMAL_STRENGTH = 0.62;
 
 /**
  * Edge accents begin exactly where softening stops.
@@ -69,10 +69,10 @@ const STONE_FACET_SOFTENING_BY_ARCHETYPE: Readonly<
   Record<StoneArchetypeId, readonly [angleLimit: number, strength: number]>
 > = {
   boulder: [STONE_SOFT_NORMAL_ANGLE_LIMIT, STONE_SOFT_NORMAL_STRENGTH],
-  pebble: [0.84, 0.72],
-  outcrop: [0.7, 0.62],
-  slab: [0.56, 0.52],
-  block: [0.5, 0.48],
+  pebble: [0.8, 0.68],
+  outcrop: [0.66, 0.58],
+  slab: [0.54, 0.5],
+  block: [0.48, 0.46],
   shard: [0.4, 0.42],
 };
 
@@ -114,8 +114,8 @@ export const STONE_CENTROID_FAN_MIN_CORNERS = 5;
 /** Concave dihedrals darken; the same signal drives crease occlusion. */
 export const STONE_CREASE_SHADE = 0.42;
 /** Height fraction reached by bounce light thrown up from the surrounding turf. */
-export const STONE_BOUNCE_HEIGHT = 0.3;
-export const STONE_BOUNCE_STRENGTH = 0.38;
+export const STONE_BOUNCE_HEIGHT = 0.24;
+export const STONE_BOUNCE_STRENGTH = 0.24;
 
 /**
  * Value ramp driven by how far a corner faces up.
@@ -137,9 +137,9 @@ export const STONE_TONE_RANGE = 0.56;
  * unrelated random tint, while a small residual face jitter keeps fresh cuts
  * from becoming perfectly uniform.
  */
-export const STONE_MINERAL_PATCH_SIZE = 0.68;
-export const STONE_MINERAL_TINT_STRENGTH = 0.055;
-export const STONE_MINERAL_FACE_JITTER = 0.018;
+export const STONE_MINERAL_PATCH_SIZE = 0.82;
+export const STONE_MINERAL_TINT_STRENGTH = 0.07;
+export const STONE_MINERAL_FACE_JITTER = 0.014;
 
 /**
  * Crust deposition.
@@ -151,9 +151,9 @@ export const STONE_MINERAL_FACE_JITTER = 0.018;
  * gradient reads as light falling on the stone rather than as a different
  * material sitting on it.
  */
-export const STONE_CRUST_PATCH_SIZE = 0.22;
-export const STONE_CRUST_BLOTCH = 0.62;
-export const STONE_CRUST_THRESHOLD = 0.5;
+export const STONE_CRUST_PATCH_SIZE = 0.34;
+export const STONE_CRUST_BLOTCH = 0.58;
+export const STONE_CRUST_THRESHOLD = 0.52;
 export const STONE_CRUST_BAND = 0.1;
 /**
  * Below this the rock is stained rather than merely unbleached.
@@ -162,11 +162,11 @@ export const STONE_CRUST_BAND = 0.1;
  * between a bleached cap and a stained foot is what gives the two ends
  * something to be read against.
  */
-export const STONE_STAIN_THRESHOLD = 0.26;
+export const STONE_STAIN_THRESHOLD = 0.27;
 /** Lower-body soil deposition, expressed as a fraction of stone height. */
-export const STONE_SOIL_STAIN_HEIGHT = 0.16;
+export const STONE_SOIL_STAIN_HEIGHT = 0.11;
 /** Maximum field bias toward stain at the buried foot. */
-export const STONE_SOIL_STAIN_STRENGTH = 0.09;
+export const STONE_SOIL_STAIN_STRENGTH = 0.055;
 
 /**
  * Cavity depth.
