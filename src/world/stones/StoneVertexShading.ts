@@ -11,14 +11,21 @@ import {
   STONE_CONTACT_SHADE_HEIGHT,
   STONE_CREASE_SHADE,
   STONE_CUT_ACCENT,
+  STONE_MINERAL_FACE_JITTER,
+  STONE_MINERAL_PATCH_SIZE,
+  STONE_MINERAL_TINT_STRENGTH,
   STONE_MOSS_CLIMB,
   STONE_MOSS_PATCH_SIZE,
+  STONE_SOIL_STAIN_HEIGHT,
+  STONE_SOIL_STAIN_STRENGTH,
   STONE_TONE_FLOOR,
   STONE_TONE_RANGE,
 } from "./StoneGeometryTuning";
 import type { WorkingStoneFace } from "./StoneMeshTopology";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
+
+const STONE_MINERAL_SEED_XOR = 0x4d696e65;
 
 /**
  * Baked per-corner shading channels.
@@ -118,19 +125,41 @@ export function clamp01(value: number): number {
 }
 
 /**
- * Per-face material variation. Broad enough to group neighbouring facets into
- * readable mineral planes while remaining subordinate to real crease edges.
+ * Broad object-space mineral variation with a small residual face term.
+ *
+ * Neighbouring facets now inherit nearly the same base value, so the stone
+ * reads as one mineral body instead of a collection of randomly tinted panels.
  */
 export function resolveFaceTint(
   face: WorkingStoneFace,
   recipe: StoneRecipe,
 ): number {
-  const jitter =
+  let centerX = 0;
+  let centerY = 0;
+  let centerZ = 0;
+  for (const point of face.points) {
+    centerX += point.x;
+    centerY += point.y;
+    centerZ += point.z;
+  }
+  const inverse = 1 / Math.max(1, face.points.length);
+  const mineral =
+    (crustNoise(
+      (centerX * inverse) / STONE_MINERAL_PATCH_SIZE,
+      (centerY * inverse) / STONE_MINERAL_PATCH_SIZE,
+      (centerZ * inverse) / STONE_MINERAL_PATCH_SIZE,
+      recipe.seed ^ STONE_MINERAL_SEED_XOR,
+    ) -
+      0.5) *
+    2 *
+    STONE_MINERAL_TINT_STRENGTH;
+  const faceJitter =
     (hashStoneCell(recipe.seed, hashStoneLabel(face.planeId), 0x51f0a3) /
       4294967296 -
       0.5) *
-    0.14;
-  return jitter + (face.role === "cut" ? STONE_CUT_ACCENT : 0);
+    2 *
+    STONE_MINERAL_FACE_JITTER;
+  return mineral + faceJitter + (face.role === "cut" ? STONE_CUT_ACCENT : 0);
 }
 
 /**
@@ -262,8 +291,19 @@ export function resolveCornerWeathering(
     z / STONE_CRUST_PATCH_SIZE,
     recipe.seed ^ 0xc2057,
   );
+  const soilContact =
+    1 -
+    smoothstep(
+      y,
+      heightMetres * 0.03,
+      heightMetres * STONE_SOIL_STAIN_HEIGHT,
+    );
+  const soilFacing = 0.55 + 0.45 * clamp01(1 - normalY);
   const field =
-    exposure * 0.46 + climb * 0.3 + (blotch - 0.5) * STONE_CRUST_BLOTCH;
+    exposure * 0.46 +
+    climb * 0.3 +
+    (blotch - 0.5) * STONE_CRUST_BLOTCH -
+    soilContact * soilFacing * STONE_SOIL_STAIN_STRENGTH;
   const crust = smoothstep(
     field,
     STONE_CRUST_THRESHOLD,
