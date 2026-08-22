@@ -3,29 +3,28 @@ import { applyActorEnvironmentResponse } from "../render/ActorEnvironmentRespons
 import { disposeResources } from "../render/ResourceDisposal";
 
 /**
- * The costume is deliberately near-black — a violet so dark it is almost
- * silhouette — and it sits in a bright yellow-green meadow, which is the case
- * the shared actor environment response was written for. See
- * {@link applyActorEnvironmentResponse} for why the rim and bounce terms exist.
+ * The costume uses saturated jewel tones with warm trim so the player remains
+ * readable against the yellow-green meadow without needing an outline. The
+ * shared environment response still supplies sky rim and ground bounce.
  */
 const PALETTE = Object.freeze({
-  cloak: 0x50396f,
-  robe: 0x2e2140,
-  mantle: 0x5f4485,
-  tunic: 0x3b2c55,
-  leather: 0x261c33,
-  skin: 0x77688f,
-  trim: 0x715e99,
-  fur: 0x6a5590,
-  metal: 0xdbe1ee,
-  hair: 0xd6cfe4,
-  eye: 0xa81f36,
-  cloakShell: 0x42305a,
-  cloakLining: 0x6d2035,
+  cloak: 0x9a347d,
+  robe: 0x55265f,
+  mantle: 0xb34b93,
+  tunic: 0x7a315f,
+  leather: 0x3e243f,
+  skin: 0xa797b5,
+  trim: 0xd1a64e,
+  fur: 0xc37bb4,
+  metal: 0xe6d7b7,
+  hair: 0xe9e1ef,
+  eye: 0xc92746,
+  cloakShell: 0x76305f,
+  cloakLining: 0xa6424e,
 });
 
-const SKIN_SHEEN = 0x211a2e;
-const EYE_GLOW = 0xc41f38;
+const SKIN_SHEEN = 0x3a2945;
+const EYE_GLOW = 0xd62d4c;
 
 export interface SnowflowCharacterMaterialSet {
   cloak: THREE.MeshStandardMaterial;
