@@ -118,8 +118,8 @@ export function clamp01(value: number): number {
 }
 
 /**
- * Per-face material variation. Small on purpose: it survives as a hint of
- * differing mineral faces without redrawing the creases the softening removed.
+ * Per-face material variation. Broad enough to group neighbouring facets into
+ * readable mineral planes while remaining subordinate to real crease edges.
  */
 export function resolveFaceTint(
   face: WorkingStoneFace,
@@ -129,7 +129,7 @@ export function resolveFaceTint(
     (hashStoneCell(recipe.seed, hashStoneLabel(face.planeId), 0x51f0a3) /
       4294967296 -
       0.5) *
-    0.09;
+    0.14;
   return jitter + (face.role === "cut" ? STONE_CUT_ACCENT : 0);
 }
 
@@ -145,7 +145,10 @@ export function resolveCornerTone(
   heightMetres: number,
   crease: number,
 ): number {
-  const exposure = STONE_TONE_FLOOR + STONE_TONE_RANGE * (0.5 + 0.5 * normalY);
+  const exposure = Math.min(
+    0.9,
+    STONE_TONE_FLOOR + STONE_TONE_RANGE * (0.5 + 0.5 * normalY),
+  );
   const heightShade = 0.86 + 0.14 * smoothstep(y, 0, heightMetres * 0.6);
   const contactShade =
     STONE_CONTACT_SHADE_FLOOR +
@@ -237,7 +240,6 @@ function crustNoise(x: number, y: number, z: number, seed: number): number {
  * the iron-and-soil staining of rock that has sat buried and wet. They are the
  * two ends of one process — the same face cannot be both — so a single value
  * carries them, averages correctly across a centroid fan, and costs one array.
- *
  * This is the axis a value ramp cannot reach. Exposure and height say where
  * crust is possible, the blotch field says where it actually took, and the
  * narrow threshold bands are what make each boundary a boundary rather than a
