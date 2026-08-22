@@ -175,6 +175,11 @@ export class StoneRenderBatchBuilder {
               job.variants[job.fillIndex],
               buffers,
               job,
+              {
+                instances: job.instances,
+                variants: job.variants,
+                index: job.fillIndex,
+              },
             );
             job.fillIndex += 1;
             continue;

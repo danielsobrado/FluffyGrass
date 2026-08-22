@@ -15,6 +15,19 @@ export const TREE_MAX_WATER_COVERAGE = 0.04;
 export const TREE_REBUILD_STEP = 8;
 
 /**
+ * Where a tree's crown sits and how wide it is, as fractions of the trunk
+ * height and the instance's canopy scale.
+ *
+ * Shared because two unrelated consumers have to agree on the same crown: the
+ * renderer, which places the canopy mesh, and the canopy shade field, which
+ * decides what the crown occludes. If they drift apart the world grows ferns in
+ * a circle of ground with no tree standing over it, which is worse than having
+ * no shade at all — the vegetation stops explaining itself.
+ */
+export const TREE_CANOPY_HEIGHT_FRACTION = 0.72;
+export const TREE_CANOPY_RADIUS_SCALE = 1.35;
+
+/**
  * Herd placement. Cells are large and sparse because deer arrive in groups:
  * these thresholds decide where a group lives, not where each animal stands.
  */

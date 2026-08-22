@@ -108,14 +108,14 @@ grassDryHeightReduction: 0.42
 grassDryColorStrength: 0.64
 
 # Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
-detailFoliageDensity: 0.35
+detailFoliageDensity: 20.0
 detailFoliageColonyWorldSize: 11
 detailFoliageClumpWorldSize: 2.25
 detailFoliageColonyStrength: 0.94
 detailFoliageDominantFamilyShare: 0.90
 detailFoliageTintCoherence: 1
 detailFoliageQuietZoneThreshold: 0.34
-detailFoliageBackgroundSuppression: 0.58
+detailFoliageBackgroundSuppression: 0.34
 detailFoliageCoreHeightBias: 0.12
 detailFoliageMaturePhenotypeBias: 0.62
 detailFoliageEcologyStrength: 0.72

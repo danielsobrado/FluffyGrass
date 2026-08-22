@@ -1,8 +1,14 @@
 import * as THREE from "three";
+import type {
+  CanopyShadeCrown,
+  CanopyShadeSource,
+} from "../ecology/CanopyShadeField";
 import { createHydrologySample } from "../hydrology/HydrologyField";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import {
+  TREE_CANOPY_HEIGHT_FRACTION,
+  TREE_CANOPY_RADIUS_SCALE,
   TREE_CELL_SIZE,
   TREE_MAX_FERTILITY,
   TREE_MAX_ROCKINESS,
@@ -32,8 +38,16 @@ const hydrology = createHydrologySample();
 /**
  * Deterministic lattice of meadow trees. Placement is a pure function of the
  * world seed so streaming and grass-side queries can agree without talking.
+ *
+ * It is also the ecology's crown source, which is why the lattice matters more
+ * than it looks. The renderer draws the nearest hundred or so trees; the shade
+ * field asks about single cells, anywhere, at any time, and the two must name
+ * the same trees. Sharing one pure cell function is what guarantees they do —
+ * a tree that renders always shades, and shaded ground always has a tree over
+ * it, however far the camera is from either.
  */
-export class WorldTreeField {
+export class WorldTreeField implements CanopyShadeSource {
+  readonly cellSize = TREE_CELL_SIZE;
   private readonly seed: number;
 
   constructor(
@@ -77,6 +91,20 @@ export class WorldTreeField {
     return trees;
   }
 
+  /** The crown standing in one lattice cell, for the canopy shade field. */
+  sampleCanopyCell(cellX: number, cellZ: number): CanopyShadeCrown | undefined {
+    const tree = this.sampleCell(cellX, cellZ);
+    if (!tree) {
+      return undefined;
+    }
+    return {
+      x: tree.x,
+      z: tree.z,
+      radius: tree.canopyScale * TREE_CANOPY_RADIUS_SCALE,
+      centerHeight: tree.height * TREE_CANOPY_HEIGHT_FRACTION,
+    };
+  }
+
   private sampleCell(cellX: number, cellZ: number): WorldTreeInstance | undefined {
     const occupancy = hash(cellX, cellZ, this.seed) * HASH_UNIT;
     if (occupancy > TREE_OCCUPANCY) {
@@ -104,7 +132,10 @@ export class WorldTreeField {
     ) {
       return undefined;
     }
-    const ecology = this.field.sampleEcologyAt(x, z, height);
+    // Open ground deliberately: a tree is judged on the meadow it germinated
+    // in, not on the shade it will later cast. Reading the shaded ecology here
+    // would also close the loop this field sits at the bottom of.
+    const ecology = this.field.sampleOpenGroundEcologyAt(x, z, height);
     if (
       ecology.fertility < TREE_MIN_FERTILITY ||
       ecology.fertility > TREE_MAX_FERTILITY ||

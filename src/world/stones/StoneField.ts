@@ -59,6 +59,16 @@ import {
   type StoneVergePathChannel,
 } from "./StonePathPlacement";
 import { resolveSplitHalfDistance } from "./StoneSplitPlacement";
+import { resolveStoneYaw } from "./StoneFractureAlignment";
+import {
+  resolveStoneSkirtBand,
+  resolveStoneSkirtWidth,
+} from "./StoneSkirt";
+import {
+  createHydrologySample,
+  type HydrologySample,
+} from "../hydrology/HydrologyField";
+import { resolveStoneWetness, type StoneWetness } from "./StoneWetness";
 
 /**
  * Deterministic world-space stone placement.
@@ -99,6 +109,8 @@ export interface StoneInstance {
   readonly tiltStrength: number;
   /** Metres of grass cleared around the footprint; 0 for nestling pebbles. */
   readonly clearRadius: number;
+  /** Splash-zone wetness and its waterline, resolved from hydrology at root. */
+  readonly wetness: StoneWetness;
 }
 
 export interface StoneResolvedMember {
@@ -182,6 +194,7 @@ export class StoneField {
   private readonly resolvedClusters = new Map<number, StoneResolvedCluster>();
   private readonly variants = new Map<string, StoneMeshData>();
   private readonly normalScratch = new THREE.Vector3();
+  private readonly hydrologyScratch: HydrologySample = createHydrologySample();
   private readonly pathScratch = new THREE.Vector2();
   private readonly tangentScratch = { x: 0, z: 0 };
   private readonly macroScratch: StoneMacroCoord[] = [];
@@ -294,6 +307,56 @@ export class StoneField {
       }
     }
     return out;
+  }
+
+  /**
+   * Strength of the planted band around stone bases at (x, z).
+   *
+   * The exact counterpart of the clearance walk above, for scenes that hold a
+   * field without the amortized cache. Nearest ring wins rather than the sum.
+   */
+  sampleGrassSkirt(x: number, z: number): number {
+    if (!this.enabled) {
+      return 0;
+    }
+    const feather = this.config.stoneGrassClearanceFeather;
+    const centerCellX = Math.floor(x / this.cellSize);
+    const centerCellZ = Math.floor(z / this.cellSize);
+    let skirt = 0;
+    for (let dz = -CLEARANCE_SOURCE_CELL_MARGIN; dz <= CLEARANCE_SOURCE_CELL_MARGIN; dz += 1) {
+      for (let dx = -CLEARANCE_SOURCE_CELL_MARGIN; dx <= CLEARANCE_SOURCE_CELL_MARGIN; dx += 1) {
+        const instances = this.getCellInstances(
+          centerCellX + dx,
+          centerCellZ + dz,
+        );
+        for (const instance of instances) {
+          if (instance.clearRadius <= 0) {
+            continue;
+          }
+          const reach = instance.clearRadius + feather;
+          const width = resolveStoneSkirtWidth(instance.clearRadius);
+          const offsetX = x - instance.x;
+          const offsetZ = z - instance.z;
+          const distance = Math.hypot(offsetX, offsetZ);
+          if (distance >= reach + width) {
+            continue;
+          }
+          skirt = Math.max(
+            skirt,
+            resolveStoneSkirtBand(
+              distance,
+              instance.clearRadius * 0.84,
+              reach,
+              width,
+            ),
+          );
+          if (skirt >= 1) {
+            return 1;
+          }
+        }
+      }
+    }
+    return skirt;
   }
 
   sampleGrassClearance(x: number, z: number, extraRadius = 0): number {
@@ -1321,7 +1384,7 @@ export class StoneField {
     archetype: StoneArchetypeId,
     variantIndex: number,
     scale: number,
-    rotationY: number,
+    bearing: number,
     paletteKey: StonePaletteKey,
     valueScale: number,
     moss: number,
@@ -1368,7 +1431,8 @@ export class StoneField {
       z,
       height,
       sink,
-      rotationY,
+      wetness: this.resolveWetness(x, z, height),
+      rotationY: resolveStoneYaw(bearing, variant.metrics.fractureAzimuth),
       scale,
       archetype,
       variantIndex,
@@ -1382,6 +1446,24 @@ export class StoneField {
       tiltStrength,
       clearRadius,
     };
+  }
+
+  /**
+   * Wetness under one root.
+   *
+   * Sampled per stone rather than per cluster: a formation at a bank can have
+   * its anchor in the channel and its debris three metres up the slope, and one
+   * shared value would either dry the stone standing in the river or wet the
+   * one in the grass.
+   */
+  private resolveWetness(x: number, z: number, height: number): StoneWetness {
+    const hydrology = this.field.sampleHydrology(
+      x,
+      z,
+      height,
+      this.hydrologyScratch,
+    );
+    return resolveStoneWetness(hydrology, height);
   }
 
   private memberMoss(

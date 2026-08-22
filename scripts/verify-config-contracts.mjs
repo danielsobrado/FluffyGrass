@@ -78,14 +78,14 @@ try {
     const runtime = await load(runtimeLoader, runtimeSource);
 
     assert(
-      world.detailFoliageDensity === 0.35 &&
+      world.detailFoliageDensity === 20 &&
         world.detailFoliageColonyWorldSize === 11 &&
         world.detailFoliageClumpWorldSize === 2.25 &&
         world.detailFoliageColonyStrength === 0.94 &&
         world.detailFoliageDominantFamilyShare === 0.9 &&
         world.detailFoliageTintCoherence === 1 &&
         world.detailFoliageQuietZoneThreshold === 0.34 &&
-        world.detailFoliageBackgroundSuppression === 0.58 &&
+        world.detailFoliageBackgroundSuppression === 0.34 &&
         world.detailFoliageCoreHeightBias === 0.12 &&
         world.detailFoliageMaturePhenotypeBias === 0.62 &&
         world.detailFoliageEcologyStrength === 0.72 &&
@@ -167,12 +167,12 @@ try {
         load(
           worldLoader,
           worldSource.replace(
-            "detailFoliageDensity: 0.35",
-            "detailFoliageDensity: 0.36",
+            "detailFoliageDensity: 20.0",
+            "detailFoliageDensity: 20.1",
           ),
         ),
-      /detailFoliageDensity must be at most 0.35/,
-      "Detail foliage density must stay at or below 0.35 cards/m².",
+      /detailFoliageDensity must be at most 20/,
+      "Detail foliage density must stay at or below the 4 cards/m² ceiling.",
     );
     await expectReject(
       () =>

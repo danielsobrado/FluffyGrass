@@ -2,6 +2,10 @@ import * as THREE from "three";
 import type { WorldConfig } from "../WorldConfig";
 
 const VERTEX_COMMON = `
+attribute float stoneWet;
+varying float vStoneWet;
+attribute float stoneWeathering;
+varying float vStoneWeathering;
 attribute float stoneMoss;
 attribute float stoneLichen;
 attribute float stoneGrowthSeed;
@@ -19,6 +23,8 @@ varying vec3 vStoneLichenColor;
 `;
 
 const VERTEX_POSITION = `
+vStoneWet = stoneWet;
+vStoneWeathering = stoneWeathering;
 vStoneWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vStoneWorldNormal = mat3(modelMatrix) * objectNormal;
 vStoneMoss = stoneMoss;
@@ -62,6 +68,12 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
 `;
 
 const GROWTH_FRAGMENT_COMMON = `
+uniform float uStoneCrustBreakup;
+varying float vStoneWeathering;
+uniform float uStoneWetDarken;
+uniform float uStoneWetSheenStrength;
+uniform float uStoneWetSheenPower;
+varying float vStoneWet;
 uniform float uStoneGrowthDetailStrength;
 uniform float uStoneGrowthDetailScale;
 uniform vec2 uStoneGrowthDetailFadeSquared;
@@ -115,16 +127,52 @@ float stoneColony(vec3 point, vec3 center, float innerRadius, float outerRadius)
 `;
 
 const GROWTH_COLOR = `
-if ((vStoneMoss + vStoneLichen) > 0.001) {
-  vec3 stoneCameraDelta = cameraPosition - vStoneWorldPosition;
-  float stoneGrowthDistanceSquared = dot(stoneCameraDelta, stoneCameraDelta);
-  float stoneGrowthDetailFade = 1.0 - smoothstep(
-    uStoneGrowthDetailFadeSquared.x,
-    uStoneGrowthDetailFadeSquared.y,
-    stoneGrowthDistanceSquared
+vec3 stoneCameraDelta = cameraPosition - vStoneWorldPosition;
+float stoneGrowthDistanceSquared = dot(stoneCameraDelta, stoneCameraDelta);
+float stoneGrowthDetailFade = 1.0 - smoothstep(
+  uStoneGrowthDetailFadeSquared.x,
+  uStoneGrowthDetailFadeSquared.y,
+  stoneGrowthDistanceSquared
+);
+float stoneDetailWeight =
+  clamp(uStoneGrowthDetailStrength, 0.0, 1.0) * stoneGrowthDetailFade;
+vec3 stoneSurfaceNormal = normalize(vStoneWorldNormal);
+
+// Weathering boundaries are baked per corner, so vertex interpolation can only
+// ramp one across a facet, and at arm's length that reads as light falling on
+// the stone rather than as crust sitting on it. Close range therefore rebuilds
+// the two masks from the baked channel plus the noise the colonies already use:
+// the noise wanders the boundary off the mesh, and the extra contrast arrives
+// only where the eye is close enough to have noticed the facet. Everything here
+// fades out on the same curve the colonies do, so the macro read this all
+// exists to serve is what survives into the distance.
+//
+// Outside the growth branch on purpose: a bare stone with no moss and no lichen
+// still has a crust, and putting this inside that branch made weathering a
+// property of having colonies on it.
+if (stoneDetailWeight > 0.001) {
+  vec2 stoneWeatherUv =
+    stoneGrowthProjection(vStoneWorldPosition, stoneSurfaceNormal) *
+    uStoneGrowthDetailScale;
+  float stoneWeatherField =
+    vStoneWeathering +
+    (stoneGrowthNoise(stoneWeatherUv * 1.15 + vec2(5.71, 31.43)) - 0.5) *
+      uStoneCrustBreakup;
+  float stoneCrustMask = smoothstep(0.6, 0.78, stoneWeatherField);
+  float stoneStainMask = 1.0 - smoothstep(0.26, 0.44, stoneWeatherField);
+  diffuseColor.rgb = mix(
+    diffuseColor.rgb,
+    diffuseColor.rgb * vec3(1.14, 1.11, 1.0),
+    stoneCrustMask * stoneDetailWeight
   );
-  float stoneDetailWeight =
-    clamp(uStoneGrowthDetailStrength, 0.0, 1.0) * stoneGrowthDetailFade;
+  diffuseColor.rgb = mix(
+    diffuseColor.rgb,
+    diffuseColor.rgb * vec3(0.9, 0.82, 0.68),
+    stoneStainMask * stoneDetailWeight
+  );
+}
+
+if ((vStoneMoss + vStoneLichen) > 0.001) {
   float stoneMossCoverage = vStoneMoss;
   float stoneLichenCoverage = vStoneLichen;
   float stoneMossColorVariation = 1.0;
@@ -135,7 +183,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
     // matches its neighbours and interpolation shortens the varying. Projection
     // only compares axis magnitudes and does not care, but the runoff term
     // reads the vertical component directly and would drift without this.
-    vec3 stoneGrowthNormal = normalize(vStoneWorldNormal);
+    vec3 stoneGrowthNormal = stoneSurfaceNormal;
     vec2 stoneGrowthOffset = vec2(
       vStoneGrowthSeed * 37.17,
       vStoneGrowthSeed * 71.93
@@ -320,6 +368,42 @@ if (stoneGrainFade > 0.001) {
 `;
 
 /**
+ * Wet stone, in two halves that only work together.
+ *
+ * The albedo goes down because water fills the pores and stops them scattering
+ * light back; on its own that is a stone someone painted darker. The sheen is
+ * the half that says water: a narrow lobe off the light actually shading the
+ * stone, so it cannot drift out of agreement with the sun the way a separate
+ * direction uniform would, and skipped entirely on dry bodies, where the branch
+ * is coherent across whole batches.
+ *
+ * Both are cut off at the baked waterline, which is what keeps this reading as
+ * a river's edge rather than as a polished rock.
+ */
+const WET_COLOR = `
+if (vStoneWet > 0.001) {
+  diffuseColor.rgb *= mix(1.0, uStoneWetDarken, vStoneWet);
+}
+`;
+
+const WET_SHEEN = `
+#if NUM_DIR_LIGHTS > 0
+  if (vStoneWet > 0.001) {
+    vec3 stoneSheenView = normalize(vViewPosition);
+    vec3 stoneSheenHalf = normalize(
+      directionalLights[0].direction + stoneSheenView
+    );
+    float stoneSheenLobe = pow(
+      saturate(dot(normal, stoneSheenHalf)),
+      uStoneWetSheenPower
+    );
+    outgoingLight += directionalLights[0].color *
+      (stoneSheenLobe * uStoneWetSheenStrength * vStoneWet);
+  }
+#endif
+`;
+
+/**
  * Ambient wrap.
  *
  * A hemisphere ground colour tuned for turf leaves a downward-facing stone
@@ -332,6 +416,18 @@ if (stoneGrainFade > 0.001) {
 const LIGHTING_FLOOR = `
 outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.34);
 `;
+
+/**
+ * How far the close-range noise may drag a weathering boundary off the mesh.
+ * Large enough to hide the facet, small enough that a body cannot flip from
+ * crusted to stained on noise alone.
+ */
+const STONE_CRUST_BREAKUP = 0.55;
+/** How far wet stone darkens where the film is unbroken. */
+const STONE_WET_DARKEN = 0.58;
+/** Narrow enough to read as a film of water rather than polish. */
+const STONE_WET_SHEEN_POWER = 110;
+const STONE_WET_SHEEN_STRENGTH = 0.28;
 
 export function applyStoneSurfaceShader(
   material: THREE.MeshLambertMaterial,
@@ -359,9 +455,14 @@ export function applyStoneSurfaceShader(
     shader.uniforms.uStoneMossStreakStrength = {
       value: config.stoneMossStreakStrength,
     };
+    shader.uniforms.uStoneCrustBreakup = { value: STONE_CRUST_BREAKUP };
+    shader.uniforms.uStoneWetDarken = { value: STONE_WET_DARKEN };
+    shader.uniforms.uStoneWetSheenStrength = { value: STONE_WET_SHEEN_STRENGTH };
+    shader.uniforms.uStoneWetSheenPower = { value: STONE_WET_SHEEN_POWER };
 
     let fragmentCommon = GROWTH_FRAGMENT_COMMON;
     let colorFragment = GROWTH_COLOR;
+    colorFragment += WET_COLOR;
     if (grainTexture) {
       shader.uniforms.uStoneGrain = { value: grainTexture };
       shader.uniforms.uStoneGrainStrength = { value: config.stoneGrainStrength };
@@ -390,12 +491,12 @@ export function applyStoneSurfaceShader(
       )
       .replace(
         "#include <opaque_fragment>",
-        `${LIGHTING_FLOOR}#include <opaque_fragment>`,
+        `${LIGHTING_FLOOR}${WET_SHEEN}#include <opaque_fragment>`,
       );
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v11:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v13:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 

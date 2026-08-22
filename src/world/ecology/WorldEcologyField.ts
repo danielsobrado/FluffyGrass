@@ -6,6 +6,9 @@ import type { WorldConfig } from "../WorldConfig";
 import {
   ECOLOGY_ALPINE_FADE,
   ECOLOGY_BASE_RAINFALL,
+  ECOLOGY_CANOPY_EXPOSURE_LOSS,
+  ECOLOGY_CANOPY_LITTER_FERTILITY,
+  ECOLOGY_CANOPY_MULCH_RETENTION,
   ECOLOGY_CURVATURE_DRY,
   ECOLOGY_CURVATURE_WET,
   ECOLOGY_EXPOSURE_AMBIENT,
@@ -49,6 +52,19 @@ export interface WorldEcologySample {
   disturbance: number;
   /** Exposed stone and gravel at the surface. */
   rockiness: number;
+  /**
+   * Sky blocked by whatever stands over this point, from crowns and nothing
+   * else.
+   *
+   * Distinct from a low `exposure`, and the distinction is the point. A
+   * shaded aspect is open ground that happens to face away from the sun; it
+   * still catches rain and receives nothing from above. Ground under a crown
+   * is sheltered, mulched, and continuously fed litter, and the plants that
+   * win there — ferns, broadleaf rosettes — are not the plants that win on a
+   * cool slope. Keeping this its own channel is what lets the accent layer
+   * tell those two habitats apart.
+   */
+  shade: number;
 }
 
 export function createEcologySample(): WorldEcologySample {
@@ -58,6 +74,7 @@ export function createEcologySample(): WorldEcologySample {
     exposure: 0,
     disturbance: 0,
     rockiness: 0,
+    shade: 0,
   };
 }
 
@@ -103,9 +120,12 @@ export class WorldEcologyField {
     landform: TerrainLandform,
     hydrology: HydrologySample,
     pathGrassMask: number,
+    canopyShade: number,
     target: WorldEcologySample,
   ): WorldEcologySample {
     const slope = clamp01(landform.slope);
+    const canopy = clamp01(canopyShade);
+    target.shade = canopy;
     const convexity = clamp01(landform.convexity);
     const concavity = clamp01(-landform.convexity);
 
@@ -120,23 +140,33 @@ export class WorldEcologyField {
           landform.gradientZ * landform.gradientZ +
           1,
       );
+    //
+    // A crown then takes back most of what the aspect delivers. It multiplies
+    // rather than subtracts for the same reason every other term here does:
+    // shade cannot create sunlight, and a dim northern face under a tree has to
+    // stay dimmer than either cause alone would make it.
     target.exposure = clamp01(
-      ECOLOGY_EXPOSURE_AMBIENT +
+      (ECOLOGY_EXPOSURE_AMBIENT +
         (1 - ECOLOGY_EXPOSURE_AMBIENT) *
           clamp01(
             (-landform.gradientX * SUN.x +
               SUN.y +
               -landform.gradientZ * SUN.z) *
               inverseLength,
-          ),
+          )) *
+        (1 - ECOLOGY_CANOPY_EXPOSURE_LOSS * canopy),
     );
     target.disturbance = clamp01(1 - pathGrassMask);
 
     // Retention first: the share of any water arriving here that stays long
-    // enough to matter. Slope sheds it and sun takes it back.
+    // enough to matter. Slope sheds it, sun takes it back, and litter under a
+    // crown holds on to what is left — the mulch term is separate from the
+    // exposure the crown already cost, because shading the ground and covering
+    // it are two different favours.
     const retention =
       (1 - ECOLOGY_SLOPE_SHED * slope) *
-      lerp(ECOLOGY_EXPOSURE_WET, ECOLOGY_EXPOSURE_DRY, target.exposure);
+      lerp(ECOLOGY_EXPOSURE_WET, ECOLOGY_EXPOSURE_DRY, target.exposure) *
+      (1 + ECOLOGY_CANOPY_MULCH_RETENTION * canopy);
 
     // Supply has two independent sources, so it takes the larger rather than
     // the sum: standing beside a river does not stack with sitting in a hollow.
@@ -167,7 +197,10 @@ export class WorldEcologyField {
     );
 
     // Soil is an accumulation: it needs material to arrive, somewhere level for
-    // it to stop, water to hold it, and nothing scraping it away again.
+    // it to stop, water to hold it, and nothing scraping it away again. A crown
+    // supplies the first of those directly — leaf fall is material the open
+    // meadow never receives — which is why the ground under a tree is the
+    // richest ground in the world and grows what only rich ground grows.
     //
     // The product is then stretched across its own working range. Multiplying
     // four terms that each sit near the middle lands almost everywhere near the
@@ -178,7 +211,8 @@ export class WorldEcologyField {
       Math.pow(target.moisture, ECOLOGY_FERTILITY_MOISTURE_EXPONENT) *
       (1 - target.rockiness) *
       (1 - ECOLOGY_FERTILITY_DISTURBANCE * target.disturbance) *
-      lerp(0.45, 1, 1 - slope);
+      lerp(0.45, 1, 1 - slope) *
+      lerp(1, ECOLOGY_CANOPY_LITTER_FERTILITY, canopy);
     target.fertility = smoothstep(
       accumulation,
       ECOLOGY_FERTILITY_FLOOR,

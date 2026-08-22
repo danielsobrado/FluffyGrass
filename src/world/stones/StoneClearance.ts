@@ -110,3 +110,22 @@ export function sampleStoneGrassClearance(
   const source = field ?? activeField;
   return source ? source.sampleGrassClearance(x, z, extraRadius) : 1;
 }
+
+/**
+ * Strength of the planted band around stone bases at (x, z): 0 in the open and
+ * inside the bare contact, 1 along the seam where clearance releases the
+ * ground. Accents read this to thicken and shift species at stone feet; the
+ * blade layer does not, since a per-blade second neighbourhood walk would cost
+ * more than the effect is worth at blade scale.
+ */
+export function sampleStoneGrassSkirt(
+  x: number,
+  z: number,
+  field?: StoneField,
+): number {
+  if (activeCache && (!field || field === activeField)) {
+    return activeCache.sampleSkirt(x, z);
+  }
+  const source = field ?? activeField;
+  return source ? source.sampleGrassSkirt(x, z) : 0;
+}

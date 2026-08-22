@@ -35,6 +35,49 @@ export const ECOLOGY_EXPOSURE_WET = 1.16;
 /** Ambient share of insolation, so a shaded face is dim rather than black. */
 export const ECOLOGY_EXPOSURE_AMBIENT = 0.34;
 
+/**
+ * What a crown overhead does to the ground beneath it.
+ *
+ * Aspect shade and canopy shade are not the same thing and the field keeps them
+ * apart deliberately. A north-facing slope is cooler but still open to the sky:
+ * rain reaches it, nothing falls on it, and it grows the same meadow at lower
+ * vigour. Ground under a crown is a different habitat — dim, sheltered from
+ * drying wind, and continuously fed litter — which is why ferns, broadleaf
+ * rosettes and moss cluster there and why sun-flowers do not. Folding canopy
+ * cover into `exposure` alone would have lost that distinction and left the
+ * accent layer with nothing new to key on.
+ */
+/** Share of direct sun a full crown takes away from the ground under it. */
+export const ECOLOGY_CANOPY_EXPOSURE_LOSS = 0.72;
+/**
+ * Extra water a full crown's ground holds beyond what the exposure loss already
+ * buys: leaf litter is a mulch, and it works on retention rather than supply.
+ */
+export const ECOLOGY_CANOPY_MULCH_RETENTION = 0.18;
+/** Soil accumulation multiplier under a full crown; leaf fall is material
+ * arriving that nothing else on the meadow receives. */
+export const ECOLOGY_CANOPY_LITTER_FERTILITY = 1.42;
+
+/**
+ * How a crown's occlusion falls off across the ground.
+ *
+ * Two footprints, because a crown shades in two ways and they land in different
+ * places: the ring directly beneath it, which is dim all day, and the cast
+ * shadow offset along the sun, which is dim for part of it. Modelling only the
+ * first put every fern in a perfect circle around a trunk; the offset lobe is
+ * what makes the shaded ground read as a consequence of the light rather than
+ * of the tree's coordinates.
+ */
+export const ECOLOGY_CANOPY_CROWN_SHADE = 0.94;
+export const ECOLOGY_CANOPY_SHADOW_SHADE = 0.58;
+/** Inner radius of each footprint, as a share of the crown radius: inside this
+ * the shade is full, outside it feathers to nothing. */
+export const ECOLOGY_CANOPY_CORE_RADIUS = 0.55;
+/** Metres of feather past a footprint's radius. Wide, because a crown edge is
+ * not a line and a hard one would print the icosahedron's silhouette on the
+ * vegetation. */
+export const ECOLOGY_CANOPY_SHADE_FEATHER = 1.4;
+
 /** Weight of mapped rivers and lakes in the moisture supply. */
 export const ECOLOGY_WATER_SUPPLY = 0.72;
 

@@ -10,7 +10,10 @@ import {
 import { resolveGrassCanopyAo, sampleGrassMacroVigor } from "../../grass/GrassFieldVariation";
 import type { GrassConfig } from "../../grass/GrassConfig";
 import { SeededRandom } from "../../grass/internal/SeededRandom";
-import { sampleStoneGrassClearance } from "../stones/StoneClearance";
+import {
+  sampleStoneGrassClearance,
+  sampleStoneGrassSkirt,
+} from "../stones/StoneClearance";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import {
@@ -53,37 +56,77 @@ import type { WorldDetailFoliageMaterial } from "./WorldDetailFoliageMaterial";
  * Placement for the accent layer: ferns, flowers, seed heads, low shrubs, and
  * broadleaf plants gathered into small plant communities.
  *
- * The layer is deliberately small — roughly one card per three square metres,
- * gone by 30 m — because that is what the reference look actually is: the
- * flowers in a hillside shot are a few pixels each, and it is the *mixture*
- * that reads, not any one plant. Composition comes from two continuous
- * world-space fields plus ecology, not from extra noise or neighbour searches.
+ * The layer is the meadow's ground cover, not a garnish on it: roughly twenty
+ * candidates per square metre out to 42 m, which resolves to some fifty
+ * thousand drawn cards around the camera. It was a hundredth of that until the
+ * layer was photographed against its reference and the old reading — that
+ * flowers in a hillside shot are a few pixels each and only the *mixture*
+ * reads — turned out to be true of the mixture and false of the density needed
+ * to produce one. Composition still comes from two continuous world-space
+ * fields plus ecology, not from extra noise or neighbour searches.
  *
- * The build is deliberately simpler than {@link WorldSingleBladeTileFactory}:
- * a tile is ~90 candidates rather than ~4 600 blades, so it finishes inside a
- * tenth of a millisecond and needs neither incremental staging nor a radix
- * sort. It keeps the two properties that matter — instances sorted by dither so
- * the draw can be trimmed to a prefix, and world-space determinism so a tile
- * rebuilt after eviction is identical.
+ * The build is still simpler than {@link WorldSingleBladeTileFactory} — a tile
+ * is ~5 000 candidates against ~4 600 blades, but each candidate is a single
+ * card rather than a segmented blade — and it still needs no radix sort. It
+ * keeps the two properties that matter: instances sorted by dither so the draw
+ * can be trimmed to a prefix, and world-space determinism so a tile rebuilt
+ * after eviction is identical.
+ *
+ * Incremental staging is the thing to reach for if this grows again. A tile is
+ * built inside one frame slice, so candidates per tile is a frame-time number;
+ * at the current density it does not register against a 6.9 ms frame, but that
+ * was measured from a standing camera, which is the case that builds fewest
+ * tiles. Movement is where a build spike would show.
  */
 
 /**
  * 16 m tiles rather than the blade layer's 8 m. The plan budgeted ≤ 30 extra
  * draws, and at 8 m the 32 m residency disc holds ~73 tiles — the "merge per
- * 2×2 tiles" escape hatch, taken up front. Culling granularity costs nothing
- * here: a whole tile is ~90 cards of six vertices.
+ * 2×2 tiles" escape hatch, taken up front. The size is now load-bearing in the
+ * other direction too: at meadow density a 24 m tile would be a 5 000-candidate
+ * build in a single frame slice, so this is as coarse as the tiling can go
+ * without splitting a build across frames.
  */
 export const DETAIL_FOLIAGE_TILE_SIZE = 16;
-/** Cards per square metre before the biome's own `accentDensity`. */
-export const DETAIL_FOLIAGE_DENSITY = 0.35;
+/**
+ * Cards per square metre before the biome's own `accentDensity`.
+ *
+ * Raised from 0.35 after photographing the layer against its reference. At that
+ * value a 32 m disc held about 500 cards — one plant per six square metres —
+ * and the capture showed why that fails: an accent layer at meadow scale is not
+ * a garnish on the grass, it *is* the ground cover, and one plant per six
+ * square metres is invisible from anywhere. The reference's flower colonies run
+ * to dozens of blooms per square metre.
+ *
+ * The old number was never a measured limit. The layer's own budget allowed
+ * 100 000 vertices and the layer was spending 11 000 of them, on a frame that
+ * submits half a million grass triangles at 144 FPS. What bound it was a card
+ * ceiling set alongside the original "sub-pixel sprinkle" reading of what this
+ * layer was for.
+ */
+export const DETAIL_FOLIAGE_DENSITY = 20;
 /**
  * Ceiling the performance gate holds the density to. Production tuning cannot
  * exceed this; composition may only stay equal or decrease.
+ *
+ * Fragment cost, not vertex cost, is what will bind next. Every card is an
+ * alpha-cutout quad, so raising this further trades directly against overdraw
+ * in the near field — measure a frame before moving it again.
  */
-export const DETAIL_FOLIAGE_DENSITY_CEILING = 0.35;
-/** Midpoint and half-width of the dither fade that ends the layer. */
-export const DETAIL_FOLIAGE_FADE_DISTANCE = 27;
-export const DETAIL_FOLIAGE_FADE_TRANSITION = 3;
+export const DETAIL_FOLIAGE_DENSITY_CEILING = 20;
+/**
+ * Midpoint and half-width of the dither fade that ends the layer.
+ *
+ * Pushed out with the density, because the argument for ending at 30 m was
+ * conditional on the old one and expired with it. At 0.35 cards/m² a plant at
+ * 30 m genuinely was a sub-pixel sprinkle the mid band could stand in for. At
+ * meadow density the same distance holds recognisable ferns and flower
+ * colonies, and cutting them there put a visible line across the ground beyond
+ * which the world became grass and nothing else — exactly the mid-ground the
+ * reference fills with plants.
+ */
+export const DETAIL_FOLIAGE_FADE_DISTANCE = 38;
+export const DETAIL_FOLIAGE_FADE_TRANSITION = 4;
 /**
  * Lead on the residency radius, so a tile is resident before its cards can
  * draw. Without it a tile arrives exactly where the shader starts keeping
@@ -96,6 +139,15 @@ export const DETAIL_FOLIAGE_VISIBILITY_RADIUS =
   DETAIL_FOLIAGE_RESIDENCY_MARGIN;
 
 const MIN_SUITABILITY = 0.08;
+/**
+ * How far the planted band may lift accent density above the biome's own.
+ *
+ * One at full skirt strength: twice the open-meadow chance right at the seam,
+ * tapering with the band. Higher reads as a deliberate flower bed ringing every
+ * rock; the candidate grid caps the count in any case, so this buys a thicker
+ * fringe rather than a new layer.
+ */
+const STONE_SKIRT_ACCENT_GAIN = 1;
 const TWO_PI = Math.PI * 2;
 /** Matches the blade field: below this the residency set cannot change. */
 const COUNT_MOVEMENT_EPSILON = 0.25;
@@ -307,6 +359,7 @@ export class WorldDetailFoliageFactory {
       if (stoneMask <= 0.05) {
         continue;
       }
+      const stoneSkirt = sampleStoneGrassSkirt(x, z);
       this.field.sampleNormal(x, z, this.normal);
       const suitability =
         this.field.sampleGrassSlopeMask(this.normal) *
@@ -344,11 +397,21 @@ export class WorldDetailFoliageFactory {
         this.worldConfig.seed,
         DETAIL_FOLIAGE_CANDIDATE_SALT,
       );
+      // The planted band is the one place the accent layer is allowed to
+      // exceed its biome density. Stones shed water and shelter seedlings, so
+      // the seam at their feet genuinely carries more plants than the open
+      // meadow two metres away; without this the layer can only ever thin
+      // toward a stone, which is what makes generated rocks look dropped onto
+      // the field rather than grown around.
+      const skirtDensity = Math.min(
+        1,
+        profile.accentDensity * (1 + stoneSkirt * STONE_SKIRT_ACCENT_GAIN),
+      );
       if (
         detailFoliageChannel01(
           candidateHash,
           DETAIL_FOLIAGE_BIOME_DENSITY_CHANNEL_SALT,
-        ) >= profile.accentDensity
+        ) >= skirtDensity
       ) {
         continue;
       }
@@ -374,6 +437,7 @@ export class WorldDetailFoliageFactory {
           this.habitatSample.dryness,
           pathMask,
           stoneMask,
+          stoneSkirt,
           distribution,
           candidateHash,
           this.tuning,

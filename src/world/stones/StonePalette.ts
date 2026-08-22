@@ -6,6 +6,7 @@
  * lichen masks, so close-range colony breakup can reveal the original stone.
  */
 
+import { STONE_CONTACT_OCCLUSION } from "./StoneContactOcclusion";
 import { STONE_BOUNCE_STRENGTH } from "./StoneGeometryTuning";
 
 export interface StoneLinearColor {
@@ -23,6 +24,15 @@ export interface StonePalette {
   readonly moss: StoneLinearColor;
   readonly lichen: StoneLinearColor;
   readonly edgeStrength: number;
+  /**
+   * The two ends of weathering — bleached sun crust and iron-and-soil stain —
+   * plus the warm dark that fills the cracks.
+   */
+  readonly crust: StoneLinearColor;
+  readonly stain: StoneLinearColor;
+  readonly cavity: StoneLinearColor;
+  /** How readily this rock loses its staining. Damp families keep theirs. */
+  readonly crustStrength: number;
 }
 
 export interface StoneGrowthColors {
@@ -54,6 +64,10 @@ function palette(
   moss: string,
   lichen: string,
   edgeStrength: number,
+  crust: string,
+  stain: string,
+  cavity: string,
+  crustStrength: number,
 ): StonePalette {
   return {
     key,
@@ -64,6 +78,10 @@ function palette(
     moss: linearFromHex(moss),
     lichen: linearFromHex(lichen),
     edgeStrength,
+    crust: linearFromHex(crust),
+    stain: linearFromHex(stain),
+    cavity: linearFromHex(cavity),
+    crustStrength,
   };
 }
 
@@ -88,6 +106,10 @@ export const STONE_PALETTES = {
     "#566f41",
     "#9da276",
     0.82,
+    "#b3b79c",
+    "#6b5a3f",
+    "#2b2118",
+    0.85,
   ),
   steppeTan: palette(
     "steppe-tan",
@@ -98,6 +120,10 @@ export const STONE_PALETTES = {
     "#72764a",
     "#b4aa72",
     0.78,
+    "#c6b791",
+    "#7a5f3c",
+    "#31241a",
+    1,
   ),
   graniteGrey: palette(
     "granite-grey",
@@ -108,6 +134,10 @@ export const STONE_PALETTES = {
     "#586f47",
     "#a6ad8d",
     0.86,
+    "#b0aea1",
+    "#63523f",
+    "#2a2521",
+    0.9,
   ),
   mossy: palette(
     "mossy",
@@ -118,6 +148,10 @@ export const STONE_PALETTES = {
     "#526d41",
     "#929d70",
     0.72,
+    "#a3a88c",
+    "#5b4a34",
+    "#241f18",
+    0.58,
   ),
 } as const;
 
@@ -180,6 +214,9 @@ export function colorizeStoneVertices(
   tones: Float32Array,
   wears: Float32Array,
   bounces: Float32Array,
+  weatherings: Float32Array,
+  cavities: Float32Array,
+  contacts: Float32Array | undefined,
   paletteColors: StonePalette,
   tint: StoneTintParams,
   target: Float32Array | Uint8Array,
@@ -230,7 +267,27 @@ export function colorizeStoneVertices(
     let edgeG = paletteColors.edge.g;
     let edgeB = paletteColors.edge.b;
     let edgeStrength = paletteColors.edgeStrength;
+    let crustR = paletteColors.crust.r;
+    let crustG = paletteColors.crust.g;
+    let crustB = paletteColors.crust.b;
+    let crustStrength = paletteColors.crustStrength;
+    let stainR = paletteColors.stain.r;
+    let stainG = paletteColors.stain.g;
+    let stainB = paletteColors.stain.b;
+    let cavityR = paletteColors.cavity.r;
+    let cavityG = paletteColors.cavity.g;
+    let cavityB = paletteColors.cavity.b;
     if (hasSecondary) {
+      crustR = mixChannel(crustR, secondary.crust.r, blend);
+      crustG = mixChannel(crustG, secondary.crust.g, blend);
+      crustB = mixChannel(crustB, secondary.crust.b, blend);
+      crustStrength = mixChannel(crustStrength, secondary.crustStrength, blend);
+      stainR = mixChannel(stainR, secondary.stain.r, blend);
+      stainG = mixChannel(stainG, secondary.stain.g, blend);
+      stainB = mixChannel(stainB, secondary.stain.b, blend);
+      cavityR = mixChannel(cavityR, secondary.cavity.r, blend);
+      cavityG = mixChannel(cavityG, secondary.cavity.g, blend);
+      cavityB = mixChannel(cavityB, secondary.cavity.b, blend);
       r = mixChannel(r, r2, blend);
       g = mixChannel(g, g2, blend);
       b = mixChannel(b, b2, blend);
@@ -238,6 +295,30 @@ export function colorizeStoneVertices(
       edgeG = mixChannel(edgeG, secondary.edge.g, blend);
       edgeB = mixChannel(edgeB, secondary.edge.b, blend);
       edgeStrength = mixChannel(edgeStrength, secondary.edgeStrength, blend);
+    }
+
+    // Crust before cavity, and both before the arris and the turf bounce.
+    // A crack cuts through crust, because the crack is younger than the
+    // weathering it exposes; the worn arris sits on top of whichever of the two
+    // it runs through; and the bounce is the field's light arriving last on all
+    // of it.
+    const weathering = (weatherings[index] - 0.5) * 2 * crustStrength;
+    if (weathering > 0) {
+      r = mixChannel(r, crustR, weathering);
+      g = mixChannel(g, crustG, weathering);
+      b = mixChannel(b, crustB, weathering);
+    } else if (weathering < 0) {
+      const stain = -weathering;
+      r = mixChannel(r, stainR, stain);
+      g = mixChannel(g, stainG, stain);
+      b = mixChannel(b, stainB, stain);
+    }
+
+    const cavity = cavities[index];
+    if (cavity > 0) {
+      r = mixChannel(r, cavityR, cavity);
+      g = mixChannel(g, cavityG, cavity);
+      b = mixChannel(b, cavityB, cavity);
     }
 
     const wear = wears[index] * edgeStrength;
@@ -252,6 +333,16 @@ export function colorizeStoneVertices(
       r = mixChannel(r, TURF_BOUNCE.r, bounce);
       g = mixChannel(g, TURF_BOUNCE.g, bounce);
       b = mixChannel(b, TURF_BOUNCE.b, bounce);
+    }
+
+    // Last, and after the turf bounce on purpose: a face pressed against the
+    // next boulder is not receiving light from the field either, so the shade
+    // has to be able to take the bounce back off again.
+    const contact = contacts ? contacts[index] * STONE_CONTACT_OCCLUSION : 0;
+    if (contact > 0) {
+      r = mixChannel(r, cavityR, contact);
+      g = mixChannel(g, cavityG, contact);
+      b = mixChannel(b, cavityB, contact);
     }
 
     const offset = targetOffset + index * targetStride;

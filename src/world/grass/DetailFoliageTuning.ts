@@ -18,7 +18,7 @@ export interface DetailFoliageTuning {
 }
 
 export const DETAIL_FOLIAGE_TUNING_LIMITS = {
-  density: { min: 0.1, max: 0.35, step: 0.01 },
+  density: { min: 0.1, max: 20, step: 0.05 },
   colonyWorldSize: { min: 6, max: 16, step: 0.5 },
   clumpWorldSize: { min: 1, max: 4, step: 0.25 },
   colonyStrength: { min: 0, max: 1, step: 0.02 },

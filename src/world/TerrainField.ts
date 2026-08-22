@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CanopyShadeField } from "./ecology/CanopyShadeField";
 import {
   createTerrainLandform,
   TerrainLandformField,
@@ -15,6 +16,7 @@ import {
   type HydrologySample,
 } from "./hydrology/HydrologyField";
 import type { CascadeSite } from "./hydrology/WaterCascadeSites";
+import { WorldTreeField } from "./scenic/WorldTreeField";
 import type { WorldConfig } from "./WorldConfig";
 
 const COLOR_GRASS = new THREE.Color("#466f3a");
@@ -130,6 +132,16 @@ export class TerrainField {
   private readonly hydrologyScratch = createHydrologySample();
   private readonly ecology: WorldEcologyField;
   private readonly ecologyScratch = createEcologySample();
+  private readonly canopyShade: CanopyShadeField;
+  /**
+   * Separate scratch for the open-ground path, because that path runs *inside*
+   * the shaded one: resolving canopy shade asks where the crowns are, and
+   * deciding where a crown stands asks what the open ground there is like. One
+   * shared sample would have the inner query overwrite the outer one's answer.
+   */
+  private readonly openEcologyScratch = createEcologySample();
+  private readonly openHydrologyScratch = createHydrologySample();
+  private readonly openLandformScratch = createTerrainLandform();
   private readonly landform: TerrainLandformField;
   private readonly landformScratch = createTerrainLandform();
   private noisePairLow = 0;
@@ -156,6 +168,12 @@ export class TerrainField {
       this.sampleRawHeight(x, z),
     );
     this.ecology = new WorldEcologyField(config);
+    // The field owns its shade source rather than waiting for the renderer to
+    // register one. Ecology has to be identical at every LOD, on every device,
+    // and in every headless probe, and a shade field that only exists when the
+    // scenic layer happens to be built would fail all three: a compact profile
+    // that skips trees would grow a different meadow from a desktop one.
+    this.canopyShade = new CanopyShadeField(new WorldTreeField(this, config));
     this.landform = new TerrainLandformField(
       (x, z) => this.sampleHeight(x, z),
       TERRAIN_CURVATURE_STEP,
@@ -525,6 +543,8 @@ export class TerrainField {
     target: WorldEcologySample,
   ): WorldEcologySample {
     return this.resolveEcologyFromLandform(
+      x,
+      z,
       height,
       this.sampleLandform(x, z, this.landformScratch),
       hydrology,
@@ -536,31 +556,76 @@ export class TerrainField {
   /**
    * Ecology from a landform sample the caller already holds. Stone clustering
    * reuses its macro landform read rather than sampling the lattice twice.
+   *
+   * Still takes the position it is not otherwise using: canopy shade is the one
+   * cause that cannot be reconstructed from the ground at a point, because it
+   * comes from something standing somewhere else.
    */
   resolveEcologyFromLandform(
+    x: number,
+    z: number,
     height: number,
     landform: TerrainLandform,
     hydrology: HydrologySample,
     pathDistances: THREE.Vector2,
     target: WorldEcologySample,
   ): WorldEcologySample {
+    // Resolved before anything else is read. This call re-enters the field to
+    // decide where crowns stand, and although that inner path is scratch-
+    // isolated by construction, the caller's `landform` is very often this
+    // field's own scratch — so the re-entrant work is kept strictly outside the
+    // window in which it is live.
+    const shade = this.canopyShade.sample(x, z);
     return this.ecology.sample(
       height,
       landform,
       hydrology,
       this.resolvePathGrassMask(pathDistances, height),
+      shade,
       target,
     );
   }
 
   /** Ecology for callers without those inputs: probes, maps, and tools. */
   sampleEcologyAt(x: number, z: number, height: number): WorldEcologySample {
+    // Shade first, for the reason given on resolveEcologyFromLandform: the
+    // re-entrant crown query is finished before this call's own scratches
+    // become live.
+    const shade = this.canopyShade.sample(x, z);
     return this.ecology.sample(
       height,
       this.sampleLandform(x, z, this.landformScratch),
       this.hydrology.sample(x, z, height, this.hydrologyScratch),
       this.samplePathGrassMask(x, z, height),
+      shade,
       this.ecologyScratch,
+    );
+  }
+
+  /**
+   * Ecology as if nothing stood over this point.
+   *
+   * The entry point for deciding what *becomes* a crown. A tree cannot consult
+   * the shade it has not cast yet, and asking it to would close a loop: shade
+   * comes from crowns, crowns are placed by ecology, ecology reads shade. Trees
+   * establish in the open and the shade follows, which is both the way out of
+   * the recursion and the way it actually happens.
+   *
+   * Every sample it touches is its own, so the query is safe to run inside a
+   * shaded one — which is exactly where it runs.
+   */
+  sampleOpenGroundEcologyAt(
+    x: number,
+    z: number,
+    height: number,
+  ): WorldEcologySample {
+    return this.ecology.sample(
+      height,
+      this.sampleLandform(x, z, this.openLandformScratch),
+      this.hydrology.sample(x, z, height, this.openHydrologyScratch),
+      this.samplePathGrassMask(x, z, height),
+      0,
+      this.openEcologyScratch,
     );
   }
 

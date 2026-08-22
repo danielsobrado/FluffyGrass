@@ -82,6 +82,7 @@ try {
     convexity = 0,
     hydrology = dry,
     path = 1,
+    canopy = 0,
     height = config.baseHeight,
   }) {
     const gradient = Math.hypot(gradientX, gradientZ);
@@ -91,7 +92,9 @@ try {
       gradientX,
       gradientZ,
     };
-    return { ...ecologyField.sample(height, landform, hydrology, path, sample) };
+    return {
+      ...ecologyField.sample(height, landform, hydrology, path, canopy, sample),
+    };
   }
 
   const STEEP = 1.05;
@@ -137,6 +140,44 @@ try {
     "Exposure must follow surface aspect against the world sun.",
   );
 
+  // A crown makes a different habitat, not just a dimmer one. All three of
+  // these have to move together or the ground under a tree is merely a cool
+  // patch of meadow and the vegetation over it has nothing new to say.
+  const openGround = evaluate({});
+  const underCrown = evaluate({ canopy: 1 });
+  assert(
+    underCrown.exposure < openGround.exposure * 0.5,
+    `A full crown must take most of the direct sun (${underCrown.exposure.toFixed(3)} against ${openGround.exposure.toFixed(3)} in the open).`,
+  );
+  assert(
+    underCrown.moisture > openGround.moisture &&
+      underCrown.fertility > openGround.fertility,
+    "Shaded, mulched, litter-fed ground must hold more water and more soil than the open meadow beside it.",
+  );
+  assert(
+    underCrown.shade === 1 && openGround.shade === 0,
+    "Shade must report overhead cover exactly, with nothing else folded into it.",
+  );
+
+  // Aspect shade and canopy shade must stay distinguishable. If a cool slope
+  // came out with the same signature as ground under a tree, the accent layer
+  // could not tell a north face from a grove and the whole channel is wasted.
+  const coolSlope = evaluate(leeward);
+  assert(
+    coolSlope.shade === 0,
+    "A shaded aspect is open ground: it must not report overhead cover it does not have.",
+  );
+
+  // Two crowns over one point may deepen the shade but can never manufacture
+  // more sky than there is to block.
+  for (const canopy of [0, 0.25, 0.5, 0.75, 1]) {
+    const shaded = evaluate({ canopy });
+    assert(
+      shaded.shade >= 0 && shaded.shade <= 1 && shaded.exposure >= 0,
+      `Canopy cover ${canopy} left the field out of range.`,
+    );
+  }
+
   // Rock is what is left when cover fails, so cover has to be able to bury it.
   const bareSlope = evaluate({ gradientX: STEEP, convexity: 1 });
   const richFlat = evaluate({ convexity: -1 });
@@ -172,6 +213,8 @@ try {
   let checked = 0;
   let wettest = 0;
   let driest = 1;
+  let deepestShade = 0;
+  let shadedPoints = 0;
   for (let index = 0; index < 4000; index += 1) {
     const x = ((index * 613.7) % (half * 2)) - half;
     const z = ((index * 271.3) % (half * 2)) - half;
@@ -186,6 +229,10 @@ try {
     }
     wettest = Math.max(wettest, value.moisture);
     driest = Math.min(driest, value.moisture);
+    deepestShade = Math.max(deepestShade, value.shade);
+    if (value.shade > 0.05) {
+      shadedPoints += 1;
+    }
 
     const otherHeight = second.sampleHeight(x, z);
     second.sampleNormal(x, z, otherNormal);
@@ -204,6 +251,24 @@ try {
   assert(
     wettest - driest > 0.35,
     `Moisture spans only ${(wettest - driest).toFixed(3)} across the world; the ecology has flattened out.`,
+  );
+
+  // Shade has to actually happen, and has to stay rare. A field that never
+  // reports cover means the crowns and the ecology have quietly stopped talking
+  // — the exact failure this layer was added to end — while cover everywhere
+  // would mean the footprints have grown past the trees casting them.
+  assert(
+    deepestShade > 0.5,
+    `No point in the world sampled meaningful canopy cover (deepest ${deepestShade.toFixed(3)}); the crown source and the ecology have come apart.`,
+  );
+  const shadedShare = shadedPoints / checked;
+  assert(
+    shadedShare > 0.0004 && shadedShare < 0.25,
+    // The floor is deliberately far below the measured share. This guards
+    // against the crowns disconnecting entirely, not against the tree lattice
+    // being thinned — how many trees the meadow carries is art direction, and
+    // a gate that pinned it would turn every density pass into a test failure.
+    `Canopy cover reaches ${(shadedShare * 100).toFixed(2)}% of the world; a sparse tree lattice must shade a small minority of it, but not none of it.`,
   );
 
   // Curvature must stay a landform reading, not micro-noise. Its lattice cache
@@ -230,6 +295,7 @@ try {
     exposure: 0.4,
     disturbance: 0.05,
     rockiness: 0.04,
+    shade: 0,
   };
   sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, config, habitat);
   const healthyDensity = habitat.density;
@@ -350,6 +416,7 @@ try {
     exposure: 1,
     disturbance: 0,
     rockiness: 0,
+    shade: 0,
   };
   sampleGrassHabitat(
     12,
@@ -405,7 +472,7 @@ try {
   );
 
   console.log(
-    `[ecology] OK · ${checked} points in range and deterministic · moisture spans ${(wettest - driest).toFixed(2)} · landform outranks water proximity · curvature cache is transparent`,
+    `[ecology] OK · ${checked} points in range and deterministic · moisture spans ${(wettest - driest).toFixed(2)} · canopy shades ${(shadedShare * 100).toFixed(2)}% of sampled ground · landform outranks water proximity · curvature cache is transparent`,
   );
 } catch (error) {
   console.error(`[ecology] ${error?.message ?? error}`);

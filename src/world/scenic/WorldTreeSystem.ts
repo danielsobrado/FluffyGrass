@@ -5,6 +5,8 @@ import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import { WorldTreeField } from "./WorldTreeField";
 import {
+  TREE_CANOPY_HEIGHT_FRACTION,
+  TREE_CANOPY_RADIUS_SCALE,
   TREE_COMPACT_RADIUS,
   TREE_DESKTOP_RADIUS,
   TREE_REBUILD_STEP,
@@ -134,8 +136,12 @@ export class WorldTreeSystem {
       scratch.updateMatrix();
       this.trunkMesh.setMatrixAt(index, scratch.matrix);
 
-      scratch.position.set(tree.x, tree.y + tree.height * 0.72, tree.z);
-      scratch.scale.setScalar(tree.canopyScale * 1.35);
+      scratch.position.set(
+        tree.x,
+        tree.y + tree.height * TREE_CANOPY_HEIGHT_FRACTION,
+        tree.z,
+      );
+      scratch.scale.setScalar(tree.canopyScale * TREE_CANOPY_RADIUS_SCALE);
       scratch.updateMatrix();
       this.canopyMesh.setMatrixAt(index, scratch.matrix);
     }

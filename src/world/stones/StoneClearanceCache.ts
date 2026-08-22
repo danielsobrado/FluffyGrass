@@ -1,5 +1,9 @@
 import type { WorldConfig } from "../WorldConfig";
 import type { StoneField, StoneInstance } from "./StoneField";
+import {
+  resolveStoneSkirtBand,
+  resolveStoneSkirtWidth,
+} from "./StoneSkirt";
 
 const CACHE_LIMIT = 512;
 const EXPANDED_CACHE_LIMIT = 256;
@@ -16,6 +20,8 @@ interface StoneClearanceCandidate {
   innerRadius: number;
   reach: number;
   reachSquared: number;
+  skirtWidth: number;
+  skirtReachSquared: number;
 }
 
 function smoothstep(value: number, minimum: number, maximum: number): number {
@@ -110,6 +116,36 @@ export class StoneClearanceCache {
     return mask;
   }
 
+  /**
+   * Strength of the planted band at (x, z), taking the nearest stone's ring
+   * rather than summing: two stones half a metre apart share one skirt, they do
+   * not grow a doubly lush seam between them.
+   */
+  sampleSkirt(x: number, z: number): number {
+    const cellSize = this.config.stoneCellSize;
+    const cellX = Math.floor(x / cellSize);
+    const cellZ = Math.floor(z / cellSize);
+    const candidates = this.getNeighborhood(cellX, cellZ, 1);
+    let skirt = 0;
+    for (const candidate of candidates) {
+      const offsetX = x - candidate.x;
+      const offsetZ = z - candidate.z;
+      const distanceSquared = offsetX * offsetX + offsetZ * offsetZ;
+      if (distanceSquared >= candidate.skirtReachSquared) continue;
+      skirt = Math.max(
+        skirt,
+        resolveStoneSkirtBand(
+          Math.sqrt(distanceSquared),
+          candidate.innerRadius,
+          candidate.reach,
+          candidate.skirtWidth,
+        ),
+      );
+      if (skirt >= 1) return 1;
+    }
+    return skirt;
+  }
+
   clear(): void {
     this.neighborhoods.clear();
     this.expandedNeighborhoods.clear();
@@ -192,6 +228,8 @@ export class StoneClearanceCache {
             instance.z < maximumZ
           ) {
             const reach = instance.clearRadius + this.feather;
+            const skirtWidth = resolveStoneSkirtWidth(instance.clearRadius);
+            const skirtReach = reach + skirtWidth;
             candidates.push({
               x: instance.x,
               z: instance.z,
@@ -199,6 +237,8 @@ export class StoneClearanceCache {
               innerRadius: instance.clearRadius * CLEARANCE_INNER_SCALE,
               reach,
               reachSquared: reach * reach,
+              skirtWidth,
+              skirtReachSquared: skirtReach * skirtReach,
             });
           }
         }

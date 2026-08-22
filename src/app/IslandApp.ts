@@ -10,6 +10,7 @@ import {
   resolvePixelRatio,
   resolveViewportSize,
 } from "../runtime/ViewportSizing";
+import { WORLD_TONE_MAPPING } from "./WorldEnvironmentTuning";
 import { APP_VERSION } from "../version";
 
 const ISLAND_MODEL_PATH = revisionedAssetPath("./island.glb");
@@ -408,7 +409,7 @@ function createIslandRuntimeResources(
       powerPreference: "high-performance",
     });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMapping = WORLD_TONE_MAPPING;
     renderer.shadowMap.enabled = profile.shadows;
     const viewport = resolveViewportSize();
     camera.aspect = viewport.aspect;

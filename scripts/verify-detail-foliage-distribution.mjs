@@ -68,6 +68,7 @@ const MEADOW_ECOLOGY = {
   exposure: 0.55,
   disturbance: 0.08,
   rockiness: 0.22,
+  shade: 0,
 };
 
 const WORLD_SEED = 42017;
@@ -186,6 +187,7 @@ try {
             0.28,
             0.88,
             0.92,
+            0,
             sample,
             hash,
             tuning,
@@ -334,6 +336,7 @@ try {
             0.28,
             0.88,
             0.92,
+            0,
             sample,
             hash,
             tuning,
@@ -480,6 +483,7 @@ try {
       fertility: 0.55,
       exposure: 0.2,
       rockiness: 0.4,
+      shade: 0.7,
       disturbance: 0.05,
     }) >
       scoreDetailFoliageHabitat(fern, {
@@ -487,6 +491,7 @@ try {
         fertility: 0.3,
         exposure: 0.9,
         rockiness: 0.2,
+        shade: 0.05,
         disturbance: 0.4,
       }),
     "Ferns must prefer wet sheltered ground.",
@@ -497,6 +502,7 @@ try {
       fertility: 0.5,
       exposure: 0.3,
       rockiness: 0.65,
+      shade: 0.6,
       disturbance: 0.1,
     }) >
       scoreDetailFoliageHabitat(smallFern, {
@@ -504,6 +510,7 @@ try {
         fertility: 0.3,
         exposure: 0.8,
         rockiness: 0.1,
+        shade: 0.05,
         disturbance: 0.4,
       }),
     "Small ferns must prefer wet rocky ground.",
@@ -514,6 +521,7 @@ try {
       fertility: 0.85,
       exposure: 0.35,
       rockiness: 0.15,
+      shade: 0.6,
       disturbance: 0.08,
     }) >
       scoreDetailFoliageHabitat(broadleaf, {
@@ -521,6 +529,7 @@ try {
         fertility: 0.2,
         exposure: 0.7,
         rockiness: 0.4,
+        shade: 0.05,
         disturbance: 0.4,
       }),
     "Broadleaf rosettes must prefer fertile moist ground.",
@@ -531,6 +540,7 @@ try {
       fertility: 0.65,
       exposure: 0.55,
       rockiness: 0.35,
+      shade: 0.34,
       disturbance: 0.05,
     }) >
       scoreDetailFoliageHabitat(shrub, {
@@ -538,6 +548,7 @@ try {
         fertility: 0.65,
         exposure: 0.55,
         rockiness: 0.35,
+        shade: 0.34,
         disturbance: 0.9,
       }),
     "Low shrubs must prefer low disturbance.",
@@ -548,6 +559,7 @@ try {
       fertility: 0.3,
       exposure: 0.85,
       rockiness: 0.5,
+      shade: 0.05,
       disturbance: 0.25,
     }) >
       scoreDetailFoliageHabitat(seedHead, {
@@ -555,6 +567,7 @@ try {
         fertility: 0.7,
         exposure: 0.2,
         rockiness: 0.2,
+        shade: 0.6,
         disturbance: 0.05,
       }),
     "Seed heads must prefer dry exposed ground.",
@@ -565,6 +578,7 @@ try {
       fertility: 0.8,
       exposure: 0.7,
       rockiness: 0.2,
+      shade: 0.08,
       disturbance: 0.08,
     }) >
       scoreDetailFoliageHabitat(daisy, {
@@ -572,9 +586,32 @@ try {
         fertility: 0.2,
         exposure: 0.4,
         rockiness: 0.6,
+        shade: 0.5,
         disturbance: 0.8,
       }),
     "Daisies must prefer fertile open ground.",
+  );
+
+  // Overhead cover has to be decisive on its own. Every other channel is held
+  // identical across this pair, so if the two scores come out level then shade
+  // is being carried by whatever it correlates with rather than doing any work,
+  // and a fern has no reason to sit under a tree rather than beside it.
+  const sameGround = {
+    moisture: 0.72,
+    fertility: 0.7,
+    exposure: 0.4,
+    rockiness: 0.25,
+    disturbance: 0.06,
+  };
+  assert(
+    scoreDetailFoliageHabitat(fern, { ...sameGround, shade: 0.85 }) >
+      scoreDetailFoliageHabitat(fern, { ...sameGround, shade: 0 }),
+    "On identical ground, a fern must prefer the half of it that has a crown over it.",
+  );
+  assert(
+    scoreDetailFoliageHabitat(daisy, { ...sameGround, shade: 0 }) >
+      scoreDetailFoliageHabitat(daisy, { ...sameGround, shade: 0.85 }),
+    "On identical ground, a daisy must prefer the half of it that is open to the sky.",
   );
 
   for (const item of clustered) {

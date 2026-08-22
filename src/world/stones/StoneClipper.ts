@@ -42,9 +42,54 @@ const CUT_GROUND_CLEARANCE = 0.02;
 const CUT_MINIMUM_EFFECTIVE_DEPTH = 0.015;
 const CHIP_MINIMUM_EFFECTIVE_DEPTH = 0.004;
 const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.055;
-const EDGE_CHAMFER_DEPTH = 0.016;
-const EDGE_CHAMFER_MIN_LENGTH = 0.16;
-const EDGE_CHAMFER_SHARE = 0.22;
+/**
+ * Arris softening.
+ *
+ * The bevel is what puts a lit sliver along the silhouette when the sun comes
+ * across a stone: a plane meeting a plane at a mathematical edge takes one
+ * lighting value on each side and none between, which is the read that gives a
+ * generated rock away. Sampling a fifth of the edges left most of the
+ * silhouette mathematically sharp and made the softening look like damage on
+ * random arrises rather than weathering of the whole body, so every edge that
+ * clears the length and dihedral gates now takes one, and the per-edge hash
+ * spends itself on depth instead of on acceptance.
+ *
+ * Depths are fractions of the unit footprint radius (0.5), so 0.0125–0.025
+ * covers 2.5–5% of local radius: wide enough to catch light at the distance
+ * stones are actually seen from, narrow enough that the large planes the
+ * archetypes exist to show still meet almost directly.
+ */
+const EDGE_CHAMFER_DEPTH_MIN = 0.0125;
+const EDGE_CHAMFER_DEPTH_MAX = 0.025;
+/**
+ * Shortest edge worth a bevel, per level of detail.
+ *
+ * Bevelling every qualifying edge on both meshes roughly doubled the triangle
+ * potential of the field, and most of that spend lands on short interior
+ * arrises that a distant stone never resolves. The close mesh keeps the low
+ * threshold and softens the whole body; the coarse mesh bevels only edges long
+ * enough to be silhouette, which is the part of the effect that survives the
+ * distance at which it is drawn.
+ */
+const EDGE_CHAMFER_MIN_LENGTH_DETAIL = 0.24;
+const EDGE_CHAMFER_MIN_LENGTH_COARSE = 0.34;
+/**
+ * Weathering history per family, hardest last.
+ *
+ * A tumbled pebble has had every arris worn; a shard broke recently and its
+ * edges are still nearly true. Shards are no longer skipped outright — an
+ * unbevelled body reads as flat-shaded geometry from any angle — but they take
+ * the narrowest bevel of the set, small enough to catch a highlight without
+ * claiming a weathering history the family does not have.
+ */
+const EDGE_CHAMFER_SCALE: Record<StoneRecipe["archetype"], number> = {
+  pebble: 1.1,
+  boulder: 1,
+  outcrop: 0.95,
+  slab: 0.85,
+  block: 0.8,
+  shard: 0.5,
+};
 const FACE_HIERARCHY_TOLERANCE = 0.015;
 const PROFILE_MIN_HEIGHT_GAP = 0.06;
 
@@ -586,6 +631,7 @@ export function resolveCutPlanes(
 function addEdgeChamferPlanes(
   planes: StonePlane[],
   recipe: StoneRecipe,
+  minimumEdgeLength: number,
 ): StonePlane[] {
   const faces = facesFromPlanes(planes);
   const planeById = new Map(planes.map((plane) => [plane.id, plane]));
@@ -621,7 +667,7 @@ function addEdgeChamferPlanes(
         edge.a.x - edge.b.x,
         edge.a.y - edge.b.y,
         edge.a.z - edge.b.z,
-      ) < EDGE_CHAMFER_MIN_LENGTH
+      ) < minimumEdgeLength
     ) {
       continue;
     }
@@ -633,7 +679,10 @@ function addEdgeChamferPlanes(
         Math.round(midpointZ * 991),
         recipe.seed ^ 0x4265766c,
       ) / 4294967296;
-    if (chamferRoll >= EDGE_CHAMFER_SHARE) continue;
+    const depth =
+      (EDGE_CHAMFER_DEPTH_MIN +
+        chamferRoll * (EDGE_CHAMFER_DEPTH_MAX - EDGE_CHAMFER_DEPTH_MIN)) *
+      EDGE_CHAMFER_SCALE[recipe.archetype];
 
     const a = planeById.get(faceA.planeId);
     const b = planeById.get(faceB.planeId);
@@ -653,7 +702,7 @@ function addEdgeChamferPlanes(
       nx: unitX,
       ny: unitY,
       nz: unitZ,
-      constant: edgeConstant - EDGE_CHAMFER_DEPTH,
+      constant: edgeConstant - depth,
       id: `edge-bevel:${chamfers.length}`,
       role: "edge-bevel",
     });
@@ -668,9 +717,12 @@ export function buildStonePolyhedron(
   const bodyPlanes = buildStonePlanes(recipe);
   const cutPlanes = resolveCutPlanes(bodyPlanes, recipe, includeChips);
   const structuralPlanes = [...bodyPlanes, ...cutPlanes];
-  const chamfers =
-    recipe.archetype === "shard"
-      ? []
-      : addEdgeChamferPlanes(structuralPlanes, recipe);
+  const chamfers = addEdgeChamferPlanes(
+    structuralPlanes,
+    recipe,
+    includeChips
+      ? EDGE_CHAMFER_MIN_LENGTH_DETAIL
+      : EDGE_CHAMFER_MIN_LENGTH_COARSE,
+  );
   return facesFromPlanes([...structuralPlanes, ...chamfers]);
 }

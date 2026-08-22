@@ -23,12 +23,27 @@ import {
   STONE_MOSS_OFFSET,
   STONE_NORMAL_OFFSET,
   STONE_SHORT_STRIDE,
+  STONE_WEATHERING_OFFSET,
+  STONE_WET_OFFSET,
   packStoneSignedInt16,
   packStoneUnitByte,
   type StoneRenderBuffers,
   type StoneRenderBounds,
 } from "./StoneRenderPacking";
 import { hashStoneCell } from "./StoneRandom";
+import {
+  collectStoneOccluders,
+  resolveStoneContactOcclusion,
+  type StoneOccluder,
+} from "./StoneContactOcclusion";
+import { resolveStoneVertexWetness } from "./StoneWetness";
+
+/** The batch a stone is being written into, for neighbour contact shade. */
+export interface StoneRenderBatchNeighbours {
+  readonly instances: readonly StoneInstance[];
+  readonly variants: readonly StoneMeshData[];
+  readonly index: number;
+}
 
 export interface StoneRenderWriteState extends StoneRenderBounds {
   vertexCursor: number;
@@ -52,6 +67,16 @@ export class StoneRenderInstanceWriter {
   private readonly positionScratch = new THREE.Vector3();
   private readonly scaleScratch = new THREE.Vector3();
   private readonly growthScratch: StoneGrowthWeights = { moss: 0, lichen: 0 };
+  private readonly occluderScratch: StoneOccluder[] = [];
+  private contactScratch = new Float32Array(0);
+
+  /** One buffer reused across every stone in a batch; never shrinks. */
+  private contactScratchFor(vertexCount: number): Float32Array {
+    if (this.contactScratch.length < vertexCount) {
+      this.contactScratch = new Float32Array(vertexCount);
+    }
+    return this.contactScratch;
+  }
 
   constructor(
     private readonly config: WorldConfig,
@@ -63,6 +88,7 @@ export class StoneRenderInstanceWriter {
     variant: StoneMeshData,
     buffers: StoneRenderBuffers,
     state: StoneRenderWriteState,
+    batch?: StoneRenderBatchNeighbours,
   ): void {
     const palette = STONE_PALETTES[instance.paletteKey];
     const tint = {
@@ -109,6 +135,16 @@ export class StoneRenderInstanceWriter {
       this.quaternionScratch,
       this.scaleScratch.setScalar(instance.scale),
     );
+
+    const occluderCount = batch
+      ? collectStoneOccluders(
+          batch.instances,
+          batch.variants,
+          batch.index,
+          this.occluderScratch,
+        )
+      : 0;
+    const contacts = this.contactScratchFor(variant.metrics.vertexCount);
 
     const elements = this.matrixScratch.elements;
     const inverseScale = 1 / instance.scale;
@@ -200,12 +236,41 @@ export class StoneRenderInstanceWriter {
         packedLichenG;
       buffers.packedBytes[byteTarget + STONE_LICHEN_COLOR_OFFSET + 2] =
         packedLichenB;
+      // Baked against world height rather than the body's own fraction: the
+      // waterline is a property of the river, so two stones of different sizes
+      // sitting side by side in it are wet to the same height, not to the same
+      // share of themselves.
+      // The palette mix for this value is already baked into the vertex colour
+      // above; the shader gets the raw channel so close range can put a broken
+      // edge on a boundary that vertex interpolation can only ramp across a
+      // facet.
+      buffers.packedBytes[byteTarget + STONE_WEATHERING_OFFSET] =
+        packStoneUnitByte(variant.weatherings[index]);
+      buffers.packedBytes[byteTarget + STONE_WET_OFFSET] = packStoneUnitByte(
+        resolveStoneVertexWetness(instance.wetness, worldY),
+      );
+      contacts[index] =
+        occluderCount > 0
+          ? resolveStoneContactOcclusion(
+              this.occluderScratch,
+              occluderCount,
+              worldX,
+              worldY,
+              worldZ,
+              normalX,
+              normalY,
+              normalZ,
+            )
+          : 0;
     }
 
     colorizeStoneVertices(
       variant.tones,
       variant.wears,
       variant.bounces,
+      variant.weatherings,
+      variant.cavities,
+      contacts,
       palette,
       tint,
       buffers.packedBytes,

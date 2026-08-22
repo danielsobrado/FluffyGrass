@@ -30,14 +30,27 @@ export function createDetailFoliageSelection(): DetailFoliageSelection {
   return { speciesIndex: 0, tintRow: 0 };
 }
 
-const HABITAT_WEIGHT_SUM = 4.6;
+const HABITAT_WEIGHT_SUM = 5.5;
 
+/**
+ * Each entry is [preferred value, tolerance]: a species scores best where the
+ * channel matches its first number and falls off across the second.
+ *
+ * `shade` carries most of the separation between the fern-and-broadleaf group
+ * and the flower group, which no other channel could give it. On terrain alone
+ * those two groups want nearly the same ground — moist, fertile, undisturbed,
+ * off the rocks — so before this channel existed they were competing for the
+ * same cells and the tie was broken by noise. Overhead cover is the real
+ * divider between them, and it splits them cleanly: shade tolerance is why one
+ * group lives under crowns and the other cannot.
+ */
 interface HabitatPreference {
   moisture: readonly [number, number];
   fertility: readonly [number, number];
   exposure: readonly [number, number];
   rockiness: readonly [number, number];
   disturbance: readonly [number, number];
+  shade: readonly [number, number];
 }
 
 const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freeze({
@@ -47,6 +60,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.5, 1],
     rockiness: [0.5, 1],
     disturbance: [0.4, 1],
+    shade: [0.35, 1],
   },
   "low-shrub": {
     moisture: [0.55, 0.55],
@@ -54,6 +68,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.55, 0.55],
     rockiness: [0.35, 0.55],
     disturbance: [0.1, 0.35],
+    shade: [0.34, 0.62],
   },
   fern: {
     moisture: [0.82, 0.42],
@@ -61,6 +76,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.25, 0.45],
     rockiness: [0.45, 0.55],
     disturbance: [0.05, 0.25],
+    shade: [0.74, 0.46],
   },
   "small-fern": {
     moisture: [0.72, 0.5],
@@ -68,6 +84,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.3, 0.5],
     rockiness: [0.6, 0.45],
     disturbance: [0.1, 0.35],
+    shade: [0.62, 0.52],
   },
   daisy: {
     moisture: [0.55, 0.55],
@@ -75,6 +92,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.65, 0.5],
     rockiness: [0.25, 0.6],
     disturbance: [0.1, 0.4],
+    shade: [0.1, 0.44],
   },
   "round-bloom": {
     moisture: [0.58, 0.52],
@@ -82,6 +100,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.55, 0.55],
     rockiness: [0.2, 0.55],
     disturbance: [0.1, 0.4],
+    shade: [0.14, 0.5],
   },
   "seed-head": {
     moisture: [0.22, 0.45],
@@ -89,6 +108,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.8, 0.45],
     rockiness: [0.5, 0.65],
     disturbance: [0.25, 0.6],
+    shade: [0.05, 0.4],
   },
   "broadleaf-rosette": {
     moisture: [0.72, 0.45],
@@ -96,6 +116,7 @@ const HABITAT_BY_KEY: Readonly<Record<string, HabitatPreference>> = Object.freez
     exposure: [0.35, 0.5],
     rockiness: [0.2, 0.5],
     disturbance: [0.08, 0.3],
+    shade: [0.6, 0.5],
   },
 });
 
@@ -163,7 +184,13 @@ export function scoreDetailFoliageHabitat(
         habitat.disturbance[0],
         habitat.disturbance[1],
       ) *
-        1.2) /
+        1.2 +
+      // Weighted above aspect exposure and rockiness because it is the only
+      // channel that describes a habitat rather than a surface, and because
+      // the ground it marks out is rare: crowns cover a small share of the
+      // meadow, so a weak weight here would let the open-ground species win
+      // under trees on the strength of the other four.
+      preference(ecology.shade, habitat.shade[0], habitat.shade[1]) * 0.9) /
     HABITAT_WEIGHT_SUM;
   return 0.15 + 0.85 * raw;
 }
@@ -443,13 +470,23 @@ export function resolveDetailFoliageSelection(
   habitatDryness: number,
   pathMask: number,
   stoneMask: number,
+  stoneSkirt: number,
   distribution: DetailFoliageDistributionSample,
   candidateHash: number,
   tuning: DetailFoliageTuning,
   target: DetailFoliageSelection,
 ): boolean {
   const pathFringe = clamp01(4 * pathMask * (1 - pathMask));
-  const stoneFringe = clamp01(4 * stoneMask * (1 - stoneMask));
+  // Two readings of the same seam. The mask hump is where clearance is midway
+  // through releasing the ground, which is narrow and moves with the feather;
+  // the skirt is the authored planted band outside it, which keeps its width
+  // whatever the feather does. Taking the stronger of the two lets the band
+  // carry the fringe out to its full reach without losing the tight line right
+  // against the contact.
+  const stoneFringe = Math.max(
+    clamp01(4 * stoneMask * (1 - stoneMask)),
+    clamp01(stoneSkirt),
+  );
   const dominant = pickWeightedEntry(
     profile,
     ecology,

@@ -7,6 +7,7 @@ import {
   STONE_MESH_QUANTIZE,
   STONE_SNAP_EPSILON,
 } from "./StoneGeometryTuning";
+import { resolveStoneFractureAzimuth } from "./StoneFractureAlignment";
 import { addStoneIndentation } from "./StoneIndentation";
 import {
   buildStoneEdgeSharpness,
@@ -19,6 +20,8 @@ import { buildStoneSoftNormals } from "./StoneSurfaceNormals";
 import {
   averageStoneFaceCorners,
   resolveCornerBounce,
+  resolveCornerCavity,
+  resolveCornerWeathering,
   resolveCornerEdgeShading,
   resolveCornerTone,
   resolveFaceTint,
@@ -32,6 +35,12 @@ export interface StoneMeshData {
   readonly wears: Float32Array;
   readonly bounces: Float32Array;
   readonly mosses: Float32Array;
+  /**
+   * Where each corner sits between stained and bleached rock, and how deep in
+   * a cavity it lies. Both are albedo: the lighting model never sees them.
+   */
+  readonly weatherings: Float32Array;
+  readonly cavities: Float32Array;
   readonly indices: Uint16Array;
   readonly metrics: StoneMeshMetrics;
 }
@@ -43,6 +52,22 @@ export interface StoneMeshMetrics {
   readonly contactRadius: number;
   readonly footprintRadius: number;
   readonly embed: number;
+  /**
+   * Axial bearing of this body's dominant fracture set, in mesh-local space.
+   *
+   * Placement turns a stone by yaw alone, so without knowing where a variant's
+   * cut planes already point, aligning members of a cluster to a shared strike
+   * aligns nothing: each variant carries its fractures on whatever bearing its
+   * own seed produced. Recording the bearing here lets placement cancel it and
+   * put every member's fractures on the formation's bearing, which is what
+   * makes a group read as one parent boulder broken apart rather than as three
+   * stones standing near each other.
+   *
+   * Axial, not directional: the two faces of one joint set point 180° apart and
+   * mean the same geology, so the average is taken on doubled angles and the
+   * result lives in [-PI/2, PI/2).
+   */
+  readonly fractureAzimuth: number;
   readonly fingerprint: number;
 }
 
@@ -92,6 +117,8 @@ export function generateStoneMesh(
   const wears = new Float32Array(vertexCount);
   const bounces = new Float32Array(vertexCount);
   const mosses = new Float32Array(vertexCount);
+  const weatherings = new Float32Array(vertexCount);
+  const cavities = new Float32Array(vertexCount);
   const indices = new Uint16Array(triangleCount * 3);
 
   let vertexCursor = 0;
@@ -131,6 +158,18 @@ export function generateStoneMesh(
         heightMetres,
         edgeShading.crease,
       );
+      weatherings[vertexCursor] = resolveCornerWeathering(
+        point.x,
+        point.y,
+        point.z,
+        softNormalY,
+        heightMetres,
+        recipe,
+      );
+      cavities[vertexCursor] = resolveCornerCavity(
+        edgeShading.crease,
+        softNormalY,
+      );
       bounces[vertexCursor] = resolveCornerBounce(
         point.y,
         heightMetres,
@@ -161,7 +200,16 @@ export function generateStoneMesh(
 
     if (corners >= STONE_CENTROID_FAN_MIN_CORNERS) {
       averageStoneFaceCorners(
-        { positions, normals, tones, wears, bounces, mosses },
+        {
+          positions,
+          normals,
+          tones,
+          wears,
+          bounces,
+          mosses,
+          weatherings,
+          cavities,
+        },
         baseVertex,
         corners,
         vertexCursor,
@@ -194,6 +242,7 @@ export function generateStoneMesh(
     contactRadius,
     footprintRadius,
     embed: recipe.embed,
+    fractureAzimuth: resolveStoneFractureAzimuth(faces),
     fingerprint: fingerprintMesh(positions, tones),
   };
 
@@ -204,6 +253,8 @@ export function generateStoneMesh(
     wears,
     bounces,
     mosses,
+    weatherings,
+    cavities,
     indices,
     metrics,
   };

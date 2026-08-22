@@ -323,6 +323,8 @@ export class StoneClusterField {
       gradientZ: landform.gradientZ,
     };
     const ecology = this.field.resolveEcologyFromLandform(
+      centerX,
+      centerZ,
       height,
       landformSnapshot,
       hydrology,

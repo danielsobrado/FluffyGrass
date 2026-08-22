@@ -71,8 +71,17 @@ export const ANCHOR_BIOME_MULTIPLIERS: readonly (readonly number[])[] = [
 ];
 
 export const SPLIT_CHANCE = 0.28;
-export const SPLIT_GAP_MIN = 0.08;
-export const SPLIT_GAP_MAX = 0.3;
+/**
+ * The crack between two halves of one boulder.
+ *
+ * Narrowed once the junction between neighbouring bodies started carrying its
+ * own shade: at a third of a metre the two halves are simply two stones that
+ * happen to be near each other, and no amount of matched material or matched
+ * fracture bearing will read as a break. A fracture is a hand's width at most,
+ * and now that the gap is dark inside, it does not need width to be visible.
+ */
+export const SPLIT_GAP_MIN = 0.04;
+export const SPLIT_GAP_MAX = 0.16;
 export const SPLIT_CORE_OFFSET_FACTOR = 0.6;
 
 export const OVERLAP_FOOTPRINT_FACTOR = 0.78;

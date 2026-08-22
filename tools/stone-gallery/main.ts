@@ -15,6 +15,7 @@ import {
   WORLD_DEFAULT_SUN_INTENSITY,
   WORLD_SUN_DIRECTION,
 } from "../../src/app/WorldEnvironmentTuning";
+import { resolveStoneVertexWetness } from "../../src/world/stones/StoneWetness";
 import { applyStoneSurfaceShader } from "../../src/world/stones/StoneGrowthShader";
 import {
   STONE_PALETTES,
@@ -73,6 +74,8 @@ if (focusParam !== null && !isArchetype(focusParam)) {
   throw new Error(`Unknown stone archetype: ${focusParam}.`);
 }
 const mossParam = readNumberParam("moss", 0.7, 0, 1);
+/** Waterline as a share of body height, for inspecting the wet-stone response. */
+const wetParam = readNumberParam("wet", 0, 0, 1);
 const growthParam = readGrowthMode(params.get("growth"));
 const chipsParam = params.get("chips") !== "0";
 /** Contact shading and edge softness only read at close range; frame for it. */
@@ -187,6 +190,9 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
       mesh.tones,
       mesh.wears,
       mesh.bounces,
+      mesh.weatherings,
+      mesh.cavities,
+      undefined,
       palette,
       {
         valueScale: 0.94 + ((seed * 2654435761) >>> 28) / 160,
@@ -206,6 +212,7 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
     const seeds = new Float32Array(mesh.mosses.length);
     const growthPositions = new Float32Array(mesh.mosses.length * 3);
     const mossColors = new Float32Array(mesh.mosses.length * 3);
+    const wets = new Float32Array(mesh.mosses.length);
     const lichenColors = new Float32Array(mesh.mosses.length * 3);
     const inverseGrowthRadius =
       0.5 / Math.max(mesh.metrics.footprintRadius, GROWTH_EPSILON);
@@ -233,7 +240,19 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
       lichenColors[offset] = palette.lichen.r;
       lichenColors[offset + 1] = palette.lichen.g;
       lichenColors[offset + 2] = palette.lichen.b;
+      wets[vertex] =
+        wetParam > 0
+          ? resolveStoneVertexWetness(
+              { strength: 1, topY: mesh.metrics.height * wetParam },
+              mesh.positions[offset + 1],
+            )
+          : 0;
     }
+    geometry.setAttribute("stoneWet", new THREE.BufferAttribute(wets, 1));
+    geometry.setAttribute(
+      "stoneWeathering",
+      new THREE.BufferAttribute(mesh.weatherings, 1),
+    );
     geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1));
     geometry.setAttribute("stoneLichen", new THREE.BufferAttribute(lichens, 1));
     geometry.setAttribute("stoneGrowthSeed", new THREE.BufferAttribute(seeds, 1));

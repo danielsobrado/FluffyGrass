@@ -7,6 +7,7 @@ import {
   StoneRenderBatchBuilder,
   type StoneRenderBatchSource,
 } from "./StoneRenderBatchBuilder";
+import { STONE_WETNESS_DRY } from "./StoneWetness";
 
 function fail(message: string): never {
   throw new Error(`[stones-performance] ${message}`);
@@ -153,6 +154,7 @@ function verifyExpandedClearanceNeighborhood(
     normalZ: 0,
     tiltStrength: 0,
     clearRadius,
+    wetness: STONE_WETNESS_DRY,
   };
   const rootChunkX = Math.floor(rootX / config.chunkSize);
   const rootChunkZ = Math.floor(rootZ / config.chunkSize);
@@ -390,8 +392,13 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     position.itemSize * position.array.BYTES_PER_ELEMENT +
     normal.data.stride * normal.data.array.BYTES_PER_ELEMENT +
     byteData.stride * byteData.array.BYTES_PER_ELEMENT;
+  // Raised from 36 for the wet channel. Stones needed one byte per vertex to
+  // carry the baked waterline, and an interleaved byte stream must stay
+  // four-byte aligned, so the smallest step available was 12 bytes to 16. The
+  // three spare bytes are alignment, not headroom to spend casually: the next
+  // per-vertex byte is free, the one after that costs another four.
   assert(
-    bytesPerVertex <= 36,
+    bytesPerVertex <= 40,
     `Stone vertex payload regressed to ${bytesPerVertex} bytes.`,
   );
   geometry.dispose();

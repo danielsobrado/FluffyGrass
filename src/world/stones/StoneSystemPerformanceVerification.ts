@@ -3,6 +3,7 @@ import { TerrainField } from "../TerrainField";
 import { WorldConfigLoader } from "../WorldConfigLoader";
 import { StoneField, type StoneInstance } from "./StoneField";
 import { WorldStoneSystem } from "./WorldStoneSystem";
+import { STONE_WETNESS_DRY } from "./StoneWetness";
 
 function fail(message: string): never {
   throw new Error(`[stones-system-performance] ${message}`);
@@ -35,6 +36,7 @@ function createInstance(
     normalZ: 0,
     tiltStrength: 0,
     clearRadius: 0.4,
+    wetness: STONE_WETNESS_DRY,
   };
 }
 

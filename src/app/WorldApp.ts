@@ -12,6 +12,7 @@ import type { WorldController } from "../controls/WorldController";
 import type { SnowflowCharacter } from "../character/SnowflowCharacter";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { resolvePixelRatio, resolveViewportSize } from "../runtime/ViewportSizing";
+import { WORLD_TONE_MAPPING } from "./WorldEnvironmentTuning";
 import { APP_VERSION } from "../version";
 import { DenseSpawnLocator } from "../world/DenseSpawnLocator";
 import { StoneField } from "../world/stones/StoneField";
@@ -121,7 +122,7 @@ export class WorldApp {
 
     try {
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMapping = WORLD_TONE_MAPPING;
       this.renderer.shadowMap.enabled = profile.shadows;
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
       this.applyRendererSize();

@@ -35,10 +35,17 @@ const NO_GRASS_QUERY = process.env.FLUFFY_NO_GRASS === "1"
 const NO_WATER_QUERY = process.env.FLUFFY_NO_WATER === "1"
   ? "&noWater=1"
   : "";
+// GPU timing is off by default because it forces a query per frame and skews
+// the very number it reports. Turn it on deliberately when a capture is being
+// taken to answer a cost question rather than a look question — with the
+// framerate pinned to vsync, CPU-side FPS says nothing about headroom.
+const GPU_TIMING_QUERY = process.env.FLUFFY_GPU_TIMING === "1"
+  ? "&gpuTiming=1"
+  : "";
 const PROFILE_QUERY = RUNTIME_PROFILE
   ? `&profile=${encodeURIComponent(RUNTIME_PROFILE)}`
   : "";
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}`;
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly&stats=1&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}${GPU_TIMING_QUERY}`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine

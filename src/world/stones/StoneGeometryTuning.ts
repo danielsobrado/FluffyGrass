@@ -154,6 +154,40 @@ export const STONE_BOUNCE_STRENGTH = 0.52;
 export const STONE_TONE_FLOOR = 0.42;
 export const STONE_TONE_RANGE = 0.56;
 /**
+ * Crust deposition.
+ *
+ * The patch size is metres of blotch, chosen against the bodies rather than
+ * against the noise: at a quarter-metre the cap breaks into speckle that reads
+ * as texture, and at a metre a two-metre boulder gets one boundary and looks
+ * dipped. The band is narrow because a wide one produces a gradient, and a
+ * gradient reads as light falling on the stone rather than as a different
+ * material sitting on it — which is the whole point of having a second axis.
+ */
+export const STONE_CRUST_PATCH_SIZE = 0.22;
+export const STONE_CRUST_BLOTCH = 0.62;
+export const STONE_CRUST_THRESHOLD = 0.5;
+export const STONE_CRUST_BAND = 0.1;
+/**
+ * Below this the rock is stained rather than merely unbleached.
+ *
+ * Set well under the crust threshold so most of a body is neither: bare stone
+ * between a bleached cap and a stained foot is what gives the two ends
+ * something to be read against.
+ */
+export const STONE_STAIN_THRESHOLD = 0.26;
+
+/**
+ * Cavity depth.
+ *
+ * Concave breaks carry it almost fully: a crack is the one place on a stone
+ * where almost no light arrives from anywhere. Downward faces get a smaller
+ * share, since an undercut still sees the ground bounce that the baked turf
+ * light already delivers.
+ */
+export const STONE_CAVITY_CREASE = 0.92;
+export const STONE_CAVITY_UNDERCUT = 0.3;
+
+/**
  * Fresh fracture exposes paler stone. Safe as a per-face step because cuts are
  * steep enough that the dihedral limit already denies them smoothing, so the
  * albedo edge lands on a normal edge.

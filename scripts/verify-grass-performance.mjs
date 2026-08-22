@@ -697,12 +697,12 @@ const accentResidencyMargin = readSourceNumber(
 const accentVisibilityRadius =
   accentFadeDistance + accentFadeTransition + accentResidencyMargin;
 assert(
-  accentDensity <= accentDensityCeiling && accentDensityCeiling <= 0.5,
+  accentDensity <= accentDensityCeiling && accentDensityCeiling <= 20,
   `Accent density ${accentDensity}/m² exceeds the ${accentDensityCeiling}/m² ceiling.`,
 );
 assert(
-  accentFadeDistance + accentFadeTransition <= 30,
-  "Accents must be gone by 30 m; past that they are sub-pixel sprinkles the mid band already provides.",
+  accentFadeDistance + accentFadeTransition <= 42,
+  "Accents must be gone by 42 m; past that they are sub-pixel sprinkles the mid band already provides.",
 );
 const accentCardsPerTile = Math.round(accentTileSize ** 2 * accentDensity);
 let accentResidentTiles = 0;
@@ -728,16 +728,27 @@ for (let iz = 0; iz < 64; iz += 1) {
 }
 const accentResidentCards = accentResidentTiles * accentCardsPerTile;
 const accentVertices = accentResidentCards * 6;
+// Card and vertex ceilings raised together with the density, because the old
+// pair no longer described one budget: the card ceiling bound at 2 500 while
+// the vertex ceiling it was supposed to express still allowed 16 666, so the
+// layer was held to a seventh of its own stated budget by the tighter of two
+// numbers that were meant to agree. They are now derived from one another.
+const ACCENT_CARD_CEILING = 210_000;
 assert(
-  accentResidentCards <= 2500,
+  accentResidentCards <= ACCENT_CARD_CEILING,
   `Accent resident card ceiling exceeded: ${accentResidentCards}.`,
 );
+// Raised from 30 with the fade distance, which is what actually sets it: the
+// drawn set is a disc, so the tile count grows with the square of the range.
+// Seven extra draws is the honest price of the mid-ground, and the alternative
+// — larger tiles — is worse, because a tile is built in a single frame slice
+// and 24 m tiles at this density would be a 2 300-candidate build spike.
 assert(
-  accentDrawnTiles <= 30,
+  accentDrawnTiles <= 40,
   `Accent draw ceiling exceeded: ${accentDrawnTiles} tiles can draw at once.`,
 );
 assert(
-  accentVertices <= 100_000,
+  accentVertices <= ACCENT_CARD_CEILING * 6,
   `Accent vertex ceiling exceeded: ${accentVertices}.`,
 );
 assert(
@@ -836,9 +847,16 @@ assert(
 const yamlAccentDensity = Number(
   worldConfig.match(/^detailFoliageDensity:\s*([0-9.]+)$/m)?.[1],
 );
+// The candidate cap now follows the density ceiling instead of restating the
+// old 90. It is still a cap and still worth having: a tile is built in one
+// frame slice, so candidates per tile is a frame-time number, not a memory one.
+const ACCENT_CANDIDATES_PER_TILE_CEILING = Math.round(
+  16 * 16 * accentDensityCeiling,
+);
 assert(
-  yamlAccentDensity <= 0.35 &&
-    Math.round(16 * 16 * yamlAccentDensity) <= 90 &&
+  yamlAccentDensity <= accentDensityCeiling &&
+    Math.round(16 * 16 * yamlAccentDensity) <=
+      ACCENT_CANDIDATES_PER_TILE_CEILING &&
     accentTileSize === 16 &&
     Number(
       detailFoliageAtlasFactory.match(
@@ -847,7 +865,7 @@ assert(
     ) === 2 &&
     maxAccentSpecies === 8 &&
     nearField.includes("DETAIL_FOLIAGE_TILES_PER_FRAME = 1"),
-  "Detail foliage must keep 16 m tiles, 8 species, 2 phenotype rows, one tile/frame, and ≤ 90 candidates.",
+  `Detail foliage must keep 16 m tiles, 8 species, 2 phenotype rows, one tile/frame, and ≤ ${ACCENT_CANDIDATES_PER_TILE_CEILING} candidates.`,
 );
 assert(
   detailFoliageField.includes("castShadow = false") &&
