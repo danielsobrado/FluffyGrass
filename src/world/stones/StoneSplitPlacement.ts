@@ -3,10 +3,7 @@ import {
   OVERLAP_PADDING,
 } from "./StoneClusterTuning";
 
-/** Split pieces nest more tightly than unrelated stones while retaining a readable crack. */
-const SPLIT_PADDING_SHARE = 0.35;
-
-/** Root distance that keeps sibling pieces close enough to read as one fractured mass. */
+/** Root distance that preserves the normal footprint overlap contract plus a crack gap. */
 export function resolveSplitHalfDistance(
   anchorFootprint: number,
   splitFootprint: number,
@@ -14,7 +11,7 @@ export function resolveSplitHalfDistance(
 ): number {
   return (
     OVERLAP_FOOTPRINT_FACTOR * (anchorFootprint + splitFootprint) +
-    OVERLAP_PADDING * SPLIT_PADDING_SHARE +
+    OVERLAP_PADDING +
     crackGap
   );
 }
