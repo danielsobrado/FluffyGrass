@@ -63,6 +63,7 @@ export interface StoneArchetypeSpec {
   readonly contactBevelHeight: Band;
   /** Horizontal shear per unit height; shard leans are deliberate. */
   readonly lean: Band;
+  /** Minimum and maximum structural fracture planes. */
   readonly cutCount: readonly [number, number];
   readonly cutDepth: Band;
   /** Upward component of cut-plane normals. */
@@ -97,7 +98,7 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.25, max: 0.65 },
     heightRatio: { min: 0.34, max: 0.52 },
     depthRatio: { min: 0.78, max: 1.28 },
-    chipCount: [0, 2],
+    chipCount: [0, 1],
     chipDepth: { min: 0.012, max: 0.035 },
     edgeWear: 0.32,
     embed: { min: 0.08, max: 0.16 },
@@ -118,12 +119,12 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     contactBevelHeight: { min: 0.09, max: 0.15 },
     lean: { min: 0.06, max: 0.18 },
     cutCount: [0, 2],
-    cutDepth: { min: 0.075, max: 0.18 },
-    cutNormalY: { min: 0.12, max: 0.68 },
+    cutDepth: { min: 0.1, max: 0.21 },
+    cutNormalY: { min: 0.1, max: 0.62 },
     heightRatio: { min: 0.7, max: 0.98 },
     depthRatio: { min: 0.82, max: 1.38 },
-    chipCount: [1, 3],
-    chipDepth: { min: 0.015, max: 0.045 },
+    chipCount: [0, 2],
+    chipDepth: { min: 0.015, max: 0.042 },
     edgeWear: 0.42,
     embed: { min: 0.18, max: 0.28 },
   },
@@ -140,12 +141,12 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     contactBevelHeight: { min: 0.1, max: 0.15 },
     lean: { min: 0.01, max: 0.08 },
     cutCount: [0, 2],
-    cutDepth: { min: 0.06, max: 0.14 },
-    cutNormalY: { min: 0.18, max: 0.58 },
+    cutDepth: { min: 0.08, max: 0.16 },
+    cutNormalY: { min: 0.16, max: 0.55 },
     heightRatio: { min: 0.4, max: 0.58 },
     depthRatio: { min: 0.95, max: 1.45 },
-    chipCount: [1, 3],
-    chipDepth: { min: 0.018, max: 0.05 },
+    chipCount: [0, 2],
+    chipDepth: { min: 0.018, max: 0.045 },
     edgeWear: 0.43,
     embed: { min: 0.22, max: 0.35 },
   },
@@ -162,12 +163,12 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     contactBevelHeight: { min: 0.08, max: 0.13 },
     lean: { min: 0.03, max: 0.1 },
     cutCount: [1, 3],
-    cutDepth: { min: 0.09, max: 0.19 },
-    cutNormalY: { min: 0.1, max: 0.52 },
+    cutDepth: { min: 0.1, max: 0.2 },
+    cutNormalY: { min: 0.08, max: 0.5 },
     heightRatio: { min: 0.6, max: 0.86 },
     depthRatio: { min: 0.76, max: 1.18 },
-    chipCount: [2, 4],
-    chipDepth: { min: 0.02, max: 0.06 },
+    chipCount: [1, 2],
+    chipDepth: { min: 0.02, max: 0.055 },
     edgeWear: 0.46,
     embed: { min: 0.13, max: 0.22 },
   },
@@ -188,8 +189,8 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     cutNormalY: { min: 0.08, max: 0.48 },
     heightRatio: { min: 0.72, max: 1.05 },
     depthRatio: { min: 0.68, max: 1 },
-    chipCount: [2, 4],
-    chipDepth: { min: 0.018, max: 0.055 },
+    chipCount: [1, 3],
+    chipDepth: { min: 0.018, max: 0.05 },
     edgeWear: 0.38,
     embed: { min: 0.1, max: 0.18 },
   },
@@ -206,12 +207,12 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     contactBevelHeight: { min: 0.08, max: 0.13 },
     lean: { min: 0.03, max: 0.14 },
     cutCount: [1, 3],
-    cutDepth: { min: 0.09, max: 0.2 },
-    cutNormalY: { min: 0.15, max: 0.58 },
+    cutDepth: { min: 0.11, max: 0.22 },
+    cutNormalY: { min: 0.12, max: 0.54 },
     heightRatio: { min: 0.48, max: 0.74 },
     depthRatio: { min: 1.05, max: 1.65 },
-    chipCount: [1, 3],
-    chipDepth: { min: 0.018, max: 0.05 },
+    chipCount: [0, 2],
+    chipDepth: { min: 0.018, max: 0.048 },
     edgeWear: 0.36,
     embed: { min: 0.3, max: 0.46 },
   },
@@ -261,6 +262,8 @@ const CUT_SIMILARITY_LIMIT = 0.96;
 const GOLDEN_ANGLE = 2.399963229728653;
 const SILHOUETTE_RADIUS_MIN = BASE_RADIUS * 0.55;
 const SILHOUETTE_RADIUS_MAX = BASE_RADIUS * 1.5;
+const PRIMARY_OPTIONAL_FRACTURE_CHANCE = 0.56;
+const SECONDARY_OPTIONAL_FRACTURE_CHANCE = 0.22;
 
 function rangeOf(random: StoneRandom, band: Band): number {
   return random.range(band.min, band.max);
@@ -268,6 +271,22 @@ function rangeOf(random: StoneRandom, band: Band): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function resolveFractureCount(
+  random: StoneRandom,
+  range: readonly [number, number],
+): number {
+  let count = range[0];
+  for (let candidate = range[0]; candidate < range[1]; candidate += 1) {
+    const chance =
+      candidate === 0
+        ? PRIMARY_OPTIONAL_FRACTURE_CHANCE
+        : SECONDARY_OPTIONAL_FRACTURE_CHANCE;
+    if (!random.chance(chance)) break;
+    count += 1;
+  }
+  return count;
 }
 
 export function resolveStoneSilhouetteVariant(
@@ -347,9 +366,6 @@ export function resolveStoneRecipe(
   let topScale = rangeOf(shape, spec.topScale);
   let topBevelHeight = rangeOf(shape, spec.topBevelHeight);
   if (silhouetteVariant === "capstone") {
-    // Keep the roof close to the shoulder and make its final transition short.
-    // The result is a table-like cap in silhouette, still inside the convex
-    // half-space grammar rather than a second mesh balanced on top.
     topScale = Math.min(
       0.98,
       Math.max(0.86, topScale + shape.range(0.16, 0.24)),
@@ -390,7 +406,7 @@ export function resolveStoneRecipe(
 
   const cutAxis = root.fork("cut-axis").range(0, TWO_PI);
   const cutsStream = root.fork("cuts");
-  const cutCount = cutsStream.integer(spec.cutCount[0], spec.cutCount[1]);
+  const cutCount = resolveFractureCount(cutsStream, spec.cutCount);
   const cuts: StoneCut[] = [];
   for (let index = 0; index < cutCount; index += 1) {
     const cutStream = root.fork(`cut:${index}`);
