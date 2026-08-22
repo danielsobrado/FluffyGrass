@@ -26,6 +26,8 @@ import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
 
 const STONE_MINERAL_SEED_XOR = 0x4d696e65;
+const STONE_MINERAL_ZONE_SEED_XOR = 0x5a6f6e65;
+const STONE_MINERAL_ZONE_DETAIL_SEED_XOR = 0x5265676e;
 
 /**
  * Baked per-corner shading channels.
@@ -127,8 +129,8 @@ export function clamp01(value: number): number {
 /**
  * Broad object-space mineral variation with a small residual face term.
  *
- * Neighbouring facets now inherit nearly the same base value, so the stone
- * reads as one mineral body instead of a collection of randomly tinted panels.
+ * Neighbouring facets inherit nearly the same base value, so the stone reads as
+ * one mineral body instead of a collection of randomly tinted panels.
  */
 export function resolveFaceTint(
   face: WorkingStoneFace,
@@ -263,17 +265,11 @@ function crustNoise(x: number, y: number, z: number, seed: number): number {
 }
 
 /**
- * Where this corner sits between stained and bleached rock.
- *
- * One signed channel, not two: 0.5 is bare stone, 1 is the pale sun crust, 0 is
- * the iron-and-soil staining of rock that has sat buried and wet. They are the
- * two ends of one process — the same face cannot be both — so a single value
- * carries them, averages correctly across a centroid fan, and costs one array.
- * This is the axis a value ramp cannot reach. Exposure and height say where
- * crust is possible, the blotch field says where it actually took, and the
- * narrow threshold bands are what make each boundary a boundary rather than a
- * gradient: a gradient reads as light falling on the stone, which is precisely
- * what this is not.
+ * Broad mineral zoning reuses the signed weathering channel: 0.5 is the base
+ * rock, the pale end is exposed cream mineral, and the warm end is iron-rich
+ * stone. Two low-frequency object-space fields create a few coherent regions
+ * that cross facet boundaries. Height and exposure only bias those regions;
+ * they no longer define the pattern, so the result cannot collapse into bands.
  */
 export function resolveCornerWeathering(
   x: number,
@@ -285,12 +281,21 @@ export function resolveCornerWeathering(
 ): number {
   const exposure = clamp01(normalY);
   const climb = smoothstep(y, heightMetres * 0.25, heightMetres * 0.8);
-  const blotch = crustNoise(
-    x / STONE_CRUST_PATCH_SIZE,
-    y / STONE_CRUST_PATCH_SIZE,
-    z / STONE_CRUST_PATCH_SIZE,
-    recipe.seed ^ 0xc2057,
+  const macroScale = STONE_MINERAL_PATCH_SIZE * 1.08;
+  const detailScale = STONE_CRUST_PATCH_SIZE * 1.65;
+  const macro = crustNoise(
+    (x + z * 0.16) / macroScale,
+    (y - x * 0.11) / (macroScale * 0.88),
+    (z - y * 0.09) / macroScale,
+    recipe.seed ^ STONE_MINERAL_ZONE_SEED_XOR,
   );
+  const secondary = crustNoise(
+    (x - z * 0.19) / detailScale,
+    (y + z * 0.13) / (detailScale * 0.82),
+    (z + x * 0.12) / detailScale,
+    recipe.seed ^ STONE_MINERAL_ZONE_DETAIL_SEED_XOR,
+  );
+  const mineralZone = macro * 0.72 + secondary * 0.28;
   const soilContact =
     1 -
     smoothstep(
@@ -300,9 +305,10 @@ export function resolveCornerWeathering(
     );
   const soilFacing = 0.55 + 0.45 * clamp01(1 - normalY);
   const field =
-    exposure * 0.46 +
-    climb * 0.3 +
-    (blotch - 0.5) * STONE_CRUST_BLOTCH -
+    0.39 +
+    (mineralZone - 0.5) * STONE_CRUST_BLOTCH * 1.05 +
+    exposure * 0.12 +
+    climb * 0.08 -
     soilContact * soilFacing * STONE_SOIL_STAIN_STRENGTH;
   const crust = smoothstep(
     field,
