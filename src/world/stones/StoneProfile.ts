@@ -39,6 +39,8 @@ interface ProfileFamily {
   readonly centerWander: Range;
   readonly verticalVariation: number;
   readonly slopeTurn: number;
+  readonly directionalCompression: Range;
+  readonly shoulderBreak: Range;
 }
 
 const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
@@ -50,11 +52,12 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     centerWander: { min: 0.015, max: 0.045 },
     verticalVariation: 0.025,
     slopeTurn: 0.025,
+    directionalCompression: { min: 0, max: 0 },
+    shoulderBreak: { min: 0, max: 0 },
   },
   boulder: {
-    // A boulder should be a few broad masses, not a swollen radial dome.
-    // Lower belly expansion keeps the side planes quieter while stronger
-    // slope turns and centre wander preserve the asymmetric geological read.
+    // Boulder massing is directional: one broad side recedes and another
+    // shoulder breaks away, preventing a stack of scaled radial rings.
     bellyBulge: { min: 0.04, max: 0.1 },
     bellyVariation: 0.06,
     shoulderVariation: 0.08,
@@ -62,6 +65,8 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     centerWander: { min: 0.08, max: 0.18 },
     verticalVariation: 0.07,
     slopeTurn: 0.08,
+    directionalCompression: { min: 0.08, max: 0.16 },
+    shoulderBreak: { min: 0.055, max: 0.13 },
   },
   slab: {
     bellyBulge: { min: 0.035, max: 0.09 },
@@ -71,6 +76,8 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     centerWander: { min: 0.035, max: 0.09 },
     verticalVariation: 0.04,
     slopeTurn: 0.04,
+    directionalCompression: { min: 0.015, max: 0.05 },
+    shoulderBreak: { min: 0.01, max: 0.045 },
   },
   block: {
     bellyBulge: { min: 0.02, max: 0.075 },
@@ -80,6 +87,8 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     centerWander: { min: 0.035, max: 0.09 },
     verticalVariation: 0.045,
     slopeTurn: 0.04,
+    directionalCompression: { min: 0.02, max: 0.055 },
+    shoulderBreak: { min: 0.015, max: 0.05 },
   },
   shard: {
     bellyBulge: { min: -0.015, max: 0.035 },
@@ -89,6 +98,8 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     centerWander: { min: 0.065, max: 0.15 },
     verticalVariation: 0.045,
     slopeTurn: 0.045,
+    directionalCompression: { min: 0.025, max: 0.07 },
+    shoulderBreak: { min: 0.02, max: 0.065 },
   },
   outcrop: {
     bellyBulge: { min: 0.09, max: 0.21 },
@@ -98,6 +109,8 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     centerWander: { min: 0.07, max: 0.16 },
     verticalVariation: 0.075,
     slopeTurn: 0.065,
+    directionalCompression: { min: 0.06, max: 0.13 },
+    shoulderBreak: { min: 0.045, max: 0.11 },
   },
 };
 
@@ -124,6 +137,11 @@ function smoothSectorVariation(
   const sample = (offset: number): number =>
     signedHash(seed, (side + offset + sideCount) % sideCount, salt);
   return sample(-1) * 0.2 + sample(0) * 0.6 + sample(1) * 0.2;
+}
+
+function directionalLobe(angle: number, direction: number): number {
+  const raw = Math.max(0, Math.cos(angle - direction));
+  return raw * raw * (3 - 2 * raw);
 }
 
 function centerPoint(
@@ -180,10 +198,9 @@ export function resolveStoneProfileHeights(
 /**
  * Build contact → belly → shoulder → crown → top profiles.
  *
- * The rings are deliberately not scaled copies. Each sector gets its own broad
- * bulge/recession, ring boundaries wander vertically, and the profile centre
- * changes direction with height. The resulting convex envelope keeps the
- * clipper robust while breaking the long wall + roof grammar of the old body.
+ * Rings are not scaled copies. Broad directional compression, an independent
+ * shoulder break, vertical wander, and a moving centre make the silhouette read
+ * as a few fractured masses while keeping the convex clipper robust.
  */
 export function resolveStoneProfile(
   input: StoneProfileInput,
@@ -248,11 +265,28 @@ export function resolveStoneProfile(
     family.bellyBulge.min,
     family.bellyBulge.max,
   );
+  const massing = random.fork("profile-massing");
+  const compressionStrength = massing.range(
+    family.directionalCompression.min,
+    family.directionalCompression.max,
+  );
+  const shoulderBreakStrength = massing.range(
+    family.shoulderBreak.min,
+    family.shoulderBreak.max,
+  );
+  const compressionAngle = primaryAngle + massing.range(2.1, 4.2);
+  const shoulderBreakAngle =
+    compressionAngle + massing.range(0.8, 1.55) * (massing.chance(0.5) ? 1 : -1);
   const desired: number[][] = [[], [], [], [], []];
   const heightOffsets: number[][] = [[], [], [], [], []];
 
   for (let side = 0; side < sideCount; side += 1) {
     const base = input.sideRadii[side];
+    const angle = input.sideAngles[side];
+    const compression =
+      directionalLobe(angle, compressionAngle) * compressionStrength;
+    const shoulderBreak =
+      directionalLobe(angle, shoulderBreakAngle) * shoulderBreakStrength;
     const contactVariation = smoothSectorVariation(
       input.seed,
       side,
@@ -287,19 +321,22 @@ export function resolveStoneProfile(
       base *
         (1 +
           bellyBulge +
-          bellyVariation * family.bellyVariation),
+          bellyVariation * family.bellyVariation -
+          compression * 0.28),
     );
     const shoulderRadius = Math.max(
       MIN_RADIUS,
       base -
         input.taper * shoulderHeight * 0.48 +
-        base * shoulderVariation * family.shoulderVariation,
+        base * shoulderVariation * family.shoulderVariation -
+        base * (compression * 0.72 + shoulderBreak),
     );
     const topRadius = Math.max(
       MIN_RADIUS,
       (base - input.taper) *
         input.topScale *
-        (1 + crownVariation * family.crownVariation * 0.55),
+        (1 + crownVariation * family.crownVariation * 0.55) *
+        Math.max(0.62, 1 - compression * 0.9 - shoulderBreak * 0.55),
     );
     const sector = random.fork(`profile-sector:${side}`);
     const crownRadius =
