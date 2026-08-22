@@ -4,6 +4,20 @@ import type { StonePolygon, StoneVec3 } from "./StoneClipper";
 import { STONE_INDENTATION_MINIMUM_AREA } from "./StoneGeometryTuning";
 import { calculateStonePolygonAreaAndNormal } from "./StoneMeshTopology";
 
+const STONE_INDENTATION_CHANCE = 0.14;
+const STONE_INDENTATION_INSET_MIN = 0.78;
+const STONE_INDENTATION_INSET_RANGE = 0.1;
+const STONE_INDENTATION_DEPTH_MIN = 0.018;
+const STONE_INDENTATION_DEPTH_RANGE = 0.025;
+
+/**
+ * Add an occasional shallow fracture scar to a broad side face.
+ *
+ * Earlier notches replaced large top/side faces with deep recessed panels. At
+ * gameplay distance those read as caves or open mouths rather than geology.
+ * Major shape breaks already come from clipping planes and split formations;
+ * this pass only adds a sparse secondary recess to support that structure.
+ */
 export function addStoneIndentation(
   polygons: StonePolygon[],
   recipe: StoneRecipe,
@@ -14,18 +28,15 @@ export function addStoneIndentation(
   const roll =
     hashStoneCell(recipe.seed, hashStoneLabel(recipe.archetype), 0x4e6f7463) /
     4294967296;
-  const indentationCount = roll < 0.02 ? 3 : roll < 0.1 ? 2 : roll < 0.35 ? 1 : 0;
-  let result = polygons;
-  for (let indentation = 0; indentation < indentationCount; indentation += 1) {
-    result = addSingleStoneIndentation(result, recipe, indentation);
+  if (roll >= STONE_INDENTATION_CHANCE) {
+    return polygons;
   }
-  return result;
+  return addSingleStoneIndentation(polygons, recipe);
 }
 
 function addSingleStoneIndentation(
   polygons: StonePolygon[],
   recipe: StoneRecipe,
-  indentation: number,
 ): StonePolygon[] {
   const candidates = polygons
     .map((polygon, index) => ({
@@ -35,7 +46,7 @@ function addSingleStoneIndentation(
     }))
     .filter(
       ({ polygon, area }) =>
-        (polygon.role === "side" || polygon.role === "top") &&
+        polygon.role === "side" &&
         polygon.points.length >= 4 &&
         area >= STONE_INDENTATION_MINIMUM_AREA,
     )
@@ -43,8 +54,7 @@ function addSingleStoneIndentation(
     .slice(0, 4);
   if (candidates.length === 0) return polygons;
 
-  const choice =
-    hashStoneCell(recipe.seed, indentation, 0x496e6465) % candidates.length;
+  const choice = hashStoneCell(recipe.seed, 0, 0x496e6465) % candidates.length;
   const selected = candidates[choice];
   const face = selected.polygon;
   let centerX = 0;
@@ -61,16 +71,16 @@ function addSingleStoneIndentation(
 
   const [, normalX, normalY, normalZ] =
     calculateStonePolygonAreaAndNormal(face);
-  const detailRoll =
-    hashStoneCell(recipe.seed, indentation, 0x44657074) / 4294967296;
-  const insetScale = 0.62 + detailRoll * 0.14;
-  const depth = 0.025 + detailRoll * 0.035;
+  const detailRoll = hashStoneCell(recipe.seed, 0, 0x44657074) / 4294967296;
+  const insetScale =
+    STONE_INDENTATION_INSET_MIN + detailRoll * STONE_INDENTATION_INSET_RANGE;
+  const depth =
+    STONE_INDENTATION_DEPTH_MIN + detailRoll * STONE_INDENTATION_DEPTH_RANGE;
   const inner = face.points.map((point, corner) => {
     const variation =
-      hashStoneCell(recipe.seed, indentation * 17 + corner, 0x496e7365) /
-      4294967296;
-    const scale = insetScale * (0.86 + variation * 0.24);
-    const cornerDepth = depth * (0.82 + variation * 0.28);
+      hashStoneCell(recipe.seed, corner, 0x496e7365) / 4294967296;
+    const scale = insetScale * (0.94 + variation * 0.1);
+    const cornerDepth = depth * (0.88 + variation * 0.22);
     return {
       x: centerX + (point.x - centerX) * scale - normalX * cornerDepth,
       y: centerY + (point.y - centerY) * scale - normalY * cornerDepth,
@@ -92,17 +102,17 @@ function addSingleStoneIndentation(
     const innerB = inner[next];
     replacement.push(
       {
-        planeId: `notch-wall:${indentation}:${face.planeId}:${index}:0`,
+        planeId: `notch-wall:0:${face.planeId}:${index}:0`,
         role: "cut",
         points: [outerA, outerB, innerB],
       },
       {
-        planeId: `notch-wall:${indentation}:${face.planeId}:${index}:1`,
+        planeId: `notch-wall:0:${face.planeId}:${index}:1`,
         role: "cut",
         points: [outerA, innerB, innerA],
       },
       {
-        planeId: `notch-floor:${indentation}:${face.planeId}:${index}`,
+        planeId: `notch-floor:0:${face.planeId}:${index}`,
         role: "cut",
         points: [innerA, innerB, floorCenter],
       },
