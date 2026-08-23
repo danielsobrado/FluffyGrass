@@ -156,16 +156,28 @@ export const STONE_TONE_FLOOR = 0.42;
 export const STONE_TONE_RANGE = 0.56;
 
 /**
- * Broad mineral value variation baked into the mesh.
+ * Broad mineral identity is independent from weathering.
  *
- * The patch is intentionally much larger than the surface grain. It groups
- * neighbouring facets into one mineral body instead of giving every polygon an
- * unrelated random tint, while a small residual face jitter keeps fresh cuts
- * from becoming perfectly uniform.
+ * The primary/secondary fields scale with the body rather than with metres, so
+ * a pebble and an outcrop both carry only a handful of large mineral regions.
+ * The old face-centre tint remains deliberately weak: it breaks exact equality
+ * between adjacent planes but cannot compete with the cross-facet field.
  */
 export const STONE_MINERAL_PATCH_SIZE = 0.82;
-export const STONE_MINERAL_TINT_STRENGTH = 0.07;
+export const STONE_MINERAL_TINT_STRENGTH = 0.025;
 export const STONE_MINERAL_FACE_JITTER = 0.014;
+export const STONE_MINERAL_REGION_PRIMARY_RATIO = 0.62;
+export const STONE_MINERAL_REGION_SECONDARY_RATIO = 0.34;
+export const STONE_MINERAL_COLOR_STRENGTH = 0.34;
+
+/**
+ * Weathering is a secondary surface process, not the stone's mineral identity.
+ * Exposure and local noise can crust or stain a region, but neither gets enough
+ * authority to redraw the body as a vertical gradient.
+ */
+export const STONE_WEATHERING_NOISE_STRENGTH = 0.18;
+export const STONE_WEATHERING_EXPOSURE_STRENGTH = 0.08;
+export const STONE_WEATHERING_COLOR_STRENGTH = 0.46;
 
 /**
  * Crust deposition.
