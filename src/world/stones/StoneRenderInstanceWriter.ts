@@ -109,6 +109,7 @@ export class StoneRenderInstanceWriter {
           ? STONE_PALETTES.graniteGrey
           : undefined,
       secondaryBlend: graniteBlend,
+      weatheringBias: instance.weatheringBias,
     };
     const growthColors = resolveStoneGrowthColors(palette, tint);
     const growthSeed =
@@ -261,11 +262,8 @@ export class StoneRenderInstanceWriter {
       // Baked against world height rather than the body's own fraction: the
       // waterline is a property of the river, so two stones of different sizes
       // sitting side by side in it are wet to the same height, not to the same
-      // share of themselves.
-      // The palette mix for this value is already baked into the vertex colour
-      // above; the shader gets the raw channel so close range can put a broken
-      // edge on a boundary that vertex interpolation can only ramp across a
-      // facet.
+      // share of themselves. The packed signal uses the same formation bias as
+      // the CPU colour so near-detail and coarse batches do not disagree.
       buffers.packedBytes[byteTarget + STONE_WEATHERING_OFFSET] =
         packStoneUnitByte(
           applyStoneGeologyWeathering(
@@ -297,6 +295,7 @@ export class StoneRenderInstanceWriter {
       variant.tones,
       variant.wears,
       variant.bounces,
+      variant.minerals,
       variant.weatherings,
       variant.cavities,
       contacts,
