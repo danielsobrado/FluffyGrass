@@ -55,9 +55,9 @@ export interface StoneMeshMetrics {
   readonly height: number;
   readonly contactRadius: number;
   readonly footprintRadius: number;
-  /** Parent-frame height used by material and growth coordinates. */
+  /** Stable coarse-parent height used by material and growth coordinates. */
   readonly materialHeight: number;
-  /** Parent-frame footprint radius used by material and growth coordinates. */
+  /** Stable coarse-parent radius used by material and growth coordinates. */
   readonly materialFootprintRadius: number;
   readonly embed: number;
   /** Strength of close-range horizontal bedding seams for this body. */
@@ -86,6 +86,8 @@ export function generateStoneMesh(
     recipe,
   );
   const uniquePoints = transformStonePoints(polygons, recipe);
+  const stableMaterialFrame =
+    materialFrame ?? resolveStableMaterialFrame(recipe, includeChips, uniquePoints);
 
   const contactOffset = centerStoneContact(polygons, uniquePoints);
   const faces = buildWorkingStoneFaces(polygons);
@@ -94,13 +96,10 @@ export function generateStoneMesh(
   const sharedFacePairs = countSharedStoneFacePairs(faces);
   const softNormals = buildStoneSoftNormals(faces, softening);
   const heightMetres = resolveStoneHeight(faces);
-  const inheritedMaterialFrame =
-    materialFrame ?? resolveInheritedMaterialFrame(recipe);
-  // A tilted fracture can leave two halves with different clipped maxima. They
-  // are still one parent rock, so height-relative paint/growth must use one
-  // denominator or the same rim point changes value across the crack.
+  // Chips and a tilted fracture may both change the rendered mesh's extrema.
+  // Material/growth normalization must not follow those LOD/fragment changes.
   const shadingHeightMetres = Math.max(
-    inheritedMaterialFrame?.height ?? heightMetres,
+    stableMaterialFrame?.height ?? heightMetres,
     1e-3,
   );
   const { vertexCount, triangleCount } = resolveMeshCounts(faces);
@@ -254,7 +253,7 @@ export function generateStoneMesh(
     footprintRadius,
     materialHeight: shadingHeightMetres,
     materialFootprintRadius: Math.max(
-      inheritedMaterialFrame?.footprintRadius ?? footprintRadius,
+      stableMaterialFrame?.footprintRadius ?? footprintRadius,
       1e-4,
     ),
     embed: recipe.embed,
@@ -309,22 +308,41 @@ function transformStonePoints(
   return uniquePoints;
 }
 
-/** Material coordinates for a fragment are measured on its frozen parent. */
-function resolveInheritedMaterialFrame(
-  recipe: StoneRecipe,
+function measureMaterialFrame(
+  points: ReadonlySet<StoneVec3>,
 ): StoneMaterialFrame | undefined {
-  const inherited = recipe.inheritedSurface;
-  if (!recipe.fracture || !inherited) return undefined;
-  const parentFaces = facesFromPlanes([...inherited.coarse]);
-  const parentPoints = transformStonePoints(parentFaces, recipe);
   let height = 0;
   let footprintRadius = 0;
-  for (const point of parentPoints) {
+  for (const point of points) {
     height = Math.max(height, point.y);
     footprintRadius = Math.max(footprintRadius, Math.hypot(point.x, point.z));
   }
   if (!(height > 0) || !(footprintRadius > 0)) return undefined;
   return { height, footprintRadius };
+}
+
+/**
+ * Material space follows the coarse parent, never the clipped/detail mesh.
+ * This keeps a chip LOD switch and a formation split from moving geological
+ * coordinates even though their render geometry legitimately changes.
+ */
+function resolveStableMaterialFrame(
+  recipe: StoneRecipe,
+  includeChips: boolean,
+  currentPoints: ReadonlySet<StoneVec3>,
+): StoneMaterialFrame | undefined {
+  const inherited = recipe.inheritedSurface;
+  if (recipe.fracture && inherited) {
+    const parentFaces = facesFromPlanes([...inherited.coarse]);
+    return measureMaterialFrame(transformStonePoints(parentFaces, recipe));
+  }
+  if (!includeChips) return measureMaterialFrame(currentPoints);
+
+  const coarsePolygons = addStoneFractureRelief(
+    addStoneIndentation(buildStonePolyhedron(recipe, false), recipe),
+    recipe,
+  );
+  return measureMaterialFrame(transformStonePoints(coarsePolygons, recipe));
 }
 
 /** Centres the body on its contact polygon and reports the shift applied. */
