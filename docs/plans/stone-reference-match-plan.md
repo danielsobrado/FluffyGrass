@@ -3,39 +3,34 @@
 ## Status
 
 - Target branch: `main`
-- Status: **phases 0-5 landed; surface micro-detail and mineral zoning still open**
+- Status: **phases 0-6 landed; meaningful-corner measurement added before any ring-count rewrite**
 - Baseline: `06e5174`
-- Scope: stone body massing, formation fracture, ground integration, dry sheen, palette
+- Scope: stone body massing, formation fracture, ground integration, dry sheen, palette, macro mineral zoning
 - Renderer: no new materials, textures, draws, or runtime dependencies
 - Judged with: `npm run shots:stones`, `scripts/diagnose-stone-shape.mjs`, `scripts/diagnose-stone-shading.mjs`
 
 ## Why
 
-A reference-image review proposed adding silhouette penalties, sector-specific ring
-suppression, dominant-plane construction, fracture splitting, mineral zoning, contact
-cleanup and moss selectivity. Six of the seven already shipped. This is the same pattern
-[aaa-look-audit.md](aaa-look-audit.md) records, and the same lesson applies: *"the system
-exists" and "the system reads" are different claims, and only the second one is about the
-look.* The work below is why the shipped systems did not read.
+A reference-image review proposed silhouette penalties, sector-specific massing, dominant
+planes, fracture splitting, mineral zoning, contact cleanup and selective growth. The
+instrumentation repeatedly showed that the largest visual defects were not where the first
+intuition put them. This plan records measurements rather than preserving hypotheses that
+were already disproved.
 
-## Two defects found by instrumenting
+## Defects found by instrumenting
 
-**The art-direction scorer judged a body that never ships.** `scoreStoneShape` scored
-`buildStonePolyhedron(recipe)`, but `generateStoneMesh` applies `leanX`/`leanZ` shear and
-`width`/`height`/`depth` scale *after* the clipper returns. Every term in the scorer is a
-proportion, so `heightRatio`, `depthRatio` and `lean` could not influence selection at
-all, and `scoreStoneSilhouette` -- whose entire purpose is judging a stone the way it is
-looked at -- was reading an isotropic upright body. `shapedBody()` in
-`StoneShapeQuality.ts` now applies the mesh transform before scoring. Silhouette
--0.121 -> -0.072 from this alone.
+**The art-direction scorer judged a body that never ships.** `scoreStoneShape` originally
+read the unit polyhedron even though `generateStoneMesh` applies lean shear and anisotropic
+scale after clipping. The scorer now evaluates that shipped transform, and the verification
+contains an explicit regression proving a transform-only recipe change moves the score.
 
-**Boundary healing perturbed the mated-fragment rim.** `healBoundaryGaps` chose cluster
-representatives by iterating a `Set` in insertion order, which follows the face list --
-and two halves of one body do not share a face list. A rim corner could snap on one half
-and not the other, so the pair no longer met. It surfaced as `break outlines diverge by
-0.0114` (under `HEAL_RADIUS` 1.2e-2) once sharper sectors produced near-degenerate rim
-geometry. `fracture`-role points are now pinned as representatives and the rest ordered by
-position. Mated formations 63 -> 64.
+**Boundary healing perturbed the mated-fragment rim.** `healBoundaryGaps` once selected
+representatives according to face-list insertion order, which differs between the two
+halves. Fracture points are pinned and the existing formation gate checks both outlines.
+
+**Probe grain creation disagreed with production.** The gallery used to create the grain
+texture only when albedo grain was enabled, while production correctly enables it when
+albedo *or normal* grain is non-zero. The probe now uses the production condition.
 
 ## What the measurements corrected
 
@@ -46,73 +41,69 @@ position. Mated formations 63 -> 64.
 | Concavity clamp suppresses the massing | Relaxing it moved nothing on its own |
 | Something makes a hard tonal band | No step in any baked channel; the belt was `heightShade` ramping over 0.6 of body height |
 
-The score is dominated by **circularity** (0.887, contributing -0.799 of a -0.12 total)
-over **21 hull corners per view**. That is an elevation-profile property, not a sector
-count: the profile was a barrel with a bulging belly narrowing through three bands.
+The original silhouette diagnostic reported about **21 raw hull corners per view**, with
+circularity dominating the score. Raw hull count is now treated only as a source metric:
+`StoneSilhouetteQuality.measureStoneSilhouetteComplexity` collapses projected points whose
+removal changes the outline by <=1% of that view's perimeter and reports **raw -> meaningful**
+corners. Ring-count changes are intentionally gated on that number instead of on topology
+alone.
 
-`MAJOR_SHARE` was **not** widened. The plan proposed 0.64-0.80; the constant's own comment
-records that a wider range was already tried and reverted because it "left the minor piece
-a thin wedge rather than a companion mass."
+`MAJOR_SHARE` was **not** widened. A wider range had already been tried and reverted because
+it left the minor fragment as a thin wedge instead of a companion mass.
 
-## Changes
+## Landed changes
 
-**Massing** (`StoneRecipe.ts`, `StoneProfile.ts`) -- `sideCount` 8-10 -> 5-7 with jitter
-and asymmetry raised to compensate; `bellyBulge` to ~0 so contact/belly/shoulder are
-near-collinear; `topScale` 0.74-0.94 for a broad crown; `heightRatio` 0.56-0.86 and
-`lean` 0.14-0.32 and `topTiltMax` 0.38 for a wedge; `RIDGE_CHANCE.boulder` 0.44 -> 0.18.
-New `lobeSharpness`, `maximumRise` and `crownStraightness` per family.
+**Massing** (`StoneRecipe.ts`, `StoneProfile.ts`) -- fewer sectors, flatter belly, broad
+tilted crown, stronger asymmetric lean and family-specific profile controls. The scorer
+selects against radial regularity on the transformed body that actually renders.
 
-**Fracture** (`StoneFormation.ts`, `StoneClusterTuning.ts`, `StoneClipper.ts`) --
-`FRACTURE_TILT_LIMIT` 0.26 -> 0.38 (`fragmentIsViable` already rejects a lid, so the
-viability gate decides, not this number); `FORMATION_GAP_MAX` 0.09 -> 0.15 so a crack can
-hold its own shadow; `MINIMUM_MAJOR_CUT_AREA_SHARE` 0.055 -> 0.09.
+**Fracture** (`StoneFormation.ts`, `StoneClusterTuning.ts`, `StoneClipper.ts`) -- broader
+viable fracture tilt, readable crack width, larger minimum structural cut, pinned mated rim,
+and complementary fragments instead of duplicated nearby stones.
 
-**Tone** (`StoneVertexShading.ts`, `StoneGeometryTuning.ts`) -- `heightShade` ramped over
-0.26 instead of 0.6 of body height. It was drawing exactly the belt that `contactShade`
-beside it is documented as being kept shallow to avoid. New
-`STONE_TONE_DOWNWARD_COMPRESSION` stops an underside being painted to the palette shadow
-and then darkened again by the light that already knows it faces down.
+**Tone** (`StoneVertexShading.ts`, `StoneGeometryTuning.ts`) -- shallow contact-only height
+shade plus downward-tone compression, removing the painted dark lower belt.
 
-**Material** (`StoneGrowthShader.ts`, `world.yaml`) -- `WET_SHEEN` generalised to `SHEEN`
-with a broad weak dry lobe (`STONE_DRY_SHEEN_POWER` 16, strength 0.075), unbranched.
-`stoneGrainNormalStrength` 0 -> 0.05 at `stoneGrainSize` 1.6. The albedo grain term stays
-at zero. The `world.yaml` justification was rewritten rather than left contradicting its
-own values.
+**Macro mineral zoning** (`StoneVertexShading.ts`, `StoneGeometry.ts`, `StonePalette.ts`) --
+mineral identity is now its own body-relative 3D signal instead of being encoded inside
+weathering. Two low-frequency fields produce a handful of cross-facet regions and blend the
+palette toward pale mineral or iron-rich mineral endpoints. Weathering is independently
+weaker and driven by local exposure/noise/contact rather than a broad height climb.
 
-**Ground** (`StoneRecipe.ts`) -- boulder `embed` 0.18-0.28 -> 0.24-0.36.
+Split fragments sample the mineral field in their original parent coordinates even though
+each pooled mesh is re-centred on its own contact polygon. `StoneFormationVerification`
+checks matched rim vertices so a mated formation cannot silently acquire a color jump at
+the crack.
 
-**Probe** (`tools/stone-gallery/main.ts`) -- shadow map matched to production *quality*
-(grid-sized frustum, production metres-per-texel) rather than its frustum; `?grass=1`
-blade cards at the contact rim; grain-texture gate corrected to match
-`WorldStoneSystem` (`strength > 0 || normalStrength > 0`) -- gating on the albedo term
-alone silently dropped the whole grain path in the configuration that ships. Also fixed a
-pre-existing `StoneWetness` type error that had `npm run test:stone-tools` failing on
-`main`.
+**Formation weathering parity** (`StoneRenderInstanceWriter.ts`, `StonePalette.ts`) -- the
+formation-wide weathering bias now affects baked vertex color as well as the close shader's
+packed weathering channel, so near and coarse representations no longer age differently.
 
-## Result
+**Material** (`StoneGrowthShader.ts`, `world.yaml`) -- broad weak dry sheen plus subtle
+normal grain; albedo grain remains zero.
 
-| Metric | Before | After |
-| --- | --- | --- |
-| silhouette (shipped body) | -0.121 | -0.078 |
-| mated formations | 63 | 64 |
-| max verts / tris per body | 340 / 276 | 341 / 276 |
-| desktop draws | 49 | 49 |
+**Ground** (`StoneRecipe.ts`) -- deeper boulder embed, with existing clearance/skirt ecology
+left as the single ground-integration system.
 
-Budgets are 1500 verts / 1000 tris, so the bodies still use about a quarter of what is
-paid for. Triangle count is not the constraint and never was.
+**Probe and diagnostics** -- the gallery consumes the same mineral array as production;
+`diagnose-stone-shading.mjs` reports mineral and weathering separately; the silhouette gate
+prints raw -> meaningful corner counts but does not impose an uncalibrated threshold.
 
-## Still open
+## Current budgets
 
-1. **Mineral zoning does not read.** `resolveCornerWeathering` correlates with height, so
-   crust and stain reinforce the vertical gradient instead of making the 3-5 broad regions
-   the reference has. Lowering the noise frequency is the next move.
-2. **Hull corners are still 21 per view.** The 5-ring loft gives four vertical bands and
-   about ten outline corners per side. Reaching the reference's 6-9 corner outline wants a
-   per-archetype ring count, which is a structural change to `resolveStoneProfile` and its
-   consumers.
-3. **Shaded flanks cannot be lifted from inside stone scope.** The world runs sun 4.15
-   against hemisphere 0.34, so the fill is ~3% of the key and no ramp change to
-   `SKY_SIDE_AMBIENT` moves a shaded face. The ratio is deliberate
-   (`WorldEnvironmentTuning`: "a strong sun against a weak fill gives cast shadows real
-   weight"). Matching the reference's mid-grey shadowed faces is a world-lighting
-   decision.
+The last measured bodies were ~341 verts / 276 tris against budgets of 1500 / 1000, with
+49 desktop draws. Geometry density is not the constraint; visible plane placement and
+material organization are.
+
+## Next decision points
+
+1. **Run the updated diagnostics locally.** The material pass should show mineral means no
+   longer tracking height in lockstep with weathering. Gallery/world captures decide whether
+   `STONE_MINERAL_COLOR_STRENGTH` and region ratios need tuning.
+2. **Read meaningful, not raw, silhouette corners.** If boulders remain materially above the
+   reference's ~6-9 visible turns after simplification, introduce per-archetype profile ring
+   counts. If they simplify near that range already, do not pay structural churn for hidden
+   vertices.
+3. **Shaded flank lift remains a world-lighting decision.** Sun 4.15 against hemisphere 0.34
+   leaves too little fill for stone-local sky-side ramps to materially raise a shadowed face.
+   Do not fake that with emissive-looking stone albedo.
