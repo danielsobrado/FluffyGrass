@@ -17,7 +17,7 @@ import type { StoneRecipe } from "./StoneRecipe";
 /** Peak formation-fracture displacement in unit body space. */
 export const STONE_FRACTURE_RELIEF = 0.018;
 /** Structural cuts only need enough relief to stop reading as saw lines. */
-export const STONE_CUT_RELIEF = 0.009;
+const STONE_CUT_RELIEF = 0.009;
 
 /**
  * Harder, sharper families keep a smaller cut waver. The smallest value stays
@@ -38,8 +38,8 @@ const RELIEF_GROUND_FADE = 0.14;
 /** Lattice period of the waver, in unit body space. */
 const RELIEF_PERIOD_HEIGHT = 0.42;
 const RELIEF_PERIOD_ALONG = 0.55;
-/** Prevent intersecting breaks from accumulating an excessive displacement. */
-const MAX_COMBINED_RELIEF = 0.021;
+/** Intersecting formation and cut relief gets only a small extra allowance. */
+const MAX_MIXED_RELIEF = 0.021;
 const RELIEF_SEED_XOR = 0x52656c66;
 const CUT_RELIEF_SEED_XOR = 0x43757452;
 const HORIZONTAL_EPSILON = 1e-6;
@@ -56,15 +56,13 @@ interface ReliefSource {
 }
 
 interface ReliefOffset {
-  x: number;
-  z: number;
+  cutX: number;
+  cutZ: number;
+  fractureX: number;
+  fractureZ: number;
 }
 
-/**
- * Apply matching relief to formation fractures and subtle relief to structural
- * cut rims. The exported name is retained because formation verification and
- * mesh generation share this pass.
- */
+/** Apply matching relief to formation fractures and structural cut rims. */
 export function addStoneFractureRelief(
   polygons: StonePolygon[],
   recipe: StoneRecipe,
@@ -90,16 +88,22 @@ export function addStoneFractureRelief(
           groundFade(point.y);
         let offset = offsets.get(key);
         if (!offset) {
-          offset = { x: 0, z: 0 };
+          offset = { cutX: 0, cutZ: 0, fractureX: 0, fractureZ: 0 };
           offsets.set(key, offset);
         }
-        offset.x += source.directionX * amount;
-        offset.z += source.directionZ * amount;
+        if (source.role === "fracture") {
+          offset.fractureX += source.directionX * amount;
+          offset.fractureZ += source.directionZ * amount;
+        } else {
+          offset.cutX += source.directionX * amount;
+          offset.cutZ += source.directionZ * amount;
+        }
       }
     }
   }
   if (offsets.size === 0) return polygons;
 
+  const maximumCutRelief = resolveCutRelief(recipe);
   const moved = new Set<StoneVec3>();
   for (const polygon of polygons) {
     for (const point of polygon.points) {
@@ -107,11 +111,20 @@ export function addStoneFractureRelief(
       moved.add(point);
       const offset = offsets.get(quantizeKey(point));
       if (!offset) continue;
-      const length = Math.hypot(offset.x, offset.z);
-      const scale =
-        length > MAX_COMBINED_RELIEF ? MAX_COMBINED_RELIEF / length : 1;
-      point.x += offset.x * scale;
-      point.z += offset.z * scale;
+
+      const cutLength = Math.hypot(offset.cutX, offset.cutZ);
+      const cutScale =
+        cutLength > maximumCutRelief ? maximumCutRelief / cutLength : 1;
+      let x = offset.cutX * cutScale + offset.fractureX;
+      let z = offset.cutZ * cutScale + offset.fractureZ;
+      const mixedLength = Math.hypot(x, z);
+      if (mixedLength > MAX_MIXED_RELIEF && mixedLength > HORIZONTAL_EPSILON) {
+        const mixedScale = MAX_MIXED_RELIEF / mixedLength;
+        x *= mixedScale;
+        z *= mixedScale;
+      }
+      point.x += x;
+      point.z += z;
     }
   }
   return polygons;
@@ -132,7 +145,7 @@ function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {
     if (source) sources.push(source);
   }
 
-  const cutRelief = STONE_CUT_RELIEF * CUT_RELIEF_SCALE[recipe.archetype];
+  const cutRelief = resolveCutRelief(recipe);
   for (let index = 0; index < recipe.cuts.length; index += 1) {
     const cut = recipe.cuts[index];
     const source = createReliefSource(
@@ -146,6 +159,10 @@ function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {
     if (source) sources.push(source);
   }
   return sources;
+}
+
+function resolveCutRelief(recipe: StoneRecipe): number {
+  return STONE_CUT_RELIEF * CUT_RELIEF_SCALE[recipe.archetype];
 }
 
 function createReliefSource(
