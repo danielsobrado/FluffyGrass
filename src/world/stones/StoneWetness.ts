@@ -48,6 +48,12 @@ const SPRAY_CLIMB = 1.6;
 /** Vertical softness of the waterline itself. */
 const WATERLINE_BAND = 0.18;
 
+/** Metres above the waterline that splash keeps damp enough to favour moss. */
+const WATERLINE_MOSS_CLIMB = 0.55;
+/** Peak susceptibility the damp band adds, and what scouring takes below it. */
+const WATERLINE_MOSS_BOOST = 0.55;
+const WATERLINE_MOSS_SCOUR = 0.7;
+
 function smoothstep(value: number, minimum: number, maximum: number): number {
   if (value <= minimum) return 0;
   if (value >= maximum) return 1;
@@ -103,5 +109,34 @@ export function resolveStoneVertexWetness(
   return (
     wetness.strength *
     (1 - smoothstep(worldY, wetness.topY - WATERLINE_BAND, wetness.topY))
+  );
+}
+
+/**
+ * How much the water encourages moss at world height `y` on a wetted body.
+ *
+ * Not simply "wetter is mossier". Rock that is scoured by moving water carries
+ * almost nothing: the band that is actually green is the one just above the
+ * waterline, kept damp by splash and spray but never scrubbed. Below the line
+ * this returns less than nothing, which suppresses whatever the body's own
+ * susceptibility would have grown there; above it the boost fades out as the
+ * rock dries.
+ *
+ * Returned signed so the caller can add it to a susceptibility rather than
+ * having to know which side of the line it is on.
+ */
+export function resolveStoneWaterlineMoss(
+  wetness: StoneWetness,
+  y: number,
+): number {
+  if (wetness.strength <= 0) return 0;
+  const scoured =
+    1 - smoothstep(y, wetness.topY - WATERLINE_BAND, wetness.topY);
+  const damp =
+    smoothstep(y, wetness.topY - WATERLINE_BAND, wetness.topY) *
+    (1 - smoothstep(y, wetness.topY, wetness.topY + WATERLINE_MOSS_CLIMB));
+  return (
+    wetness.strength *
+    (damp * WATERLINE_MOSS_BOOST - scoured * WATERLINE_MOSS_SCOUR)
   );
 }

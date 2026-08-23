@@ -205,6 +205,7 @@ export function generateStoneMesh(
         heightMetres,
         recipe,
         broken,
+        edgeShading.crease,
       );
       const notchShelter = face.planeId.startsWith("notch-")
         ? 0.42 + 0.28 * (1 - Math.abs(face.normalY))

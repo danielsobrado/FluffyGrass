@@ -13,6 +13,19 @@ export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
 export const STONE_CONTACT_SHADE_FLOOR = 0.8;
 export const STONE_CONTACT_SHADE_HEIGHT = 0.11;
 export const STONE_MOSS_CLIMB = 0.42;
+
+/**
+ * How far up a body a concave junction carries moss, as a share of the climb
+ * the open flank gets.
+ *
+ * Height alone makes moss a band around the foot, which is the tell that it is
+ * being placed by a formula rather than growing. What actually decides is
+ * shelter: a crease holds water after rain, catches litter, and stays out of
+ * the sun for most of the day, so it stays green well above the line where the
+ * open rock has dried out. Below one, because a sheltered ledge halfway up is
+ * still drier than the ground.
+ */
+export const STONE_MOSS_SHELTER_REACH = 0.72;
 export const STONE_MOSS_PATCH_SIZE = 0.26;
 export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
 

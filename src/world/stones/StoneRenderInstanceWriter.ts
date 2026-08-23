@@ -37,7 +37,11 @@ import {
   resolveStoneContactOcclusion,
   type StoneOccluder,
 } from "./StoneContactOcclusion";
-import { resolveStoneVertexWetness } from "./StoneWetness";
+import {
+  resolveStoneVertexWetness,
+  resolveStoneWaterlineMoss,
+} from "./StoneWetness";
+import { applyStoneGeologyWeathering } from "./StoneGeology";
 
 /** The batch a stone is being written into, for neighbour contact shade. */
 export interface StoneRenderBatchNeighbours {
@@ -196,7 +200,8 @@ export class StoneRenderInstanceWriter {
       const normalY =
         (elements[1] * nx + elements[5] * ny + elements[9] * nz) * inverseScale;
       const normalZ =
-        (elements[2] * nx + elements[6] * ny + elements[10] * nz) * inverseScale;
+        (elements[2] * nx + elements[6] * ny + elements[10] * nz) *
+        inverseScale;
       buffers.packedShorts[shortTarget + STONE_NORMAL_OFFSET] =
         packStoneSignedInt16(normalX);
       buffers.packedShorts[shortTarget + STONE_NORMAL_OFFSET + 1] =
@@ -218,8 +223,13 @@ export class StoneRenderInstanceWriter {
           normalY * this.mossExposureDirection.y +
           normalZ * this.mossExposureDirection.z,
       );
+      // Water decides growth before orientation does. A body standing in a
+      // river is bare where the current scours it and greenest in the splash
+      // band just above, which is the opposite of what its own susceptibility
+      // would say -- that only knows the rock, not what is running down it.
+      const waterlineMoss = resolveStoneWaterlineMoss(instance.wetness, worldY);
       resolveStoneGrowthWeightsInto(
-        variant.mosses[index],
+        Math.max(0, Math.min(1, variant.mosses[index] + waterlineMoss)),
         normalY,
         heightFraction,
         exposure,
@@ -229,16 +239,21 @@ export class StoneRenderInstanceWriter {
         instance.graniteBlend,
         this.growthScratch,
       );
-      buffers.packedBytes[byteTarget + STONE_MOSS_OFFSET] =
-        packStoneUnitByte(this.growthScratch.moss);
-      buffers.packedBytes[byteTarget + STONE_LICHEN_OFFSET] =
-        packStoneUnitByte(this.growthScratch.lichen);
+      buffers.packedBytes[byteTarget + STONE_MOSS_OFFSET] = packStoneUnitByte(
+        this.growthScratch.moss,
+      );
+      buffers.packedBytes[byteTarget + STONE_LICHEN_OFFSET] = packStoneUnitByte(
+        this.growthScratch.lichen,
+      );
       buffers.packedBytes[byteTarget + STONE_GROWTH_SEED_OFFSET] =
         packedGrowthSeed;
       buffers.packedBytes[byteTarget + STONE_MOSS_COLOR_OFFSET] = packedMossR;
-      buffers.packedBytes[byteTarget + STONE_MOSS_COLOR_OFFSET + 1] = packedMossG;
-      buffers.packedBytes[byteTarget + STONE_MOSS_COLOR_OFFSET + 2] = packedMossB;
-      buffers.packedBytes[byteTarget + STONE_LICHEN_COLOR_OFFSET] = packedLichenR;
+      buffers.packedBytes[byteTarget + STONE_MOSS_COLOR_OFFSET + 1] =
+        packedMossG;
+      buffers.packedBytes[byteTarget + STONE_MOSS_COLOR_OFFSET + 2] =
+        packedMossB;
+      buffers.packedBytes[byteTarget + STONE_LICHEN_COLOR_OFFSET] =
+        packedLichenR;
       buffers.packedBytes[byteTarget + STONE_LICHEN_COLOR_OFFSET + 1] =
         packedLichenG;
       buffers.packedBytes[byteTarget + STONE_LICHEN_COLOR_OFFSET + 2] =
@@ -252,7 +267,12 @@ export class StoneRenderInstanceWriter {
       // edge on a boundary that vertex interpolation can only ramp across a
       // facet.
       buffers.packedBytes[byteTarget + STONE_WEATHERING_OFFSET] =
-        packStoneUnitByte(variant.weatherings[index]);
+        packStoneUnitByte(
+          applyStoneGeologyWeathering(
+            variant.weatherings[index],
+            instance.weatheringBias,
+          ),
+        );
       buffers.packedBytes[byteTarget + STONE_BEDDING_OFFSET] =
         packStoneUnitByte(variant.metrics.bedding);
       buffers.packedBytes[byteTarget + STONE_WET_OFFSET] = packStoneUnitByte(

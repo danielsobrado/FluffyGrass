@@ -8,6 +8,7 @@ import {
 import { hashStoneCell, StoneRandom } from "./StoneRandom";
 import { type StoneArchetypeId, type StoneRecipe } from "./StoneRecipe";
 import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
+import { resolveStoneGeology } from "./StoneGeology";
 import {
   clearStoneGroundInfluence,
   resolveStoneOcclusionRadius,
@@ -116,6 +117,12 @@ export interface StoneInstance {
    */
   readonly moss: number;
   readonly valueScale: number;
+  /**
+   * How far the formation this body belongs to has weathered, as a bias on its
+   * own weathering channel. Shared by every member of a cluster, so a formation
+   * agrees about its age without agreeing about its banding.
+   */
+  readonly weatheringBias: number;
   /** Terrain normal at the root, and how strongly to align to it. */
   readonly normalX: number;
   readonly normalY: number;
@@ -741,6 +748,21 @@ export class StoneField {
     return instances;
   }
 
+  /**
+   * The weathering every member of one cluster inherits.
+   *
+   * Resolved from the descriptor rather than threaded, because it is a pure
+   * hash of values every member already has: recomputing it costs less than
+   * carrying it and cannot fall out of step between members.
+   */
+  private geologyBias(descriptor: StoneClusterDescriptor): number {
+    return resolveStoneGeology(
+      descriptor.seed,
+      descriptor.strike,
+      descriptor.paletteKey,
+    ).weathering;
+  }
+
   private resolveCluster(gridX: number, gridZ: number): StoneResolvedCluster {
     const descriptor = this.clusterField.getDescriptor(gridX, gridZ);
     if (!descriptor.active) {
@@ -890,6 +912,8 @@ export class StoneField {
         member.instance.moss,
         whole,
         member.role,
+        "whole",
+        member.instance.weatheringBias,
       ),
     };
   }
@@ -990,6 +1014,7 @@ export class StoneField {
       minor,
       "secondary",
       "b",
+      anchor.instance.weatheringBias,
     );
     return {
       instance,
@@ -1100,6 +1125,7 @@ export class StoneField {
       variant,
       spec.role,
       fragment,
+      this.geologyBias(descriptor),
     );
     return {
       member: {
@@ -1606,6 +1632,7 @@ export class StoneField {
     variant: StoneMeshData,
     role: StoneClusterRole = "debris",
     fragment: StoneFragmentId = "whole",
+    weatheringBias = 0,
   ): StoneInstance {
     const graniteBlend = smoothstep(
       height,
@@ -1656,6 +1683,7 @@ export class StoneField {
       paletteKey,
       graniteBlend,
       valueScale,
+      weatheringBias,
       moss,
       normalX: normal.x,
       normalY: normal.y,

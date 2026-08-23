@@ -20,6 +20,7 @@ import {
   STONE_MINERAL_PATCH_SIZE,
   STONE_MINERAL_TINT_STRENGTH,
   STONE_MOSS_CLIMB,
+  STONE_MOSS_SHELTER_REACH,
   STONE_MOSS_PATCH_SIZE,
   STONE_SOIL_STAIN_HEIGHT,
   STONE_SOIL_STAIN_STRENGTH,
@@ -234,8 +235,16 @@ export function resolveMoss(
   heightMetres: number,
   recipe: StoneRecipe,
   broken = false,
+  crease = 0,
 ): number {
-  const climb = 1 - smoothstep(y, 0, heightMetres * STONE_MOSS_CLIMB);
+  // Shelter competes with height rather than multiplying it, so a crease can
+  // hold moss where the open flank beside it has already dried out. Taking the
+  // greater of the two is what turns a band around the foot into growth that
+  // follows the body's own structure.
+  const climb = Math.max(
+    1 - smoothstep(y, 0, heightMetres * STONE_MOSS_CLIMB),
+    clamp01(crease) * STONE_MOSS_SHELTER_REACH,
+  );
   if (climb <= 0) return 0;
   const facing = normalY >= 0 ? 0.45 + 0.55 * normalY : 0.45 + 0.3 * -normalY;
   const blotch =

@@ -161,7 +161,10 @@ function collectRaw(
 ): Map<string, string> {
   const out = new Map<string, string>();
   visitDomain(min, max, (gridX, gridZ) => {
-    out.set(`${gridX}:${gridZ}`, canonicalRaw(clusters.getRawCandidate(gridX, gridZ)));
+    out.set(
+      `${gridX}:${gridZ}`,
+      canonicalRaw(clusters.getRawCandidate(gridX, gridZ)),
+    );
   });
   return out;
 }
@@ -186,7 +189,11 @@ function collectDescriptors(
       }
     }
   } else {
-    for (const coord of shuffledCoords(PRIMARY_MIN, PRIMARY_MAX, QUERY_ORDER_SEED)) {
+    for (const coord of shuffledCoords(
+      PRIMARY_MIN,
+      PRIMARY_MAX,
+      QUERY_ORDER_SEED,
+    )) {
       visit(coord.gridX, coord.gridZ);
     }
   }
@@ -198,11 +205,17 @@ function assertMapsEqual(
   right: Map<string, string>,
   label: string,
 ): void {
-  assert(left.size === right.size, `${label}: size ${left.size} vs ${right.size}.`);
+  assert(
+    left.size === right.size,
+    `${label}: size ${left.size} vs ${right.size}.`,
+  );
   for (const [key, value] of left) {
     const other = right.get(key);
     assert(other !== undefined, `${label}: missing ${key}.`);
-    assert(value === other, `${label}: ${key} rewrote.\nwas ${value}\nnow ${other}`);
+    assert(
+      value === other,
+      `${label}: ${key} rewrote.\nwas ${value}\nnow ${other}`,
+    );
   }
 }
 
@@ -210,8 +223,14 @@ export function verifyStoneClusters(configSource: string): string {
   const config = new WorldConfigLoader().parse(configSource);
   validateWorldConfig(config);
   assert(PRIMARY_COUNT === 625, "Primary domain must be 25x25.");
-  assert(PRIMARY_COUNT > RAW_CANDIDATE_CACHE_LIMIT, "Domain must exceed raw cache.");
-  assert(PRIMARY_COUNT > DESCRIPTOR_CACHE_LIMIT, "Domain must exceed descriptor cache.");
+  assert(
+    PRIMARY_COUNT > RAW_CANDIDATE_CACHE_LIMIT,
+    "Domain must exceed raw cache.",
+  );
+  assert(
+    PRIMARY_COUNT > DESCRIPTOR_CACHE_LIMIT,
+    "Domain must exceed descriptor cache.",
+  );
 
   const first = graph(config);
   const second = graph(config);
@@ -226,7 +245,10 @@ export function verifyStoneClusters(configSource: string): string {
     "B. Final descriptor determinism",
   );
 
-  const row = collectDescriptors(new StoneClusterField(first.terrain, config), "row");
+  const row = collectDescriptors(
+    new StoneClusterField(first.terrain, config),
+    "row",
+  );
   assertMapsEqual(
     row,
     collectDescriptors(new StoneClusterField(first.terrain, config), "reverse"),
@@ -286,12 +308,18 @@ export function verifyStoneClusters(configSource: string): string {
       .fork(MEMBER_LABELS[0])
       .fork("yaw")
       .range(0, Math.PI);
-    StoneRandom.fromSeed(descriptor.seed).fork(MEMBER_LABELS[0]).fork("family").next();
+    StoneRandom.fromSeed(descriptor.seed)
+      .fork(MEMBER_LABELS[0])
+      .fork("family")
+      .next();
     const yawC = StoneRandom.fromSeed(descriptor.seed)
       .fork(MEMBER_LABELS[0])
       .fork("yaw")
       .range(0, Math.PI);
-    assert(yawA === yawC, "E. yaw fork shifted after an unrelated family draw.");
+    assert(
+      yawA === yawC,
+      "E. yaw fork shifted after an unrelated family draw.",
+    );
     isolationChecked = true;
   });
   assert(isolationChecked, "E. No active descriptor found for RNG isolation.");
@@ -331,7 +359,10 @@ export function verifyStoneClusters(configSource: string): string {
     config.stoneClusterSpacing * CLUSTER_INFLUENCE_SEPARATION_RATIO;
   const minTwoAway =
     config.stoneClusterSpacing * (2 - 2 * config.stoneClusterCenterJitter);
-  assert(minTwoAway > maxThreshold, "G. Two-away macro cells can still conflict.");
+  assert(
+    minTwoAway > maxThreshold,
+    "G. Two-away macro cells can still conflict.",
+  );
   for (let dz = -2; dz <= 2; dz += 1) {
     for (let dx = -2; dx <= 2; dx += 1) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) <= 1) {
@@ -340,7 +371,10 @@ export function verifyStoneClusters(configSource: string): string {
       const minDistance =
         config.stoneClusterSpacing *
         (Math.hypot(dx, dz) - 2 * config.stoneClusterCenterJitter);
-      assert(minDistance > maxThreshold, `G. Offset ${dx},${dz} can still conflict.`);
+      assert(
+        minDistance > maxThreshold,
+        `G. Offset ${dx},${dz} can still conflict.`,
+      );
     }
   }
 
@@ -358,7 +392,10 @@ export function verifyStoneClusters(configSource: string): string {
       config.stoneClusterSpacing,
       queried,
     );
-    assert(count === STONE_CELL_MACRO_QUERY_COUNT, "N. Stone cells must query nine macros.");
+    assert(
+      count === STONE_CELL_MACRO_QUERY_COUNT,
+      "N. Stone cells must query nine macros.",
+    );
     const originGx = Math.floor(
       ((cellX + 0.5) * config.stoneCellSize) / config.stoneClusterSpacing,
     );
@@ -368,7 +405,8 @@ export function verifyStoneClusters(configSource: string): string {
     let bruteCount = 0;
     for (let dz = -2; dz <= 2; dz += 1) {
       for (let dx = -2; dx <= 2; dx += 1) {
-        const slot = brute[bruteCount] ?? (brute[bruteCount] = { gridX: 0, gridZ: 0 });
+        const slot =
+          brute[bruteCount] ?? (brute[bruteCount] = { gridX: 0, gridZ: 0 });
         slot.gridX = originGx + dx;
         slot.gridZ = originGz + dz;
         bruteCount += 1;
@@ -438,15 +476,22 @@ export function verifyStoneClusters(configSource: string): string {
     activeCount += 1;
     const specs = first.composition.compose(descriptor);
     const resolved = first.stones.getResolvedCluster(gridX, gridZ);
-    assert(specs.length <= descriptor.budget, `I. Specs exceeded budget at ${gridX}:${gridZ}.`);
+    assert(
+      specs.length <= descriptor.budget,
+      `I. Specs exceeded budget at ${gridX}:${gridZ}.`,
+    );
     assert(
       resolved.members.length <= descriptor.budget,
       `I. Resolved members exceeded budget at ${gridX}:${gridZ}.`,
     );
     if (resolved.members.length > 0) {
-      assert(resolved.members[0].role === "anchor", `J. Member 0 must be the anchor.`);
       assert(
-        resolved.members.filter((member) => member.role === "anchor").length === 1,
+        resolved.members[0].role === "anchor",
+        `J. Member 0 must be the anchor.`,
+      );
+      assert(
+        resolved.members.filter((member) => member.role === "anchor").length ===
+          1,
         `J. Formation ${gridX}:${gridZ} must have one anchor.`,
       );
     }
@@ -530,7 +575,10 @@ export function verifyStoneClusters(configSource: string): string {
         );
       }
     }
-    if (specs.length >= 2 && (specs[0].archetype === "boulder" || specs[0].archetype === "block")) {
+    if (
+      specs.length >= 2 &&
+      (specs[0].archetype === "boulder" || specs[0].archetype === "block")
+    ) {
       const expectedSplit = StoneRandom.fromSeed(descriptor.seed)
         .fork(MEMBER_LABELS[specs[1].index])
         .fork("split")
@@ -540,19 +588,51 @@ export function verifyStoneClusters(configSource: string): string {
         `K. Split ownership drifted at ${gridX}:${gridZ}.`,
       );
       if (expectedSplit) {
-        assert(specs.length <= descriptor.budget, "K. Split raised candidate count.");
+        assert(
+          specs.length <= descriptor.budget,
+          "K. Split raised candidate count.",
+        );
         splitChecked = true;
       }
     }
     if (resolved.splitSucceeded) {
       splitChecked = true;
+      // Detail level is decided per chunk, so two halves of one body must sit
+      // in the same chunk or they can be built at different levels of detail --
+      // one with chips and the near shader, one without. They are under a metre
+      // apart against a 64 m chunk, so this holds by a wide margin; the check
+      // exists because the day it stops holding, the answer is a formation-aware
+      // detail decision rather than a shrug, and nothing else would report it.
+      const anchor = resolved.members[0].instance;
+      const half = resolved.members.find((member) => member.isSplitHalf);
+      assert(
+        half !== undefined,
+        `K. Split reported without a half at ${gridX}:${gridZ}.`,
+      );
+      assert(
+        Math.floor(anchor.x / config.chunkSize) ===
+          Math.floor(half.instance.x / config.chunkSize) &&
+          Math.floor(anchor.z / config.chunkSize) ===
+            Math.floor(half.instance.z / config.chunkSize),
+        `K. Mated halves straddle a chunk seam at ${gridX}:${gridZ} and can build at different detail.`,
+      );
+      assert(
+        anchor.weatheringBias === half.instance.weatheringBias,
+        `K. Mated halves disagree about their formation's weathering at ${gridX}:${gridZ}.`,
+      );
     }
   });
   for (const process of PROCESSES) {
-    assert(processSeen.has(process), `Missing process ${process} in the primary domain.`);
+    assert(
+      processSeen.has(process),
+      `Missing process ${process} in the primary domain.`,
+    );
   }
   assert(activeCount > 0, "Primary domain produced no active formations.");
-  assert(quietMacros > 0, "Primary domain produced no quiet macros for the geology early-out.");
+  assert(
+    quietMacros > 0,
+    "Primary domain produced no quiet macros for the geology early-out.",
+  );
   assert(
     first.stones.getCellCacheLimit() >=
       stoneSourceCellCacheLimit(
@@ -578,7 +658,10 @@ export function verifyStoneClusters(configSource: string): string {
         sample = descriptor;
       }
     });
-    assert(sample !== undefined, "K. No active descriptor for synthetic split.");
+    assert(
+      sample !== undefined,
+      "K. No active descriptor for synthetic split.",
+    );
     for (let seed = 1; seed < 8000; seed += 1) {
       const specs = first.composition.compose({
         ...sample,
@@ -594,7 +677,10 @@ export function verifyStoneClusters(configSource: string): string {
         (specs[0].archetype === "boulder" || specs[0].archetype === "block") &&
         specs[1].splitEligible
       ) {
-        assert(specs.length <= sample.budget, "K. Split raised candidate count.");
+        assert(
+          specs.length <= sample.budget,
+          "K. Split raised candidate count.",
+        );
         splitChecked = true;
         break;
       }
@@ -611,8 +697,14 @@ export function verifyStoneClusters(configSource: string): string {
       first.stones.collectChunkInstances(chunkX, chunkZ, false, far);
       const includeKeys = new Set(includeSmall.map(canonicalInstance));
       for (const instance of far) {
-        assert(includeKeys.has(canonicalInstance(instance)), "T. Far roots must be a subset.");
-        assert(instance.scale >= 0.5, "T. Far collection retained a small stone.");
+        assert(
+          includeKeys.has(canonicalInstance(instance)),
+          "T. Far roots must be a subset.",
+        );
+        assert(
+          instance.scale >= 0.5,
+          "T. Far collection retained a small stone.",
+        );
       }
       for (const instance of includeSmall) {
         const key = canonicalInstance(instance);
@@ -649,18 +741,37 @@ export function verifyStoneClusters(configSource: string): string {
             chunkCells,
           );
           for (let index = 0; index < count; index += 1) {
-            macroUnion.add(`${chunkCells[index].gridX}:${chunkCells[index].gridZ}`);
+            macroUnion.add(
+              `${chunkCells[index].gridX}:${chunkCells[index].gridZ}`,
+            );
           }
         }
       }
       uniqueMacros = Math.max(uniqueMacros, macroUnion.size);
     }
   }
-  assert(uniqueMacros <= 25, `O. Cold chunk touched ${uniqueMacros} macro descriptors.`);
+  assert(
+    uniqueMacros <= 25,
+    `O. Cold chunk touched ${uniqueMacros} macro descriptors.`,
+  );
 
   const pushed = resolveOverlapPush(0, 0, 0.1, 0, 1, 1, 1, 0, 1, 0);
-  assert(pushed !== undefined, "P. Overlap correction must move a colliding root.");
-  const secondPush = resolveOverlapPush(pushed.x, pushed.z, 0.1, 0, 1, 1, 1, 0, 1, 0);
+  assert(
+    pushed !== undefined,
+    "P. Overlap correction must move a colliding root.",
+  );
+  const secondPush = resolveOverlapPush(
+    pushed.x,
+    pushed.z,
+    0.1,
+    0,
+    1,
+    1,
+    1,
+    0,
+    1,
+    0,
+  );
   assert(
     secondPush === undefined ||
       Math.hypot(secondPush.x - pushed.x, secondPush.z - pushed.z) < 1e-9,
@@ -689,11 +800,21 @@ export function verifyStoneClusters(configSource: string): string {
     if (!descriptor.active) {
       return;
     }
-    for (const member of first.stones.getResolvedCluster(gridX, gridZ).members) {
-      assert(Math.abs(member.instance.x) <= halfWorld - 2 + 1e-6, "R. Root left world.");
-      assert(Math.abs(member.instance.z) <= halfWorld - 2 + 1e-6, "R. Root left world.");
+    for (const member of first.stones.getResolvedCluster(gridX, gridZ)
+      .members) {
+      assert(
+        Math.abs(member.instance.x) <= halfWorld - 2 + 1e-6,
+        "R. Root left world.",
+      );
+      assert(
+        Math.abs(member.instance.z) <= halfWorld - 2 + 1e-6,
+        "R. Root left world.",
+      );
       rootCount += 1;
-      if (Math.abs(member.instance.x / 16 - Math.round(member.instance.x / 16)) < 1e-4) {
+      if (
+        Math.abs(member.instance.x / 16 - Math.round(member.instance.x / 16)) <
+        1e-4
+      ) {
         quantized16 += 1;
       }
     }

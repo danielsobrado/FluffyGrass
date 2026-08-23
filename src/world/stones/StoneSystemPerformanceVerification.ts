@@ -32,6 +32,7 @@ function createInstance(
     graniteBlend: 0,
     moss: 0.3,
     valueScale: 1,
+    weatheringBias: 0.05,
     normalX: 0,
     normalY: 1,
     normalZ: 0,
