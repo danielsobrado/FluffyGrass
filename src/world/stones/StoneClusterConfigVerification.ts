@@ -62,10 +62,20 @@ export function verifyStoneClusterConfig(configSource: string): string {
   );
 
   expectReject(
+    {
+      ...config,
+      stoneFormationGapRatioMin: 0.03,
+      stoneFormationGapRatioMax: 0.01,
+    },
+    /stoneFormationGapRatio range is reversed/,
+    "formation-gap ratio",
+  );
+
+  expectReject(
     { ...config, worldSize: 1_100_000 },
     /packed stone-lattice coordinate range/,
     "packed lattice range",
   );
 
-  return "3x3 reach + path reach + cell lattice + packed key bounds";
+  return "3x3 reach + path reach + formation gap + cell lattice + packed key bounds";
 }
