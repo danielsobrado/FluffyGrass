@@ -1,5 +1,6 @@
 import { buildStonePolyhedron, type StonePolygon, type StoneVec3 } from "./StoneClipper";
 import {
+  measureStoneSilhouetteComplexity,
   scoreStoneRotationalSymmetry,
   scoreStoneSilhouette,
 } from "./StoneSilhouetteQuality";
@@ -17,11 +18,6 @@ const SEEDS = 40;
 /**
  * Recorded ceilings on how radially periodic each family is allowed to be, on
  * average, after selection.
- *
- * These are measurements with headroom, not targets. Their job is to catch the
- * case the shape scorer cannot: a tuning change that improves one seed while
- * quietly pushing a whole family back toward the lathe. Pebbles sit highest
- * because they carry the fewest sides, and fewest sides is what symmetry is.
  */
 const SYMMETRY_CEILING: Readonly<Record<StoneArchetypeId, number>> = {
   pebble: 0.3,
@@ -32,15 +28,8 @@ const SYMMETRY_CEILING: Readonly<Record<StoneArchetypeId, number>> = {
   outcrop: 0.08,
 };
 
-/**
- * A body this periodic reads as turned rather than broken. A handful survive
- * selection because four candidates is not always enough to find a better one,
- * so this budgets them rather than forbidding them.
- */
 const SEVERE_SYMMETRY = 0.45;
 const SEVERE_SYMMETRY_BUDGET = 0.04;
-
-/** Floor on the population's mean silhouette score, from the same recording. */
 const SILHOUETTE_FLOOR = -0.2;
 const TRANSFORM_SCORE_EPSILON = 1e-4;
 
@@ -49,9 +38,7 @@ function fail(message: string): never {
 }
 
 function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) {
-    fail(message);
-  }
+  if (!condition) fail(message);
 }
 
 /** Mirrors the post-clip transform in generateStoneMesh. */
@@ -72,11 +59,7 @@ function shippedBody(recipe: StoneRecipe): StonePolygon[] {
   return body;
 }
 
-/**
- * Regression for the scorer bug where width/height/depth and lean were invisible.
- * Only post-clip transforms change between these recipes, so a non-zero score
- * delta proves selection is looking at the body that actually ships.
- */
+/** Regression for the scorer bug where post-clip transforms were invisible. */
 function verifyPostClipTransformAffectsScore(): void {
   const base = resolveStoneRecipe("boulder", 0x51f0e5);
   const transformed: StoneRecipe = {
@@ -93,18 +76,14 @@ function verifyPostClipTransformAffectsScore(): void {
   );
 }
 
-/**
- * Population contract for the two screen-space shape metrics.
- *
- * Per-seed scoring already runs inside selection; what it cannot see is the
- * shape of the whole distribution, which is where this kind of tuning usually
- * goes wrong -- one family drifts while the seeds anyone is looking at stay
- * fine. Metrics are evaluated on the same transformed body that ships.
- */
+/** Population contract plus non-gating diagnostics for outline complexity. */
 export function verifyStoneSilhouetteQuality(): string {
   verifyPostClipTransformAffectsScore();
 
   let silhouetteTotal = 0;
+  let rawCornerTotal = 0;
+  let meaningfulCornerTotal = 0;
+  let maximumMeaningfulCorners = 0;
   let bodies = 0;
   let severe = 0;
 
@@ -114,7 +93,14 @@ export function verifyStoneSilhouetteQuality(): string {
       const seed = (variant * 2654435761 + archetype.length * 97) >>> 0;
       const faces = shippedBody(resolveQualityStoneRecipe(archetype, seed));
       const symmetry = scoreStoneRotationalSymmetry(faces);
+      const complexity = measureStoneSilhouetteComplexity(faces);
       symmetryTotal += symmetry;
+      rawCornerTotal += complexity.meanRawCorners;
+      meaningfulCornerTotal += complexity.meanMeaningfulCorners;
+      maximumMeaningfulCorners = Math.max(
+        maximumMeaningfulCorners,
+        complexity.maximumMeaningfulCorners,
+      );
       if (symmetry > SEVERE_SYMMETRY) severe += 1;
       silhouetteTotal += scoreStoneSilhouette(faces);
       bodies += 1;
@@ -137,5 +123,8 @@ export function verifyStoneSilhouetteQuality(): string {
     `${severe}/${bodies} bodies are severely periodic, over the ${(SEVERE_SYMMETRY_BUDGET * 100).toFixed(0)}% budget.`,
   );
 
-  return `silhouette ${silhouette.toFixed(3)} · ${severe}/${bodies} periodic · transformed-body guard`;
+  return (
+    `silhouette ${silhouette.toFixed(3)} · ${severe}/${bodies} periodic · ` +
+    `corners ${(rawCornerTotal / bodies).toFixed(1)}→${(meaningfulCornerTotal / bodies).toFixed(1)} (max ${maximumMeaningfulCorners}) · transformed-body guard`
+  );
 }
