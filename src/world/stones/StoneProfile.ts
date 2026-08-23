@@ -67,10 +67,12 @@ interface ProfileFamily {
   /**
    * How nearly the crown ring sits on the line from shoulder to top.
    *
-   * High values merge the upper segments into one long face; lower values keep
-   * a deliberate shoulder turn. The reference needs broad planes but not
-   * ruler-straight runs spanning most of the silhouette, so large rock families
-   * stop short of the nearly-collinear setting.
+   * The crown radius is a fixed blend weighted toward the shoulder, which puts
+   * it outside the shoulder-to-top chord and bends the upper body into a
+   * dome shoulder. At 1 the crown lands exactly on that chord, the two ring
+   * segments become coplanar, and the clipper returns one tall upper face
+   * instead of two stacked bands -- two fewer outline corners per side, which
+   * is the term the silhouette score is actually dominated by.
    */
   readonly crownStraightness: number;
 }
@@ -93,18 +95,24 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
   boulder: {
     // Boulder massing is directional: one broad side recedes and another
     // shoulder breaks away, preventing a stack of scaled radial rings.
+    //
+    // The belly no longer bulges. A bulge makes the elevation a barrel, and a
+    // barrel presents a curve where the reference presents one flat wall: the
+    // contact, belly and shoulder rings have to be near-collinear in
+    // (height, radius) before the clipper will drop the middle plane and hand
+    // back a single tall face.
     bellyBulge: { min: -0.02, max: 0.03 },
     bellyVariation: 0.06,
-    shoulderVariation: 0.085,
-    crownVariation: 0.06,
+    shoulderVariation: 0.08,
+    crownVariation: 0.055,
     centerWander: { min: 0.08, max: 0.18 },
-    verticalVariation: 0.085,
-    slopeTurn: 0.04,
+    verticalVariation: 0.07,
+    slopeTurn: 0.025,
     directionalCompression: { min: 0.18, max: 0.34 },
-    shoulderBreak: { min: 0.16, max: 0.3 },
-    lobeSharpness: 3.6,
+    shoulderBreak: { min: 0.14, max: 0.28 },
+    lobeSharpness: 3.2,
     maximumRise: 0.12,
-    crownStraightness: 0.62,
+    crownStraightness: 0.85,
   },
   slab: {
     bellyBulge: { min: 0.035, max: 0.09 },
@@ -151,16 +159,16 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
   outcrop: {
     bellyBulge: { min: 0.09, max: 0.21 },
     bellyVariation: 0.1,
-    shoulderVariation: 0.105,
-    crownVariation: 0.08,
+    shoulderVariation: 0.1,
+    crownVariation: 0.075,
     centerWander: { min: 0.07, max: 0.16 },
-    verticalVariation: 0.085,
-    slopeTurn: 0.035,
+    verticalVariation: 0.075,
+    slopeTurn: 0.022,
     directionalCompression: { min: 0.06, max: 0.13 },
-    shoulderBreak: { min: 0.055, max: 0.12 },
-    lobeSharpness: 2.9,
+    shoulderBreak: { min: 0.045, max: 0.11 },
+    lobeSharpness: 2.6,
     maximumRise: 0.14,
-    crownStraightness: 0.62,
+    crownStraightness: 0.8,
   },
 };
 

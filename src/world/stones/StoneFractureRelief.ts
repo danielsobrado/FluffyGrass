@@ -1,28 +1,12 @@
 /**
- * Waving the break line so a formation reads as fractured rather than sliced.
+ * Waving structural break lines so generated stones read fractured rather than
+ * sliced.
  *
- * A fragment is its parent's half-spaces plus one more, and a plane through a
- * convex body meets it in a flat polygon with straight edges. That is what puts
- * a dead-straight crack down the middle of a mated pair: the line you see is
- * the rim of that polygon, and no amount of shading fixes a straight line.
- *
- * The rim can still be moved, because the mesh welds by position rather than by
- * plane: displacing every copy of a rim point together leaves the body
- * watertight and merely stops it being exactly convex along the break. So this
- * pass pushes the rim along the break normal by a smooth low-frequency field.
- *
- * Two properties make it safe to do to both halves independently:
- *
- * - The field is evaluated in the parent's own frame and along a direction
- *   whose sign is canonicalised, so the halves receive identical displacements.
- *   Since their breaks face opposite ways, one bulges exactly where the other
- *   hollows and the pieces still nest.
- * - It is smooth rather than per-vertex random, so neighbouring rim points move
- *   together. A sawtooth would invert the chamfer facets that sit along the rim,
- *   and a wavering crack looks more like geology than a zigzag does anyway.
- *
- * The break *face* is barely visible on a mated pair -- the two faces look at
- * each other -- so this deliberately spends its budget on the outline.
+ * Clipping a convex body with a plane produces perfectly straight rim edges.
+ * The topology can stay unchanged: moving every copy of a rim point together
+ * keeps the shell watertight while a small low-frequency displacement removes
+ * the ruler-straight read. Formation fractures use the stronger treatment;
+ * ordinary structural cuts use a subtler version so broad planes remain broad.
  */
 
 import type { StonePolygon, StoneVec3 } from "./StoneClipper";
@@ -30,73 +14,151 @@ import { STONE_MESH_QUANTIZE } from "./StoneGeometryTuning";
 import { hashStoneCell } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
 
-/**
- * Peak displacement in unit body space, where a body's radius is about 0.5.
- *
- * Held well under the depth of the edge chamfers that run along the rim: past
- * that the relief stops warping those facets and starts turning them inside
- * out.
- */
+/** Peak formation-fracture displacement in unit body space. */
 export const STONE_FRACTURE_RELIEF = 0.018;
+/** Structural cuts only need enough relief to stop reading as saw lines. */
+export const STONE_CUT_RELIEF = 0.009;
 
-/** Height over which the relief fades in, so ground contact stays flat. */
+/** Height over which relief fades in, so ground contact stays flat. */
 const RELIEF_GROUND_FADE = 0.14;
-
 /** Lattice period of the waver, in unit body space. */
 const RELIEF_PERIOD_HEIGHT = 0.42;
 const RELIEF_PERIOD_ALONG = 0.55;
-
+/** Prevent intersecting breaks from accumulating an excessive displacement. */
+const MAX_COMBINED_RELIEF = 0.021;
 const RELIEF_SEED_XOR = 0x52656c66;
+const CUT_RELIEF_SEED_XOR = 0x43757452;
+const HORIZONTAL_EPSILON = 1e-6;
 
+interface ReliefSource {
+  readonly planeId: string;
+  readonly role: "cut" | "fracture";
+  readonly directionX: number;
+  readonly directionZ: number;
+  readonly tangentX: number;
+  readonly tangentZ: number;
+  readonly amplitude: number;
+  readonly seed: number;
+}
+
+interface ReliefOffset {
+  x: number;
+  z: number;
+}
+
+/**
+ * Apply matching relief to formation fractures and subtle relief to structural
+ * cut rims. The exported name is retained because formation verification and
+ * mesh generation share this pass.
+ */
 export function addStoneFractureRelief(
   polygons: StonePolygon[],
   recipe: StoneRecipe,
 ): StonePolygon[] {
-  const fracture = recipe.fracture;
-  if (!fracture) return polygons;
+  const sources = resolveReliefSources(recipe);
+  if (sources.length === 0) return polygons;
 
-  // Horizontal only: the break leans at most a little off vertical, and a
-  // vertical component would lift rim points off the ground cap.
-  const horizontal = Math.hypot(fracture.nx, fracture.nz);
-  if (!(horizontal > 1e-6)) return polygons;
-  // The sibling stores this plane negated, so the raw normal cannot be used as
-  // a shared direction. Fixing the sign by the dominant component recovers one
-  // both halves agree on, exactly, from opposite inputs.
-  const flip = canonicalSign(fracture.nx, fracture.nz);
-  const directionX = (fracture.nx / horizontal) * flip;
-  const directionZ = (fracture.nz / horizontal) * flip;
-  // Along-break tangent, for the second axis of the field.
-  const tangentX = -directionZ;
-  const tangentZ = directionX;
-
-  const rim = new Set<string>();
-  for (const polygon of polygons) {
-    if (polygon.role !== "fracture") continue;
-    for (const point of polygon.points) {
-      rim.add(quantizeKey(point));
+  const offsets = new Map<string, ReliefOffset>();
+  for (const source of sources) {
+    const sourceKeys = new Set<string>();
+    for (const polygon of polygons) {
+      if (polygon.role !== source.role || polygon.planeId !== source.planeId) {
+        continue;
+      }
+      for (const point of polygon.points) {
+        const key = quantizeKey(point);
+        if (sourceKeys.has(key)) continue;
+        sourceKeys.add(key);
+        const along = point.x * source.tangentX + point.z * source.tangentZ;
+        const amount =
+          smoothField(along, point.y, source.seed) *
+          source.amplitude *
+          groundFade(point.y);
+        let offset = offsets.get(key);
+        if (!offset) {
+          offset = { x: 0, z: 0 };
+          offsets.set(key, offset);
+        }
+        offset.x += source.directionX * amount;
+        offset.z += source.directionZ * amount;
+      }
     }
   }
-  if (rim.size === 0) return polygons;
+  if (offsets.size === 0) return polygons;
 
-  // Walk every polygon rather than the break's own points: a rim point is a
-  // corner of the side faces that meet it too, and moving only one copy would
-  // tear the shell open.
-  const moved = new Set<string>();
+  const moved = new Set<StoneVec3>();
   for (const polygon of polygons) {
     for (const point of polygon.points) {
-      const key = quantizeKey(point);
-      if (!rim.has(key) || moved.has(key)) continue;
-      moved.add(key);
-      const along = point.x * tangentX + point.z * tangentZ;
-      const amount =
-        smoothField(along, point.y, recipe.seed) *
-        STONE_FRACTURE_RELIEF *
-        groundFade(point.y);
-      point.x += directionX * amount;
-      point.z += directionZ * amount;
+      if (moved.has(point)) continue;
+      moved.add(point);
+      const offset = offsets.get(quantizeKey(point));
+      if (!offset) continue;
+      const length = Math.hypot(offset.x, offset.z);
+      const scale =
+        length > MAX_COMBINED_RELIEF ? MAX_COMBINED_RELIEF / length : 1;
+      point.x += offset.x * scale;
+      point.z += offset.z * scale;
     }
   }
   return polygons;
+}
+
+function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {
+  const sources: ReliefSource[] = [];
+  const fracture = recipe.fracture;
+  if (fracture) {
+    const source = createReliefSource(
+      "fracture",
+      "fracture",
+      fracture.nx,
+      fracture.nz,
+      STONE_FRACTURE_RELIEF,
+      recipe.seed,
+    );
+    if (source) sources.push(source);
+  }
+
+  for (let index = 0; index < recipe.cuts.length; index += 1) {
+    const cut = recipe.cuts[index];
+    const source = createReliefSource(
+      `cut:${index}`,
+      "cut",
+      cut.normalX,
+      cut.normalZ,
+      STONE_CUT_RELIEF,
+      hashStoneCell(recipe.seed, index, CUT_RELIEF_SEED_XOR),
+    );
+    if (source) sources.push(source);
+  }
+  return sources;
+}
+
+function createReliefSource(
+  planeId: string,
+  role: "cut" | "fracture",
+  nx: number,
+  nz: number,
+  amplitude: number,
+  seed: number,
+): ReliefSource | undefined {
+  const horizontal = Math.hypot(nx, nz);
+  if (!(horizontal > HORIZONTAL_EPSILON)) return undefined;
+
+  // Formation siblings store their break normal with opposite signs. A
+  // canonical sign also makes ordinary cut relief independent of representation.
+  const flip = canonicalSign(nx, nz);
+  const directionX = (nx / horizontal) * flip;
+  const directionZ = (nz / horizontal) * flip;
+  return {
+    planeId,
+    role,
+    directionX,
+    directionZ,
+    tangentX: -directionZ,
+    tangentZ: directionX,
+    amplitude,
+    seed,
+  };
 }
 
 function canonicalSign(nx: number, nz: number): number {
@@ -117,7 +179,7 @@ function groundFade(y: number): number {
   return amount * amount * (3 - 2 * amount);
 }
 
-/** Smooth signed value noise on the break plane, in [-1, 1]. */
+/** Smooth signed value noise on a break plane, in [-1, 1]. */
 function smoothField(along: number, height: number, seed: number): number {
   const u = along / RELIEF_PERIOD_ALONG;
   const v = height / RELIEF_PERIOD_HEIGHT;
