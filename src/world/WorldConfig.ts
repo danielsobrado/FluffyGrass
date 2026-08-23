@@ -223,6 +223,18 @@ export interface WorldConfig {
   stoneClusterShoulderRatio: number;
   stoneClusterHaloRatio: number;
   stoneClusterDensityResponse: number;
+  /** Share of eligible anchors that become true detached two-piece formations. */
+  stoneFormationChance: number;
+  /** Minimum visible aperture as a share of the stable parent footprint. */
+  stoneFormationGapRatioMin: number;
+  /** Maximum visible aperture as a share of the stable parent footprint. */
+  stoneFormationGapRatioMax: number;
+  /** Absolute cap on a formation aperture, in world metres. */
+  stoneFormationGapMax: number;
+  /** Allowed terrain mismatch as a share of the parent stone height. */
+  stoneFormationSupportHeightRatio: number;
+  /** Absolute cap on terrain mismatch under a detached fragment, in metres. */
+  stoneFormationSupportHeightMax: number;
   stoneSingletonChance: number;
   stoneGrassClearanceFeather: number;
   stoneRadiusDesktop: number;
