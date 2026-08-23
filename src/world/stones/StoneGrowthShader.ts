@@ -518,14 +518,7 @@ const LIGHTING_FLOOR = `
 outgoingLight = max(outgoingLight, diffuseColor.rgb * 0.34);
 `;
 
-/**
- * Cool open-sky fill on the face turned away from the key light.
- *
- * Uses the renderer's live hemisphere and directional lights, so cloud grades
- * and gallery lighting stay honest. The term is directional rather than a
- * global ambient lift: top planes already have the key, undersides see ground,
- * and only an open side opposite the sun gets the blue separation.
- */
+/** Directional open-sky fill kept deliberately weak under the strong world key. */
 const SKY_SIDE_AMBIENT = `
 #if NUM_DIR_LIGHTS > 0 && NUM_HEMI_LIGHTS > 0
   float stoneSunFacing = saturate(
@@ -534,18 +527,12 @@ const SKY_SIDE_AMBIENT = `
   float stoneSkyFacing = saturate(
     dot(normal, hemisphereLights[0].direction) * 0.5 + 0.5
   );
-  // The sky-facing ramp starts lower than it did. A vertical wall sits at
-  // exactly 0.5 on this term, which the old 0.18-0.78 window met less than
-  // halfway -- and a vertical wall turned from the sun is the single largest
-  // surface on a low, broad body, so the one face the fill exists for was the
-  // one it reached least. Against a high sun the flank was left at roughly a
-  // quarter of the crown's value and the two read as separate materials.
   float stoneSkySide =
     (1.0 - smoothstep(0.08, 0.46, stoneSunFacing)) *
-    smoothstep(0.05, 0.68, stoneSkyFacing);
+    smoothstep(0.18, 0.78, stoneSkyFacing);
   outgoingLight +=
     diffuseColor.rgb * hemisphereLights[0].skyColor *
-    vec3(0.72, 0.92, 1.18) * (stoneSkySide * 0.38);
+    vec3(0.72, 0.92, 1.18) * (stoneSkySide * 0.2);
 #endif
 `;
 
@@ -661,7 +648,7 @@ export function applyStoneSurfaceShader(
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v18-dry-sheen:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v19-side-fill:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 
@@ -690,6 +677,6 @@ export function applyStoneCoarseSurfaceShader(
         `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}#include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => "world-stone-coarse-v2-sky";
+  material.customProgramCacheKey = () => "world-stone-coarse-v3-side-fill";
   material.needsUpdate = true;
 }
