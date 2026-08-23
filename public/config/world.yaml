@@ -281,6 +281,18 @@ stoneClusterCoreRatio: 0.42
 stoneClusterShoulderRatio: 0.78
 stoneClusterHaloRatio: 1.12
 stoneClusterDensityResponse: 6
+# True detached fragments are rare. Ordinary stone recipes already carry cuts
+# and chips, so a visible crack normally stays part of one readable rock mass.
+stoneFormationChance: 0.12
+# Aperture scales with the stable parent footprint. Quadratic sampling strongly
+# favours hairlines; the metre cap keeps exceptional landmark stones reasonable.
+stoneFormationGapRatioMin: 0.006
+stoneFormationGapRatioMax: 0.025
+stoneFormationGapMax: 0.03
+# Both fragments keep one rigid transform. The ground below the smaller fragment
+# may differ only slightly from the anchor before the formation is rejected.
+stoneFormationSupportHeightRatio: 0.08
+stoneFormationSupportHeightMax: 0.05
 stoneSingletonChance: 0.17
 # Keep the bare contact strip inside the stone footprint and recover quickly
 # through a short-grass fringe instead of exposing a broad soil halo.
