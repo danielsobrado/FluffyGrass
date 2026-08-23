@@ -582,7 +582,7 @@ export function verifyStoneClusters(configSource: string): string {
       const expectedSplit = StoneRandom.fromSeed(descriptor.seed)
         .fork(MEMBER_LABELS[specs[1].index])
         .fork("split")
-        .chance(0.28);
+        .chance(config.stoneFormationChance);
       assert(
         specs[1].splitEligible === expectedSplit,
         `K. Split ownership drifted at ${gridX}:${gridZ}.`,
