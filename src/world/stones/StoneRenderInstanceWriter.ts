@@ -62,8 +62,37 @@ const UP = new THREE.Vector3(0, 1, 0);
 const HASH_UNIT = 1 / 4294967296;
 const GROWTH_SEED_SALT = 0x43b0d7;
 const GROWTH_EPSILON = 1e-4;
+const FORMATION_WEATHERING_SEED_SCALE = 1_000_000_000;
+const FORMATION_VALUE_SEED_SCALE = 1_000_000;
 /** Keep altitude weathering secondary to the descriptor's actual geology. */
 const GRANITE_SECONDARY_BLEND_MAX = 0.48;
+
+function resolveGrowthSeed(instance: StoneInstance): number {
+  if (instance.fragment === "whole") {
+    return (
+      hashStoneCell(
+        Math.round(instance.x * 8),
+        Math.round(instance.z * 8),
+        instance.variantIndex ^ GROWTH_SEED_SALT,
+      ) * HASH_UNIT
+    );
+  }
+
+  // A split pair is one geological body. World-position seeding gives its two
+  // halves unrelated bedding phase and colony centres as soon as they part.
+  // The pair already shares value/weathering identity, so those stable inputs
+  // provide one seed without adding another per-instance field.
+  const formationSignature =
+    Math.round(instance.weatheringBias * FORMATION_WEATHERING_SEED_SCALE) ^
+    Math.round(instance.valueScale * FORMATION_VALUE_SEED_SCALE);
+  return (
+    hashStoneCell(
+      instance.variantIndex,
+      formationSignature,
+      instance.archetype.length ^ GROWTH_SEED_SALT,
+    ) * HASH_UNIT
+  );
+}
 
 /** Packs one placed stone into a static render batch without per-vertex objects. */
 export class StoneRenderInstanceWriter {
@@ -112,13 +141,7 @@ export class StoneRenderInstanceWriter {
       weatheringBias: instance.weatheringBias,
     };
     const growthColors = resolveStoneGrowthColors(palette, tint);
-    const growthSeed =
-      hashStoneCell(
-        Math.round(instance.x * 8),
-        Math.round(instance.z * 8),
-        instance.variantIndex ^ GROWTH_SEED_SALT,
-      ) * HASH_UNIT;
-    const packedGrowthSeed = packStoneUnitByte(growthSeed);
+    const packedGrowthSeed = packStoneUnitByte(resolveGrowthSeed(instance));
     const packedMossR = packStoneUnitByte(growthColors.moss.r);
     const packedMossG = packStoneUnitByte(growthColors.moss.g);
     const packedMossB = packStoneUnitByte(growthColors.moss.b);
@@ -126,9 +149,14 @@ export class StoneRenderInstanceWriter {
     const packedLichenG = packStoneUnitByte(growthColors.lichen.g);
     const packedLichenB = packStoneUnitByte(growthColors.lichen.b);
     const inverseGrowthRadius =
-      0.5 / Math.max(variant.metrics.footprintRadius, GROWTH_EPSILON);
+      0.5 /
+      Math.max(variant.metrics.materialFootprintRadius, GROWTH_EPSILON);
     const inverseGrowthHeight =
-      1 / Math.max(variant.metrics.height, GROWTH_EPSILON);
+      1 / Math.max(variant.metrics.materialHeight, GROWTH_EPSILON);
+    const growthOffsetX =
+      instance.fragment === "whole" ? 0 : variant.metrics.contactOffsetX;
+    const growthOffsetZ =
+      instance.fragment === "whole" ? 0 : variant.metrics.contactOffsetZ;
 
     this.normalScratch
       .set(instance.normalX, instance.normalY, instance.normalZ)
@@ -212,11 +240,11 @@ export class StoneRenderInstanceWriter {
 
       const heightFraction = py * inverseGrowthHeight;
       buffers.packedShorts[shortTarget + STONE_GROWTH_POSITION_OFFSET] =
-        packStoneSignedInt16(px * inverseGrowthRadius);
+        packStoneSignedInt16((px + growthOffsetX) * inverseGrowthRadius);
       buffers.packedShorts[shortTarget + STONE_GROWTH_POSITION_OFFSET + 1] =
         packStoneSignedInt16(heightFraction);
       buffers.packedShorts[shortTarget + STONE_GROWTH_POSITION_OFFSET + 2] =
-        packStoneSignedInt16(pz * inverseGrowthRadius);
+        packStoneSignedInt16((pz + growthOffsetZ) * inverseGrowthRadius);
 
       const exposure = Math.max(
         0,
