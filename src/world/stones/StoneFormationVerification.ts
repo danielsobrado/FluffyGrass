@@ -12,22 +12,10 @@ import {
 import { STONE_ARCHETYPE_IDS } from "./StoneRecipe";
 import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
 
-/**
- * Slack for two effects that legitimately push a fragment corner past where the
- * parent's own surface sat: the clipper's vertex healing, which snaps
- * near-coincident points within roughly a centimetre, and the break relief,
- * which is a deliberate outward bulge on half of every rim. Anything larger is
- * a cut landing somewhere the parent never cut, which is what this catches.
- */
 const ENVELOPE_EPSILON = 0.012 + STONE_FRACTURE_RELIEF;
-
-/**
- * Rim points must agree between halves to within the clipper's vertex healing,
- * which is the only thing left that can move one half's corner and not the
- * other's now that the whole surface is inherited.
- */
 const RIM_EPSILON = 5e-3;
-/** Fracturable archetypes that must actually break, as a share of variants. */
+/** Smooth mineral fields may differ slightly across a healed rim point. */
+const MINERAL_RIM_EPSILON = 0.04;
 const MINIMUM_SPLIT_RATE = 0.7;
 const VARIANTS = 16;
 
@@ -36,22 +24,10 @@ function fail(message: string): never {
 }
 
 function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) {
-    fail(message);
-  }
+  if (!condition) fail(message);
 }
 
-/**
- * The contract a formation rests on: two fragments of one parent occupy the
- * parent's own volume and nothing beyond it.
- *
- * Placement reunites the halves by the difference of their contact offsets, so
- * a sign error there would not fail to render -- it would quietly slide the two
- * pieces apart or through each other, which is exactly the failure the old
- * "place the same variant twice" split had. Walking each fragment's vertices
- * back into the parent's frame catches it as arithmetic instead of as a
- * screenshot.
- */
+/** Two fragments of one parent occupy its volume and keep one mated geology. */
 export function verifyStoneFormations(): string {
   let pairs = 0;
   for (const archetype of STONE_ARCHETYPE_IDS) {
@@ -105,10 +81,6 @@ function verifyPair(
     `${archetype}:${seed} halves do not share one break plane.`,
   );
 
-  // The relief wavers both rims from one field, so the halves only nest if the
-  // waver lands on the same points. Comparing the rims after the pass is what
-  // proves the canonical direction really cancelled the plane's flipped sign --
-  // get that wrong and the pieces gape or overlap with nothing else failing.
   const rims = [recipeA, recipeB].map((recipe) => {
     const relieved = addStoneFractureRelief(
       buildStonePolyhedron(recipe, false),
@@ -125,8 +97,6 @@ function verifyPair(
     );
     return points;
   });
-  // Corner *counts* may differ by a healed sliver, which is harmless; what has
-  // to hold is that every corner of each outline sits on the other one.
   for (const [near, far] of [
     [rims[0], rims[1]],
     [rims[1], rims[0]],
@@ -154,6 +124,7 @@ function verifyPair(
       whole.metrics.triangleCount * 2,
     `${archetype}:${seed} costs more as two halves than as two whole stones.`,
   );
+  verifyMineralContinuity(archetype, seed, major, minor);
 
   const bounds = meshBounds(whole);
   for (const [name, fragment] of [
@@ -179,6 +150,48 @@ function verifyPair(
       );
     }
   }
+}
+
+function verifyMineralContinuity(
+  archetype: string,
+  seed: number,
+  major: ReturnType<typeof generateStoneMesh>,
+  minor: ReturnType<typeof generateStoneMesh>,
+): void {
+  let matches = 0;
+  for (let a = 0; a < major.minerals.length; a += 1) {
+    const ao = a * 3;
+    const ax = major.positions[ao] + major.metrics.contactOffsetX;
+    const ay = major.positions[ao + 1];
+    const az = major.positions[ao + 2] + major.metrics.contactOffsetZ;
+    let closest = Number.POSITIVE_INFINITY;
+    let closestIndex = -1;
+    for (let b = 0; b < minor.minerals.length; b += 1) {
+      const bo = b * 3;
+      const distance = Math.hypot(
+        ax - (minor.positions[bo] + minor.metrics.contactOffsetX),
+        ay - minor.positions[bo + 1],
+        az - (minor.positions[bo + 2] + minor.metrics.contactOffsetZ),
+      );
+      if (distance < closest) {
+        closest = distance;
+        closestIndex = b;
+      }
+    }
+    if (closest >= RIM_EPSILON || closestIndex < 0) continue;
+    matches += 1;
+    const difference = Math.abs(
+      major.minerals[a] - minor.minerals[closestIndex],
+    );
+    assert(
+      difference <= MINERAL_RIM_EPSILON,
+      `${archetype}:${seed} mineral field jumps by ${difference.toFixed(3)} across a mated rim.`,
+    );
+  }
+  assert(
+    matches > 0,
+    `${archetype}:${seed} has no matched generated rim vertices for mineral verification.`,
+  );
 }
 
 function meshBounds(mesh: ReturnType<typeof generateStoneMesh>): {
