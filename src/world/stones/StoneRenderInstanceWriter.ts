@@ -31,7 +31,7 @@ import {
   type StoneRenderBuffers,
   type StoneRenderBounds,
 } from "./StoneRenderPacking";
-import { hashStoneCell } from "./StoneRandom";
+import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import {
   collectStoneOccluders,
   resolveStoneContactOcclusion,
@@ -89,7 +89,7 @@ function resolveGrowthSeed(instance: StoneInstance): number {
     hashStoneCell(
       instance.variantIndex,
       formationSignature,
-      instance.archetype.length ^ GROWTH_SEED_SALT,
+      hashStoneLabel(instance.archetype) ^ GROWTH_SEED_SALT,
     ) * HASH_UNIT
   );
 }
