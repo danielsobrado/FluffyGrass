@@ -37,11 +37,11 @@ export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
  * The default limit therefore softens edges without rounding the boulder into
  * an icosphere-like dome.
  */
-export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.74;
+export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.78;
 export const STONE_SOFT_NORMAL_COS_LIMIT = Math.cos(
   STONE_SOFT_NORMAL_ANGLE_LIMIT,
 );
-export const STONE_SOFT_NORMAL_STRENGTH = 0.56;
+export const STONE_SOFT_NORMAL_STRENGTH = 0.62;
 
 /**
  * Edge accents begin exactly where softening stops.
@@ -82,11 +82,11 @@ const STONE_FACET_SOFTENING_BY_ARCHETYPE: Readonly<
   Record<StoneArchetypeId, readonly [angleLimit: number, strength: number]>
 > = {
   boulder: [STONE_SOFT_NORMAL_ANGLE_LIMIT, STONE_SOFT_NORMAL_STRENGTH],
-  pebble: [0.78, 0.64],
-  outcrop: [0.62, 0.54],
-  slab: [0.52, 0.47],
-  block: [0.46, 0.43],
-  shard: [0.38, 0.4],
+  pebble: [0.8, 0.68],
+  outcrop: [0.66, 0.58],
+  slab: [0.54, 0.5],
+  block: [0.48, 0.46],
+  shard: [0.4, 0.42],
 };
 
 const STONE_FACET_SOFTENING: Readonly<
