@@ -16,7 +16,6 @@ import {
   STONE_MINERAL_PATCH_SIZE,
   STONE_MINERAL_REGION_PRIMARY_RATIO,
   STONE_MINERAL_REGION_SECONDARY_RATIO,
-  STONE_MINERAL_TINT_STRENGTH,
   STONE_MOSS_CLIMB,
   STONE_MOSS_SHELTER_REACH,
   STONE_MOSS_PATCH_SIZE,
@@ -32,7 +31,6 @@ import type { WorkingStoneFace } from "./StoneMeshTopology";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
 
-const STONE_MINERAL_SEED_XOR = 0x4d696e65;
 const STONE_MINERAL_ZONE_SEED_XOR = 0x5a6f6e65;
 const STONE_MINERAL_ZONE_DETAIL_SEED_XOR = 0x5265676e;
 const STONE_WEATHERING_SEED_XOR = 0x57656174;
@@ -123,33 +121,16 @@ export function clamp01(value: number): number {
 }
 
 /**
- * Small per-face residual tint. The cross-facet mineral field carries the
- * geological regions; this only prevents adjacent exposed planes being exact
- * copies of one another and accents genuine cuts/fractures.
+ * Stable per-plane residual tint plus structural break accents.
+ *
+ * The cross-facet mineral field owns spatial geology. Keeping spatial noise out
+ * of this face term matters for mated fragments: clipping changes each half's
+ * face centroid even though both pieces came from one parent surface.
  */
 export function resolveFaceTint(
   face: WorkingStoneFace,
   recipe: StoneRecipe,
 ): number {
-  let centerX = 0;
-  let centerY = 0;
-  let centerZ = 0;
-  for (const point of face.points) {
-    centerX += point.x;
-    centerY += point.y;
-    centerZ += point.z;
-  }
-  const inverse = 1 / Math.max(1, face.points.length);
-  const mineral =
-    (crustNoise(
-      (centerX * inverse) / STONE_MINERAL_PATCH_SIZE,
-      (centerY * inverse) / STONE_MINERAL_PATCH_SIZE,
-      (centerZ * inverse) / STONE_MINERAL_PATCH_SIZE,
-      recipe.seed ^ STONE_MINERAL_SEED_XOR,
-    ) -
-      0.5) *
-    2 *
-    STONE_MINERAL_TINT_STRENGTH;
   const faceJitter =
     (hashStoneCell(recipe.seed, hashStoneLabel(face.planeId), 0x51f0a3) /
       4294967296 -
@@ -162,7 +143,7 @@ export function resolveFaceTint(
       : face.role === "cut"
         ? STONE_CUT_ACCENT
         : 0;
-  return mineral + faceJitter + breakAccent;
+  return faceJitter + breakAccent;
 }
 
 /** Height remains a shallow contact cue; orientation and lighting carry form. */
