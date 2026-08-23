@@ -1,10 +1,15 @@
-import { buildStonePolyhedron } from "./StoneClipper";
+import { buildStonePolyhedron, type StonePolygon, type StoneVec3 } from "./StoneClipper";
 import {
   scoreStoneRotationalSymmetry,
   scoreStoneSilhouette,
 } from "./StoneSilhouetteQuality";
-import { STONE_ARCHETYPE_IDS, type StoneArchetypeId } from "./StoneRecipe";
-import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
+import {
+  STONE_ARCHETYPE_IDS,
+  resolveStoneRecipe,
+  type StoneArchetypeId,
+  type StoneRecipe,
+} from "./StoneRecipe";
+import { resolveQualityStoneRecipe, scoreStoneShape } from "./StoneShapeQuality";
 
 /** Seeds per family. Enough to describe a population, cheap enough to gate on. */
 const SEEDS = 40;
@@ -37,6 +42,7 @@ const SEVERE_SYMMETRY_BUDGET = 0.04;
 
 /** Floor on the population's mean silhouette score, from the same recording. */
 const SILHOUETTE_FLOOR = -0.2;
+const TRANSFORM_SCORE_EPSILON = 1e-4;
 
 function fail(message: string): never {
   throw new Error(`[stone-silhouette] ${message}`);
@@ -48,15 +54,56 @@ function assert(condition: boolean, message: string): asserts condition {
   }
 }
 
+/** Mirrors the post-clip transform in generateStoneMesh. */
+function shippedBody(recipe: StoneRecipe): StonePolygon[] {
+  const body = buildStonePolyhedron(recipe, false);
+  const seen = new Set<StoneVec3>();
+  for (const polygon of body) {
+    for (const point of polygon.points) {
+      if (seen.has(point)) continue;
+      seen.add(point);
+      const shearedX = point.x + recipe.leanX * point.y;
+      const shearedZ = point.z + recipe.leanZ * point.y;
+      point.x = recipe.width * shearedX;
+      point.y = recipe.height * point.y;
+      point.z = recipe.depth * shearedZ;
+    }
+  }
+  return body;
+}
+
+/**
+ * Regression for the scorer bug where width/height/depth and lean were invisible.
+ * Only post-clip transforms change between these recipes, so a non-zero score
+ * delta proves selection is looking at the body that actually ships.
+ */
+function verifyPostClipTransformAffectsScore(): void {
+  const base = resolveStoneRecipe("boulder", 0x51f0e5);
+  const transformed: StoneRecipe = {
+    ...base,
+    height: base.height * 0.68,
+    depth: base.depth * 1.24,
+    leanX: base.leanX + 0.21,
+    leanZ: base.leanZ - 0.13,
+  };
+  const delta = Math.abs(scoreStoneShape(transformed) - scoreStoneShape(base));
+  assert(
+    delta > TRANSFORM_SCORE_EPSILON,
+    "Stone quality scoring ignored the post-clip anisotropic scale/shear transform.",
+  );
+}
+
 /**
  * Population contract for the two screen-space shape metrics.
  *
  * Per-seed scoring already runs inside selection; what it cannot see is the
  * shape of the whole distribution, which is where this kind of tuning usually
  * goes wrong -- one family drifts while the seeds anyone is looking at stay
- * fine.
+ * fine. Metrics are evaluated on the same transformed body that ships.
  */
 export function verifyStoneSilhouetteQuality(): string {
+  verifyPostClipTransformAffectsScore();
+
   let silhouetteTotal = 0;
   let bodies = 0;
   let severe = 0;
@@ -65,10 +112,7 @@ export function verifyStoneSilhouetteQuality(): string {
     let symmetryTotal = 0;
     for (let variant = 0; variant < SEEDS; variant += 1) {
       const seed = (variant * 2654435761 + archetype.length * 97) >>> 0;
-      const faces = buildStonePolyhedron(
-        resolveQualityStoneRecipe(archetype, seed),
-        false,
-      );
+      const faces = shippedBody(resolveQualityStoneRecipe(archetype, seed));
       const symmetry = scoreStoneRotationalSymmetry(faces);
       symmetryTotal += symmetry;
       if (symmetry > SEVERE_SYMMETRY) severe += 1;
@@ -93,5 +137,5 @@ export function verifyStoneSilhouetteQuality(): string {
     `${severe}/${bodies} bodies are severely periodic, over the ${(SEVERE_SYMMETRY_BUDGET * 100).toFixed(0)}% budget.`,
   );
 
-  return `silhouette ${silhouette.toFixed(3)} · ${severe}/${bodies} periodic`;
+  return `silhouette ${silhouette.toFixed(3)} · ${severe}/${bodies} periodic · transformed-body guard`;
 }
