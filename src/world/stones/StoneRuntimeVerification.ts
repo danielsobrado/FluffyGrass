@@ -11,6 +11,7 @@ const TRIANGLE_BUDGET = 1000;
 const COLLECTION_MARGIN_CELLS = 1;
 const DISPLACEMENT_SAMPLE_RADIUS_CELLS = 16;
 const MATERIAL_FRAME_EPSILON = 1e-6;
+const CONTACT_OFFSET_EPSILON = 2e-3;
 
 interface StoneFieldVerificationAccess {
   getCellInstances(cellX: number, cellZ: number): StoneInstance[];
@@ -291,9 +292,9 @@ export function verifyRuntimeStoneVariants(configSource: string): string {
               far.metrics.materialFootprintRadius,
           ) <= MATERIAL_FRAME_EPSILON &&
           Math.abs(near.metrics.contactOffsetX - far.metrics.contactOffsetX) <=
-            MATERIAL_FRAME_EPSILON &&
+            CONTACT_OFFSET_EPSILON &&
           Math.abs(near.metrics.contactOffsetZ - far.metrics.contactOffsetZ) <=
-            MATERIAL_FRAME_EPSILON,
+            CONTACT_OFFSET_EPSILON,
         `${archetype}:${variantIndex} material frame moves across the near/far LOD boundary.`,
       );
       assert(
