@@ -10,6 +10,7 @@ const VERTEX_BUDGET = 1500;
 const TRIANGLE_BUDGET = 1000;
 const COLLECTION_MARGIN_CELLS = 1;
 const DISPLACEMENT_SAMPLE_RADIUS_CELLS = 16;
+const MATERIAL_FRAME_EPSILON = 1e-6;
 
 interface StoneFieldVerificationAccess {
   getCellInstances(cellX: number, cellZ: number): StoneInstance[];
@@ -101,6 +102,13 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
   assert(
     vertices <= VERTEX_BUDGET && triangles <= TRIANGLE_BUDGET,
     `${label} exceeds its mesh budget (${vertices} verts, ${triangles} tris).`,
+  );
+  assert(
+    Number.isFinite(mesh.metrics.materialHeight) &&
+      mesh.metrics.materialHeight > 0 &&
+      Number.isFinite(mesh.metrics.materialFootprintRadius) &&
+      mesh.metrics.materialFootprintRadius > 0,
+    `${label} has an invalid material frame.`,
   );
 
   for (let index = 0; index < mesh.positions.length; index += 1) {
@@ -274,6 +282,27 @@ export function verifyRuntimeStoneVariants(configSource: string): string {
       assert(
         Math.abs(near.metrics.contactRadius - far.metrics.contactRadius) <= 2e-3,
         `${archetype}:${variantIndex} chips changed the ground contact footprint.`,
+      );
+      assert(
+        Math.abs(near.metrics.materialHeight - far.metrics.materialHeight) <=
+          MATERIAL_FRAME_EPSILON &&
+          Math.abs(
+            near.metrics.materialFootprintRadius -
+              far.metrics.materialFootprintRadius,
+          ) <= MATERIAL_FRAME_EPSILON &&
+          Math.abs(near.metrics.contactOffsetX - far.metrics.contactOffsetX) <=
+            MATERIAL_FRAME_EPSILON &&
+          Math.abs(near.metrics.contactOffsetZ - far.metrics.contactOffsetZ) <=
+            MATERIAL_FRAME_EPSILON,
+        `${archetype}:${variantIndex} material frame moves across the near/far LOD boundary.`,
+      );
+      assert(
+        Math.abs(far.metrics.materialHeight - far.metrics.height) <=
+          MATERIAL_FRAME_EPSILON &&
+          Math.abs(
+            far.metrics.materialFootprintRadius - far.metrics.footprintRadius,
+          ) <= MATERIAL_FRAME_EPSILON,
+        `${archetype}:${variantIndex} far whole stone no longer uses its legacy centred material frame.`,
       );
       assert(
         near.metrics.triangleCount >= far.metrics.triangleCount * 0.8,
