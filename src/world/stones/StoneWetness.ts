@@ -1,32 +1,25 @@
 import type { HydrologySample } from "../hydrology/HydrologyField";
 
 /**
- * How wet a stone is, and how far up its body the water reaches.
+ * How wet a stone is, and where the hydrologic waterline sits on it.
  *
- * Wet rock is the one surface in this world that Lambert alone cannot state.
- * Everything else the stones do — value bands, cavity, bevel highlights, moss —
- * is diffuse, and a diffuse-only stone at a river's edge reads exactly like the
- * same stone in a dry meadow. What separates them in life is gloss: a film of
- * water on stone throws a narrow highlight that dry stone never has, and it
- * darkens the albedo underneath it at the same time. Darkening alone produces a
- * muddy stone, not a wet one; the sheen alone produces a polished dry one. Both
- * together, in a band that ends at a waterline, is the whole effect.
- *
- * The band is deliberately cut from the same signal the terrain wet band uses
- * (`waterProximity`, top of the ramp only). A stone standing in a river and the
- * mud it stands in must agree about where the water is, or the shoreline
- * acquires two different edges.
+ * `waterlineY` is the actual water surface used by scouring and splash-zone
+ * growth. `topY` is deliberately different: it is the top of visible wetting
+ * after splash and waterfall spray climb are added. Keeping those semantics
+ * separate prevents spray from moving the geological waterline up the rock.
  */
-
 export interface StoneWetness {
   /** Peak wetness of this body: 0 dry, 1 running with water. */
   readonly strength: number;
-  /** World height up to which the body is wetted. */
+  /** Actual hydrologic water surface used by scouring and splash growth. */
+  readonly waterlineY: number;
+  /** World height up to which the body is visibly wetted. */
   readonly topY: number;
 }
 
 export const STONE_WETNESS_DRY: StoneWetness = Object.freeze({
   strength: 0,
+  waterlineY: 0,
   topY: 0,
 });
 
@@ -39,13 +32,13 @@ export const STONE_WETNESS_DRY: StoneWetness = Object.freeze({
 const SHORE_PROXIMITY_START = 0.94;
 /** Spray carries further than splash, so it opens earlier on the same ramp. */
 const SPRAY_PROXIMITY_START = 0.86;
-/** Metres of splash above the waterline on a stone at the bank. */
+/** Metres of splash above the wetted ground or water surface. */
 const SPLASH_HEIGHT = 0.34;
 /** A fall of this drop soaks everything around its plunge pool. */
 const SPRAY_REFERENCE_DROP = 3;
 /** Extra metres of body the spray of a full-sized fall keeps wet. */
 const SPRAY_CLIMB = 1.6;
-/** Vertical softness of the waterline itself. */
+/** Vertical softness of the visible wet edge. */
 const WATERLINE_BAND = 0.18;
 
 /** Metres above the waterline that splash keeps damp enough to favour moss. */
@@ -70,7 +63,9 @@ function clamp01(value: number): number {
  *
  * `waterLevel` is only trusted where there is water to have a level: away from
  * a channel it describes a surface that is not being drawn, and reading it
- * there would hang a waterline in dry grass.
+ * there would hang a waterline in dry grass. The visible wet edge starts no
+ * lower than the ground under the stone, while `waterlineY` remains the actual
+ * water surface for growth/scouring semantics.
  */
 export function resolveStoneWetness(
   hydrology: HydrologySample,
@@ -84,20 +79,20 @@ export function resolveStoneWetness(
   if (strength <= 0) {
     return STONE_WETNESS_DRY;
   }
-  const surface =
-    hydrology.waterCoverage > 0 || shore > 0
-      ? Math.max(groundHeight, hydrology.waterLevel)
-      : groundHeight;
+  const hasWaterline = hydrology.waterCoverage > 0 || shore > 0;
+  const waterlineY = hasWaterline ? hydrology.waterLevel : groundHeight;
+  const visibleWetBase = Math.max(groundHeight, waterlineY);
   return {
     strength,
-    topY: surface + SPLASH_HEIGHT + spray * SPRAY_CLIMB,
+    waterlineY,
+    topY: visibleWetBase + SPLASH_HEIGHT + spray * SPRAY_CLIMB,
   };
 }
 
 /**
  * Wetness at one vertex, baked at batch build so the fragment shader pays
- * nothing for the waterline. Water does not climb, so this is a hard-edged
- * function of world height softened by a hand's width of capillary rise.
+ * nothing for the visible wet edge. Water and spray do not climb indefinitely,
+ * so this is a hard-edged function of world height softened by a hand's width.
  */
 export function resolveStoneVertexWetness(
   wetness: StoneWetness,
@@ -115,15 +110,12 @@ export function resolveStoneVertexWetness(
 /**
  * How much the water encourages moss at world height `y` on a wetted body.
  *
- * Not simply "wetter is mossier". Rock that is scoured by moving water carries
- * almost nothing: the band that is actually green is the one just above the
- * waterline, kept damp by splash and spray but never scrubbed. Below the line
- * this returns less than nothing, which suppresses whatever the body's own
- * susceptibility would have grown there; above it the boost fades out as the
- * rock dries.
- *
- * Returned signed so the caller can add it to a susceptibility rather than
- * having to know which side of the line it is on.
+ * Scouring is anchored to the real hydrologic waterline, never the top of the
+ * splash/spray wet band. Below the line this returns less than nothing, which
+ * suppresses the body's own susceptibility; immediately above it, splash keeps
+ * a short damp band green before the rock dries. `topY` is intentionally not
+ * read here: waterfall spray can raise visible wetting by metres without moving
+ * the water surface by a millimetre.
  */
 export function resolveStoneWaterlineMoss(
   wetness: StoneWetness,
@@ -131,10 +123,24 @@ export function resolveStoneWaterlineMoss(
 ): number {
   if (wetness.strength <= 0) return 0;
   const scoured =
-    1 - smoothstep(y, wetness.topY - WATERLINE_BAND, wetness.topY);
+    1 -
+    smoothstep(
+      y,
+      wetness.waterlineY - WATERLINE_BAND,
+      wetness.waterlineY,
+    );
   const damp =
-    smoothstep(y, wetness.topY - WATERLINE_BAND, wetness.topY) *
-    (1 - smoothstep(y, wetness.topY, wetness.topY + WATERLINE_MOSS_CLIMB));
+    smoothstep(
+      y,
+      wetness.waterlineY - WATERLINE_BAND,
+      wetness.waterlineY,
+    ) *
+    (1 -
+      smoothstep(
+        y,
+        wetness.waterlineY,
+        wetness.waterlineY + WATERLINE_MOSS_CLIMB,
+      ));
   return (
     wetness.strength *
     (damp * WATERLINE_MOSS_BOOST - scoured * WATERLINE_MOSS_SCOUR)

@@ -32,19 +32,14 @@ export interface TerrainSurfaceTargets {
   environment: THREE.Vector4;
   /** dominant biome, neighbor biome, neighbor blend */
   biome: THREE.Vector3;
-  /**
-   * Nearest stone centre in world XZ, then the radii its contact band runs
-   * between. The shader measures its own distance to that centre, so the band
-   * lands at pixel resolution instead of at terrain-vertex resolution.
-   */
+  /** Dominant compacted-soil stone: centre XZ, inner radius, outer radius. */
   stoneContact: THREE.Vector4;
   /**
-   * Reach of the nearest stone's contact shadow. Kept apart from the contact
-   * band above because it is a different effect with a different radius: the
-   * soil stain is what the stone has done to the ground, this is the sky the
-   * stone is standing in front of, and it reaches further and falls on grass as
-   * readily as on bare earth.
+   * Dominant contact-shadow centre. Optional for older isolated probes; runtime
+   * terrain always supplies it and the regression gate enforces that contract.
    */
+  stoneOcclusionCenter?: THREE.Vector2;
+  /** Reach of the independently selected contact-shadow owner. */
   stoneOcclusionRadius: number;
 }
 
@@ -143,6 +138,10 @@ export class TerrainSurfaceField {
       influence.centerZ,
       influence.innerClearRadius,
       influence.contactSoilRadius,
+    );
+    targets.stoneOcclusionCenter?.set(
+      influence.occlusionCenterX,
+      influence.occlusionCenterZ,
     );
     targets.stoneOcclusionRadius = influence.occlusionRadius;
     targets.biome.set(biome.indexA, biome.indexB, biome.blend);

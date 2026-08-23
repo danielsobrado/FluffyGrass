@@ -12,7 +12,10 @@ import { resolveStoneGeology } from "./StoneGeology";
 import {
   clearStoneGroundInfluence,
   resolveStoneOcclusionRadius,
-  writeStoneGroundInfluence,
+  scoreStoneContactInfluence,
+  scoreStoneOcclusionInfluence,
+  writeStoneContactInfluence,
+  writeStoneOcclusionInfluence,
   type MutableStoneGroundInfluence,
 } from "./StoneGroundInfluence";
 import {
@@ -95,7 +98,10 @@ import { resolveStoneWetness, type StoneWetness } from "./StoneWetness";
 export interface StoneInstance {
   readonly x: number;
   readonly z: number;
-  /** Terrain height at (x, z); the mesh origin sits at height - sink. */
+  /**
+   * World base height before sink. Whole stones use their terrain root; mated
+   * fragments share the anchor's height so one rigid fracture cannot shear in Y.
+   */
   readonly height: number;
   readonly sink: number;
   readonly rotationY: number;
@@ -425,13 +431,13 @@ export class StoneField {
   }
 
   /**
-   * The stone whose ground influence dominates at (x, z), for the terrain to
-   * resolve its contact band per pixel rather than per vertex.
+   * Dominant ground influences at (x, z), with contact soil and sky occlusion
+   * selected independently.
    *
-   * Dominance is by *normalized* distance, not raw distance: a pebble whose
-   * centre is closer than a boulder's still loses if the point sits outside its
-   * reach and well inside the boulder's, which is the only ordering that keeps
-   * a small stone from stealing the band away from the mass beside it.
+   * Both competitions use normalized distance, not raw distance. A small stone
+   * can therefore own the soil directly under it without stealing the longer
+   * shadow of a taller neighbour; stones too small to clear grass still take
+   * part in the occlusion competition.
    */
   sampleGroundInfluence(
     x: number,
@@ -445,7 +451,8 @@ export class StoneField {
     const feather = this.config.stoneGrassClearanceFeather;
     const centerCellX = Math.floor(x / this.cellSize);
     const centerCellZ = Math.floor(z / this.cellSize);
-    let closest = Number.POSITIVE_INFINITY;
+    let closestContact = Number.POSITIVE_INFINITY;
+    let closestOcclusion = Number.POSITIVE_INFINITY;
     for (
       let dz = -CLEARANCE_SOURCE_CELL_MARGIN;
       dz <= CLEARANCE_SOURCE_CELL_MARGIN;
@@ -460,25 +467,33 @@ export class StoneField {
           centerCellX + dx,
           centerCellZ + dz,
         )) {
-          if (instance.clearRadius <= 0) continue;
-          const reach = instance.clearRadius + feather;
-          const offsetX = x - instance.x;
-          const offsetZ = z - instance.z;
-          const normalized =
-            Math.hypot(offsetX, offsetZ) / Math.max(1e-4, reach);
-          if (normalized >= closest) continue;
-          closest = normalized;
-          writeStoneGroundInfluence(
+          const contactScore = scoreStoneContactInfluence(
             instance,
+            x,
+            z,
             feather,
-            resolveStoneSkirtWidth(instance.clearRadius),
-            out,
           );
+          if (contactScore < closestContact) {
+            closestContact = contactScore;
+            writeStoneContactInfluence(
+              instance,
+              feather,
+              resolveStoneSkirtWidth(instance.clearRadius),
+              out,
+            );
+          }
+
+          const occlusionScore = scoreStoneOcclusionInfluence(
+            instance,
+            x,
+            z,
+          );
+          if (occlusionScore < closestOcclusion) {
+            closestOcclusion = occlusionScore;
+            writeStoneOcclusionInfluence(instance, out);
+          }
         }
       }
-    }
-    if (!(closest < Number.POSITIVE_INFINITY)) {
-      clearStoneGroundInfluence(x, z, out);
     }
     return out;
   }
@@ -928,10 +943,10 @@ export class StoneField {
    * free parameter left. Scale, palette, value, and moss come from the anchor
    * because this is not a related stone -- it is the same stone.
    *
-   * The yaw is taken from the anchor rather than resolved again. Both halves
-   * carry the same break and so report near-identical fracture bearings, but
-   * "near-identical" opens a wedge along a metre of mated face; cancelling this
-   * fragment's own bearing against the anchor's finished rotation closes it.
+   * The yaw, base height, and terrain normal are taken from the anchor. A mated
+   * pair is one rigid body that has parted in XZ; re-sampling either transform
+   * per half shears the complementary break open. Terrain under the sibling is
+   * still sampled as a support check before the common transform is accepted.
    */
   private tryMatedFragment(
     descriptor: StoneClusterDescriptor,
@@ -979,21 +994,19 @@ export class StoneField {
     if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
       return undefined;
     }
-    const height = this.field.sampleHeight(x, z);
+    const supportHeight = this.field.sampleHeight(x, z);
     if (
-      Math.abs(height - anchor.instance.height) >
+      Math.abs(supportHeight - anchor.instance.height) >
       FORMATION_HEIGHT_TOLERANCE * Math.max(1, scale)
     ) {
       return undefined;
     }
-    if (this.pathBlocks(x, z, height, scale, footprint)) {
+    if (this.pathBlocks(x, z, supportHeight, scale, footprint)) {
       return undefined;
     }
     if (this.overlapsAny(x, z, footprint, others)) {
       return undefined;
     }
-    // The anchor's terrain normal, not this root's: the halves lean together,
-    // and letting each pick up its own slope shears the break open.
     const normal = this.normalScratch.set(
       anchor.instance.normalX,
       anchor.instance.normalY,
@@ -1002,7 +1015,7 @@ export class StoneField {
     const instance = this.createInstance(
       x,
       z,
-      height,
+      anchor.instance.height,
       normal,
       archetype,
       variantIndex,

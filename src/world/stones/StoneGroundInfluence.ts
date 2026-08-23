@@ -1,41 +1,31 @@
 /**
- * What a stone does to the ground it stands in, at the ground's own resolution.
+ * What stones do to the ground they stand in, at the ground's own resolution.
  *
- * The terrain shader has always known how to paint contact soil -- compacted
- * earth against the body, mineral grit where runoff comes off it -- but it read
- * the stone's reach from an interpolated vertex attribute, and near terrain
- * carries vertices 2.56 m apart while a boulder's whole soil band is about
- * 1.2 m wide. Measured across the field, 61% of ground-clearing stones have
- * their entire band narrower than a single terrain quad: the effect either
- * vanished between vertices or smeared into a soft halo with no relation to the
- * footprint underneath it.
- *
- * The fix is not to send the band across the grid at all. A vertex carries
- * *which stone is nearest and how far its influence reaches*, and the fragment
- * shader measures its own distance to that centre. Interpolating a centre point
- * behaves far better than interpolating a falloff, because the four corners of
- * a quad near a stone almost always agree on which stone they are near -- and
- * where they disagree, the phantom centre lands between two bodies, in the gap,
- * which is where the band is weakest anyway.
+ * Contact soil and contact shade deliberately keep separate owners. A squat
+ * stone can own the compacted-soil band while a taller neighbour blocks more of
+ * the sky at the same point; forcing both effects through one winner makes the
+ * smaller radius steal the larger effect. The terrain carries both centres and
+ * resolves their distances independently.
  */
 
 import type { StoneInstance } from "./StoneField";
 
 /**
- * The three radii a stone imposes on the ground around it, outward from the
- * body: bare compacted earth, the soil stain fading out of it, and the ring of
- * thickened planting beyond that.
+ * The radii and centres imposed on the ground by the dominant local stones.
  */
 export interface StoneGroundInfluence {
   readonly centerX: number;
   readonly centerZ: number;
-  /** Ground the body clears entirely; full soil inside this. */
+  /** Ground the contact owner clears entirely; full soil inside this. */
   readonly innerClearRadius: number;
-  /** Where the soil stain has faded back to open meadow. */
+  /** Where the contact owner's soil stain has faded back to open meadow. */
   readonly contactSoilRadius: number;
   /** Outer edge of the planted band the skirt layer thickens. */
   readonly understoryBoostRadius: number;
-  /** Reach of the contact shadow the body throws onto the ground. */
+  /** Centre of the independently selected contact-shadow owner. */
+  readonly occlusionCenterX: number;
+  readonly occlusionCenterZ: number;
+  /** Reach of the contact shadow the occlusion owner throws onto the ground. */
   readonly occlusionRadius: number;
 }
 
@@ -62,6 +52,8 @@ export function createStoneGroundInfluence(): StoneGroundInfluence {
     innerClearRadius: 0,
     contactSoilRadius: 0,
     understoryBoostRadius: 0,
+    occlusionCenterX: 0,
+    occlusionCenterZ: 0,
     occlusionRadius: 0,
   };
 }
@@ -73,6 +65,8 @@ export interface MutableStoneGroundInfluence {
   innerClearRadius: number;
   contactSoilRadius: number;
   understoryBoostRadius: number;
+  occlusionCenterX: number;
+  occlusionCenterZ: number;
   occlusionRadius: number;
 }
 
@@ -83,12 +77,39 @@ export function createMutableStoneGroundInfluence(): MutableStoneGroundInfluence
     innerClearRadius: 0,
     contactSoilRadius: 0,
     understoryBoostRadius: 0,
+    occlusionCenterX: 0,
+    occlusionCenterZ: 0,
     occlusionRadius: 0,
   };
 }
 
-/** The radii one stone imposes, given the clearance feather it was placed with. */
-export function writeStoneGroundInfluence(
+/** Normalized contact distance; lower values dominate. */
+export function scoreStoneContactInfluence(
+  instance: StoneInstance,
+  x: number,
+  z: number,
+  feather: number,
+): number {
+  if (!(instance.clearRadius > 0)) return Number.POSITIVE_INFINITY;
+  const reach = instance.clearRadius + feather;
+  return Math.hypot(x - instance.x, z - instance.z) / Math.max(1e-4, reach);
+}
+
+/** Normalized sky-occlusion distance; lower values dominate. */
+export function scoreStoneOcclusionInfluence(
+  instance: StoneInstance,
+  x: number,
+  z: number,
+): number {
+  if (!(instance.occlusionRadius > 0)) return Number.POSITIVE_INFINITY;
+  return (
+    Math.hypot(x - instance.x, z - instance.z) /
+    Math.max(1e-4, instance.occlusionRadius)
+  );
+}
+
+/** Write only the compacted-soil owner. */
+export function writeStoneContactInfluence(
   instance: StoneInstance,
   feather: number,
   skirtWidth: number,
@@ -99,15 +120,37 @@ export function writeStoneGroundInfluence(
   out.innerClearRadius = instance.clearRadius * SOIL_CORE_RATIO;
   out.contactSoilRadius = instance.clearRadius + feather;
   out.understoryBoostRadius = instance.clearRadius + skirtWidth;
+}
+
+/** Write only the contact-shadow owner. */
+export function writeStoneOcclusionInfluence(
+  instance: StoneInstance,
+  out: MutableStoneGroundInfluence,
+): void {
+  out.occlusionCenterX = instance.x;
+  out.occlusionCenterZ = instance.z;
   out.occlusionRadius = instance.occlusionRadius;
+}
+
+/**
+ * Convenience for callers that intentionally use one stone for both effects.
+ */
+export function writeStoneGroundInfluence(
+  instance: StoneInstance,
+  feather: number,
+  skirtWidth: number,
+  out: MutableStoneGroundInfluence,
+): void {
+  writeStoneContactInfluence(instance, feather, skirtWidth, out);
+  writeStoneOcclusionInfluence(instance, out);
 }
 
 /**
  * Clears the influence to "no stone here", anchored at the sampling point.
  *
- * The anchor matters: a vertex with no stone still has its centre interpolated
- * toward its neighbours, and anchoring it at the vertex keeps that lerp inside
- * the quad instead of dragging the phantom centre toward the world origin.
+ * Anchoring both centres at the sample matters because zero-radius descriptors
+ * are still interpolated by the terrain mesh. Keeping that interpolation local
+ * avoids dragging inactive descriptors toward the world origin.
  */
 export function clearStoneGroundInfluence(
   x: number,
@@ -119,6 +162,8 @@ export function clearStoneGroundInfluence(
   out.innerClearRadius = 0;
   out.contactSoilRadius = 0;
   out.understoryBoostRadius = 0;
+  out.occlusionCenterX = x;
+  out.occlusionCenterZ = z;
   out.occlusionRadius = 0;
 }
 

@@ -140,6 +140,9 @@ try {
   const systemPerformanceVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneSystemPerformanceVerification.ts",
   );
+  const latestRegressionVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneLatestRegressionVerification.ts",
+  );
 
   const summary = await verification.verifyStones(configSource);
   const profileSummary = profileVerification.verifyStoneProfiles();
@@ -169,9 +172,11 @@ try {
     performanceVerification.verifyStoneRenderPerformance(configSource);
   const systemPerformanceSummary =
     systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
+  const latestRegressionSummary =
+    latestRegressionVerification.verifyLatestStoneRegressions(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clearanceRegistrationSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${formationSummary} · ${silhouetteSummary} · ${pathSummary} · ${pathFootprintSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clearanceRegistrationSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${formationSummary} · ${silhouetteSummary} · ${pathSummary} · ${pathFootprintSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary} · ${latestRegressionSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);
