@@ -13,7 +13,16 @@ try {
   const archetype = process.argv[2] ?? "boulder";
   const seeds = Number(process.argv[3] ?? 24);
   const BINS = 10;
-  const names = ["tone", "wear", "bounce", "weathering", "cavity", "moss", "normalY"];
+  const names = [
+    "tone",
+    "wear",
+    "bounce",
+    "mineral",
+    "weathering",
+    "cavity",
+    "moss",
+    "normalY",
+  ];
   const sums = names.map(() => new Float64Array(BINS));
   const counts = new Float64Array(BINS);
 
@@ -28,19 +37,22 @@ try {
       sums[0][bin] += m.tones[v];
       sums[1][bin] += m.wears[v];
       sums[2][bin] += m.bounces[v];
-      sums[3][bin] += m.weatherings[v];
-      sums[4][bin] += m.cavities[v];
-      sums[5][bin] += m.mosses[v];
-      sums[6][bin] += m.normals[v * 3 + 1];
+      sums[3][bin] += m.minerals[v];
+      sums[4][bin] += m.weatherings[v];
+      sums[5][bin] += m.cavities[v];
+      sums[6][bin] += m.mosses[v];
+      sums[7][bin] += m.normals[v * 3 + 1];
     }
   }
   console.log(`[${archetype}] channel means by height band, ${seeds} seeds`);
-  console.log("  band   " + names.map((n) => n.padStart(10)).join(""));
+  console.log("  band   " + names.map((n) => n.padStart(11)).join(""));
   for (let b = BINS - 1; b >= 0; b -= 1) {
     if (!counts[b]) continue;
     const row = names
-      .map((_, i) => (sums[i][b] / counts[b]).toFixed(3).padStart(10))
+      .map((_, i) => (sums[i][b] / counts[b]).toFixed(3).padStart(11))
       .join("");
     console.log(`  ${(b / BINS).toFixed(1)}-${((b + 1) / BINS).toFixed(1)}` + row);
   }
-} finally { await server.close(); }
+} finally {
+  await server.close();
+}
