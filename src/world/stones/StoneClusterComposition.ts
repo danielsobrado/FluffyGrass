@@ -14,7 +14,6 @@ import {
   lerp,
   ROLE_YAW_EXTRA,
   SECONDARY_FAMILY,
-  SPLIT_CHANCE,
   STONE_CLUSTER_MEMBER_JITTER,
   stoneClusterMemberLabel,
   type ClusterFamilyWeights,
@@ -104,7 +103,7 @@ export class StoneClusterComposition {
       clusterRng
         .fork(stoneClusterMemberLabel(firstSecondary.index))
         .fork("split")
-        .chance(SPLIT_CHANCE)
+        .chance(this.config.stoneFormationChance)
     ) {
       members[firstSecondary.index] = {
         ...firstSecondary,
