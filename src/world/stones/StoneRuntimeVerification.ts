@@ -88,7 +88,10 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
     mesh.tones.length === vertices &&
       mesh.wears.length === vertices &&
       mesh.bounces.length === vertices &&
-      mesh.mosses.length === vertices,
+      mesh.mosses.length === vertices &&
+      mesh.minerals.length === vertices &&
+      mesh.weatherings.length === vertices &&
+      mesh.cavities.length === vertices,
     `${label} scalar attribute count does not match metrics.`,
   );
   assert(
@@ -133,6 +136,18 @@ function verifyMesh(mesh: StoneMeshData, label: string): void {
     assert(
       mesh.mosses[index] >= 0 && mesh.mosses[index] <= 1,
       `${label} moss ${index} is out of range.`,
+    );
+    assert(
+      mesh.minerals[index] >= 0 && mesh.minerals[index] <= 1,
+      `${label} mineral ${index} is out of range.`,
+    );
+    assert(
+      mesh.weatherings[index] >= 0 && mesh.weatherings[index] <= 1,
+      `${label} weathering ${index} is out of range.`,
+    );
+    assert(
+      mesh.cavities[index] >= 0 && mesh.cavities[index] <= 1,
+      `${label} cavity ${index} is out of range.`,
     );
   }
   for (let index = 0; index < mesh.indices.length; index += 1) {
