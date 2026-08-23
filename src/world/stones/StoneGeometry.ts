@@ -59,32 +59,9 @@ export interface StoneMeshMetrics {
   /** Strength of close-range horizontal bedding seams for this body. */
   readonly bedding: number;
   readonly silhouetteVariant: StoneRecipe["silhouetteVariant"];
-  /**
-   * Axial bearing of this body's dominant fracture set, in mesh-local space.
-   *
-   * Placement turns a stone by yaw alone, so without knowing where a variant's
-   * cut planes already point, aligning members of a cluster to a shared strike
-   * aligns nothing: each variant carries its fractures on whatever bearing its
-   * own seed produced. Recording the bearing here lets placement cancel it and
-   * put every member's fractures on the formation's bearing, which is what
-   * makes a group read as one parent boulder broken apart rather than as three
-   * stones standing near each other.
-   *
-   * Axial, not directional: the two faces of one joint set point 180° apart and
-   * mean the same geology, so the average is taken on doubled angles and the
-   * result lives in [-PI/2, PI/2).
-   */
+  /** Axial bearing of this body's dominant fracture set, in mesh-local space. */
   readonly fractureAzimuth: number;
-  /**
-   * Where this body's contact centroid sat in its recipe's frame before the
-   * mesh was centred on it, in metres at unit scale.
-   *
-   * A whole stone has no use for this, but the two fragments of a formation are
-   * each centred on their own contact polygon, which pulls them apart by the
-   * difference of these offsets. Recording it is what lets placement put the
-   * halves back on the one break they were cut from instead of guessing a
-   * separation from their footprints.
-   */
+  /** Contact-centroid shift applied while centring this pooled body. */
   readonly contactOffsetX: number;
   readonly contactOffsetZ: number;
   readonly fingerprint: number;
@@ -101,9 +78,7 @@ export function generateStoneMesh(
 
   const uniquePoints = new Set<StoneVec3>();
   for (const polygon of polygons) {
-    for (const point of polygon.points) {
-      uniquePoints.add(point);
-    }
+    for (const point of polygon.points) uniquePoints.add(point);
   }
 
   for (const point of uniquePoints) {
@@ -112,17 +87,11 @@ export function generateStoneMesh(
     point.x = recipe.width * shearedX;
     point.y = recipe.height * point.y;
     point.z = recipe.depth * shearedZ;
-    if (Math.abs(point.y) <= STONE_SNAP_EPSILON) {
-      point.y = 0;
-    }
+    if (Math.abs(point.y) <= STONE_SNAP_EPSILON) point.y = 0;
   }
 
   const contactOffset = centerStoneContact(polygons, uniquePoints);
-
   const faces = buildWorkingStoneFaces(polygons);
-  // Normal averaging and the edge accents that start where it stops read the
-  // same archetype treatment, so a family cannot end up smoothed by one rule
-  // and accented by another.
   const softening = resolveStoneFacetSoftening(recipe.archetype);
   const edgeSharpness = buildStoneEdgeSharpness(faces, softening);
   const sharedFacePairs = countSharedStoneFacePairs(faces);
@@ -179,10 +148,12 @@ export function generateStoneMesh(
         heightMetres,
         edgeShading.crease,
       );
+      // Fragments are centred on different contact polygons. Add that centring
+      // shift back for geology so both halves sample the one parent-space field.
       minerals[vertexCursor] = resolveCornerMineral(
-        point.x,
+        point.x + contactOffset.x,
         point.y,
-        point.z,
+        point.z + contactOffset.z,
         recipe,
       );
       weatherings[vertexCursor] = resolveCornerWeathering(
@@ -224,9 +195,7 @@ export function generateStoneMesh(
 
       const radial = Math.hypot(point.x, point.z);
       footprintRadius = Math.max(footprintRadius, radial);
-      if (point.y === 0) {
-        contactRadius = Math.max(contactRadius, radial);
-      }
+      if (point.y === 0) contactRadius = Math.max(contactRadius, radial);
       vertexCursor += 1;
       cornerCursor += 1;
     }
@@ -363,9 +332,7 @@ function centerStoneContact(
 function resolveStoneHeight(faces: readonly WorkingStoneFace[]): number {
   let maxY = 0;
   for (const face of faces) {
-    for (const point of face.points) {
-      maxY = Math.max(maxY, point.y);
-    }
+    for (const point of face.points) maxY = Math.max(maxY, point.y);
   }
   return Math.max(maxY, 1e-3);
 }
