@@ -1652,16 +1652,26 @@ export class StoneField {
       this.config.grassMaxAltitude - 35,
       this.config.grassMaxAltitude + 30,
     );
+    // Both halves of a mated body must use the parent's embed transform. If the
+    // fragment's own clipped height or secondary role changed the sink, the
+    // break would shear vertically even though height, normal, scale and yaw
+    // are shared. Rejoining the anchor also stays transform-continuous this way.
+    const sinkVariant =
+      fragment === "whole" ? variant : this.getVariant(archetype, variantIndex);
+    const sinkRole: StoneClusterRole = fragment === "whole" ? role : "anchor";
     const embedMultiplier =
-      archetype === "pebble" && role === "debris"
+      archetype === "pebble" && sinkRole === "debris"
         ? 1.25
-        : role === "anchor"
+        : sinkRole === "anchor"
           ? 1.08
-          : role === "secondary"
+          : sinkRole === "secondary"
             ? 1.03
             : 1;
     const sink =
-      variant.metrics.embed * variant.metrics.height * scale * embedMultiplier +
+      sinkVariant.metrics.embed *
+        sinkVariant.metrics.height *
+        scale *
+        embedMultiplier +
       (1 - normal.y) * 0.55 * scale;
     const contact = variant.metrics.contactRadius * scale;
     let clearRadius = 0;

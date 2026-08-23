@@ -94,14 +94,19 @@ function verifyRigidMatedPlacement(configSource: string): number {
       const half = resolved.members.find((member) => member.isSplitHalf)?.instance;
       assert(anchor !== undefined && half !== undefined, "Split lost one of its halves.");
       assert(
-        anchor.height === half.height,
-        `Mated fragments sheared vertically at ${gridX}:${gridZ}.`,
+        anchor.height === half.height && anchor.sink === half.sink,
+        `Mated fragments disagree on their vertical transform at ${gridX}:${gridZ}.`,
       );
       assert(
         anchor.normalX === half.normalX &&
           anchor.normalY === half.normalY &&
           anchor.normalZ === half.normalZ,
         `Mated fragments disagree on their rigid terrain tilt at ${gridX}:${gridZ}.`,
+      );
+      assert(
+        anchor.scale === half.scale &&
+          Math.abs(anchor.rotationY - half.rotationY) < 1e-9,
+        `Mated fragments disagree on scale/yaw at ${gridX}:${gridZ}.`,
       );
       pairs += 1;
     }
