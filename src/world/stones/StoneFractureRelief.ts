@@ -19,6 +19,20 @@ export const STONE_FRACTURE_RELIEF = 0.018;
 /** Structural cuts only need enough relief to stop reading as saw lines. */
 export const STONE_CUT_RELIEF = 0.009;
 
+/**
+ * Harder, sharper families keep a smaller cut waver. The smallest value stays
+ * below the family's minimum edge-chamfer depth, preventing relief from folding
+ * the narrow bevel that carries the highlight along the cut.
+ */
+const CUT_RELIEF_SCALE: Readonly<Record<StoneRecipe["archetype"], number>> = {
+  pebble: 0.45,
+  boulder: 1,
+  slab: 0.85,
+  block: 0.8,
+  shard: 0.42,
+  outcrop: 1,
+};
+
 /** Height over which relief fades in, so ground contact stays flat. */
 const RELIEF_GROUND_FADE = 0.14;
 /** Lattice period of the waver, in unit body space. */
@@ -118,6 +132,7 @@ function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {
     if (source) sources.push(source);
   }
 
+  const cutRelief = STONE_CUT_RELIEF * CUT_RELIEF_SCALE[recipe.archetype];
   for (let index = 0; index < recipe.cuts.length; index += 1) {
     const cut = recipe.cuts[index];
     const source = createReliefSource(
@@ -125,7 +140,7 @@ function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {
       "cut",
       cut.normalX,
       cut.normalZ,
-      STONE_CUT_RELIEF,
+      cutRelief,
       hashStoneCell(recipe.seed, index, CUT_RELIEF_SEED_XOR),
     );
     if (source) sources.push(source);
