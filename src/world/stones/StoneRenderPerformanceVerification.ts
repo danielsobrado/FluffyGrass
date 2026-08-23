@@ -259,11 +259,13 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   verifyClearanceAmortization(config);
   verifyExpandedClearanceNeighborhood(config);
 
+  const grainEnabled =
+    config.stoneGrainStrength > 0 || config.stoneGrainNormalStrength > 0;
   const shaderDetailDistance = Math.max(
     config.stoneGrowthDetailStrength > 0
       ? config.stoneGrowthDetailFadeDistance
       : 0,
-    config.stoneGrainStrength > 0 ? config.stoneGrainFadeDistance : 0,
+    grainEnabled ? config.stoneGrainFadeDistance : 0,
   );
   assert(
     config.stoneDetailRadiusCompact * config.chunkSize >= shaderDetailDistance,
