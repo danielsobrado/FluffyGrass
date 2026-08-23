@@ -306,6 +306,7 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
         mesh.tones,
         mesh.wears,
         mesh.bounces,
+        mesh.minerals,
         mesh.weatherings,
         mesh.cavities,
         undefined,
