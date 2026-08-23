@@ -88,12 +88,19 @@ export function verifyStoneShaderPerformance(configSource: string): string {
       !coarse.fragmentShader.includes("cameraPosition") &&
       !coarse.vertexShader.includes("stoneGrowthPosition") &&
       !coarse.fragmentShader.includes("stoneBedDistance") &&
+      !coarse.fragmentShader.includes("stoneSheen") &&
+      coarse.vertexShader.includes("stoneWet") &&
+      coarse.fragmentShader.includes("uStoneWetDarken") &&
+      coarse.fragmentShader.includes(
+        "mix(1.0, uStoneWetDarken, vStoneWet)",
+      ) &&
+      coarse.uniforms.uStoneWetDarken !== undefined &&
       coarse.fragmentShader.includes("stoneSkySide") &&
       coarse.fragmentShader.includes("vStoneMoss"),
-    "Coarse stone shader must keep sky ambient without near procedural work.",
+    "Coarse stone shader must keep wet albedo and sky ambient without near procedural work or sheen.",
   );
 
   detailedMaterial.dispose();
   coarseMaterial.dispose();
-  return "bounded near bedding/fades · unbranched grain bump · shared sky-side ambient · noise-free coarse shader";
+  return "bounded near bedding/fades · unbranched grain bump · coarse wet-albedo parity · shared sky-side ambient · noise-free coarse shader";
 }
