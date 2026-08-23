@@ -1,64 +1,45 @@
 /**
  * Scoring a stone the way it is actually looked at.
  *
- * Every other shape metric in this system measures object space: face areas,
- * support radii, ring ratios. None of them know that a stone is seen from a
- * camera set above and behind the player, so a body can score well on paper and
- * still present a smooth dome in play -- the silhouette is what the eye reads
- * first, and nothing was measuring it.
- *
- * Two things are measured here, both on the projected outline:
- *
- * - How the outline's turning is distributed. A convex hull always turns
- *   through a full circle in total; what separates a rock from a dome is
- *   whether that turning arrives in a few decisive corners or is spread evenly
- *   over many small ones. This is the screen-space form of dominant planes.
- * - How close the outline is to a circle, which is the tell that no plane is
- *   dominant at all.
- *
- * Both are averaged over a ring of viewpoints and then re-weighted toward the
- * worst of them, because a body that reads well from three sides and as a cone
- * from the fourth is not a good body: the player walks around it.
+ * Object-space face counts do not tell us how many corners survive projection.
+ * This module measures the outline from gameplay-like viewpoints, both for art
+ * direction and for deciding whether topology changes are actually justified.
  */
 
 import type { StonePolygon, StoneVec3 } from "./StoneClipper";
 import { calculateStonePolygonAreaAndNormal } from "./StoneMeshTopology";
 
-/**
- * Depression angles the outline is judged from, in radians.
- *
- * Derived from the gameplay rig in `world.yaml` -- a camera 4.5 m back at 38
- * degrees of elevation, looking 1.05 m up -- which puts a stone a few metres
- * ahead of the player somewhere in this band. It is a heuristic about how rocks
- * are looked at rather than a binding of the runtime camera: quality scoring
- * runs at bake time and must not move when a player tilts the view.
- */
+/** Gameplay-like depression angles, in radians. */
 const VIEW_PITCHES: readonly number[] = [0.31, 0.52];
-
 /** Viewpoints around the body. The player walks around it; so does this. */
 const VIEW_AZIMUTHS = 8;
-
 /** Corners that count as carrying the outline's structure. */
 const DOMINANT_CORNERS = 4;
-
 /** Weight on the least flattering view, against the average of them all. */
 const WORST_VIEW_WEIGHT = 0.35;
-
-/** 5 degree steps, so 45, 60, 90, 120 and 180 all land on whole samples. */
+/** 5 degree steps, so common rotational periods land on whole samples. */
 const SYMMETRY_SAMPLES = 72;
 const SYMMETRY_SHIFTS: readonly number[] = [9, 12, 18, 24, 36];
-
-/**
- * Normalized support difference at which a body counts as fully irregular.
- * Below it, the body is repeating itself to some degree.
- */
 const SYMMETRY_TOLERANCE = 0.12;
-
 const HULL_EPSILON = 1e-9;
+/**
+ * Perpendicular error allowed when collapsing a projected hull point, as a
+ * share of that view's perimeter. This is deliberately screen-relative: the
+ * question is whether a corner changes the visible outline, not how many
+ * centimetres apart two source rings happen to be.
+ */
+const SILHOUETTE_SIMPLIFY_PERIMETER_RATIO = 0.01;
 
 interface Point2 {
   readonly x: number;
   readonly y: number;
+}
+
+export interface StoneSilhouetteComplexity {
+  readonly views: number;
+  readonly meanRawCorners: number;
+  readonly meanMeaningfulCorners: number;
+  readonly maximumMeaningfulCorners: number;
 }
 
 /**
@@ -72,44 +53,63 @@ export function scoreStoneSilhouette(faces: readonly StonePolygon[]): number {
   let total = 0;
   let worst = Number.POSITIVE_INFINITY;
   let views = 0;
-  for (const pitch of VIEW_PITCHES) {
-    const cosPitch = Math.cos(pitch);
-    const sinPitch = Math.sin(pitch);
-    for (let step = 0; step < VIEW_AZIMUTHS; step += 1) {
-      const azimuth = (step / VIEW_AZIMUTHS) * Math.PI * 2;
-      const cosAzimuth = Math.cos(azimuth);
-      const sinAzimuth = Math.sin(azimuth);
-      // Screen right is horizontal by construction, so the projection keeps the
-      // world's up direction upright -- the same framing the player has.
-      const rightX = -sinAzimuth;
-      const rightZ = cosAzimuth;
-      const upX = -sinPitch * cosAzimuth;
-      const upY = cosPitch;
-      const upZ = -sinPitch * sinAzimuth;
-
-      const projected: Point2[] = points.map((point) => ({
-        x: point.x * rightX + point.z * rightZ,
-        y: point.x * upX + point.y * upY + point.z * upZ,
-      }));
-      const score = scoreOutline(convexHull(projected));
-      total += score;
-      worst = Math.min(worst, score);
-      views += 1;
-    }
-  }
+  visitProjectedHulls(points, (hull) => {
+    const score = scoreOutline(hull);
+    total += score;
+    worst = Math.min(worst, score);
+    views += 1;
+  });
   if (views === 0) return 0;
   const mean = total / views;
   return mean * (1 - WORST_VIEW_WEIGHT) + worst * WORST_VIEW_WEIGHT;
 }
 
 /**
+ * Raw hull vertices overstate visible complexity when several elevation-profile
+ * rings land almost on one line. Collapse only points whose removal moves the
+ * projected outline less than one percent of the perimeter, then report both
+ * counts. This is a measurement, not a score: topology only needs changing if
+ * the meaningful count stays high.
+ */
+export function measureStoneSilhouetteComplexity(
+  faces: readonly StonePolygon[],
+): StoneSilhouetteComplexity {
+  const points = collectPoints(faces);
+  if (points.length < 3) {
+    return {
+      views: 0,
+      meanRawCorners: 0,
+      meanMeaningfulCorners: 0,
+      maximumMeaningfulCorners: 0,
+    };
+  }
+
+  let views = 0;
+  let rawTotal = 0;
+  let meaningfulTotal = 0;
+  let maximumMeaningfulCorners = 0;
+  visitProjectedHulls(points, (hull) => {
+    const meaningful = simplifyClosedHull(hull);
+    rawTotal += hull.length;
+    meaningfulTotal += meaningful.length;
+    maximumMeaningfulCorners = Math.max(
+      maximumMeaningfulCorners,
+      meaningful.length,
+    );
+    views += 1;
+  });
+
+  return {
+    views,
+    meanRawCorners: views > 0 ? rawTotal / views : 0,
+    meanMeaningfulCorners: views > 0 ? meaningfulTotal / views : 0,
+    maximumMeaningfulCorners,
+  };
+}
+
+/**
  * How nearly this body repeats itself under rotation, in [0, 1].
- *
- * A radial generator leaves its fingerprint here: sample the horizontal support
- * radius all the way round and a body built from evenly spaced sides will match
- * itself when turned by a whole fraction of a circle. Real stones do not, and
- * the point of measuring it is to reject the ones that do rather than to hope
- * jitter hid it.
+ * A radial generator leaves its fingerprint in the horizontal support curve.
  */
 export function scoreStoneRotationalSymmetry(
   faces: readonly StonePolygon[],
@@ -162,6 +162,32 @@ function collectPoints(faces: readonly StonePolygon[]): StoneVec3[] {
   return points;
 }
 
+function visitProjectedHulls(
+  points: readonly StoneVec3[],
+  visit: (hull: readonly Point2[]) => void,
+): void {
+  for (const pitch of VIEW_PITCHES) {
+    const cosPitch = Math.cos(pitch);
+    const sinPitch = Math.sin(pitch);
+    for (let step = 0; step < VIEW_AZIMUTHS; step += 1) {
+      const azimuth = (step / VIEW_AZIMUTHS) * Math.PI * 2;
+      const cosAzimuth = Math.cos(azimuth);
+      const sinAzimuth = Math.sin(azimuth);
+      const rightX = -sinAzimuth;
+      const rightZ = cosAzimuth;
+      const upX = -sinPitch * cosAzimuth;
+      const upY = cosPitch;
+      const upZ = -sinPitch * sinAzimuth;
+
+      const projected: Point2[] = points.map((point) => ({
+        x: point.x * rightX + point.z * rightZ,
+        y: point.x * upX + point.y * upY + point.z * upZ,
+      }));
+      visit(convexHull(projected));
+    }
+  }
+}
+
 function scoreOutline(hull: readonly Point2[]): number {
   if (hull.length < 3) return 0;
   const edges: number[] = [];
@@ -207,6 +233,51 @@ function scoreOutline(hull: readonly Point2[]): number {
   const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
 
   return turnConcentration * 0.9 + longRun * 0.7 - circularity * 0.9;
+}
+
+function simplifyClosedHull(hull: readonly Point2[]): Point2[] {
+  if (hull.length <= 3) return [...hull];
+  const simplified = [...hull];
+  let perimeter = 0;
+  for (let index = 0; index < hull.length; index += 1) {
+    const a = hull[index];
+    const b = hull[(index + 1) % hull.length];
+    perimeter += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  if (!(perimeter > HULL_EPSILON)) return simplified;
+  const tolerance = perimeter * SILHOUETTE_SIMPLIFY_PERIMETER_RATIO;
+
+  while (simplified.length > 3) {
+    let candidate = -1;
+    let minimumError = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < simplified.length; index += 1) {
+      const previous = simplified[(index + simplified.length - 1) % simplified.length];
+      const current = simplified[index];
+      const next = simplified[(index + 1) % simplified.length];
+      const error = pointSegmentDistance(current, previous, next);
+      if (error < minimumError) {
+        minimumError = error;
+        candidate = index;
+      }
+    }
+    if (candidate < 0 || minimumError > tolerance) break;
+    simplified.splice(candidate, 1);
+  }
+  return simplified;
+}
+
+function pointSegmentDistance(point: Point2, a: Point2, b: Point2): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (!(lengthSquared > HULL_EPSILON)) {
+    return Math.hypot(point.x - a.x, point.y - a.y);
+  }
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared),
+  );
+  return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
 }
 
 /** Monotone chain, counter-clockwise, without collinear runs. */
