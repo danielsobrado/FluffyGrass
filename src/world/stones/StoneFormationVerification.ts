@@ -6,6 +6,7 @@ import {
 import { generateStoneMesh } from "./StoneGeometry";
 import {
   canFractureStoneArchetype,
+  resolveStoneFormationOffset,
   resolveStoneFragmentRecipe,
   stoneFormationSplits,
 } from "./StoneFormation";
@@ -17,6 +18,9 @@ const RIM_EPSILON = 5e-3;
 /** Smooth mineral fields may differ slightly across a healed rim point. */
 const MINERAL_RIM_EPSILON = 0.04;
 const MATERIAL_FRAME_EPSILON = 1e-6;
+const MAXIMUM_FORMATION_GAP_METERS = 0.04;
+const MAXIMUM_FORMATION_GAP_FOOTPRINT_RATIO = 0.05;
+const FORMATION_GAP_EPSILON = 1e-9;
 const MINIMUM_SPLIT_RATE = 0.7;
 const VARIANTS = 16;
 
@@ -127,6 +131,7 @@ function verifyPair(
       whole.metrics.triangleCount * 2,
     `${archetype}:${seed} costs more as two halves than as two whole stones.`,
   );
+  verifyFormationGap(archetype, seed, major, minor);
   verifyMaterialFrameContinuity(
     archetype,
     seed,
@@ -161,6 +166,42 @@ function verifyPair(
       );
     }
   }
+}
+
+function verifyFormationGap(
+  archetype: string,
+  seed: number,
+  major: ReturnType<typeof generateStoneMesh>,
+  minor: ReturnType<typeof generateStoneMesh>,
+): void {
+  const scale = 0.5;
+  const joined = resolveStoneFormationOffset(
+    major.metrics,
+    minor.metrics,
+    scale,
+    0,
+  );
+  const parted = resolveStoneFormationOffset(
+    major.metrics,
+    minor.metrics,
+    scale,
+    1,
+  );
+  assert(
+    joined !== undefined && parted !== undefined,
+    `${archetype}:${seed} has no measurable parting direction.`,
+  );
+  const visibleGap = Math.hypot(parted.x - joined.x, parted.z - joined.z);
+  const maximumGap = Math.min(
+    MAXIMUM_FORMATION_GAP_METERS,
+    Math.max(major.metrics.footprintRadius, minor.metrics.footprintRadius) *
+      scale *
+      MAXIMUM_FORMATION_GAP_FOOTPRINT_RATIO,
+  );
+  assert(
+    visibleGap <= maximumGap + FORMATION_GAP_EPSILON,
+    `${archetype}:${seed} opens a ${visibleGap.toFixed(4)} m crack; maximum is ${maximumGap.toFixed(4)} m.`,
+  );
 }
 
 function verifyMaterialFrameContinuity(
