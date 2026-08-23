@@ -80,7 +80,8 @@ formation-wide weathering bias now affects baked vertex color as well as the clo
 packed weathering channel, so near and coarse representations no longer age differently.
 
 **Material** (`StoneGrowthShader.ts`, `world.yaml`) -- broad weak dry sheen plus subtle
-normal grain; albedo grain remains zero.
+normal grain; albedo grain remains zero. The measured-inert widened sky-side fill experiment
+was reverted to its conservative baseline rather than kept as unexplained shader energy.
 
 **Ground** (`StoneRecipe.ts`) -- deeper boulder embed, with existing clearance/skirt ecology
 left as the single ground-integration system.
@@ -88,6 +89,7 @@ left as the single ground-integration system.
 **Probe and diagnostics** -- the gallery consumes the same mineral array as production;
 `diagnose-stone-shading.mjs` reports mineral and weathering separately; the silhouette gate
 prints raw -> meaningful corner counts but does not impose an uncalibrated threshold.
+`StoneRuntimeVerification` now checks mineral, weathering and cavity stream sizes and ranges.
 
 ## Current budgets
 
