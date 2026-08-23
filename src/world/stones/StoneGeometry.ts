@@ -97,6 +97,12 @@ export function generateStoneMesh(
   const sharedFacePairs = countSharedStoneFacePairs(faces);
   const softNormals = buildStoneSoftNormals(faces, softening);
   const heightMetres = resolveStoneHeight(faces);
+  // A tilted fracture can leave two halves with different clipped maxima. They
+  // are still one parent rock, so height-relative paint/growth must use one
+  // denominator or the same rim point changes value across the crack. Whole
+  // stones retain their measured height; fragments share the recipe's parent
+  // height while metrics continue to report their actual geometry height.
+  const shadingHeightMetres = recipe.fracture ? recipe.height : heightMetres;
   const { vertexCount, triangleCount } = resolveMeshCounts(faces);
 
   const positions = new Float32Array(vertexCount * 3);
@@ -145,11 +151,11 @@ export function generateStoneMesh(
         faceTint,
         softNormalY,
         point.y,
-        heightMetres,
+        shadingHeightMetres,
         edgeShading.crease,
       );
       // Contact centring is a render transform, not a material transform. Add
-      // it back for every stochastic field so fragments sample one parent rock.
+      // it back for geology/growth fields so fragments sample one parent rock.
       const materialX = point.x + contactOffset.x;
       const materialZ = point.z + contactOffset.z;
       minerals[vertexCursor] = resolveCornerMineral(
@@ -163,7 +169,7 @@ export function generateStoneMesh(
         point.y,
         materialZ,
         softNormalY,
-        heightMetres,
+        shadingHeightMetres,
         recipe,
         broken,
       );
@@ -172,11 +178,11 @@ export function generateStoneMesh(
         softNormalY,
         broken,
         point.y,
-        heightMetres,
+        shadingHeightMetres,
       );
       bounces[vertexCursor] = resolveCornerBounce(
         point.y,
-        heightMetres,
+        shadingHeightMetres,
         softNormalY,
         edgeShading.crease,
       );
@@ -185,7 +191,7 @@ export function generateStoneMesh(
         point.y,
         materialZ,
         softNormalY,
-        heightMetres,
+        shadingHeightMetres,
         recipe,
         broken,
         edgeShading.crease,
