@@ -93,27 +93,28 @@ function palette(
 
 /**
  * Warm mineral ramps calibrated under the world's Neutral tone mapping and
- * exposure. Direct sun supplies the bright cream highlight; side planes keep a
- * brown mineral identity instead of inheriting the meadow's green cast.
+ * exposure. Direct sun supplies the bright crown; the albedo itself stays
+ * restrained so top faces do not burn to cream while the sides retain a warm
+ * tan/brown mineral identity instead of inheriting the meadow's green cast.
  *
- * `crust` and `stain` now serve two independent processes. The low-frequency
+ * `crust` and `stain` serve two independent processes. The low-frequency
  * mineral field moves broad regions toward those geological endpoints, while
  * weathering only nudges the result according to exposure, age and contact.
  */
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
-    "#403832",
-    "#66594d",
-    "#b39c78",
-    "#ccb38c",
+    "#47352b",
+    "#745844",
+    "#a98d6b",
+    "#bea17d",
     "#4f633e",
     "#9d9a75",
-    0.58,
-    "#d2bea0",
-    "#75462f",
-    "#30231c",
-    0.6,
+    0.56,
+    "#c5aa88",
+    "#7a4930",
+    "#35271f",
+    0.54,
   ),
   steppeTan: palette(
     "steppe-tan",
@@ -170,8 +171,8 @@ export interface StoneTintParams {
 }
 
 /** Warm reflected light from soil and neighbouring mineral faces. */
-const GROUND_BOUNCE = linearFromHex("#876044");
-const GROUND_BOUNCE_WORLD_BLEND = 0.42;
+const GROUND_BOUNCE = linearFromHex("#936447");
+const GROUND_BOUNCE_WORLD_BLEND = 0.5;
 
 /** A trace of value stepping preserves the stylized read without contour bands. */
 const RAMP_BANDING_STRENGTH = 0.08;

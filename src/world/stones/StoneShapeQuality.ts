@@ -33,6 +33,8 @@ const SILHOUETTE_WEIGHT = 3;
  * matches itself every 60 degrees is not a rock.
  */
 const ROTATIONAL_SYMMETRY_PENALTY = 1.5;
+/** Long near-horizontal or near-vertical runs are the strongest masonry cue. */
+const RECTILINEAR_EDGE_PENALTY = 2.4;
 const QUALITY_CACHE_LIMIT = 256;
 const QUALITY_SEED_SALT = 0x41727479;
 const TWO_PI = Math.PI * 2;
@@ -89,6 +91,36 @@ function targetScore(value: number, target: number, width: number): number {
   return Math.max(0, 1 - Math.abs(value - target) / width);
 }
 
+function profileWanderTarget(archetype: StoneArchetypeId): number {
+  switch (archetype) {
+    case "pebble":
+      return 0.025;
+    case "boulder":
+      return 0.16;
+    case "slab":
+      return 0.1;
+    case "block":
+      return 0.11;
+    case "shard":
+      return 0.1;
+    case "outcrop":
+      return 0.12;
+  }
+}
+
+function profileShoulderVariationTarget(archetype: StoneArchetypeId): number {
+  switch (archetype) {
+    case "boulder":
+      return 0.13;
+    case "block":
+      return 0.1;
+    case "outcrop":
+      return 0.11;
+    default:
+      return 0.08;
+  }
+}
+
 function profileArtDirection(recipe: StoneRecipe): number {
   let turnScore = 0;
   let monotonicTaper = 0;
@@ -138,32 +170,118 @@ function profileArtDirection(recipe: StoneRecipe): number {
     top.centerX - contact.centerX,
     top.centerZ - contact.centerZ,
   );
-  const wanderTarget =
-    recipe.archetype === "pebble"
-      ? 0.025
-      : recipe.archetype === "boulder"
-        ? 0.11
-        : 0.075;
+  const wanderTarget = profileWanderTarget(recipe.archetype);
   const wanderScore = Math.max(
     0,
-    1 - Math.abs(centerWander - wanderTarget) / (wanderTarget * 1.5),
+    1 - Math.abs(centerWander - wanderTarget) / (wanderTarget * 1.35),
   );
 
   const shoulderVariation = coefficientOfVariation(shoulderRatios);
   const topVariation = coefficientOfVariation(topRatios);
   const gapVariation = coefficientOfVariation(angleGaps);
-  const shoulderTarget = recipe.archetype === "boulder" ? 0.105 : 0.07;
+  const shoulderTarget = profileShoulderVariationTarget(recipe.archetype);
   const irregularityScore =
-    targetScore(shoulderVariation, shoulderTarget, 0.11) * 0.38 +
-    targetScore(topVariation, 0.1, 0.12) * 0.2 +
+    targetScore(shoulderVariation, shoulderTarget, 0.12) * 0.4 +
+    targetScore(topVariation, 0.11, 0.12) * 0.22 +
     targetScore(gapVariation, 0.2, 0.2) * 0.18;
 
   return (
-    turnShare * 1.25 +
-    wanderScore * 0.45 +
+    turnShare * 1.55 +
+    wanderScore * 0.65 +
     irregularityScore -
-    monotonicShare * 0.9
+    monotonicShare * 1.05
   );
+}
+
+function alignmentWeight(value: number, start: number): number {
+  if (value <= start) return 0;
+  const amount = Math.min(1, (value - start) / (1 - start));
+  return amount * amount * (3 - 2 * amount);
+}
+
+/**
+ * Share of visible edge length that reads as a long horizontal/vertical run.
+ *
+ * A polyhedron necessarily has straight edges. The failure is not straightness
+ * itself but a long roof line or plumb corner that dominates the silhouette and
+ * makes the body read as dressed masonry. Height wander and ring-centre drift
+ * naturally reduce this term without adding noisy micro-facets.
+ */
+function rectilinearEdgeShare(faces: readonly StonePolygon[]): number {
+  const pointIds = new Map<StoneVec3, number>();
+  const seenNeighbours = new Map<number, Set<number>>();
+  let nextPointId = 0;
+  let minimumX = Number.POSITIVE_INFINITY;
+  let minimumY = Number.POSITIVE_INFINITY;
+  let minimumZ = Number.POSITIVE_INFINITY;
+  let maximumX = Number.NEGATIVE_INFINITY;
+  let maximumY = Number.NEGATIVE_INFINITY;
+  let maximumZ = Number.NEGATIVE_INFINITY;
+
+  for (const face of faces) {
+    for (const point of face.points) {
+      if (!pointIds.has(point)) {
+        pointIds.set(point, nextPointId++);
+      }
+      minimumX = Math.min(minimumX, point.x);
+      minimumY = Math.min(minimumY, point.y);
+      minimumZ = Math.min(minimumZ, point.z);
+      maximumX = Math.max(maximumX, point.x);
+      maximumY = Math.max(maximumY, point.y);
+      maximumZ = Math.max(maximumZ, point.z);
+    }
+  }
+
+  const bodyScale = Math.max(
+    maximumX - minimumX,
+    maximumY - minimumY,
+    maximumZ - minimumZ,
+    1e-4,
+  );
+  let totalLength = 0;
+  let rectilinearLength = 0;
+
+  for (const face of faces) {
+    for (let index = 0; index < face.points.length; index += 1) {
+      const a = face.points[index];
+      const b = face.points[(index + 1) % face.points.length];
+      const aId = pointIds.get(a);
+      const bId = pointIds.get(b);
+      if (aId === undefined || bId === undefined || aId === bId) continue;
+      const low = Math.min(aId, bId);
+      const high = Math.max(aId, bId);
+      let neighbours = seenNeighbours.get(low);
+      if (!neighbours) {
+        neighbours = new Set<number>();
+        seenNeighbours.set(low, neighbours);
+      }
+      if (neighbours.has(high)) continue;
+      neighbours.add(high);
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dz = b.z - a.z;
+      const length = Math.hypot(dx, dy, dz);
+      if (!(length > 1e-6)) continue;
+      totalLength += length;
+
+      const horizontal = Math.hypot(dx, dz) / length;
+      const vertical = Math.abs(dy) / length;
+      const alignment = Math.max(
+        alignmentWeight(horizontal, 0.965),
+        alignmentWeight(vertical, 0.94),
+      );
+      if (alignment <= 0) continue;
+      const normalizedLength = length / bodyScale;
+      const longness = Math.max(
+        0,
+        Math.min(1, (normalizedLength - 0.22) / 0.33),
+      );
+      rectilinearLength += length * alignment * longness;
+    }
+  }
+
+  return totalLength > 0 ? rectilinearLength / totalLength : 0;
 }
 
 /**
@@ -255,14 +373,16 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
   const topDeficit = Math.max(0, targetTop - topShare) / targetTop;
   const stumpPenalty = longWallShare * topDeficit;
   const dominantPlaneScore = Math.min(1, primaryFour / 0.42);
+  const rectilinear = rectilinearEdgeShare(faces);
 
   return (
     primarySix * 4.2 +
     dominantPlaneScore * 0.55 -
     tiny * 7.5 -
     Math.abs(topShare - targetTop) * 2 -
-    longWallShare * 4.6 -
-    stumpPenalty * 4.2 +
+    longWallShare * 5.2 -
+    stumpPenalty * 5 -
+    rectilinear * RECTILINEAR_EDGE_PENALTY +
     Math.min(mediumCount, 9) * 0.05 +
     Math.min(asymmetry, 0.28) * 2.15 +
     profileArtDirection(recipe) +

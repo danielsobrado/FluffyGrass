@@ -24,10 +24,10 @@ export interface ArchetypeWeights {
 }
 
 export const LEVEL_WEIGHTS: readonly ArchetypeWeights[] = [
-  // meadow
+  // meadow: weathered boulders dominate; slab/block masonry reads are uncommon.
   {
     ids: STONE_ARCHETYPE_IDS,
-    weights: [0.26, 0.34, 0.16, 0.12, 0.03, 0.09],
+    weights: [0.28, 0.44, 0.1, 0.05, 0.02, 0.11],
   },
   // dry steppe
   {

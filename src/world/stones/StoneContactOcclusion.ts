@@ -25,12 +25,12 @@ export interface StoneOccluder {
 
 /**
  * How far past its own body a stone keeps darkening its neighbour, as a share
- * of its radius. Contact shade is deliberately tight so the broad side planes
- * keep their own colour instead of inheriting a grey halo from nearby stones.
+ * of its radius. Contact shade is tight so the broad side planes keep their own
+ * warm colour instead of inheriting a grey halo from nearby stones.
  */
-const OCCLUSION_REACH_RATIO = 0.42;
+const OCCLUSION_REACH_RATIO = 0.34;
 /** Deepest colour mix at direct stone-to-stone contact. */
-export const STONE_CONTACT_OCCLUSION = 0.42;
+export const STONE_CONTACT_OCCLUSION = 0.46;
 
 function smoothstep(value: number, minimum: number, maximum: number): number {
   if (value <= minimum) return 0;

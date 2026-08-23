@@ -6,12 +6,12 @@ export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
 /**
  * Occlusion in the seam where the body meets the ground.
  *
- * Contact shading is intentionally shallow. A broad height ramp turns the
- * entire lower profile into a horizontal belt, while the real neighbour and
- * terrain-contact terms already provide the dark seam where the mass touches.
+ * The seam is darker but shorter than the old broad lower-body ramp: contact
+ * should pin the rock to the soil for a few centimetres, not paint a belt
+ * around the whole base.
  */
-export const STONE_CONTACT_SHADE_FLOOR = 0.86;
-export const STONE_CONTACT_SHADE_HEIGHT = 0.09;
+export const STONE_CONTACT_SHADE_FLOOR = 0.78;
+export const STONE_CONTACT_SHADE_HEIGHT = 0.055;
 export const STONE_MOSS_CLIMB = 0.42;
 
 /**
@@ -124,11 +124,11 @@ export function resolveStoneFacetSoftening(
  * cheaper fan: their single diagonal is too short to streak.
  */
 export const STONE_CENTROID_FAN_MIN_CORNERS = 5;
-/** Concave dihedrals darken; the same signal drives crease occlusion. */
-export const STONE_CREASE_SHADE = 0.28;
-/** Height fraction reached by bounce light thrown up from the surrounding ground. */
-export const STONE_BOUNCE_HEIGHT = 0.3;
-export const STONE_BOUNCE_STRENGTH = 0.22;
+/** Concave dihedrals darken; keep the crease readable without drawing black lines. */
+export const STONE_CREASE_SHADE = 0.24;
+/** Height fraction reached by warm bounce light thrown up from the surrounding soil. */
+export const STONE_BOUNCE_HEIGHT = 0.24;
+export const STONE_BOUNCE_STRENGTH = 0.28;
 
 /**
  * Value ramp driven by how far a corner faces up.
@@ -173,11 +173,12 @@ export const STONE_MINERAL_COLOR_STRENGTH = 0.34;
 /**
  * Weathering is a secondary surface process, not the stone's mineral identity.
  * Exposure and local noise can crust or stain a region, but neither gets enough
- * authority to redraw the body as a vertical gradient.
+ * authority to redraw the body as a vertical gradient. Direct light should
+ * brighten the crown; weathering should not bleach it a second time.
  */
 export const STONE_WEATHERING_NOISE_STRENGTH = 0.18;
-export const STONE_WEATHERING_EXPOSURE_STRENGTH = 0.11;
-export const STONE_WEATHERING_COLOR_STRENGTH = 0.5;
+export const STONE_WEATHERING_EXPOSURE_STRENGTH = 0.08;
+export const STONE_WEATHERING_COLOR_STRENGTH = 0.44;
 
 /**
  * Crust deposition.
@@ -202,9 +203,9 @@ export const STONE_CRUST_BAND = 0.1;
  */
 export const STONE_STAIN_THRESHOLD = 0.27;
 /** Lower-body soil deposition, expressed as a fraction of stone height. */
-export const STONE_SOIL_STAIN_HEIGHT = 0.15;
+export const STONE_SOIL_STAIN_HEIGHT = 0.13;
 /** Maximum field bias toward stain at the buried foot. */
-export const STONE_SOIL_STAIN_STRENGTH = 0.075;
+export const STONE_SOIL_STAIN_STRENGTH = 0.1;
 
 /**
  * Cavity depth.
@@ -213,7 +214,7 @@ export const STONE_SOIL_STAIN_STRENGTH = 0.075;
  * faces get a smaller share because they still see reflected light from the
  * ground and neighbouring stone faces.
  */
-export const STONE_CAVITY_CREASE = 0.72;
+export const STONE_CAVITY_CREASE = 0.68;
 export const STONE_CAVITY_UNDERCUT = 0.22;
 
 /**
