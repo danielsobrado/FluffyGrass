@@ -3,21 +3,20 @@
  * sliced.
  *
  * Clipping a convex body with a plane produces perfectly straight rim edges.
- * The topology can stay unchanged: moving every copy of a rim point together
- * keeps the shell watertight while a small low-frequency displacement removes
- * the ruler-straight read. Formation fractures use the stronger treatment;
- * ordinary structural cuts use a subtler version so broad planes remain broad.
+ * The topology can stay unchanged: moving each welded rim point keeps the shell
+ * watertight while a small low-frequency displacement removes the ruler-straight
+ * read. Formation fractures use the stronger treatment; ordinary structural
+ * cuts use a subtler version so broad planes remain broad.
  */
 
 import type { StonePolygon, StoneVec3 } from "./StoneClipper";
-import { STONE_MESH_QUANTIZE } from "./StoneGeometryTuning";
 import { hashStoneCell } from "./StoneRandom";
 import type { StoneRecipe } from "./StoneRecipe";
 
 /** Peak formation-fracture displacement in unit body space. */
 export const STONE_FRACTURE_RELIEF = 0.018;
-/** Structural cuts only need enough relief to stop reading as saw lines. */
-const STONE_CUT_RELIEF = 0.009;
+/** Maximum structural-cut displacement before per-family scaling. */
+export const STONE_CUT_RELIEF_MAX = 0.009;
 
 /**
  * Harder, sharper families keep a smaller cut waver. The smallest value stays
@@ -70,26 +69,29 @@ export function addStoneFractureRelief(
   const sources = resolveReliefSources(recipe);
   if (sources.length === 0) return polygons;
 
-  const offsets = new Map<string, ReliefOffset>();
+  // facesFromPlanes() welds shared shell corners to the same object. Keeping the
+  // offsets by identity avoids string allocation and, more importantly, cannot
+  // move an unrelated nearby corner merely because both positions quantize to
+  // the same cell.
+  const offsets = new Map<StoneVec3, ReliefOffset>();
   for (const source of sources) {
-    const sourceKeys = new Set<string>();
+    const sourcePoints = new Set<StoneVec3>();
     for (const polygon of polygons) {
       if (polygon.role !== source.role || polygon.planeId !== source.planeId) {
         continue;
       }
       for (const point of polygon.points) {
-        const key = quantizeKey(point);
-        if (sourceKeys.has(key)) continue;
-        sourceKeys.add(key);
+        if (sourcePoints.has(point)) continue;
+        sourcePoints.add(point);
         const along = point.x * source.tangentX + point.z * source.tangentZ;
         const amount =
           smoothField(along, point.y, source.seed) *
           source.amplitude *
           groundFade(point.y);
-        let offset = offsets.get(key);
+        let offset = offsets.get(point);
         if (!offset) {
           offset = { cutX: 0, cutZ: 0, fractureX: 0, fractureZ: 0 };
-          offsets.set(key, offset);
+          offsets.set(point, offset);
         }
         if (source.role === "fracture") {
           offset.fractureX += source.directionX * amount;
@@ -104,28 +106,20 @@ export function addStoneFractureRelief(
   if (offsets.size === 0) return polygons;
 
   const maximumCutRelief = resolveCutRelief(recipe);
-  const moved = new Set<StoneVec3>();
-  for (const polygon of polygons) {
-    for (const point of polygon.points) {
-      if (moved.has(point)) continue;
-      moved.add(point);
-      const offset = offsets.get(quantizeKey(point));
-      if (!offset) continue;
-
-      const cutLength = Math.hypot(offset.cutX, offset.cutZ);
-      const cutScale =
-        cutLength > maximumCutRelief ? maximumCutRelief / cutLength : 1;
-      let x = offset.cutX * cutScale + offset.fractureX;
-      let z = offset.cutZ * cutScale + offset.fractureZ;
-      const mixedLength = Math.hypot(x, z);
-      if (mixedLength > MAX_MIXED_RELIEF && mixedLength > HORIZONTAL_EPSILON) {
-        const mixedScale = MAX_MIXED_RELIEF / mixedLength;
-        x *= mixedScale;
-        z *= mixedScale;
-      }
-      point.x += x;
-      point.z += z;
+  for (const [point, offset] of offsets) {
+    const cutLength = Math.hypot(offset.cutX, offset.cutZ);
+    const cutScale =
+      cutLength > maximumCutRelief ? maximumCutRelief / cutLength : 1;
+    let x = offset.cutX * cutScale + offset.fractureX;
+    let z = offset.cutZ * cutScale + offset.fractureZ;
+    const mixedLength = Math.hypot(x, z);
+    if (mixedLength > MAX_MIXED_RELIEF && mixedLength > HORIZONTAL_EPSILON) {
+      const mixedScale = MAX_MIXED_RELIEF / mixedLength;
+      x *= mixedScale;
+      z *= mixedScale;
     }
+    point.x += x;
+    point.z += z;
   }
   return polygons;
 }
@@ -162,7 +156,7 @@ function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {
 }
 
 function resolveCutRelief(recipe: StoneRecipe): number {
-  return STONE_CUT_RELIEF * CUT_RELIEF_SCALE[recipe.archetype];
+  return STONE_CUT_RELIEF_MAX * CUT_RELIEF_SCALE[recipe.archetype];
 }
 
 function createReliefSource(
@@ -196,12 +190,6 @@ function createReliefSource(
 function canonicalSign(nx: number, nz: number): number {
   const dominant = Math.abs(nx) >= Math.abs(nz) ? nx : nz;
   return dominant < 0 ? -1 : 1;
-}
-
-function quantizeKey(point: StoneVec3): string {
-  return `${Math.round(point.x / STONE_MESH_QUANTIZE)}:${Math.round(
-    point.y / STONE_MESH_QUANTIZE,
-  )}:${Math.round(point.z / STONE_MESH_QUANTIZE)}`;
 }
 
 function groundFade(y: number): number {
