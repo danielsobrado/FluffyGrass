@@ -3,11 +3,10 @@
  *
  * A cluster already shared several things by accident of how it was composed:
  * the palette came from the biome, the fracture bearing from the macro strike,
- * the moss level from the local ecology. What it did not share was how far the
- * rock had *weathered*, and that is the loudest of them. Two boulders from one
- * outcrop have stood in the same rain for the same length of time; one crusted
- * pale and one iron-stained beside it reads as two rocks that happened to roll
- * together, however well their palettes match.
+ * the moss level from the local ecology. What it did not share was a common
+ * weathering tendency. Two boulders from one outcrop have stood in the same rain
+ * and soil conditions; giving one a strong bleach bias and its neighbour a
+ * strong iron-stain bias reads as unrelated rocks even when their palettes match.
  *
  * This is deliberately a small descriptor rather than the full geological
  * fantasy. Fields are here only if something consumes them:
@@ -15,8 +14,7 @@
  * - The mineral *pattern* cannot be shared. It is baked into vertex attributes
  *   per pooled variant, and per-cluster patterns would mean per-cluster meshes,
  *   which is the same trap the formation work avoided. What is shared instead
- *   is the weathering *level*, folded per instance at batch build, which is
- *   what the eye reads as "same rock" anyway.
+ *   is a signed weathering bias, folded per instance at batch build.
  * - Dip is absent for the same reason. Tilting a fracture to a formation's dip
  *   means clipping geometry per formation; the bearing can be cancelled by yaw
  *   at placement, and the tilt cannot.
@@ -32,12 +30,12 @@ export interface StoneGeologyDescriptor {
   readonly strike: number;
   readonly paletteKey: StonePaletteKey;
   /**
-   * How far this rock has weathered, signed around 0.
+   * Formation-wide weathering bias, signed around 0.
    *
-   * Negative is fresh, crusted stone; positive is iron-stained and darkened.
-   * Applied as a bias on each body's own weathering field rather than
-   * replacing it, so members keep their individual banding while agreeing on
-   * how old they are.
+   * Negative moves the channel toward iron/soil stain; positive moves it toward
+   * pale bleached crust. The bias is added to each body's local weathering field
+   * rather than replacing it, so members keep surface variation while agreeing
+   * on the formation's overall tendency.
    */
   readonly weathering: number;
 }
@@ -45,11 +43,11 @@ export interface StoneGeologyDescriptor {
 const GEOLOGY_WEATHERING_XOR = 0x57746872;
 
 /**
- * How far a formation may sit from the middle of the weathering range.
+ * Maximum signed displacement from the middle of the weathering range.
  *
- * Modest on purpose. The channel it biases already spans crusted to stained
- * across one body, and a formation that pushes past this stops reading as rock
- * that weathered and starts reading as rock that was tinted.
+ * Modest on purpose. The channel already contains local exposure and contact
+ * variation; a larger formation bias would stop reading as weathering and start
+ * reading as a flat material tint.
  */
 export const STONE_GEOLOGY_WEATHERING_RANGE = 0.16;
 
@@ -68,7 +66,7 @@ export function resolveStoneGeology(
   };
 }
 
-/** A body's weathering channel, aged by the formation it belongs to. */
+/** Apply a signed formation bias to a body's normalized weathering channel. */
 export function applyStoneGeologyWeathering(
   weathering: number,
   bias: number,
