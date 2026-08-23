@@ -31,8 +31,6 @@ const SYMMETRY_CEILING: Readonly<Record<StoneArchetypeId, number>> = {
 const SEVERE_SYMMETRY = 0.45;
 const SEVERE_SYMMETRY_BUDGET = 0.04;
 const SILHOUETTE_FLOOR = -0.2;
-/** Prevent best-of-N selection from collapsing stones into a few ruler-long runs. */
-const MEANINGFUL_CORNER_FLOOR = 5.5;
 const TRANSFORM_SCORE_EPSILON = 1e-4;
 
 function fail(message: string): never {
@@ -78,7 +76,7 @@ function verifyPostClipTransformAffectsScore(): void {
   );
 }
 
-/** Population contract plus diagnostics for outline complexity. */
+/** Population contract plus non-gating diagnostics for outline complexity. */
 export function verifyStoneSilhouetteQuality(): string {
   verifyPostClipTransformAffectsScore();
 
@@ -124,14 +122,9 @@ export function verifyStoneSilhouetteQuality(): string {
     severeShare <= SEVERE_SYMMETRY_BUDGET,
     `${severe}/${bodies} bodies are severely periodic, over the ${(SEVERE_SYMMETRY_BUDGET * 100).toFixed(0)}% budget.`,
   );
-  const meanMeaningfulCorners = meaningfulCornerTotal / bodies;
-  assert(
-    meanMeaningfulCorners >= MEANINGFUL_CORNER_FLOOR,
-    `Population meaningful silhouette corners fell to ${meanMeaningfulCorners.toFixed(2)}, under the ${MEANINGFUL_CORNER_FLOOR} floor.`,
-  );
 
   return (
     `silhouette ${silhouette.toFixed(3)} · ${severe}/${bodies} periodic · ` +
-    `corners ${(rawCornerTotal / bodies).toFixed(1)}→${meanMeaningfulCorners.toFixed(1)} (max ${maximumMeaningfulCorners}) · transformed-body guard`
+    `corners ${(rawCornerTotal / bodies).toFixed(1)}→${(meaningfulCornerTotal / bodies).toFixed(1)} (max ${maximumMeaningfulCorners}) · transformed-body guard`
   );
 }

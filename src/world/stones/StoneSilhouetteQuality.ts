@@ -23,6 +23,14 @@ const SYMMETRY_SHIFTS: readonly number[] = [9, 12, 18, 24, 36];
 const SYMMETRY_TOLERANCE = 0.12;
 const HULL_EPSILON = 1e-9;
 /**
+ * The three longest projected edges should carry structure without becoming a
+ * ruler-straight majority of the outline. Reward a broad middle band rather
+ * than monotonically rewarding longer and longer runs.
+ */
+const LONG_RUN_TARGET = 0.42;
+const LONG_RUN_WIDTH = 0.16;
+const LONG_RUN_EXCESS_START = 0.52;
+/**
  * Perpendicular error allowed when collapsing a projected hull point, as a
  * share of that view's perimeter. This is deliberately screen-relative: the
  * question is whether a corner changes the visible outline, not how many
@@ -232,11 +240,21 @@ function scoreOutline(hull: readonly Point2[]): number {
     longRun += edges[index];
   }
   longRun /= perimeter;
+  const longRunScore = Math.max(
+    0,
+    1 - Math.abs(longRun - LONG_RUN_TARGET) / LONG_RUN_WIDTH,
+  );
+  const longRunExcess = Math.max(0, longRun - LONG_RUN_EXCESS_START);
 
   const area = Math.abs(doubleArea) * 0.5;
   const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
 
-  return turnConcentration * 0.9 + longRun * 0.7 - circularity * 0.9;
+  return (
+    turnConcentration * 0.9 +
+    longRunScore * 0.55 -
+    longRunExcess * 2.2 -
+    circularity * 0.9
+  );
 }
 
 /**
