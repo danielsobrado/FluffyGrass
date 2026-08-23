@@ -70,39 +70,6 @@ export const ANCHOR_BIOME_MULTIPLIERS: readonly (readonly number[])[] = [
   [0.0, 0.85, 1.0, 1.1, 1.2, 1.25],
 ];
 
-export const SPLIT_CHANCE = 0.28;
-/**
- * The crack between two halves of one boulder.
- *
- * Narrowed once the junction between neighbouring bodies started carrying its
- * own shade: at a third of a metre the two halves are simply two stones that
- * happen to be near each other, and no amount of matched material or matched
- * fracture bearing will read as a break. A fracture is a hand's width at most,
- * and now that the gap is dark inside, it does not need width to be visible.
- */
-export const SPLIT_GAP_MIN = 0.04;
-export const SPLIT_GAP_MAX = 0.16;
-
-/**
- * The crack between two halves that were actually cut from one body.
- *
- * Narrower than the gap two independent stones need, because these two share a
- * surface: the break is legible from the mated faces themselves rather than
- * from the distance between them. The low end is a hairline, which is what a
- * boulder that has parted but not moved looks like.
- */
-export const FORMATION_GAP_MIN = 0.012;
-// The top of the range carries a real crevice. At 0.09 m the widest crack on a
-// two-metre boulder was still too narrow to hold its own shadow, so every pair
-// read as a hairline regardless of where in the range it landed, and the range
-// only varied something invisible.
-export const FORMATION_GAP_MAX = 0.15;
-
-/**
- * How far the halves may sit apart in terrain height before the break stops
- * reading as one surface. Two pieces of one rock settle, but they do not step.
- */
-export const FORMATION_HEIGHT_TOLERANCE = 0.2;
 export const SPLIT_CORE_OFFSET_FACTOR = 0.6;
 
 export const OVERLAP_FOOTPRINT_FACTOR = 0.78;
