@@ -103,25 +103,46 @@ const ARCHETYPES: Record<StoneArchetypeId, StoneArchetypeSpec> = {
     // Broad sectors and a wide crown give the reference's sculpted planes.
     // Normal softening still rounds shallow breaks without turning the mass
     // into the many-sided radial dome produced by the old 10–12-sector body.
-    sideCount: [8, 10],
-    radiusJitter: { min: 0.12, max: 0.24 },
-    silhouetteAsymmetry: { min: 0.11, max: 0.23 },
+    //
+    // 8-10 sectors was still a dome. Each sector contributes four ring
+    // segments, so ten sides is forty side planes, and forty facets of
+    // similar area is what a dome *is*, however much the radii are jittered.
+    // The reference reads as five to eight visible faces. Sector count is the
+    // only lever that makes an individual face large. Jitter and asymmetry go
+    // up because with fewer sectors each one has to carry more of the
+    // irregularity the sector count used to supply.
+    sideCount: [5, 7],
+    radiusJitter: { min: 0.18, max: 0.34 },
+    silhouetteAsymmetry: { min: 0.18, max: 0.34 },
     taper: { min: 0.08, max: 0.16 },
-    topScale: { min: 0.65, max: 0.84 },
+    // A broad top. The reference boulder's defining feature is a large flat
+    // crown, and a narrow top is what turns the loft into a cone.
+    topScale: { min: 0.74, max: 0.94 },
     topBevelHeight: { min: 0.13, max: 0.22 },
-    topTiltMax: 0.22,
+    // The reference crown is a tilted plane, not a lid. A level top over a
+    // low body is the read that turned into a loaf.
+    topTiltMax: 0.38,
     contactInset: { min: 0.05, max: 0.11 },
     contactBevelHeight: { min: 0.09, max: 0.15 },
-    lean: { min: 0.06, max: 0.18 },
+    // Lean carries the wedge: one end of the mass rides up and the opposite
+    // shoulder drops, which is what stops a low body reading as a block.
+    lean: { min: 0.14, max: 0.32 },
     cutCount: [0, 2],
     cutDepth: { min: 0.1, max: 0.21 },
     cutNormalY: { min: 0.1, max: 0.62 },
-    heightRatio: { min: 0.7, max: 0.98 },
+    // Wide and low. Circularity is the term that dominates the silhouette
+    // score, and a convex body only escapes a circular outline by being
+    // elongated or genuinely few-sided. A tall body reads as a lump from every
+    // azimuth; a low one reads as a wedge.
+    heightRatio: { min: 0.56, max: 0.86 },
     depthRatio: { min: 0.82, max: 1.38 },
     chipCount: [1, 2],
     chipDepth: { min: 0.015, max: 0.042 },
     edgeWear: 0.42,
-    embed: { min: 0.18, max: 0.28 },
+    // Deeper. A boulder resting with its full contact polygon on the surface
+    // shows a continuous seam all the way round, which is the read of an object
+    // placed on the ground rather than one the ground has grown up around.
+    embed: { min: 0.24, max: 0.36 },
   },
   slab: {
     id: "slab",

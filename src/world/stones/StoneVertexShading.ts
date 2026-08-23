@@ -24,6 +24,7 @@ import {
   STONE_MOSS_PATCH_SIZE,
   STONE_SOIL_STAIN_HEIGHT,
   STONE_SOIL_STAIN_STRENGTH,
+  STONE_TONE_DOWNWARD_COMPRESSION,
   STONE_TONE_FLOOR,
   STONE_TONE_RANGE,
 } from "./StoneGeometryTuning";
@@ -192,11 +193,18 @@ export function resolveCornerTone(
   heightMetres: number,
   crease: number,
 ): number {
-  const exposure = Math.min(
-    0.9,
-    STONE_TONE_FLOOR + STONE_TONE_RANGE * (0.5 + 0.5 * normalY),
-  );
-  const heightShade = 0.86 + 0.14 * smoothstep(y, 0, heightMetres * 0.6);
+  const facing =
+    normalY >= 0
+      ? 0.5 + 0.5 * normalY
+      : 0.5 + 0.5 * normalY * STONE_TONE_DOWNWARD_COMPRESSION;
+  const exposure = Math.min(0.9, STONE_TONE_FLOOR + STONE_TONE_RANGE * facing);
+  // Short, so it reinforces the contact seam instead of becoming a second one.
+  // This used to ramp over 0.6 of the body: the whole lower half was walked
+  // down 14%, which is exactly the "broad height ramp turns the entire lower
+  // profile into a horizontal belt" that the contact term next to it is
+  // documented as being kept shallow to avoid. Two terms, one belt, and the
+  // careful one was not the one drawing it.
+  const heightShade = 0.88 + 0.12 * smoothstep(y, 0, heightMetres * 0.26);
   const contactShade =
     STONE_CONTACT_SHADE_FLOOR +
     (1 - STONE_CONTACT_SHADE_FLOOR) *

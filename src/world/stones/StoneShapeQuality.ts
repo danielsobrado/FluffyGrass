@@ -2,7 +2,11 @@ import {
   scoreStoneRotationalSymmetry,
   scoreStoneSilhouette,
 } from "./StoneSilhouetteQuality";
-import { buildStonePolyhedron, type StonePolygon } from "./StoneClipper";
+import {
+  buildStonePolyhedron,
+  type StonePolygon,
+  type StoneVec3,
+} from "./StoneClipper";
 import { resolveStoneProfileHeights } from "./StoneProfile";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import {
@@ -162,9 +166,37 @@ function profileArtDirection(recipe: StoneRecipe): number {
   );
 }
 
+/**
+ * The body as it is drawn, not as it is clipped.
+ *
+ * `generateStoneMesh` shears by `lean` and scales by `width`/`height`/`depth`
+ * after the clipper returns, so the polyhedron the scorer used to read was
+ * isotropic and upright -- a boulder authored at `heightRatio` 0.5 was judged
+ * as though it were as tall as it is wide. Every term here is a proportion, so
+ * scoring the unit body meant `heightRatio`, `depthRatio` and `lean` could not
+ * influence selection at all, and the silhouette term in particular could
+ * never see the elongation that is most of what separates a wedge from a lump.
+ */
+function shapedBody(recipe: StoneRecipe): StonePolygon[] {
+  const body = buildStonePolyhedron(recipe, false);
+  const seen = new Set<StoneVec3>();
+  for (const polygon of body) {
+    for (const point of polygon.points) {
+      if (seen.has(point)) continue;
+      seen.add(point);
+      const shearedX = point.x + recipe.leanX * point.y;
+      const shearedZ = point.z + recipe.leanZ * point.y;
+      point.x = recipe.width * shearedX;
+      point.y = recipe.height * point.y;
+      point.z = recipe.depth * shearedZ;
+    }
+  }
+  return body;
+}
+
 /** Scores the final macro body, before optional near-range chips. */
 export function scoreStoneShape(recipe: StoneRecipe): number {
-  const body = buildStonePolyhedron(recipe, false);
+  const body = shapedBody(recipe);
   const faces = body.filter(
     (face) =>
       face.role !== "bottom" &&

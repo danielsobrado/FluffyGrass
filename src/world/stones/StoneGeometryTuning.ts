@@ -139,6 +139,19 @@ export const STONE_BOUNCE_STRENGTH = 0.24;
  * normal already carries "how exposed is this surface", is continuous wherever
  * the smoothing is, and steps only where the geometry genuinely breaks.
  */
+/**
+ * How much of the downward half of the exposure ramp is kept.
+ *
+ * `tone` picks the palette entry, so the ramp is albedo: a face is painted
+ * darker for pointing down, and then the light that already knows it points
+ * down darkens it again. At full range an underside lands on the palette
+ * shadow while the wall above it sits mid, and the step between them draws a
+ * hard horizontal line around the body -- the "dipped in paint" base. The
+ * up-facing half keeps its full range, because the bright crown against a
+ * shaded flank is the flat-value read this palette is built on; only the half
+ * that double-counts is compressed.
+ */
+export const STONE_TONE_DOWNWARD_COMPRESSION = 0.46;
 export const STONE_TONE_FLOOR = 0.42;
 export const STONE_TONE_RANGE = 0.56;
 

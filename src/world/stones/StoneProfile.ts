@@ -41,6 +41,40 @@ interface ProfileFamily {
   readonly slopeTurn: number;
   readonly directionalCompression: Range;
   readonly shoulderBreak: Range;
+  /**
+   * How tightly the compression and shoulder-break lobes are focused.
+   *
+   * The lobe is a smoothstepped cosine, so it is nonzero across a full half
+   * turn: at 1 it spreads a shoulder over every sector facing roughly the
+   * right way, and a displacement spread over every sector is a gradient, not
+   * a shoulder. Raising the exponent narrows the support until one or two
+   * sectors take the whole displacement and the sectors beside them do not,
+   * which is what makes an edge instead of a slope.
+   */
+  readonly lobeSharpness: number;
+  /**
+   * How much a ring may widen over the one below it, per unit height.
+   *
+   * The pass below used to force the radius non-increasing above the belly,
+   * which made the loft a stack that can only narrow: a cone with the corners
+   * knocked off. Allowing a rise does not create an overhang -- the body is an
+   * intersection of half-spaces and stays convex whatever the rings ask for --
+   * it lets a sector hold its width up the body and so present one tall wall
+   * where the old profile had to break the same height into three narrowing
+   * bands.
+   */
+  readonly maximumRise: number;
+  /**
+   * How nearly the crown ring sits on the line from shoulder to top.
+   *
+   * The crown radius is a fixed blend weighted toward the shoulder, which puts
+   * it outside the shoulder-to-top chord and bends the upper body into a
+   * dome shoulder. At 1 the crown lands exactly on that chord, the two ring
+   * segments become coplanar, and the clipper returns one tall upper face
+   * instead of two stacked bands -- two fewer outline corners per side, which
+   * is the term the silhouette score is actually dominated by.
+   */
+  readonly crownStraightness: number;
 }
 
 const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
@@ -54,19 +88,31 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.025,
     directionalCompression: { min: 0, max: 0 },
     shoulderBreak: { min: 0, max: 0 },
+    lobeSharpness: 1,
+    maximumRise: 0,
+    crownStraightness: 0,
   },
   boulder: {
     // Boulder massing is directional: one broad side recedes and another
     // shoulder breaks away, preventing a stack of scaled radial rings.
-    bellyBulge: { min: 0.04, max: 0.1 },
+    //
+    // The belly no longer bulges. A bulge makes the elevation a barrel, and a
+    // barrel presents a curve where the reference presents one flat wall: the
+    // contact, belly and shoulder rings have to be near-collinear in
+    // (height, radius) before the clipper will drop the middle plane and hand
+    // back a single tall face.
+    bellyBulge: { min: -0.02, max: 0.03 },
     bellyVariation: 0.06,
     shoulderVariation: 0.08,
     crownVariation: 0.055,
     centerWander: { min: 0.08, max: 0.18 },
     verticalVariation: 0.07,
-    slopeTurn: 0.08,
-    directionalCompression: { min: 0.08, max: 0.16 },
-    shoulderBreak: { min: 0.055, max: 0.13 },
+    slopeTurn: 0.025,
+    directionalCompression: { min: 0.18, max: 0.34 },
+    shoulderBreak: { min: 0.14, max: 0.28 },
+    lobeSharpness: 3.2,
+    maximumRise: 0.12,
+    crownStraightness: 0.85,
   },
   slab: {
     bellyBulge: { min: 0.035, max: 0.09 },
@@ -78,6 +124,9 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.04,
     directionalCompression: { min: 0.015, max: 0.05 },
     shoulderBreak: { min: 0.01, max: 0.045 },
+    lobeSharpness: 1.7,
+    maximumRise: 0.1,
+    crownStraightness: 0.5,
   },
   block: {
     bellyBulge: { min: 0.02, max: 0.075 },
@@ -86,9 +135,12 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     crownVariation: 0.045,
     centerWander: { min: 0.035, max: 0.09 },
     verticalVariation: 0.045,
-    slopeTurn: 0.04,
+    slopeTurn: 0.022,
     directionalCompression: { min: 0.02, max: 0.055 },
     shoulderBreak: { min: 0.015, max: 0.05 },
+    lobeSharpness: 1.8,
+    maximumRise: 0.14,
+    crownStraightness: 0.5,
   },
   shard: {
     bellyBulge: { min: -0.015, max: 0.035 },
@@ -100,6 +152,9 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.045,
     directionalCompression: { min: 0.025, max: 0.07 },
     shoulderBreak: { min: 0.02, max: 0.065 },
+    lobeSharpness: 2.4,
+    maximumRise: 0.06,
+    crownStraightness: 0.35,
   },
   outcrop: {
     bellyBulge: { min: 0.09, max: 0.21 },
@@ -108,9 +163,12 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     crownVariation: 0.075,
     centerWander: { min: 0.07, max: 0.16 },
     verticalVariation: 0.075,
-    slopeTurn: 0.065,
+    slopeTurn: 0.022,
     directionalCompression: { min: 0.06, max: 0.13 },
     shoulderBreak: { min: 0.045, max: 0.11 },
+    lobeSharpness: 2.6,
+    maximumRise: 0.14,
+    crownStraightness: 0.8,
   },
 };
 
@@ -139,8 +197,13 @@ function smoothSectorVariation(
   return sample(-1) * 0.2 + sample(0) * 0.6 + sample(1) * 0.2;
 }
 
-function directionalLobe(angle: number, direction: number): number {
-  const raw = Math.max(0, Math.cos(angle - direction));
+function directionalLobe(
+  angle: number,
+  direction: number,
+  sharpness: number,
+): number {
+  const cosine = Math.max(0, Math.cos(angle - direction));
+  const raw = sharpness === 1 ? cosine : Math.pow(cosine, sharpness);
   return raw * raw * (3 - 2 * raw);
 }
 
@@ -284,9 +347,11 @@ export function resolveStoneProfile(
     const base = input.sideRadii[side];
     const angle = input.sideAngles[side];
     const compression =
-      directionalLobe(angle, compressionAngle) * compressionStrength;
+      directionalLobe(angle, compressionAngle, family.lobeSharpness) *
+      compressionStrength;
     const shoulderBreak =
-      directionalLobe(angle, shoulderBreakAngle) * shoulderBreakStrength;
+      directionalLobe(angle, shoulderBreakAngle, family.lobeSharpness) *
+      shoulderBreakStrength;
     const contactVariation = smoothSectorVariation(
       input.seed,
       side,
@@ -341,20 +406,23 @@ export function resolveStoneProfile(
           : Math.max(0.62, 1 - compression * 0.9 - shoulderBreak * 0.55)),
     );
     const sector = random.fork(`profile-sector:${side}`);
-    const crownRadius =
+    // Where the crown would sit if the upper body were one straight face.
+    const crownSpan = (crownHeight - shoulderHeight) / (1 - shoulderHeight);
+    const crownLinear =
+      shoulderRadius + (topRadius - shoulderRadius) * crownSpan;
+    const crownBlend =
       input.silhouetteVariant === "capstone"
-        ? Math.max(
-            topRadius + 0.018,
-            shoulderRadius * sector.range(0.82, 0.91) +
-              topRadius * sector.range(0.12, 0.2) +
-              base * crownVariation * family.crownVariation * 0.65,
-          )
-        : Math.max(
-            topRadius + 0.025,
-            shoulderRadius * sector.range(0.7, 0.86) +
-              topRadius * sector.range(0.14, 0.3) +
-              base * crownVariation * family.crownVariation,
-          );
+        ? shoulderRadius * sector.range(0.82, 0.91) +
+          topRadius * sector.range(0.12, 0.2) +
+          base * crownVariation * family.crownVariation * 0.65
+        : shoulderRadius * sector.range(0.7, 0.86) +
+          topRadius * sector.range(0.14, 0.3) +
+          base * crownVariation * family.crownVariation;
+    const crownRadius = Math.max(
+      topRadius + (input.silhouetteVariant === "capstone" ? 0.018 : 0.025),
+      crownBlend +
+        (crownLinear - crownBlend) * family.crownStraightness,
+    );
 
     desired[0].push(contactRadius);
     desired[1].push(bellyRadius);
@@ -379,9 +447,17 @@ export function resolveStoneProfile(
     heightOffsets[4].push(0);
   }
 
-  // Make the support function concave in height using the exact ring heights
-  // the clipper will see. The earlier pass used pre-clamp heights, which could
-  // make a segment redundant after per-sector height wander was clamped.
+  // Bound how fast the support function may turn outward, using the exact ring
+  // heights the clipper will see. An earlier pass used pre-clamp heights, which
+  // could make a segment redundant after per-sector height wander was clamped.
+  //
+  // This is a bound, not a concavity proof. It used to force strict concavity,
+  // which guaranteed every ring segment produced a facet -- and a body whose
+  // every segment produces a facet of similar size is the definition of the
+  // dome this archetype kept reading as. Letting neighbouring segments share a
+  // slope lets the clipper drop the redundant one and hand back a single tall
+  // face instead of three stacked bands. Convexity is not at risk either way:
+  // the body is an intersection of half-spaces.
   for (let side = 0; side < sideCount; side += 1) {
     const angle = input.sideAngles[side];
     const directionX = Math.cos(angle);
@@ -405,7 +481,7 @@ export function resolveStoneProfile(
             ? family.slopeTurn * 0.4
             : family.slopeTurn);
         if (ringIndex >= 2) {
-          maximumSlope = Math.min(0, maximumSlope);
+          maximumSlope = Math.min(family.maximumRise, maximumSlope);
         }
         if (slope > maximumSlope) {
           const projection =

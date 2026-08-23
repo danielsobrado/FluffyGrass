@@ -92,7 +92,11 @@ export const SPLIT_GAP_MAX = 0.16;
  * boulder that has parted but not moved looks like.
  */
 export const FORMATION_GAP_MIN = 0.012;
-export const FORMATION_GAP_MAX = 0.09;
+// The top of the range carries a real crevice. At 0.09 m the widest crack on a
+// two-metre boulder was still too narrow to hold its own shadow, so every pair
+// read as a hairline regardless of where in the range it landed, and the range
+// only varied something invisible.
+export const FORMATION_GAP_MAX = 0.15;
 
 /**
  * How far the halves may sit apart in terrain height before the break stops

@@ -34,7 +34,10 @@ const FACE_QUAD_EXTENT = 6;
 const CUT_GROUND_CLEARANCE = 0.02;
 const CUT_MINIMUM_EFFECTIVE_DEPTH = 0.015;
 const CHIP_MINIMUM_EFFECTIVE_DEPTH = 0.004;
-const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.055;
+// A cut has to take a real share of the surface before it reads as a fracture
+// face rather than a scratch across one. At 0.055 a "major" cut could take a
+// twentieth of the body and still count.
+const MINIMUM_MAJOR_CUT_AREA_SHARE = 0.09;
 /**
  * Arris softening.
  *
@@ -88,7 +91,7 @@ const PROFILE_MIN_HEIGHT_GAP = 0.06;
 
 const RIDGE_CHANCE: Record<StoneRecipe["archetype"], number> = {
   pebble: 0.08,
-  boulder: 0.44,
+  boulder: 0.18,
   slab: 0.82,
   block: 0.2,
   shard: 0,
@@ -407,7 +410,24 @@ export function facesFromPlanes(planes: StonePlane[]): StonePolygon[] {
   return healBoundaryGaps(substantial);
 }
 
+/**
+ * Close non-manifold gaps left by near-coincident planes.
+ *
+ * Break-face corners are pinned. A mated pair is one body clipped by a plane
+ * and its negation, so both halves see an identical plane set and their break
+ * outlines are identical the moment they leave the clipper. Healing is where
+ * that stopped being true: the representative for a cluster was whichever
+ * suspect the iteration reached first, and iteration order follows the face
+ * list, which is *not* the same on the two halves. A rim corner could be
+ * pulled onto a neighbour on one half and left alone on the other, and the
+ * pair no longer met. Rim corners may be snapped *to*; they are never moved.
+ */
 function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
+  const pinned = new Set<StoneVec3>();
+  for (const face of faces) {
+    if (face.role !== "fracture") continue;
+    for (const point of face.points) pinned.add(point);
+  }
   let current = faces;
   for (let pass = 0; pass < MAX_HEAL_PASSES; pass += 1) {
     const counts = new Map<string, number>();
@@ -437,8 +457,20 @@ function healBoundaryGaps(faces: StonePolygon[]): StonePolygon[] {
     if (suspects.size === 0) return current;
 
     const representatives = new Map<StoneVec3, StoneVec3>();
+    // Pinned corners are representatives before anything else is considered,
+    // so a cluster containing one always collapses onto it.
     const chosen: StoneVec3[] = [];
     for (const suspect of suspects) {
+      if (pinned.has(suspect)) chosen.push(suspect);
+    }
+    // Order the rest by position rather than by face order. The clipper emits
+    // faces in plane order, which two fragments of one body do not share.
+    const ordered = [...suspects].filter((point) => !pinned.has(point));
+    ordered.sort(
+      (left, right) =>
+        left.x - right.x || left.y - right.y || left.z - right.z,
+    );
+    for (const suspect of ordered) {
       let match: StoneVec3 | undefined;
       for (const candidate of chosen) {
         const dx = candidate.x - suspect.x;

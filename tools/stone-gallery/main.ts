@@ -21,6 +21,7 @@ import {
   WORLD_DEFAULT_SUN,
   WORLD_DEFAULT_SUN_INTENSITY,
   WORLD_SUN_DIRECTION,
+  WORLD_SUN_SHADOW_HALF_EXTENT,
   WORLD_TONE_MAPPING,
 } from "../../src/app/WorldEnvironmentTuning";
 import { resolveStoneVertexWetness } from "../../src/world/stones/StoneWetness";
@@ -109,6 +110,17 @@ const crackParam = readNumberParam("crack", 0.05, 0, 2);
 /** Contact shading and edge softness only read at close range; frame for it. */
 const columnsParam = Math.trunc(readNumberParam("columns", 8, 1, 16));
 const distanceParam = readNumberParam("dist", 0, 0, 80);
+/**
+ * Blade cards around each contact rim.
+ *
+ * The world never shows a stone against bare ground: grass grows up to the
+ * clearance edge and the planted skirt thickens just outside it, so a real base
+ * is a broken silhouette. On the bare probe plane a body reads as sitting *on*
+ * the world rather than *in* it, which pushes embed and contact shading toward
+ * values that are wrong once vegetation is back. This is a judging aid only --
+ * it is not the grass system and does not read its config.
+ */
+const grassParam = params.get("grass") === "1";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
 const out = document.querySelector<HTMLElement>("#out");
@@ -122,6 +134,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = WORLD_TONE_MAPPING;
 renderer.toneMappingExposure = WORLD_DEFAULT_EXPOSURE;
+// Production casts and receives stone shadows at detail LOD. Without them the
+// probe hides the two things the contact rim and the mated crack are for, and
+// every tuning decision made here is made against a darker, flatter image than
+// the one that ships.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#bfd4df");
@@ -161,7 +179,9 @@ sun.position
   .set(...WORLD_SUN_DIRECTION)
   .normalize()
   .multiplyScalar(60);
+sun.castShadow = true;
 scene.add(sun);
+scene.add(sun.target);
 
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
@@ -170,6 +190,7 @@ const ground = new THREE.Mesh(
   }),
 );
 ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
 scene.add(ground);
 
 const configRequest = new XMLHttpRequest();
@@ -181,8 +202,14 @@ if (configRequest.status !== 200 && configRequest.status !== 0) {
 const config = new WorldConfigLoader().parse(configRequest.responseText);
 const material = new THREE.MeshLambertMaterial({ vertexColors: true });
 material.dithering = true;
+// Both grain terms need the texture. Gating on the albedo term alone meant the
+// probe silently dropped the whole grain path whenever only the normal term
+// was on, which is the configuration that ships. WorldStoneSystem has always
+// tested both; this is the probe catching up.
 const grainTexture =
-  config.stoneGrainStrength > 0 ? createProbeGrainTexture() : undefined;
+  config.stoneGrainStrength > 0 || config.stoneGrainNormalStrength > 0
+    ? createProbeGrainTexture()
+    : undefined;
 applyStoneSurfaceShader(material, config, grainTexture);
 
 const paletteColumns: StonePalette[] = paletteParam
@@ -204,6 +231,13 @@ const GROWTH_EPSILON = 1e-4;
 let totalTriangles = 0;
 let formations = 0;
 let totalVertices = 0;
+
+interface ContactRing {
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+}
+const contacts: ContactRing[] = [];
 
 const shownArchetypes: readonly StoneArchetypeId[] = focusParam
   ? [focusParam]
@@ -304,6 +338,9 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
         0.5 / Math.max(mesh.metrics.footprintRadius, GROWTH_EPSILON);
       const inverseGrowthHeight =
         1 / Math.max(mesh.metrics.height, GROWTH_EPSILON);
+      // No hydrology in the probe, so there is no splash climb: the visible wet
+      // top and the geological waterline are the same height.
+      const probeWaterlineY = mesh.metrics.height * wetParam;
       for (let vertex = 0; vertex < mesh.mosses.length; vertex += 1) {
         mosses[vertex] =
           growthParam === "moss"
@@ -329,7 +366,7 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
         wets[vertex] =
           wetParam > 0
             ? resolveStoneVertexWetness(
-                { strength: 1, topY: mesh.metrics.height * wetParam },
+                { strength: 1, waterlineY: probeWaterlineY, topY: probeWaterlineY },
                 mesh.positions[offset + 1],
               )
             : 0;
@@ -368,6 +405,8 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
       geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
 
       const object = new THREE.Mesh(geometry, material);
+      object.castShadow = true;
+      object.receiveShadow = true;
       object.scale.setScalar(scale);
       // The pair is offset in the major half's mesh space, so the placement turn
       // has to be applied to the offset exactly as the object matrix applies it.
@@ -382,12 +421,142 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
       );
       object.rotation.y = yaw;
       scene.add(object);
+      contacts.push({
+        x: object.position.x,
+        z: object.position.z,
+        radius: mesh.metrics.contactRadius * scale,
+      });
     });
   }
 });
 
+configureProbeShadow(
+  Math.max(
+    (columns * spacing) / 2,
+    (shownArchetypes.length * spacing) / 2,
+  ) + 2,
+);
+if (grassParam) {
+  scene.add(createContactGrass(contacts));
+}
+
 if (out) {
   out.textContent = `${shownArchetypes.length * columns} stones${formations > 0 ? ` (${formations} mated formations)` : ""} · ${totalTriangles.toLocaleString()} tris · ${totalVertices.toLocaleString()} verts · rows: ${shownArchetypes.join(", ")}`;
+}
+
+/**
+ * Match the world's shadow *quality*, not its frustum.
+ *
+ * The gallery frames a grid, not a player, so copying
+ * `WORLD_SUN_SHADOW_HALF_EXTENT` would either clip the outer columns or waste
+ * most of the map on empty plane. Sizing the extent to the grid and holding the
+ * production metres-per-texel keeps the penumbra the same width on screen,
+ * which is the part a contact rim is judged against.
+ */
+function configureProbeShadow(halfExtent: number): void {
+  const productionTexel = (2 * WORLD_SUN_SHADOW_HALF_EXTENT) / 1024;
+  const maxTextureSize = renderer.capabilities.maxTextureSize;
+  const size = Math.min(
+    4096,
+    maxTextureSize,
+    Math.max(1024, 2 ** Math.ceil(Math.log2((2 * halfExtent) / productionTexel))),
+  );
+  sun.shadow.camera.left = -halfExtent;
+  sun.shadow.camera.right = halfExtent;
+  sun.shadow.camera.top = halfExtent;
+  sun.shadow.camera.bottom = -halfExtent;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = sun.position.length() + halfExtent * 2;
+  sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.normalBias = 0.02;
+  sun.shadow.radius = 3;
+  sun.shadow.bias = -0.0008;
+  sun.shadow.mapSize.set(size, size);
+}
+
+/** Deterministic per-call noise, so a capture is byte-stable across runs. */
+function probeRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * One-triangle blade cards ringing each contact rim.
+ *
+ * Deliberately the repo's own near-field blade form -- a tapered triangle with
+ * a root darker than its tip -- so the value the base is judged against is the
+ * one the grass field actually puts there. Density falls off outward across the
+ * skirt band rather than stopping at the clearance edge.
+ */
+function createContactGrass(rings: readonly ContactRing[]): THREE.Mesh {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const root = new THREE.Color("#2f4326");
+  const tip = new THREE.Color("#7fa04d");
+
+  rings.forEach((ring, index) => {
+    const random = probeRandom(index * 2654435761 + 17);
+    const tufts = Math.max(20, Math.round(ring.radius * 62));
+    for (let tuft = 0; tuft < tufts; tuft += 1) {
+      const angle = (tuft / tufts) * Math.PI * 2 + random() * 0.35;
+      // Bias inward so blades overlap the silhouette instead of ringing it.
+      const reach = ring.radius * (0.88 + random() * 0.62);
+      const tuftX = ring.x + Math.cos(angle) * reach;
+      const tuftZ = ring.z + Math.sin(angle) * reach;
+      const blades = 4 + Math.floor(random() * 4);
+      for (let blade = 0; blade < blades; blade += 1) {
+        const bladeX = tuftX + (random() - 0.5) * 0.16;
+        const bladeZ = tuftZ + (random() - 0.5) * 0.16;
+        const height = 0.16 + random() * 0.19;
+        const width = 0.009 + random() * 0.008;
+        const heading = random() * Math.PI * 2;
+        const acrossX = Math.cos(heading) * width;
+        const acrossZ = Math.sin(heading) * width;
+        const lean = 0.1 + random() * 0.16;
+        positions.push(
+          bladeX - acrossX, 0, bladeZ - acrossZ,
+          bladeX + acrossX, 0, bladeZ + acrossZ,
+          bladeX + Math.cos(heading + Math.PI / 2) * lean * height,
+          height,
+          bladeZ + Math.sin(heading + Math.PI / 2) * lean * height,
+        );
+        colors.push(
+          root.r, root.g, root.b,
+          root.r, root.g, root.b,
+          tip.r, tip.g, tip.b,
+        );
+      }
+    }
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(positions), 3),
+  );
+  geometry.setAttribute(
+    "color",
+    new THREE.BufferAttribute(new Float32Array(colors), 3),
+  );
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+    }),
+  );
+  mesh.name = "stone-gallery-contact-grass";
+  // Receives the stone's shadow, does not cast: a blade shadow map at this
+  // texel size is speckle, and the point here is the stone's silhouette.
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 function createProbeGrainTexture(): THREE.Texture {

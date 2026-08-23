@@ -166,6 +166,13 @@ try {
       label: "gallery-formation-close",
       url: `${origin}/stone-gallery.html?focus=boulder&columns=2&dist=5&formation=1&growth=moss`,
     },
+    {
+      // The base against vegetation. Embed depth, the contact seam and the
+      // skirt are all judged on where the silhouette stops being stone, and
+      // on bare ground that edge is not the one the world draws.
+      label: "gallery-grass-contact",
+      url: `${origin}/stone-gallery.html?focus=boulder&columns=2&dist=4.2&formation=1&grass=1`,
+    },
   ];
 
   if (formations.length === 0) {

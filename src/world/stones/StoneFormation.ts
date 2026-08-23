@@ -49,8 +49,14 @@ const FRACTURABLE_ARCHETYPES: ReadonlySet<StoneArchetypeId> =
  * How far off vertical the break may lean. A near-vertical joint leaves both
  * pieces standing on their own contact polygon; past this the smaller piece
  * starts to be a lid with no ground contact of its own.
+ *
+ * Held near vertical, the break also cut the crown along a straight line and
+ * the pair read as one body with a slot milled through it. The limit is not
+ * self-policing in the direction that matters -- `fragmentIsViable` already
+ * rejects a fragment with no ground contact -- so the tilt can be opened and
+ * the viability gate, not this number, decides where a lid begins.
  */
-const FRACTURE_TILT_LIMIT = 0.26;
+const FRACTURE_TILT_LIMIT = 0.38;
 
 /**
  * Share of the body's extent along the break normal kept by fragment "a".

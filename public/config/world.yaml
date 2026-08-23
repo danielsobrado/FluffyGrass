@@ -296,25 +296,25 @@ stoneRenderBatchChunksPerAxis: 2
 stoneChunksPerFrame: 1
 # Paths keep occasional kicked-aside stones without becoming decorative kerbs.
 stoneVergeChance: 0.62
-# Close-range surface grain. Both terms are implemented, both are off, and the
-# reason is the same for each: this material is Lambert with no specular and no
-# self-shadowing, so a perturbed normal only changes N.L -- a brightness blotch,
-# which is visually the same thing as an albedo blotch. The mechanism that makes
-# micro-relief read elsewhere, a highlight sliding across it, is not present.
+# Close-range surface grain.
 #
-# Swept with captures. The albedo term reads as dirty concrete under about 0.6 m
-# of feature size and is invisible above it. The normal term aliases into
-# per-pixel speckle at that same 0.6 m, needs roughly 3 m of feature size before
-# it stops looking like lichen, and by the strength where it stops competing with
-# the facets it can no longer be seen at all. Raise either towards 0.1 with
-# stoneGrainSize near 3 to judge it directly.
+# The normal term is on and the albedo term stays off, and the reason both
+# changed is the same: the material is no longer pure Lambert. It previously had
+# no specular lobe for dry stone, so a perturbed normal only changed N.L -- a
+# brightness blotch, indistinguishable from an albedo blotch -- and the earlier
+# sweep correctly measured no effect and switched both terms off. What that
+# sweep could not know is that the missing mechanism, a highlight sliding across
+# the relief, already existed on this material for wet stone and only needed
+# opening to dry (STONE_DRY_SHEEN_* in StoneGrowthShader.ts).
 #
-# Close-range flatness in this style is answered by the chamfered rims and the
-# baked edge accents, which reinforce the flat-value palette instead of arguing
-# with it.
+# With the lobe present the normal term does what it was written for, and the
+# feature size moves with it: the old finding that it needed roughly 3 m before
+# it stopped reading as lichen was a property of modulating albedo, not relief.
+# The albedo term stays at zero -- it still reads as dirty concrete, because
+# painting a blotch is what it does and no lobe changes that.
 stoneGrainStrength: 0
-stoneGrainNormalStrength: 0
-stoneGrainSize: 0.6
+stoneGrainNormalStrength: 0.05
+stoneGrainSize: 1.6
 stoneGrainFadeDistance: 18
 
 # Biological growth.

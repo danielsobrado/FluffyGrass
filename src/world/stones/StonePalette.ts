@@ -89,49 +89,60 @@ function palette(
  * Warm mineral ramps calibrated under the world's Neutral tone mapping and
  * exposure. Direct sun supplies the bright cream highlight; side planes keep a
  * brown mineral identity instead of inheriting the meadow's green cast.
+ *
+ * The ramps are wider than they were, at the light end. Every palette used to
+ * top out around 48% luminance, so a sunlit crown and a shaded flank were
+ * separated almost entirely by the light rather than by the paint, and a stone
+ * carried one value with the sun doing all the work. Widening `light`/`edge`
+ * gives the crown somewhere to go; `shadow` moves down far less, because the
+ * flank already sits low and the world's weak fill cannot rescue it.
+ *
+ * `crust` is separated from `light` for the same reason. It is the lighter of
+ * the two mineral zones and was within a few percent of the base ramp, so the
+ * zoning existed in the data and not on the rock.
  */
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
-    "#493d32",
+    "#453a30",
     "#6c5b49",
-    "#9f8d73",
-    "#b19d80",
+    "#ab9878",
+    "#c2ad8c",
     "#4f633e",
-    "#928f6d",
+    "#9d9a75",
     0.58,
-    "#b9a98d",
+    "#cdbc9c",
     "#724630",
     "#2b211a",
-    0.48,
+    0.6,
   ),
   steppeTan: palette(
     "steppe-tan",
-    "#4b3829",
+    "#473527",
     "#72543e",
-    "#9c795d",
-    "#b18d6d",
+    "#a8825f",
+    "#c09873",
     "#666a43",
-    "#aaa06b",
+    "#b4aa74",
     0.58,
-    "#bea080",
+    "#d0b18c",
     "#704832",
     "#30231b",
-    0.58,
+    0.66,
   ),
   graniteGrey: palette(
     "granite-grey",
-    "#44413c",
-    "#5d574f",
-    "#797067",
-    "#8d8276",
+    "#3f3d39",
+    "#635c53",
+    "#8f8679",
+    "#a89d8d",
     "#536844",
-    "#969779",
+    "#a3a486",
     0.62,
-    "#988d80",
-    "#604936",
+    "#c0b4a1",
+    "#6b5140",
     "#2b2521",
-    0.5,
+    0.62,
   ),
   mossy: palette(
     "mossy",

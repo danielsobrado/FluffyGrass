@@ -77,6 +77,8 @@ varying float vStoneBedding;
 uniform float uStoneWetDarken;
 uniform float uStoneWetSheenStrength;
 uniform float uStoneWetSheenPower;
+uniform float uStoneDrySheenStrength;
+uniform float uStoneDrySheenPower;
 varying float vStoneWet;
 uniform float uStoneGrowthDetailStrength;
 uniform float uStoneGrowthDetailScale;
@@ -480,20 +482,25 @@ if (vStoneWet > 0.001) {
 }
 `;
 
-const WET_SHEEN = `
+const SHEEN = `
 #if NUM_DIR_LIGHTS > 0
+  vec3 stoneSheenView = normalize(vViewPosition);
+  vec3 stoneSheenHalf = normalize(
+    directionalLights[0].direction + stoneSheenView
+  );
+  float stoneSheenBase = saturate(dot(normal, stoneSheenHalf));
+  // Unbranched: the dry term applies to every body, so there is no coherent
+  // batch to skip and a branch would only cost the divergence it saves.
+  float stoneSheen =
+    pow(stoneSheenBase, uStoneDrySheenPower) * uStoneDrySheenStrength;
   if (vStoneWet > 0.001) {
-    vec3 stoneSheenView = normalize(vViewPosition);
-    vec3 stoneSheenHalf = normalize(
-      directionalLights[0].direction + stoneSheenView
+    stoneSheen = mix(
+      stoneSheen,
+      pow(stoneSheenBase, uStoneWetSheenPower) * uStoneWetSheenStrength,
+      vStoneWet
     );
-    float stoneSheenLobe = pow(
-      saturate(dot(normal, stoneSheenHalf)),
-      uStoneWetSheenPower
-    );
-    outgoingLight += directionalLights[0].color *
-      (stoneSheenLobe * uStoneWetSheenStrength * vStoneWet);
   }
+  outgoingLight += directionalLights[0].color * stoneSheen;
 #endif
 `;
 
@@ -527,12 +534,18 @@ const SKY_SIDE_AMBIENT = `
   float stoneSkyFacing = saturate(
     dot(normal, hemisphereLights[0].direction) * 0.5 + 0.5
   );
+  // The sky-facing ramp starts lower than it did. A vertical wall sits at
+  // exactly 0.5 on this term, which the old 0.18-0.78 window met less than
+  // halfway -- and a vertical wall turned from the sun is the single largest
+  // surface on a low, broad body, so the one face the fill exists for was the
+  // one it reached least. Against a high sun the flank was left at roughly a
+  // quarter of the crown's value and the two read as separate materials.
   float stoneSkySide =
     (1.0 - smoothstep(0.08, 0.46, stoneSunFacing)) *
-    smoothstep(0.18, 0.78, stoneSkyFacing);
+    smoothstep(0.05, 0.68, stoneSkyFacing);
   outgoingLight +=
     diffuseColor.rgb * hemisphereLights[0].skyColor *
-    vec3(0.72, 0.92, 1.18) * (stoneSkySide * 0.2);
+    vec3(0.72, 0.92, 1.18) * (stoneSkySide * 0.38);
 #endif
 `;
 
@@ -547,6 +560,22 @@ const STONE_WET_DARKEN = 0.58;
 /** Narrow enough to read as a film of water rather than polish. */
 const STONE_WET_SHEEN_POWER = 110;
 const STONE_WET_SHEEN_STRENGTH = 0.28;
+/**
+ * The lobe dry stone gets.
+ *
+ * Broad and weak, where the wet lobe is narrow and strong: this is not a wet
+ * highlight but the fact that rock is not a perfect diffuser, and its whole
+ * job is to give a perturbed normal something to move. `stoneGrainNormalStrength`
+ * was measured at zero effect and switched off because on a pure Lambert
+ * surface a bumped normal only changes N.L, which is a brightness blotch --
+ * indistinguishable from an albedo blotch. That measurement was correct about
+ * the material as it stood and wrong about the material as it had to be: the
+ * mechanism it said was missing is the one below, and the wet path already had
+ * it. At this width the term reads as a sheen across a whole plane rather than
+ * a specular dot, which is what stone at this scale actually does.
+ */
+const STONE_DRY_SHEEN_POWER = 16;
+const STONE_DRY_SHEEN_STRENGTH = 0.075;
 
 export function applyStoneSurfaceShader(
   material: THREE.MeshLambertMaterial,
@@ -580,6 +609,10 @@ export function applyStoneSurfaceShader(
       value: STONE_WET_SHEEN_STRENGTH,
     };
     shader.uniforms.uStoneWetSheenPower = { value: STONE_WET_SHEEN_POWER };
+    shader.uniforms.uStoneDrySheenStrength = {
+      value: STONE_DRY_SHEEN_STRENGTH,
+    };
+    shader.uniforms.uStoneDrySheenPower = { value: STONE_DRY_SHEEN_POWER };
 
     let fragmentCommon = GROWTH_FRAGMENT_COMMON;
     let colorFragment = GROWTH_COLOR;
@@ -623,12 +656,12 @@ export function applyStoneSurfaceShader(
       )
       .replace(
         "#include <opaque_fragment>",
-        `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}${WET_SHEEN}#include <opaque_fragment>`,
+        `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}${SHEEN}#include <opaque_fragment>`,
       );
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v16-grain-bump:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v18-dry-sheen:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 
