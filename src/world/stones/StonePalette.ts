@@ -7,7 +7,11 @@
  */
 
 import { STONE_CONTACT_OCCLUSION } from "./StoneContactOcclusion";
-import { STONE_BOUNCE_STRENGTH } from "./StoneGeometryTuning";
+import {
+  STONE_BOUNCE_STRENGTH,
+  STONE_MINERAL_COLOR_STRENGTH,
+  STONE_WEATHERING_COLOR_STRENGTH,
+} from "./StoneGeometryTuning";
 
 export interface StoneLinearColor {
   readonly r: number;
@@ -25,8 +29,9 @@ export interface StonePalette {
   readonly lichen: StoneLinearColor;
   readonly edgeStrength: number;
   /**
-   * The two ends of weathering — bleached sun crust and iron-and-soil stain —
-   * plus the warm dark that fills the cracks.
+   * Pale mineral, iron-rich mineral/weathering, and the warm dark that fills
+   * cracks. Mineral zoning and weathering use the same physically compatible
+   * endpoints but are independent signals.
    */
   readonly crust: StoneLinearColor;
   readonly stain: StoneLinearColor;
@@ -90,16 +95,9 @@ function palette(
  * exposure. Direct sun supplies the bright cream highlight; side planes keep a
  * brown mineral identity instead of inheriting the meadow's green cast.
  *
- * The ramps are wider than they were, at the light end. Every palette used to
- * top out around 48% luminance, so a sunlit crown and a shaded flank were
- * separated almost entirely by the light rather than by the paint, and a stone
- * carried one value with the sun doing all the work. Widening `light`/`edge`
- * gives the crown somewhere to go; `shadow` moves down far less, because the
- * flank already sits low and the world's weak fill cannot rescue it.
- *
- * `crust` is separated from `light` for the same reason. It is the lighter of
- * the two mineral zones and was within a few percent of the base ramp, so the
- * zoning existed in the data and not on the rock.
+ * `crust` and `stain` now serve two independent processes. The low-frequency
+ * mineral field moves broad regions toward those geological endpoints, while
+ * weathering only nudges the result according to exposure, age and contact.
  */
 export const STONE_PALETTES = {
   meadowSage: palette(
@@ -166,19 +164,14 @@ export interface StoneTintParams {
   readonly valueScale: number;
   readonly secondary?: StonePalette;
   readonly secondaryBlend?: number;
+  /** Formation-wide aging bias, signed around zero. */
+  readonly weatheringBias?: number;
 }
 
-/**
- * Light thrown back onto the lower body by the surrounding turf. It is one
- * colour for every palette because it belongs to the field, not to the rock.
- */
+/** Light thrown back onto the lower body by the surrounding turf. */
 const TURF_BOUNCE = linearFromHex("#5a603f");
 
-/**
- * Only a trace of value stepping remains. Shape separation now comes from broad
- * facets and coherent mineral regions; stronger quantization redraws unwanted
- * horizontal contour bands across otherwise continuous faces.
- */
+/** A trace of value stepping preserves the stylized read without contour bands. */
 const RAMP_BANDING_STRENGTH = 0.08;
 
 function mixChannel(a: number, b: number, amount: number): number {
@@ -195,6 +188,10 @@ function mixColor(
     g: mixChannel(primary.g, secondary.g, amount),
     b: mixChannel(primary.b, secondary.b, amount),
   };
+}
+
+function clamp01(value: number): number {
+  return value <= 0 ? 0 : value >= 1 ? 1 : value;
 }
 
 export function resolveStoneGrowthColors(
@@ -217,6 +214,7 @@ export function colorizeStoneVertices(
   tones: Float32Array,
   wears: Float32Array,
   bounces: Float32Array,
+  minerals: Float32Array,
   weatherings: Float32Array,
   cavities: Float32Array,
   contacts: Float32Array | undefined,
@@ -231,6 +229,7 @@ export function colorizeStoneVertices(
   const blend = tint.secondaryBlend ?? 0;
   const hasSecondary = secondary !== undefined && blend > 0;
   const valueScale = tint.valueScale * targetScale;
+  const weatheringBias = tint.weatheringBias ?? 0;
 
   for (let index = 0; index < tones.length; index += 1) {
     const tone = tones[index];
@@ -300,7 +299,28 @@ export function colorizeStoneVertices(
       edgeStrength = mixChannel(edgeStrength, secondary.edgeStrength, blend);
     }
 
-    const weathering = (weatherings[index] - 0.5) * 2 * crustStrength;
+    // Geological identity first. It crosses faces and does not know height,
+    // exposure or soil contact, so the stone cannot collapse back into bands.
+    const mineral =
+      (minerals[index] - 0.5) * 2 * STONE_MINERAL_COLOR_STRENGTH;
+    if (mineral > 0) {
+      r = mixChannel(r, crustR, mineral);
+      g = mixChannel(g, crustG, mineral);
+      b = mixChannel(b, crustB, mineral);
+    } else if (mineral < 0) {
+      const iron = -mineral;
+      r = mixChannel(r, stainR, iron);
+      g = mixChannel(g, stainG, iron);
+      b = mixChannel(b, stainB, iron);
+    }
+
+    // Weathering sits on top of geology and remains deliberately weaker.
+    const weatheringValue = clamp01(weatherings[index] + weatheringBias);
+    const weathering =
+      (weatheringValue - 0.5) *
+      2 *
+      crustStrength *
+      STONE_WEATHERING_COLOR_STRENGTH;
     if (weathering > 0) {
       r = mixChannel(r, crustR, weathering);
       g = mixChannel(g, crustG, weathering);
