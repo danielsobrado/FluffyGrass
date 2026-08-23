@@ -30,6 +30,7 @@ try {
   let faces = 0, planes = 0, chamfers = 0, cuts = 0, sides = 0;
   let top4 = 0, sil = 0, sym = 0, area = 0;
   let bareFaces = 0, bareSil = 0;
+  let rawCorners = 0, meaningfulCorners = 0, maxMeaningful = 0;
   const comp = { turnConcentration: 0, longRun: 0, circularity: 0, hullVertices: 0 };
   const roleCounts = new Map();
 
@@ -38,21 +39,12 @@ try {
     const planeSet = clipper.buildStoneSurfacePlanes(recipe, true);
     const body = clipper.facesFromPlanes(planeSet);
     // Match generateStoneMesh: shear, then anisotropic scale.
-    const seen = new Set();
-    for (const poly of body) {
-      for (const q of poly.points) {
-        if (seen.has(q)) continue;
-        seen.add(q);
-        const sx = q.x + recipe.leanX * q.y;
-        const sz = q.z + recipe.leanZ * q.y;
-        q.x = recipe.width * sx;
-        q.y = recipe.height * q.y;
-        q.z = recipe.depth * sz;
-      }
-    }
+    transformBody(body, recipe);
+
     const bare = clipper.facesFromPlanes(
       planeSet.filter((plane) => plane.role !== "edge-bevel"),
     );
+    transformBody(bare, recipe);
     bareFaces += bare.length;
     bareSil += silhouette.scoreStoneSilhouette(bare);
     planes += planeSet.length;
@@ -65,7 +57,11 @@ try {
     faces += body.length;
     sil += silhouette.scoreStoneSilhouette(body);
     sym += silhouette.scoreStoneRotationalSymmetry(body);
-    const pts = body.filter((f) => f.role !== 'bottom').flatMap((f) => f.points);
+    const complexity = silhouette.measureStoneSilhouetteComplexity(body);
+    rawCorners += complexity.meanRawCorners;
+    meaningfulCorners += complexity.meanMeaningfulCorners;
+    maxMeaningful = Math.max(maxMeaningful, complexity.maximumMeaningfulCorners);
+    const pts = body.filter((f) => f.role !== "bottom").flatMap((f) => f.points);
     const c = outlineComponents(pts);
     for (const k of Object.keys(comp)) comp[k] += c[k];
 
@@ -87,7 +83,8 @@ try {
   console.log(`  turn concentration ${(comp.turnConcentration / n).toFixed(3)} x0.9 = ${(comp.turnConcentration / n * 0.9).toFixed(3)}`);
   console.log(`  long-edge run      ${(comp.longRun / n).toFixed(3)} x0.7 = ${(comp.longRun / n * 0.7).toFixed(3)}`);
   console.log(`  circularity        ${(comp.circularity / n).toFixed(3)} x0.9 = -${(comp.circularity / n * 0.9).toFixed(3)}`);
-  console.log(`  hull vertices/view ${(comp.hullVertices / n).toFixed(1)}`);
+  console.log(`  raw hull corners   ${(rawCorners / n).toFixed(1)}`);
+  console.log(`  meaningful corners ${(meaningfulCorners / n).toFixed(1)} avg · ${maxMeaningful} max`);
   console.log(`  -- without edge bevels --`);
   console.log(`  faces/body       ${(bareFaces / n).toFixed(1)}`);
   console.log(`  silhouette       ${(bareSil / n).toFixed(3)}`);
@@ -100,8 +97,23 @@ try {
   await server.close();
 }
 
-// Component breakdown of scoreOutline, replicated so the three terms can be
-// read separately. Kept in step with StoneSilhouetteQuality.scoreOutline.
+function transformBody(body, recipe) {
+  const seen = new Set();
+  for (const poly of body) {
+    for (const q of poly.points) {
+      if (seen.has(q)) continue;
+      seen.add(q);
+      const sx = q.x + recipe.leanX * q.y;
+      const sz = q.z + recipe.leanZ * q.y;
+      q.x = recipe.width * sx;
+      q.y = recipe.height * q.y;
+      q.z = recipe.depth * sz;
+    }
+  }
+}
+
+// Component breakdown of scoreOutline, replicated so the three score terms can
+// be inspected separately from the canonical complexity measurement above.
 export function outlineComponents(points, pitches = [0.31, 0.52], azimuths = 8) {
   let turnC = 0, longR = 0, circ = 0, verts = 0, views = 0;
   for (const pitch of pitches) {
