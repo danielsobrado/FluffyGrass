@@ -118,6 +118,8 @@ export function generateStoneMesh(
   let indexCursor = 0;
   let contactRadius = 0;
   let footprintRadius = 0;
+  const edgeMaterialOffsetX = recipe.fracture ? contactOffset.x : 0;
+  const edgeMaterialOffsetZ = recipe.fracture ? contactOffset.z : 0;
 
   for (const face of faces) {
     const corners = face.points.length;
@@ -141,6 +143,8 @@ export function generateStoneMesh(
         corner,
         edgeSharpness,
         recipe,
+        edgeMaterialOffsetX,
+        edgeMaterialOffsetZ,
       );
       const softNormalY = softNormals[softOffset + 1];
       wears[vertexCursor] = edgeShading.wear;
