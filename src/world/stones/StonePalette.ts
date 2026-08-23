@@ -12,6 +12,7 @@ import {
   STONE_MINERAL_COLOR_STRENGTH,
   STONE_WEATHERING_COLOR_STRENGTH,
 } from "./StoneGeometryTuning";
+import { applyStoneGeologyWeathering } from "./StoneGeology";
 
 export interface StoneLinearColor {
   readonly r: number;
@@ -190,10 +191,6 @@ function mixColor(
   };
 }
 
-function clamp01(value: number): number {
-  return value <= 0 ? 0 : value >= 1 ? 1 : value;
-}
-
 export function resolveStoneGrowthColors(
   paletteColors: StonePalette,
   tint: StoneTintParams,
@@ -315,7 +312,10 @@ export function colorizeStoneVertices(
     }
 
     // Weathering sits on top of geology and remains deliberately weaker.
-    const weatheringValue = clamp01(weatherings[index] + weatheringBias);
+    const weatheringValue = applyStoneGeologyWeathering(
+      weatherings[index],
+      weatheringBias,
+    );
     const weathering =
       (weatheringValue - 0.5) *
       2 *
