@@ -55,6 +55,10 @@ export interface StoneMeshMetrics {
   readonly height: number;
   readonly contactRadius: number;
   readonly footprintRadius: number;
+  /** Parent-frame height used by material and growth coordinates. */
+  readonly materialHeight: number;
+  /** Parent-frame footprint radius used by material and growth coordinates. */
+  readonly materialFootprintRadius: number;
   readonly embed: number;
   /** Strength of close-range horizontal bedding seams for this body. */
   readonly bedding: number;
@@ -67,9 +71,15 @@ export interface StoneMeshMetrics {
   readonly fingerprint: number;
 }
 
+export interface StoneMaterialFrame {
+  readonly height: number;
+  readonly footprintRadius: number;
+}
+
 export function generateStoneMesh(
   recipe: StoneRecipe,
   includeChips = false,
+  materialFrame?: StoneMaterialFrame,
 ): StoneMeshData {
   const polygons = addStoneFractureRelief(
     addStoneIndentation(buildStonePolyhedron(recipe, includeChips), recipe),
@@ -99,10 +109,13 @@ export function generateStoneMesh(
   const heightMetres = resolveStoneHeight(faces);
   // A tilted fracture can leave two halves with different clipped maxima. They
   // are still one parent rock, so height-relative paint/growth must use one
-  // denominator or the same rim point changes value across the crack. Whole
-  // stones retain their measured height; fragments share the recipe's parent
-  // height while metrics continue to report their actual geometry height.
-  const shadingHeightMetres = recipe.fracture ? recipe.height : heightMetres;
+  // denominator or the same rim point changes value across the crack. The
+  // runtime pool supplies the exact parent frame; direct fragment callers keep
+  // the recipe-height fallback so both halves still agree.
+  const shadingHeightMetres = Math.max(
+    materialFrame?.height ?? (recipe.fracture ? recipe.height : heightMetres),
+    1e-3,
+  );
   const { vertexCount, triangleCount } = resolveMeshCounts(faces);
 
   const positions = new Float32Array(vertexCount * 3);
@@ -252,6 +265,11 @@ export function generateStoneMesh(
     height: heightMetres,
     contactRadius,
     footprintRadius,
+    materialHeight: shadingHeightMetres,
+    materialFootprintRadius: Math.max(
+      materialFrame?.footprintRadius ?? footprintRadius,
+      1e-4,
+    ),
     embed: recipe.embed,
     bedding:
       recipe.archetype === "slab"
