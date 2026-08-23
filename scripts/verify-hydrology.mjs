@@ -33,8 +33,12 @@ const server = await createServer({
 
 try {
   const THREE = await import("three");
-  const { TerrainField } = await server.ssrLoadModule("/src/world/TerrainField.ts");
-  const { TerrainChunkBuilder } = await server.ssrLoadModule("/src/world/TerrainChunk.ts");
+  const { TerrainField } = await server.ssrLoadModule(
+    "/src/world/TerrainField.ts",
+  );
+  const { TerrainChunkBuilder } = await server.ssrLoadModule(
+    "/src/world/TerrainChunk.ts",
+  );
   const { TerrainSurfaceField } = await server.ssrLoadModule(
     "/src/world/terrain/TerrainSurfaceField.ts",
   );
@@ -47,29 +51,17 @@ try {
   const { RiverField, createRiverSample } = await server.ssrLoadModule(
     "/src/world/hydrology/RiverField.ts",
   );
-  const {
-    RIVER_GLOBAL_MAX_WIDTH_SCALE,
-    RIVER_GLOBAL_MIN_WIDTH_SCALE,
-  } = await server.ssrLoadModule("/src/world/hydrology/RiverTuning.ts");
+  const { RIVER_GLOBAL_MAX_WIDTH_SCALE, RIVER_GLOBAL_MIN_WIDTH_SCALE } =
+    await server.ssrLoadModule("/src/world/hydrology/RiverTuning.ts");
   const { LakeField, createLakeSample } = await server.ssrLoadModule(
     "/src/world/hydrology/LakeField.ts",
   );
-  const {
-    WaterInteractionField,
-    createWaterInteractionSample,
-  } = await server.ssrLoadModule(
-    "/src/world/hydrology/WaterInteractionField.ts",
-  );
-  const {
-    WATER_FLOW_NOISE_SIZE,
-    sampleWaterFlowNoisePixel,
-  } = await server.ssrLoadModule(
-    "/src/world/hydrology/WaterFlowNoiseTexture.ts",
-  );
-  const {
-    WATER_BED_NOISE_SIZE,
-    sampleWaterBedPixel,
-  } = await server.ssrLoadModule("/src/world/hydrology/WaterBedTexture.ts");
+  const { WaterInteractionField, createWaterInteractionSample } =
+    await server.ssrLoadModule("/src/world/hydrology/WaterInteractionField.ts");
+  const { WATER_FLOW_NOISE_SIZE, sampleWaterFlowNoisePixel } =
+    await server.ssrLoadModule("/src/world/hydrology/WaterFlowNoiseTexture.ts");
+  const { WATER_BED_NOISE_SIZE, sampleWaterBedPixel } =
+    await server.ssrLoadModule("/src/world/hydrology/WaterBedTexture.ts");
   const { WaterBedMaterialController } = await server.ssrLoadModule(
     "/src/world/hydrology/WaterBedMaterialController.ts",
   );
@@ -89,16 +81,8 @@ try {
     "Dry ground must retain grass coverage.",
   );
   assert(
-    resolveGrassWaterMask(
-      WATER_VISIBLE_COVERAGE_THRESHOLD * 0.5,
-      0,
-      0.1,
-    ) > 0 &&
-      resolveGrassWaterMask(
-        WATER_VISIBLE_COVERAGE_THRESHOLD * 0.5,
-        0,
-        0.1,
-      ) < 1,
+    resolveGrassWaterMask(WATER_VISIBLE_COVERAGE_THRESHOLD * 0.5, 0, 0.1) > 0 &&
+      resolveGrassWaterMask(WATER_VISIBLE_COVERAGE_THRESHOLD * 0.5, 0, 0.1) < 1,
     "Grass must feather through the sub-visible shoreline interval.",
   );
   assertClose(
@@ -147,7 +131,10 @@ try {
       .filter(Boolean)
       .map((line) => {
         const separator = line.indexOf(":");
-        return [line.slice(0, separator).trim(), Number(line.slice(separator + 1))];
+        return [
+          line.slice(0, separator).trim(),
+          Number(line.slice(separator + 1)),
+        ];
       }),
   );
   for (const key of Object.keys(WORLD_CONFIG_SCHEMA)) {
@@ -219,6 +206,8 @@ try {
     ecology: new THREE.Vector4(),
     environment: new THREE.Vector4(),
     biome: new THREE.Vector3(),
+    stoneContact: new THREE.Vector4(),
+    stoneOcclusionRadius: 0,
   };
   const halfWorld = config.worldSize * 0.5;
   let riverSamples = 0;
@@ -233,7 +222,10 @@ try {
     for (let x = -halfWorld; x <= halfWorld; x += SAMPLE_STEP) {
       const height = terrain.sampleHeight(x, z);
       const dryHeight = dryTerrain.sampleHeight(x, z);
-      assert(height <= dryHeight + EPSILON, `Hydrology raised terrain at ${x}, ${z}.`);
+      assert(
+        height <= dryHeight + EPSILON,
+        `Hydrology raised terrain at ${x}, ${z}.`,
+      );
       if (dryHeight - height > 0.05) carvedSamples += 1;
 
       terrain.sampleHydrology(x, z, height, hydrology);
@@ -254,7 +246,8 @@ try {
         const levelKey = hydrology.waterLevel.toFixed(5);
         lakeLevels.set(levelKey, (lakeLevels.get(levelKey) ?? 0) + 1);
       }
-      if (!wetPoint && hydrology.waterCoverage > 0.65) wetPoint = { x, z, height };
+      if (!wetPoint && hydrology.waterCoverage > 0.65)
+        wetPoint = { x, z, height };
 
       if (hydrology.waterCoverage > 0.65) {
         assert(
@@ -268,7 +261,11 @@ try {
       }
 
       if (hydrology.waterProximity > 0.5 && hydrology.waterCoverage < 0.2) {
-        const suitability = terrain.sampleGrassSuitabilityWithoutSlope(x, z, height);
+        const suitability = terrain.sampleGrassSuitabilityWithoutSlope(
+          x,
+          z,
+          height,
+        );
         const ecology = terrain.sampleEcologyAt(x, z, height);
         surface.sample(x, z, height, suitability, hydrology, ecology, targets);
         assert(
@@ -279,8 +276,14 @@ try {
     }
   }
 
-  assert(carvedSamples > 100, "Hydrology must materially carve the production map.");
-  assert(riverSamples > 20, "Production seed must contain visible river water.");
+  assert(
+    carvedSamples > 100,
+    "Hydrology must materially carve the production map.",
+  );
+  assert(
+    riverSamples > 20,
+    "Production seed must contain visible river water.",
+  );
   assert(lakeSamples > 20, "Production seed must contain visible lake water.");
   assert(
     normalizedFlowSamples === riverSamples,
@@ -290,7 +293,10 @@ try {
     [...lakeLevels.values()].some((count) => count >= 4),
     "A lake must expose multiple samples at one exactly flat water level.",
   );
-  assert(wetPoint, "Hydrology verification needs at least one open-water point.");
+  assert(
+    wetPoint,
+    "Hydrology verification needs at least one open-water point.",
+  );
   assert(riverPoint, "Hydrology verification needs a river-only sample.");
 
   const CONTAINMENT_CELL_RANGE = 12;
@@ -305,7 +311,11 @@ try {
     const bedHeight = lakeConfig.baseHeight - lakeConfig.lakeDepth;
     const extent = CONTAINMENT_CELL_RANGE * spacing;
 
-    for (let cell = -CONTAINMENT_CELL_RANGE; cell <= CONTAINMENT_CELL_RANGE; cell += 1) {
+    for (
+      let cell = -CONTAINMENT_CELL_RANGE;
+      cell <= CONTAINMENT_CELL_RANGE;
+      cell += 1
+    ) {
       const boundary = cell * spacing;
       for (let offset = -extent; offset <= extent; offset += CONTAINMENT_STEP) {
         for (const side of [-CONTAINMENT_NUDGE, CONTAINMENT_NUDGE]) {
@@ -345,7 +355,10 @@ try {
     riverMaxAltitude: riverPoint.dryHeight + 9,
   };
   const sensitiveTerrain = new TerrainField(sensitiveConfig);
-  const sensitiveHeight = sensitiveTerrain.sampleHeight(riverPoint.x, riverPoint.z);
+  const sensitiveHeight = sensitiveTerrain.sampleHeight(
+    riverPoint.x,
+    riverPoint.z,
+  );
   const beforeNormal = createHydrologySample();
   sensitiveTerrain.sampleHydrology(
     riverPoint.x,
@@ -357,7 +370,11 @@ try {
     beforeNormal.riverCoverage > 0.05 && beforeNormal.riverCoverage < 0.95,
     "Call-order regression must exercise the river altitude fade, not a saturated mask.",
   );
-  sensitiveTerrain.sampleNormal(riverPoint.x, riverPoint.z, new THREE.Vector3());
+  sensitiveTerrain.sampleNormal(
+    riverPoint.x,
+    riverPoint.z,
+    new THREE.Vector3(),
+  );
   const afterNormal = createHydrologySample();
   sensitiveTerrain.sampleHydrology(
     riverPoint.x,
@@ -429,7 +446,10 @@ try {
     waterIndexCount > 0 && waterIndexCount < terrainIndexCount,
     "River water must submit only wet cells instead of the complete terrain grid.",
   );
-  assert(waterBedIndexCount === waterIndexCount, "Riverbed and surface topology must match.");
+  assert(
+    waterBedIndexCount === waterIndexCount,
+    "Riverbed and surface topology must match.",
+  );
   assertClose(
     chunk.getTriangleCount(),
     (terrainIndexCount + waterIndexCount + waterBedIndexCount) / 3,
@@ -437,7 +457,8 @@ try {
   );
 
   const waterData = chunk.waterMesh.geometry.getAttribute("waterData");
-  const waterInteraction = chunk.waterMesh.geometry.getAttribute("waterInteraction");
+  const waterInteraction =
+    chunk.waterMesh.geometry.getAttribute("waterInteraction");
   assert(
     waterData?.itemSize === 4,
     "Water mesh must pack coverage, depth, and downstream flow in one vec4.",
@@ -484,7 +505,10 @@ try {
     interactionHydrology.flowZ = 0;
     const interaction = createWaterInteractionSample();
     interactionField.sample(0, 0, interactionHydrology, 0, interaction);
-    assert(interaction.obstacle > 0.99, "Stone centers must drive water obstacle foam.");
+    assert(
+      interaction.obstacle > 0.99,
+      "Stone centers must drive water obstacle foam.",
+    );
     interactionField.sample(
       config.waterStoneWakeLength,
       0,
@@ -581,7 +605,8 @@ try {
       }
       const absLateral = Math.abs(riverA.lateral);
       if (Math.abs(riverA.bend) < 0.05) {
-        if (riverA.lateral >= 0) pushBand(straightInside, absLateral, riverA.bedDepth);
+        if (riverA.lateral >= 0)
+          pushBand(straightInside, absLateral, riverA.bedDepth);
         else pushBand(straightOutside, absLateral, riverA.bedDepth);
       }
       if (riverA.bend >= 0.45) {
@@ -601,9 +626,18 @@ try {
     }
   }
 
-  assert(wetMorphologySamples > 200, "Morphology sweep must find wet river samples.");
-  assert(poolSamples > 20, "Normalized morphology must reach the pool QA band.");
-  assert(riffleSamples > 20, "Normalized morphology must reach the riffle QA band.");
+  assert(
+    wetMorphologySamples > 200,
+    "Morphology sweep must find wet river samples.",
+  );
+  assert(
+    poolSamples > 20,
+    "Normalized morphology must reach the pool QA band.",
+  );
+  assert(
+    riffleSamples > 20,
+    "Normalized morphology must reach the riffle QA band.",
+  );
   assert(
     poolWidthSum / poolSamples > riffleWidthSum / riffleSamples,
     "Pool candidates must be wider than riffle candidates on average.",
@@ -623,7 +657,8 @@ try {
   for (const band of [45, 70]) {
     if (straightInside[band].length > 8 && straightOutside[band].length > 8) {
       assert(
-        Math.abs(mean(straightInside[band]) - mean(straightOutside[band])) < 0.12,
+        Math.abs(mean(straightInside[band]) - mean(straightOutside[band])) <
+          0.12,
         `Near-straight rivers must stay nearly symmetric at |lateral|=0.${band}.`,
       );
     }
@@ -714,7 +749,11 @@ try {
       "riverLateral",
       "waterLevel",
     ]) {
-      assertClose(left[key], right[key], `Chunk-seam ${key} must not depend on call order.`);
+      assertClose(
+        left[key],
+        right[key],
+        `Chunk-seam ${key} must not depend on call order.`,
+      );
     }
   }
 
@@ -770,13 +809,19 @@ try {
       // guard exists to catch a sheet ramping bank to bank on an ordinary
       // reach, so measuring it across a waterfall would only ever report the
       // waterfall working.
-      if (leftHydrology.riverFallFace > 0.01 || rightHydrology.riverFallFace > 0.01) {
+      if (
+        leftHydrology.riverFallFace > 0.01 ||
+        rightHydrology.riverFallFace > 0.01
+      ) {
         continue;
       }
       const slope =
         Math.abs(leftHydrology.waterLevel - rightHydrology.waterLevel) /
         (2 * CROSS_FLOW_OFFSET);
-      assert(Number.isFinite(slope), "Cross-flow surface slope must stay finite.");
+      assert(
+        Number.isFinite(slope),
+        "Cross-flow surface slope must stay finite.",
+      );
       crossFlowSlopes.push(slope);
     }
   }
@@ -834,7 +879,10 @@ try {
     "waterResolveRiverPhases",
     "waterStreakStretch",
   ]) {
-    assert(shader.fragmentShader.includes(token), `Water shader is missing ${token}.`);
+    assert(
+      shader.fragmentShader.includes(token),
+      `Water shader is missing ${token}.`,
+    );
   }
   assert(
     !shader.fragmentShader.includes("waterSampleRiverBed") &&
@@ -857,13 +905,16 @@ try {
     "Water shading must not rebuild the surface normal from screen-space derivatives.",
   );
   assert(
-    shader.vertexShader.includes("vWaterWorldNormal = (modelMatrix * vec4(objectNormal"),
+    shader.vertexShader.includes(
+      "vWaterWorldNormal = (modelMatrix * vec4(objectNormal",
+    ),
     "The water sheet must forward its per-vertex normal to the fragment stage.",
   );
   assert(
     waterController.material.isMeshPhysicalMaterial === true &&
       Math.abs(waterController.material.ior - 1.333) < 1e-6 &&
-      Math.abs(waterController.material.roughness - config.waterRoughness) < 1e-9 &&
+      Math.abs(waterController.material.roughness - config.waterRoughness) <
+        1e-9 &&
       waterController.material.transmission === 0,
     "Water must use the physical dielectric BRDF without transmission overhead.",
   );

@@ -11,6 +11,8 @@ attribute vec3 terrainPath;
 attribute vec4 terrainEcology;
 attribute vec4 terrainEnvironment;
 attribute vec3 terrainBiome;
+attribute vec4 terrainStoneInfluence;
+attribute float terrainStoneOcclusion;
 uniform vec3 uTerrainBiomeBase[TERRAIN_MAX_BIOMES];
 uniform vec3 uTerrainBiomeTip[TERRAIN_MAX_BIOMES];
 uniform vec3 uTerrainBiomeDry[TERRAIN_MAX_BIOMES];
@@ -22,6 +24,8 @@ varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
+varying vec4 vTerrainStoneInfluence;
+varying float vTerrainStoneOcclusion;
 
 int terrainResolveBiomeRow(float biome) {
   return int(clamp(biome, 0.0, float(TERRAIN_MAX_BIOMES - 1)) + 0.5);
@@ -33,6 +37,8 @@ vTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vTerrainPath = terrainPath;
 vTerrainEcology = terrainEcology;
 vTerrainEnvironment = terrainEnvironment;
+vTerrainStoneInfluence = terrainStoneInfluence;
+vTerrainStoneOcclusion = terrainStoneOcclusion;
 int terrainBiomeA = terrainResolveBiomeRow(terrainBiome.x);
 int terrainBiomeB = terrainResolveBiomeRow(terrainBiome.y);
 float terrainBiomeBlend = saturate(terrainBiome.z);
@@ -92,6 +98,7 @@ uniform vec3 uTerrainPathGrit;
 uniform vec3 uTerrainStoneContactSoil;
 uniform float uTerrainStoneContactReach;
 uniform float uTerrainStoneContactDarkening;
+uniform float uTerrainStoneOcclusionStrength;
 varying vec3 vTerrainWorldPosition;
 varying vec3 vTerrainPath;
 varying vec4 vTerrainEcology;
@@ -99,6 +106,8 @@ varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
 varying vec3 vTerrainBiomeDry;
 varying vec3 vTerrainBiomeCanopy;
+varying vec4 vTerrainStoneInfluence;
+varying float vTerrainStoneOcclusion;
 ${TERRAIN_ROCK_FUNCTIONS}
 `;
 
@@ -316,17 +325,34 @@ terrainSurfaceColor = mix(
  * shaded earth against the body, mineral grit worked up in the rim where runoff
  * comes off it.
  *
- * The clearance mask arrives as a vertex attribute, so this band is only as
- * sharp as the terrain grid, which is metres between vertices at near
- * resolution. The noise below is not decoration: it is what stops that
- * interpolation reading as a smooth painted halo. A crisp centimetre-scale
- * compaction rim is not reachable from here and wants per-stone geometry.
+ * The band is measured here rather than interpolated here. Near terrain carries
+ * vertices 2.56 m apart and a boulder's whole soil band is about 1.2 m wide, so
+ * an interpolated falloff either vanished between vertices or smeared into a
+ * halo unrelated to the footprint under it. What the vertices carry instead is
+ * *which stone is nearest and how far its influence reaches*; the distance is
+ * this fragment's own, so the band is as sharp as the pixel.
  *
- * The noise is windowed by proximity rather than added flat. Added flat it
- * swings +-0.35 everywhere, and every patch of open meadow that happened to sit
- * high in the noise would come out as bare disturbed soil.
+ * A centre point survives interpolation in a way a falloff does not: the
+ * corners of a quad near a stone almost always agree on which stone they are
+ * near, and where they disagree the phantom centre lands between two bodies --
+ * in the gap, where the band is weakest anyway.
+ *
+ * The noise stays. It no longer has grid smear to hide, but a disc of soil is
+ * still a disc, and real ground gives up its stain in patches. It is windowed
+ * by proximity rather than added flat: added flat it swings +-0.35 everywhere,
+ * and every patch of open meadow that happened to sit high in the noise would
+ * come out as bare disturbed soil.
  */
-float terrainStoneProximity = 1.0 - terrainStoneClearance;
+float terrainStoneDistance =
+  length(vTerrainWorldPosition.xz - vTerrainStoneInfluence.xy);
+float terrainStoneReach = vTerrainStoneInfluence.w;
+float terrainStoneProximity = terrainStoneReach > 0.0
+  ? 1.0 - smoothstep(
+      vTerrainStoneInfluence.z,
+      terrainStoneReach,
+      terrainStoneDistance
+    )
+  : 0.0;
 float terrainStoneEdge = smoothstep(0.0, 0.22, terrainStoneProximity);
 float terrainStoneContact = saturate(
   terrainStoneProximity * uTerrainStoneContactReach +
@@ -351,6 +377,29 @@ if (terrainStoneContact > 0.001) {
   );
   terrainSurfaceColor *= 1.0 -
     uTerrainStoneContactDarkening * terrainStoneCompacted;
+}
+
+/**
+ * Contact shade, which is a different thing from the compaction darkening
+ * above.
+ *
+ * That one is a property of the soil: compacted earth is darker earth, and it
+ * only applies where there is soil to compact. This is light transport - the
+ * body is standing between this ground and most of the sky, so the ground goes
+ * dark whether it is bare or under grass, and it reaches as far as the stone is
+ * tall rather than as far as its footprint.
+ *
+ * Stones already shade each other this way at their junctions, which is what
+ * makes a cluster read as one mass; the ground was the half of that contact
+ * still missing. Squared rather than linear because the sky comes back quickly
+ * once you step out from under the body - a linear ramp reads as a painted
+ * halo, which is the failure this is trying to avoid, not repeat.
+ */
+if (vTerrainStoneOcclusion > 0.0) {
+  float terrainStoneShade =
+    1.0 - smoothstep(0.0, vTerrainStoneOcclusion, terrainStoneDistance);
+  terrainSurfaceColor *= 1.0 -
+    uTerrainStoneOcclusionStrength * terrainStoneShade * terrainStoneShade;
 }
 
 float terrainDryFibrePulse = smoothstep(0.68, 0.9, terrainMicroNoise.a);

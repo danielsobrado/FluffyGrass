@@ -73,7 +73,10 @@ try {
       .filter(Boolean)
       .map((line) => {
         const separator = line.indexOf(":");
-        return [line.slice(0, separator).trim(), Number(line.slice(separator + 1))];
+        return [
+          line.slice(0, separator).trim(),
+          Number(line.slice(separator + 1)),
+        ];
       }),
   );
   for (const key of Object.keys(WORLD_CONFIG_SCHEMA)) {
@@ -93,13 +96,23 @@ try {
   );
   let differingSeedBytes = 0;
   for (let index = 0; index < bytesA.length; index += 257) {
-    assert(bytesA[index] === bytesB[index], "Identical seeds must be byte stable.");
+    assert(
+      bytesA[index] === bytesB[index],
+      "Identical seeds must be byte stable.",
+    );
     if (bytesA[index] !== bytesC[index]) differingSeedBytes += 1;
   }
-  assert(differingSeedBytes > 128, "Different seeds must materially change the noise field.");
+  assert(
+    differingSeedBytes > 128,
+    "Different seeds must materially change the noise field.",
+  );
   const periodicA = new Float64Array(4);
   const periodicB = new Float64Array(4);
-  for (const [x, y] of [[37, 91], [211, 5], [-19, 277]]) {
+  for (const [x, y] of [
+    [37, 91],
+    [211, 5],
+    [-19, 277],
+  ]) {
     sampleTerrainSurfaceNoisePixel(x, y, rawConfig.seed, periodicA);
     sampleTerrainSurfaceNoisePixel(
       x + TERRAIN_SURFACE_NOISE_SIZE,
@@ -183,6 +196,8 @@ try {
     ecology: new THREE.Vector4(),
     environment: new THREE.Vector4(),
     biome: new THREE.Vector3(),
+    stoneContact: new THREE.Vector4(),
+    stoneOcclusionRadius: 0,
   };
   let biomeMask = 0;
   for (let z = -720; z <= 720; z += 36) {
@@ -224,6 +239,15 @@ try {
 
   setStoneClearanceField({
     sampleGrassClearance: () => 0.37,
+    sampleGroundInfluence: (x, z, out) => {
+      out.centerX = x + 1.5;
+      out.centerZ = z - 0.5;
+      out.innerClearRadius = 0.4;
+      out.contactSoilRadius = 1.1;
+      out.understoryBoostRadius = 1.6;
+      out.occlusionRadius = 2.4;
+      return out;
+    },
   });
   try {
     const x = 73;
@@ -237,6 +261,20 @@ try {
     assert(
       Math.abs(targets.environment.w - 0.37) < 1e-12,
       "Terrain surface must carry the same stone clearance used by grass placement.",
+    );
+    // The contact band is resolved per fragment from a centre and two radii,
+    // so the surface has to hand the shader the stone itself rather than a
+    // falloff already flattened onto the terrain grid.
+    assert(
+      Math.abs(targets.stoneContact.x - (x + 1.5)) < 1e-12 &&
+        Math.abs(targets.stoneContact.y - (z - 0.5)) < 1e-12 &&
+        Math.abs(targets.stoneContact.z - 0.4) < 1e-12 &&
+        Math.abs(targets.stoneContact.w - 1.1) < 1e-12,
+      "Terrain surface must carry the dominant stone centre and its contact radii.",
+    );
+    assert(
+      Math.abs(targets.stoneOcclusionRadius - 2.4) < 1e-12,
+      "Terrain surface must carry the stone contact shadow reach.",
     );
   } finally {
     setStoneClearanceField(undefined);
@@ -253,6 +291,21 @@ try {
       "terrainBiomeDensity * terrainPathGrassMask * terrainStoneClearance",
     ),
     "Terrain vegetation coverage must include stone clearance.",
+  );
+  // The band must be measured from this fragment's own distance to the stone,
+  // not read out of an interpolated falloff: a boulder's soil band is narrower
+  // than one near-terrain quad, so an interpolated one is not a band at all.
+  // Contact shade reaches past the soil band and falls on grass as readily as
+  // on bare earth, so it cannot be folded into the compaction darkening.
+  assert(
+    TERRAIN_DETAIL_COLOR.includes("uTerrainStoneOcclusionStrength") &&
+      TERRAIN_DETAIL_COLOR.includes("vTerrainStoneOcclusion"),
+    "Stone contact shade must darken the ground independently of the soil band.",
+  );
+  assert(
+    TERRAIN_DETAIL_COLOR.includes("vTerrainStoneInfluence.xy") &&
+      TERRAIN_DETAIL_COLOR.includes("vTerrainWorldPosition.xz"),
+    "Stone contact soil must resolve per fragment from the stone centre.",
   );
   assert(
     TERRAIN_DETAIL_COLOR.includes("terrainStoneContact") &&
@@ -313,8 +366,7 @@ try {
         PATH_GRASS_FEATHER,
     );
     const visualMask =
-      1 +
-      (Math.min(main, branch) - 1) * terrain.samplePathVisibility(height);
+      1 + (Math.min(main, branch) - 1) * terrain.samplePathVisibility(height);
     const placementMask = terrain.samplePathGrassMask(x, z, height);
     assert(
       Math.abs(visualMask - placementMask) < 1e-9,
@@ -332,15 +384,14 @@ try {
   }
   assert(pathCoreSamples > 0, "Path parity must exercise a road core.");
   assert(pathVergeSamples > 0, "Path parity must exercise a feathered verge.");
-  assert(fieldSamples > 0, "Path parity must exercise unaffected field ground.");
+  assert(
+    fieldSamples > 0,
+    "Path parity must exercise unaffected field ground.",
+  );
 
   const palette = new TerrainSurfacePalette();
   const colorDistance = (left, right) =>
-    Math.hypot(
-      left.r - right.r,
-      left.g - right.g,
-      left.b - right.b,
-    );
+    Math.hypot(left.r - right.r, left.g - right.g, left.b - right.b);
   assert(
     colorDistance(palette.base[0], palette.base[1]) > 0.02 &&
       colorDistance(palette.base[1], palette.base[2]) > 0.02,

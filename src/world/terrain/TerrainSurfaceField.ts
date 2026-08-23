@@ -14,7 +14,14 @@ import {
   sampleGrassHabitat,
   type GrassHabitatSample,
 } from "../grass/GrassHabitatField";
-import { sampleStoneGrassClearance } from "../stones/StoneClearance";
+import {
+  sampleStoneGrassClearance,
+  sampleStoneGroundInfluence,
+} from "../stones/StoneClearance";
+import {
+  createMutableStoneGroundInfluence,
+  type MutableStoneGroundInfluence,
+} from "../stones/StoneGroundInfluence";
 import { sampleGrassMacroVigor } from "../../grass/GrassFieldVariation";
 
 /** Packed semantic channels consumed by the terrain shader. */
@@ -25,6 +32,20 @@ export interface TerrainSurfaceTargets {
   environment: THREE.Vector4;
   /** dominant biome, neighbor biome, neighbor blend */
   biome: THREE.Vector3;
+  /**
+   * Nearest stone centre in world XZ, then the radii its contact band runs
+   * between. The shader measures its own distance to that centre, so the band
+   * lands at pixel resolution instead of at terrain-vertex resolution.
+   */
+  stoneContact: THREE.Vector4;
+  /**
+   * Reach of the nearest stone's contact shadow. Kept apart from the contact
+   * band above because it is a different effect with a different radius: the
+   * soil stain is what the stone has done to the ground, this is the sky the
+   * stone is standing in front of, and it reaches further and falls on grass as
+   * readily as on bare earth.
+   */
+  stoneOcclusionRadius: number;
 }
 
 function clamp01(value: number): number {
@@ -34,7 +55,10 @@ function clamp01(value: number): number {
 /** Converts shared grass and hydrology semantics into stable terrain inputs. */
 export class TerrainSurfaceField {
   private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
-  private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
+  private readonly habitatSample: GrassHabitatSample =
+    createGrassHabitatSample();
+  private readonly groundInfluence: MutableStoneGroundInfluence =
+    createMutableStoneGroundInfluence();
 
   constructor(private readonly config: WorldConfig) {}
 
@@ -113,6 +137,14 @@ export class TerrainSurfaceField {
       hydrology.waterProximity,
       clamp01(sampleStoneGrassClearance(x, z)),
     );
+    const influence = sampleStoneGroundInfluence(x, z, this.groundInfluence);
+    targets.stoneContact.set(
+      influence.centerX,
+      influence.centerZ,
+      influence.innerClearRadius,
+      influence.contactSoilRadius,
+    );
+    targets.stoneOcclusionRadius = influence.occlusionRadius;
     targets.biome.set(biome.indexA, biome.indexB, biome.blend);
   }
 }

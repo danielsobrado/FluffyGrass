@@ -14,8 +14,7 @@ import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
 
-const MATERIAL_CACHE_KEY =
-  "world-terrain-ecosystem-surface-v10-stone-contact";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v10-stone-contact";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -79,6 +78,7 @@ export class TerrainMaterialController {
         uTerrainStoneContactSoil: { value: new THREE.Color("#4a3626") },
         uTerrainStoneContactReach: { value: 1.35 },
         uTerrainStoneContactDarkening: { value: 0.26 },
+        uTerrainStoneOcclusionStrength: { value: 0.3 },
         /**
          * Cliff rock. Two tones close together on purpose: a wide span between
          * a near-black and a pale grey turns every wisp of the continuous noise
@@ -133,7 +133,10 @@ export class TerrainMaterialController {
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", `#include <common>${TERRAIN_DETAIL_VERTEX}`)
+        .replace(
+          "#include <common>",
+          `#include <common>${TERRAIN_DETAIL_VERTEX}`,
+        )
         .replace(
           "#include <begin_vertex>",
           `#include <begin_vertex>${TERRAIN_DETAIL_POSITION}`,

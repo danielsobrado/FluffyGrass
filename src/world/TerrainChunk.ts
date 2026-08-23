@@ -80,7 +80,8 @@ export class TerrainChunk {
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    const sharedWaterGeometry = this.waterMesh?.geometry ?? this.waterBedMesh?.geometry;
+    const sharedWaterGeometry =
+      this.waterMesh?.geometry ?? this.waterBedMesh?.geometry;
     sharedWaterGeometry?.dispose();
   }
 }
@@ -101,6 +102,8 @@ export class TerrainChunkBuilder {
   private readonly ecologies: Float32Array;
   private readonly environments: Float32Array;
   private readonly biomes: Float32Array;
+  private readonly stoneContacts: Float32Array;
+  private readonly stoneOcclusions: Float32Array;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly waterGeometryBuilder?: WaterChunkGeometryBuilder;
   private readonly normal = new THREE.Vector3();
@@ -112,10 +115,13 @@ export class TerrainChunkBuilder {
   private readonly hydrology: HydrologySample = createHydrologySample();
   /** Distinct from `ecology` above, which is the packed shader channel. */
   private readonly ecologySample: WorldEcologySample = createEcologySample();
+  private readonly stoneContact = new THREE.Vector4();
   private readonly surfaceTargets: TerrainSurfaceTargets = {
     ecology: this.ecology,
     environment: this.environment,
     biome: this.biome,
+    stoneContact: this.stoneContact,
+    stoneOcclusionRadius: 0,
   };
   private stage = VERTEX_STAGE;
   private nextVertex = 0;
@@ -148,9 +154,12 @@ export class TerrainChunkBuilder {
     this.ecologies = new Float32Array(vertexCount * 4);
     this.environments = new Float32Array(vertexCount * 4);
     this.biomes = new Float32Array(vertexCount * 3);
-    this.indices = vertexCount <= 65535
-      ? new Uint16Array(this.cells * this.cells * 6)
-      : new Uint32Array(this.cells * this.cells * 6);
+    this.stoneContacts = new Float32Array(vertexCount * 4);
+    this.stoneOcclusions = new Float32Array(vertexCount);
+    this.indices =
+      vertexCount <= 65535
+        ? new Uint16Array(this.cells * this.cells * 6)
+        : new Uint32Array(this.cells * this.cells * 6);
     if (waterMaterial) {
       this.waterGeometryBuilder = new WaterChunkGeometryBuilder(
         resolution,
@@ -250,6 +259,12 @@ export class TerrainChunkBuilder {
       this.environments[ecologyOffset + 1] = this.environment.y;
       this.environments[ecologyOffset + 2] = this.environment.z;
       this.environments[ecologyOffset + 3] = this.environment.w;
+      this.stoneContacts[ecologyOffset] = this.stoneContact.x;
+      this.stoneContacts[ecologyOffset + 1] = this.stoneContact.y;
+      this.stoneContacts[ecologyOffset + 2] = this.stoneContact.z;
+      this.stoneContacts[ecologyOffset + 3] = this.stoneContact.w;
+      this.stoneOcclusions[this.nextVertex] =
+        this.surfaceTargets.stoneOcclusionRadius;
 
       const biomeOffset = this.nextVertex * 3;
       this.biomes[biomeOffset] = this.biome.x;
@@ -313,10 +328,19 @@ export class TerrainChunkBuilder {
     const geometry = new THREE.BufferGeometry();
     let waterGeometry: THREE.BufferGeometry | undefined;
     try {
-      geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
-      geometry.setAttribute("normal", new THREE.BufferAttribute(this.normals, 3));
+      geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(this.positions, 3),
+      );
+      geometry.setAttribute(
+        "normal",
+        new THREE.BufferAttribute(this.normals, 3),
+      );
       geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
-      geometry.setAttribute("terrainPath", new THREE.BufferAttribute(this.paths, 3));
+      geometry.setAttribute(
+        "terrainPath",
+        new THREE.BufferAttribute(this.paths, 3),
+      );
       geometry.setAttribute(
         "terrainEcology",
         new THREE.BufferAttribute(this.ecologies, 4),
