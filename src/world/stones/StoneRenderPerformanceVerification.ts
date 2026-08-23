@@ -45,7 +45,9 @@ function buildRepresentativeBatch(
   const scratch: StoneInstance[] = [];
   for (let chunkZ = -6; chunkZ <= 6; chunkZ += 1) {
     for (let chunkX = -6; chunkX <= 6; chunkX += 1) {
-      if (stones.collectChunkInstances(chunkX, chunkZ, true, scratch).length === 0) {
+      if (
+        stones.collectChunkInstances(chunkX, chunkZ, true, scratch).length === 0
+      ) {
         continue;
       }
       const batchX = Math.floor(chunkX / batchAxis) * batchAxis;
@@ -144,6 +146,7 @@ function verifyExpandedClearanceNeighborhood(
     rotationY: 0,
     scale: 1,
     archetype: "pebble",
+    fragment: "whole",
     variantIndex: 0,
     paletteKey: "meadowSage",
     graniteBlend: 0,
@@ -154,6 +157,7 @@ function verifyExpandedClearanceNeighborhood(
     normalZ: 0,
     tiltStrength: 0,
     clearRadius,
+    occlusionRadius: clearRadius + 0.5,
     wetness: STONE_WETNESS_DRY,
   };
   const rootChunkX = Math.floor(rootX / config.chunkSize);
@@ -198,7 +202,10 @@ function verifyExpandedClearanceNeighborhood(
   } catch {
     rejectedInvalidRadius = true;
   }
-  assert(rejectedInvalidRadius, "Negative stone clearance radius was accepted.");
+  assert(
+    rejectedInvalidRadius,
+    "Negative stone clearance radius was accepted.",
+  );
 
   for (const invalidCoordinate of [Number.NaN, Number.POSITIVE_INFINITY]) {
     let rejectedInvalidCoordinate = false;
@@ -234,11 +241,7 @@ function verifyExpandedClearanceNeighborhood(
   } as unknown as StoneField;
   const edgeCache = new StoneClearanceCache(edgeField, config);
   const halfWorld = config.worldSize * 0.5;
-  edgeCache.sample(
-    halfWorld - 0.1,
-    halfWorld - 0.1,
-    config.stoneCellSize * 4,
-  );
+  edgeCache.sample(halfWorld - 0.1, halfWorld - 0.1, config.stoneCellSize * 4);
 }
 
 /** Production contracts for draw count, detail footprint, and vertex bandwidth. */
@@ -316,7 +319,10 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     builder,
     config.stoneRenderBatchChunksPerAxis,
   );
-  assert(result !== undefined, "Unable to find a representative stone render batch.");
+  assert(
+    result !== undefined,
+    "Unable to find a representative stone render batch.",
+  );
 
   const geometry = result.geometry;
   const position = attribute(geometry, "position");
@@ -350,7 +356,10 @@ export function verifyStoneRenderPerformance(configSource: string): string {
   );
 
   const color = requireInterleaved(attribute(geometry, "color"), "color");
-  const moss = requireInterleaved(attribute(geometry, "stoneMoss"), "stoneMoss");
+  const moss = requireInterleaved(
+    attribute(geometry, "stoneMoss"),
+    "stoneMoss",
+  );
   const lichen = requireInterleaved(
     attribute(geometry, "stoneLichen"),
     "stoneLichen",

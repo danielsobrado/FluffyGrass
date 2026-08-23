@@ -54,16 +54,14 @@ function collectMetrics(
           ).toFixed(3)} exceeds its ${config.stoneCellSize} m cache cell.`,
         );
         detailedTrianglePotential +=
-          stones.getVariant(instance.archetype, instance.variantIndex, true)
-            .indices.length / 3;
+          stones.getInstanceVariant(instance, true).indices.length / 3;
       }
       const far: ReturnType<StoneField["collectChunkInstances"]> = [];
       stones.collectChunkInstances(chunkX, chunkZ, false, far);
       farRoots += far.length;
       for (const instance of far) {
         coarseTrianglePotential +=
-          stones.getVariant(instance.archetype, instance.variantIndex, false)
-            .indices.length / 3;
+          stones.getInstanceVariant(instance, false).indices.length / 3;
       }
     }
   }

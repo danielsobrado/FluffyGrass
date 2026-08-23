@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -123,8 +118,7 @@ try {
       maxRootsInChunk = Math.max(maxRootsInChunk, includeSmall.length);
       for (const instance of includeSmall) {
         detailedTrianglePotential +=
-          stones.getVariant(instance.archetype, instance.variantIndex, true)
-            .indices.length / 3;
+          stones.getInstanceVariant(instance, true).indices.length / 3;
       }
 
       const far = stones.collectChunkInstances(
@@ -136,8 +130,7 @@ try {
       farRoots += far.length;
       for (const instance of far) {
         coarseTrianglePotential +=
-          stones.getVariant(instance.archetype, instance.variantIndex, false)
-            .indices.length / 3;
+          stones.getInstanceVariant(instance, false).indices.length / 3;
       }
     }
   }

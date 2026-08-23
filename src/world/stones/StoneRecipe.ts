@@ -10,12 +10,7 @@ import { StoneRandom } from "./StoneRandom";
  */
 
 export type StoneArchetypeId =
-  | "pebble"
-  | "boulder"
-  | "slab"
-  | "block"
-  | "shard"
-  | "outcrop";
+  "pebble" | "boulder" | "slab" | "block" | "shard" | "outcrop";
 
 export const STONE_ARCHETYPE_IDS: readonly StoneArchetypeId[] = [
   "pebble",
@@ -227,6 +222,66 @@ export interface StoneCut {
   readonly depthFraction: number;
 }
 
+/**
+ * The single break that separates one fragment of a formation from its sibling.
+ *
+ * A stone body is an intersection of half-spaces, and a plane through a convex
+ * body leaves two convex bodies, so a formation needs no CSG: the parent's
+ * plane set plus this one half-space *is* the fragment. The sibling carries the
+ * same plane negated, which is what makes the two broken faces complementary
+ * rather than merely similar. Coordinates are the recipe's own unit body space,
+ * before the width/height/depth scale.
+ */
+/** What part of a body a bounding plane is: shell, break, weathering, bevel. */
+export type StonePlaneRole =
+  | "bottom"
+  | "top"
+  | "side"
+  | "top-bevel"
+  | "contact-bevel"
+  | "edge-bevel"
+  | "cut"
+  | "fracture";
+
+/** A bounding plane in its final resolved position, with the role it plays. */
+export interface StoneResolvedPlane {
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  readonly constant: number;
+  readonly id: string;
+  readonly role: StonePlaneRole;
+}
+
+/**
+ * The parent's entire outer surface, frozen so both halves of a formation wear
+ * it identically.
+ *
+ * Everything a body is clipped by is resolved *relative to that body*: cuts by
+ * a depth fraction of its extent, bevels by the length of its edges. Re-running
+ * any of it on a half therefore lands somewhere else, and -- worse -- lands
+ * somewhere else on each half independently, which cuts the two break outlines
+ * back by different amounts until the pieces no longer mate. Freezing the
+ * parent's planes makes a fragment exactly what it should be: the parent's own
+ * surface, intersected with one more half-space.
+ *
+ * Near geometry carries extra chips, so both detail levels are frozen; a chip
+ * resolved on one half alone would break the mating at exactly the range where
+ * it shows.
+ */
+export interface StoneInheritedSurface {
+  readonly coarse: readonly StoneResolvedPlane[];
+  readonly detailed: readonly StoneResolvedPlane[];
+}
+
+export interface StoneFractureFace {
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  /** The fragment keeps the half-space `n . p <= constant`. */
+  readonly constant: number;
+}
+
 export interface StoneRecipe {
   readonly archetype: StoneArchetypeId;
   readonly seed: number;
@@ -253,6 +308,10 @@ export interface StoneRecipe {
   readonly chips: readonly StoneCut[];
   readonly edgeWear: number;
   readonly embed: number;
+  /** Present only on a formation fragment; absent on a whole stone. */
+  readonly fracture?: StoneFractureFace;
+  /** A fragment's surface, resolved once on the parent and inherited whole. */
+  readonly inheritedSurface?: StoneInheritedSurface;
 }
 
 const TWO_PI = Math.PI * 2;

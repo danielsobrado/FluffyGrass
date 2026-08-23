@@ -235,6 +235,7 @@ export interface WorldConfig {
   stoneChunksPerFrame: number;
   stoneVergeChance: number;
   stoneGrainStrength: number;
+  stoneGrainNormalStrength: number;
   stoneGrainSize: number;
   stoneGrainFadeDistance: number;
   stoneGrowthDetailStrength: number;

@@ -39,6 +39,11 @@ export function resolveStoneYaw(
 /**
  * Area-weighted axial mean bearing of the cut faces.
  *
+ * A formation fragment's break counts here alongside ordinary cuts: it is the
+ * body's dominant joint by construction, and both halves derive their bearing
+ * from the same plane, so cancelling it lines the pair up on the formation's
+ * strike exactly as it lines up unrelated members.
+ *
  * Near-horizontal cuts are skipped rather than down-weighted to zero by their
  * horizontal component alone: a lid-like break has no bearing to contribute and
  * its numerical noise would otherwise steer a body with few real fractures. A
@@ -49,7 +54,7 @@ export function resolveStoneFractureAzimuth(faces: readonly WorkingStoneFace[]):
   let doubledX = 0;
   let doubledZ = 0;
   for (const face of faces) {
-    if (face.role !== "cut") continue;
+    if (face.role !== "cut" && face.role !== "fracture") continue;
     const horizontal = Math.hypot(face.normalX, face.normalZ);
     if (horizontal < FRACTURE_MINIMUM_HORIZONTAL) continue;
     const angle = Math.atan2(face.normalZ, face.normalX);

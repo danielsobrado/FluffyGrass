@@ -8,6 +8,7 @@ import {
   STONE_SNAP_EPSILON,
 } from "./StoneGeometryTuning";
 import { resolveStoneFractureAzimuth } from "./StoneFractureAlignment";
+import { addStoneFractureRelief } from "./StoneFractureRelief";
 import { addStoneIndentation } from "./StoneIndentation";
 import {
   buildStoneEdgeSharpness,
@@ -71,6 +72,18 @@ export interface StoneMeshMetrics {
    * result lives in [-PI/2, PI/2).
    */
   readonly fractureAzimuth: number;
+  /**
+   * Where this body's contact centroid sat in its recipe's frame before the
+   * mesh was centred on it, in metres at unit scale.
+   *
+   * A whole stone has no use for this, but the two fragments of a formation are
+   * each centred on their own contact polygon, which pulls them apart by the
+   * difference of these offsets. Recording it is what lets placement put the
+   * halves back on the one break they were cut from instead of guessing a
+   * separation from their footprints.
+   */
+  readonly contactOffsetX: number;
+  readonly contactOffsetZ: number;
   readonly fingerprint: number;
 }
 
@@ -78,8 +91,8 @@ export function generateStoneMesh(
   recipe: StoneRecipe,
   includeChips = false,
 ): StoneMeshData {
-  const polygons = addStoneIndentation(
-    buildStonePolyhedron(recipe, includeChips),
+  const polygons = addStoneFractureRelief(
+    addStoneIndentation(buildStonePolyhedron(recipe, includeChips), recipe),
     recipe,
   );
 
@@ -101,7 +114,7 @@ export function generateStoneMesh(
     }
   }
 
-  centerStoneContact(polygons, uniquePoints);
+  const contactOffset = centerStoneContact(polygons, uniquePoints);
 
   const faces = buildWorkingStoneFaces(polygons);
   // Normal averaging and the edge accents that start where it stops read the
@@ -133,6 +146,7 @@ export function generateStoneMesh(
   for (const face of faces) {
     const corners = face.points.length;
     const faceTint = resolveFaceTint(face, recipe);
+    const broken = face.role === "fracture";
     const baseVertex = vertexCursor;
 
     for (let corner = 0; corner < corners; corner += 1) {
@@ -168,10 +182,14 @@ export function generateStoneMesh(
         softNormalY,
         heightMetres,
         recipe,
+        broken,
       );
       cavities[vertexCursor] = resolveCornerCavity(
         edgeShading.crease,
         softNormalY,
+        broken,
+        point.y,
+        heightMetres,
       );
       bounces[vertexCursor] = resolveCornerBounce(
         point.y,
@@ -186,6 +204,7 @@ export function generateStoneMesh(
         softNormalY,
         heightMetres,
         recipe,
+        broken,
       );
       const notchShelter = face.planeId.startsWith("notch-")
         ? 0.42 + 0.28 * (1 - Math.abs(face.normalY))
@@ -257,6 +276,8 @@ export function generateStoneMesh(
               : 0,
     silhouetteVariant: recipe.silhouetteVariant,
     fractureAzimuth: resolveStoneFractureAzimuth(faces),
+    contactOffsetX: contactOffset.x,
+    contactOffsetZ: contactOffset.z,
     fingerprint: fingerprintMesh(positions, tones),
   };
 
@@ -274,10 +295,11 @@ export function generateStoneMesh(
   };
 }
 
+/** Centres the body on its contact polygon and reports the shift applied. */
 function centerStoneContact(
   polygons: ReturnType<typeof buildStonePolyhedron>,
   uniquePoints: ReadonlySet<StoneVec3>,
-): void {
+): { x: number; z: number } {
   let area2Total = 0;
   let cxTotal = 0;
   let czTotal = 0;
@@ -306,14 +328,14 @@ function centerStoneContact(
         contactCount += 1;
       }
     }
-    if (contactCount === 0) return;
+    if (contactCount === 0) return { x: 0, z: 0 };
     contactX /= contactCount;
     contactZ /= contactCount;
     for (const point of uniquePoints) {
       point.x -= contactX;
       point.z -= contactZ;
     }
-    return;
+    return { x: contactX, z: contactZ };
   }
 
   const contactX = cxTotal / (3 * area2Total);
@@ -322,6 +344,7 @@ function centerStoneContact(
     point.x -= contactX;
     point.z -= contactZ;
   }
+  return { x: contactX, z: contactZ };
 }
 
 function resolveStoneHeight(faces: readonly WorkingStoneFace[]): number {
@@ -353,10 +376,7 @@ function resolveMeshCounts(faces: readonly WorkingStoneFace[]): {
   return { vertexCount, triangleCount };
 }
 
-function fingerprintMesh(
-  positions: Float32Array,
-  tones: Float32Array,
-): number {
+function fingerprintMesh(positions: Float32Array, tones: Float32Array): number {
   let hash = 0x811c9dc5;
   const mix = (value: number): void => {
     hash = Math.imul(hash ^ (value & 0xffff), 0x01000193) >>> 0;

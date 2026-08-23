@@ -1,15 +1,8 @@
-import type { StoneRecipe } from "./StoneRecipe";
+import type { StonePlaneRole, StoneRecipe } from "./StoneRecipe";
 import { hashStoneCell } from "./StoneRandom";
 
 /** Convex polyhedron construction from deterministic half-spaces. */
-export type StonePlaneRole =
-  | "bottom"
-  | "top"
-  | "side"
-  | "top-bevel"
-  | "contact-bevel"
-  | "edge-bevel"
-  | "cut";
+export type { StonePlaneRole };
 
 export interface StonePlane {
   readonly nx: number;
@@ -148,7 +141,8 @@ function addTopPlanes(planes: StonePlane[], recipe: StoneRecipe): void {
     );
     return;
   }
-  const ridgeRoll = hashStoneCell(recipe.seed, 0x52696467, 0x546f7052) / 4294967296;
+  const ridgeRoll =
+    hashStoneCell(recipe.seed, 0x52696467, 0x546f7052) / 4294967296;
   if (ridgeRoll >= RIDGE_CHANCE[recipe.archetype]) {
     planes.push(
       normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
@@ -156,7 +150,8 @@ function addTopPlanes(planes: StonePlane[], recipe: StoneRecipe): void {
     return;
   }
 
-  const axisRoll = hashStoneCell(recipe.seed, 0x41786973, 0x52696467) / 4294967296;
+  const axisRoll =
+    hashStoneCell(recipe.seed, 0x41786973, 0x52696467) / 4294967296;
   const acrossAngle =
     recipe.archetype === "slab" || recipe.archetype === "outcrop"
       ? (axisRoll - 0.5) * 0.55
@@ -269,7 +264,10 @@ function nearlySame(a: StoneVec3, b: StoneVec3): boolean {
 function cleanPolygonPoints(points: StoneVec3[]): StoneVec3[] {
   const cleaned: StoneVec3[] = [];
   for (const point of points) {
-    if (cleaned.length === 0 || !nearlySame(cleaned[cleaned.length - 1], point)) {
+    if (
+      cleaned.length === 0 ||
+      !nearlySame(cleaned[cleaned.length - 1], point)
+    ) {
       cleaned.push(point);
     }
   }
@@ -621,7 +619,10 @@ export function resolveCutPlanes(
       const cutArea = exposed
         .filter((face) => face.planeId === plane.id)
         .reduce((sum, face) => sum + polygonArea(face.points), 0);
-      if (!(totalArea > 0) || cutArea / totalArea < MINIMUM_MAJOR_CUT_AREA_SHARE) {
+      if (
+        !(totalArea > 0) ||
+        cutArea / totalArea < MINIMUM_MAJOR_CUT_AREA_SHARE
+      ) {
         continue;
       }
       if (
@@ -737,10 +738,38 @@ function addEdgeChamferPlanes(
   return chamfers;
 }
 
-export function buildStonePolyhedron(
+/**
+ * Every half-space that bounds this body.
+ *
+ * A fragment takes the whole set from its parent rather than resolving any of
+ * it again, and adds only its break. That is what makes the two halves of a
+ * formation share one surface: they are the same intersection, differing by a
+ * single plane whose sign is flipped between them.
+ */
+export function buildStoneSurfacePlanes(
   recipe: StoneRecipe,
   includeChips = false,
-): StonePolygon[] {
+): StonePlane[] {
+  const inherited = recipe.inheritedSurface;
+  if (inherited) {
+    const planes: StonePlane[] = [
+      ...(includeChips ? inherited.detailed : inherited.coarse),
+    ];
+    const fracture = recipe.fracture;
+    if (fracture) {
+      planes.push(
+        normalizePlane(
+          fracture.nx,
+          fracture.ny,
+          fracture.nz,
+          fracture.constant,
+          "fracture",
+          "fracture",
+        ),
+      );
+    }
+    return planes;
+  }
   const bodyPlanes = buildStonePlanes(recipe);
   const cutPlanes = resolveCutPlanes(bodyPlanes, recipe, includeChips);
   const structuralPlanes = [...bodyPlanes, ...cutPlanes];
@@ -751,5 +780,12 @@ export function buildStonePolyhedron(
       ? EDGE_CHAMFER_MIN_LENGTH_DETAIL
       : EDGE_CHAMFER_MIN_LENGTH_COARSE,
   );
-  return facesFromPlanes([...structuralPlanes, ...chamfers]);
+  return [...structuralPlanes, ...chamfers];
+}
+
+export function buildStonePolyhedron(
+  recipe: StoneRecipe,
+  includeChips = false,
+): StonePolygon[] {
+  return facesFromPlanes(buildStoneSurfacePlanes(recipe, includeChips));
 }

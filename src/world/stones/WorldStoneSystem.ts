@@ -57,6 +57,11 @@ export interface StoneDiagnostics {
   maxBuildMs: number;
 }
 
+/** Either grain term alone is reason enough to bind the shared noise texture. */
+function stoneGrainEnabled(config: WorldConfig): boolean {
+  return config.stoneGrainStrength > 0 || config.stoneGrainNormalStrength > 0;
+}
+
 export class WorldStoneSystem {
   private readonly batches = new Map<string, StoneBatch>();
   private readonly queue: StoneBatchRequest[] = [];
@@ -90,7 +95,7 @@ export class WorldStoneSystem {
       config.stoneGrowthDetailStrength > 0
         ? config.stoneGrowthDetailFadeDistance
         : 0,
-      config.stoneGrainStrength > 0 ? config.stoneGrainFadeDistance : 0,
+      stoneGrainEnabled(config) ? config.stoneGrainFadeDistance : 0,
     );
 
     const azimuth = THREE.MathUtils.degToRad(
@@ -395,7 +400,10 @@ export class WorldStoneSystem {
       try {
         this.removeBatch(existing);
       } catch (error) {
-        console.warn("[Drusniel World] Replaced stone batch cleanup failed.", error);
+        console.warn(
+          "[Drusniel World] Replaced stone batch cleanup failed.",
+          error,
+        );
       }
     }
   }
@@ -437,7 +445,7 @@ function createStoneRuntimeResources(
       mossExposureDirection,
     );
 
-    if (enabled && config.stoneGrainStrength > 0) {
+    if (enabled && stoneGrainEnabled(config)) {
       grainTexture = createGrainTexture();
     }
     if (enabled) {
@@ -474,7 +482,20 @@ function createStoneRuntimeResources(
   }
 }
 
-function createGrainTexture(): THREE.Texture {
+/**
+ * The shared noise the grain reads, or nothing where there is no DOM to load it
+ * from.
+ *
+ * Node-hosted verification builds the whole stone system to measure it, and
+ * three's image loader reaches for `document` the moment it is asked for a
+ * file. That never surfaced while the grain was switched off; it is a fail-soft
+ * case rather than a test-only one, because a texture that cannot load should
+ * cost the stones their grain and nothing else.
+ */
+function createGrainTexture(): THREE.Texture | undefined {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
   const texture = new THREE.TextureLoader().load("./perlinnoise.webp");
   texture.name = "world-stone-grain";
   texture.colorSpace = THREE.NoColorSpace;

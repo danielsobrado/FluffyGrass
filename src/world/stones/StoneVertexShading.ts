@@ -11,6 +11,11 @@ import {
   STONE_CONTACT_SHADE_HEIGHT,
   STONE_CREASE_SHADE,
   STONE_CUT_ACCENT,
+  STONE_FRACTURE_ACCENT,
+  STONE_FRACTURE_EXPOSURE,
+  STONE_FRACTURE_MOSS,
+  STONE_FRACTURE_SLOT_CAVITY,
+  STONE_FRACTURE_SLOT_HEIGHT,
   STONE_MINERAL_FACE_JITTER,
   STONE_MINERAL_PATCH_SIZE,
   STONE_MINERAL_TINT_STRENGTH,
@@ -129,6 +134,10 @@ export function clamp01(value: number): number {
 /**
  * Broad object-space mineral variation with a small residual face term.
  *
+ * A formation break is the one face that is not weathered rock: it exposes the
+ * body's interior, which is paler and less stained than anything the weather
+ * has reached, so it lifts further than an ordinary cut does.
+ *
  * Neighbouring facets inherit nearly the same base value, so the stone reads as
  * one mineral body instead of a collection of randomly tinted panels.
  */
@@ -161,7 +170,13 @@ export function resolveFaceTint(
       0.5) *
     2 *
     STONE_MINERAL_FACE_JITTER;
-  return mineral + faceJitter + (face.role === "cut" ? STONE_CUT_ACCENT : 0);
+  const breakAccent =
+    face.role === "fracture"
+      ? STONE_FRACTURE_ACCENT
+      : face.role === "cut"
+        ? STONE_CUT_ACCENT
+        : 0;
+  return mineral + faceJitter + breakAccent;
 }
 
 /**
@@ -205,6 +220,12 @@ export function resolveCornerBounce(
   return clamp01(climb * facing * (1 - crease * 0.45));
 }
 
+/**
+ * Moss reads how long a surface has been standing still, so the one face of a
+ * formation that has not been standing at all keeps almost none of it. Not
+ * quite none: a break that parted seasons ago has begun to take, and a hard
+ * zero would draw the boundary as a decal edge along the rim.
+ */
 export function resolveMoss(
   x: number,
   y: number,
@@ -212,6 +233,7 @@ export function resolveMoss(
   normalY: number,
   heightMetres: number,
   recipe: StoneRecipe,
+  broken = false,
 ): number {
   const climb = 1 - smoothstep(y, 0, heightMetres * STONE_MOSS_CLIMB);
   if (climb <= 0) return 0;
@@ -225,7 +247,8 @@ export function resolveMoss(
       recipe.seed ^ 0x6d055,
     ) / 4294967296;
   const patch = smoothstep(climb * 1.35, blotch * 0.85, blotch * 0.85 + 0.3);
-  return clamp01(climb * facing * patch);
+  const growth = clamp01(climb * facing * patch);
+  return broken ? growth * STONE_FRACTURE_MOSS : growth;
 }
 
 /**
@@ -278,6 +301,7 @@ export function resolveCornerWeathering(
   normalY: number,
   heightMetres: number,
   recipe: StoneRecipe,
+  broken = false,
 ): number {
   const exposure = clamp01(normalY);
   const climb = smoothstep(y, heightMetres * 0.25, heightMetres * 0.8);
@@ -298,18 +322,18 @@ export function resolveCornerWeathering(
   const mineralZone = macro * 0.72 + secondary * 0.28;
   const soilContact =
     1 -
-    smoothstep(
-      y,
-      heightMetres * 0.03,
-      heightMetres * STONE_SOIL_STAIN_HEIGHT,
-    );
+    smoothstep(y, heightMetres * 0.03, heightMetres * STONE_SOIL_STAIN_HEIGHT);
   const soilFacing = 0.55 + 0.45 * clamp01(1 - normalY);
+  // A break has no soil stain to carry -- nothing has run down it and nothing
+  // has splashed up it -- so that term is dropped rather than merely outweighed.
   const field =
     0.39 +
     (mineralZone - 0.5) * STONE_CRUST_BLOTCH * 1.05 +
     exposure * 0.12 +
-    climb * 0.08 -
-    soilContact * soilFacing * STONE_SOIL_STAIN_STRENGTH;
+    climb * 0.08 +
+    (broken
+      ? STONE_FRACTURE_EXPOSURE
+      : -soilContact * soilFacing * STONE_SOIL_STAIN_STRENGTH);
   const crust = smoothstep(
     field,
     STONE_CRUST_THRESHOLD,
@@ -337,9 +361,20 @@ export function resolveCornerWeathering(
 export function resolveCornerCavity(
   crease: number,
   normalY: number,
+  broken = false,
+  y = 0,
+  heightMetres = 1,
 ): number {
   const undercut = clamp01(-normalY) * STONE_CAVITY_UNDERCUT;
-  return clamp01(crease * STONE_CAVITY_CREASE + undercut);
+  const base = crease * STONE_CAVITY_CREASE + undercut;
+  if (!broken) return clamp01(base);
+  // The slot between two halves is open to the sky at the top and pinched shut
+  // at the ground, so the shadow that fills it belongs low. Darkening the whole
+  // break face instead would bury the fresh stone that identifies it.
+  const slot =
+    1 -
+    smoothstep(y, 0, Math.max(1e-4, heightMetres * STONE_FRACTURE_SLOT_HEIGHT));
+  return clamp01(base + slot * STONE_FRACTURE_SLOT_CAVITY);
 }
 
 /**

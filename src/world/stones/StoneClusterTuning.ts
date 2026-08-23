@@ -82,6 +82,23 @@ export const SPLIT_CHANCE = 0.28;
  */
 export const SPLIT_GAP_MIN = 0.04;
 export const SPLIT_GAP_MAX = 0.16;
+
+/**
+ * The crack between two halves that were actually cut from one body.
+ *
+ * Narrower than the gap two independent stones need, because these two share a
+ * surface: the break is legible from the mated faces themselves rather than
+ * from the distance between them. The low end is a hairline, which is what a
+ * boulder that has parted but not moved looks like.
+ */
+export const FORMATION_GAP_MIN = 0.012;
+export const FORMATION_GAP_MAX = 0.09;
+
+/**
+ * How far the halves may sit apart in terrain height before the break stops
+ * reading as one surface. Two pieces of one rock settle, but they do not step.
+ */
+export const FORMATION_HEIGHT_TOLERANCE = 0.2;
 export const SPLIT_CORE_OFFSET_FACTOR = 0.6;
 
 export const OVERLAP_FOOTPRINT_FACTOR = 0.78;
@@ -187,7 +204,9 @@ export function clusterGridKey(gridX: number, gridZ: number): string {
 }
 
 export function packLatticeKey(x: number, z: number): number {
-  return (z + LATTICE_KEY_OFFSET) * LATTICE_KEY_STRIDE + (x + LATTICE_KEY_OFFSET);
+  return (
+    (z + LATTICE_KEY_OFFSET) * LATTICE_KEY_STRIDE + (x + LATTICE_KEY_OFFSET)
+  );
 }
 
 export function stoneSourceCellCacheLimit(
@@ -266,7 +285,7 @@ export function clusterRoleCounts(budget: number): {
 export function axisDelta(from: number, to: number): number {
   const period = Math.PI;
   const half = period * 0.5;
-  return ((((to - from) + half) % period) + period) % period - half;
+  return ((((to - from + half) % period) + period) % period) - half;
 }
 
 export function axisLerp(from: number, to: number, amount: number): number {
@@ -325,8 +344,7 @@ export function clusterPointInsideInfluence(
   const offsetX = x - centerX;
   const offsetZ = z - centerZ;
   return (
-    offsetX * offsetX + offsetZ * offsetZ <=
-    influenceRadius * influenceRadius
+    offsetX * offsetX + offsetZ * offsetZ <= influenceRadius * influenceRadius
   );
 }
 
@@ -392,7 +410,8 @@ export function archetypeBiomeMultiplier(
   archetype: StoneArchetypeId,
   biomeIndex: number,
 ): number {
-  const row = ANCHOR_BIOME_MULTIPLIERS[biomeIndex] ?? ANCHOR_BIOME_MULTIPLIERS[0];
+  const row =
+    ANCHOR_BIOME_MULTIPLIERS[biomeIndex] ?? ANCHOR_BIOME_MULTIPLIERS[0];
   const index = STONE_ARCHETYPE_IDS.indexOf(archetype);
   return index >= 0 ? row[index] : 1;
 }

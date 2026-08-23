@@ -6,8 +6,20 @@ import {
   sampleGrassBiome,
 } from "../grass/WorldBiomeField";
 import { hashStoneCell, StoneRandom } from "./StoneRandom";
-import { type StoneArchetypeId } from "./StoneRecipe";
+import { type StoneArchetypeId, type StoneRecipe } from "./StoneRecipe";
 import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
+import {
+  clearStoneGroundInfluence,
+  resolveStoneOcclusionRadius,
+  writeStoneGroundInfluence,
+  type MutableStoneGroundInfluence,
+} from "./StoneGroundInfluence";
+import {
+  resolveStoneFormationOffset,
+  resolveStoneFragmentRecipe,
+  stoneFormationSplits,
+  type StoneFragmentId,
+} from "./StoneFormation";
 import { generateStoneMesh, type StoneMeshData } from "./StoneGeometry";
 import { type StonePaletteKey } from "./StonePalette";
 import {
@@ -34,9 +46,10 @@ import {
   singletonProbability,
   uplandGeologyBoost,
   smoothstep,
+  FORMATION_GAP_MAX,
+  FORMATION_GAP_MIN,
+  FORMATION_HEIGHT_TOLERANCE,
   SPLIT_CORE_OFFSET_FACTOR,
-  SPLIT_GAP_MAX,
-  SPLIT_GAP_MIN,
   STONE_CELL_DOMAIN,
   STONE_CELL_SOURCE_MARGIN,
   STONE_CLUSTER_RESOLVED_CACHE_LIMIT,
@@ -58,12 +71,8 @@ import {
   STONE_PATH_DISTANCE_PLATEAU,
   type StoneVergePathChannel,
 } from "./StonePathPlacement";
-import { resolveSplitHalfDistance } from "./StoneSplitPlacement";
 import { resolveStoneYaw } from "./StoneFractureAlignment";
-import {
-  resolveStoneSkirtBand,
-  resolveStoneSkirtWidth,
-} from "./StoneSkirt";
+import { resolveStoneSkirtBand, resolveStoneSkirtWidth } from "./StoneSkirt";
 import {
   createHydrologySample,
   type HydrologySample,
@@ -92,6 +101,11 @@ export interface StoneInstance {
   readonly scale: number;
   readonly archetype: StoneArchetypeId;
   readonly variantIndex: number;
+  /**
+   * Which piece of the pooled body this instance draws: a whole stone, or one
+   * half of a formation whose sibling stands against its break.
+   */
+  readonly fragment: StoneFragmentId;
   readonly paletteKey: StonePaletteKey;
   /** Blend towards granite with altitude, resolved at colorize time. */
   readonly graniteBlend: number;
@@ -109,6 +123,14 @@ export interface StoneInstance {
   readonly tiltStrength: number;
   /** Metres of grass cleared around the footprint; 0 for nestling pebbles. */
   readonly clearRadius: number;
+  /**
+   * Reach of the contact shadow this body throws onto the ground.
+   *
+   * Resolved here rather than at sampling time because it needs the body's
+   * height, which lives on the mesh the instance draws; carrying the answer
+   * keeps the terrain's per-vertex influence lookup to arithmetic.
+   */
+  readonly occlusionRadius: number;
   /** Splash-zone wetness and its waterline, resolved from hydrology at root. */
   readonly wetness: StoneWetness;
 }
@@ -193,6 +215,7 @@ export class StoneField {
   private readonly cellSingletons = new Map<number, number>();
   private readonly resolvedClusters = new Map<number, StoneResolvedCluster>();
   private readonly variants = new Map<string, StoneMeshData>();
+  private readonly parentRecipes = new Map<string, StoneRecipe>();
   private readonly normalScratch = new THREE.Vector3();
   private readonly hydrologyScratch: HydrologySample = createHydrologySample();
   private readonly pathScratch = new THREE.Vector2();
@@ -250,22 +273,49 @@ export class StoneField {
     archetype: StoneArchetypeId,
     variantIndex: number,
     detailed = false,
+    fragment: StoneFragmentId = "whole",
   ): StoneMeshData {
-    const key = `${archetype}:${variantIndex}:${detailed ? "near" : "far"}`;
+    const key = `${archetype}:${variantIndex}:${fragment}:${detailed ? "near" : "far"}`;
     let mesh = this.variants.get(key);
     if (!mesh) {
-      const seed = hashStoneCell(
-        variantIndex,
-        hashStoneCell(archetype.length, variantIndex, this.config.seed),
-        this.config.seed,
-      );
       mesh = generateStoneMesh(
-        resolveQualityStoneRecipe(archetype, seed),
+        resolveStoneFragmentRecipe(
+          this.parentRecipe(archetype, variantIndex),
+          fragment,
+        ),
         detailed,
       );
       this.variants.set(key, mesh);
     }
     return mesh;
+  }
+
+  /** The pooled body an instance draws, whole or fragment. */
+  getInstanceVariant(instance: StoneInstance, detailed = false): StoneMeshData {
+    return this.getVariant(
+      instance.archetype,
+      instance.variantIndex,
+      detailed,
+      instance.fragment,
+    );
+  }
+
+  private parentRecipe(
+    archetype: StoneArchetypeId,
+    variantIndex: number,
+  ): StoneRecipe {
+    const key = `${archetype}:${variantIndex}`;
+    let recipe = this.parentRecipes.get(key);
+    if (!recipe) {
+      const seed = hashStoneCell(
+        variantIndex,
+        hashStoneCell(archetype.length, variantIndex, this.config.seed),
+        this.config.seed,
+      );
+      recipe = resolveQualityStoneRecipe(archetype, seed);
+      this.parentRecipes.set(key, recipe);
+    }
+    return recipe;
   }
 
   collectChunkInstances(
@@ -323,8 +373,16 @@ export class StoneField {
     const centerCellX = Math.floor(x / this.cellSize);
     const centerCellZ = Math.floor(z / this.cellSize);
     let skirt = 0;
-    for (let dz = -CLEARANCE_SOURCE_CELL_MARGIN; dz <= CLEARANCE_SOURCE_CELL_MARGIN; dz += 1) {
-      for (let dx = -CLEARANCE_SOURCE_CELL_MARGIN; dx <= CLEARANCE_SOURCE_CELL_MARGIN; dx += 1) {
+    for (
+      let dz = -CLEARANCE_SOURCE_CELL_MARGIN;
+      dz <= CLEARANCE_SOURCE_CELL_MARGIN;
+      dz += 1
+    ) {
+      for (
+        let dx = -CLEARANCE_SOURCE_CELL_MARGIN;
+        dx <= CLEARANCE_SOURCE_CELL_MARGIN;
+        dx += 1
+      ) {
         const instances = this.getCellInstances(
           centerCellX + dx,
           centerCellZ + dz,
@@ -357,6 +415,65 @@ export class StoneField {
       }
     }
     return skirt;
+  }
+
+  /**
+   * The stone whose ground influence dominates at (x, z), for the terrain to
+   * resolve its contact band per pixel rather than per vertex.
+   *
+   * Dominance is by *normalized* distance, not raw distance: a pebble whose
+   * centre is closer than a boulder's still loses if the point sits outside its
+   * reach and well inside the boulder's, which is the only ordering that keeps
+   * a small stone from stealing the band away from the mass beside it.
+   */
+  sampleGroundInfluence(
+    x: number,
+    z: number,
+    out: MutableStoneGroundInfluence,
+  ): MutableStoneGroundInfluence {
+    clearStoneGroundInfluence(x, z, out);
+    if (!this.enabled) {
+      return out;
+    }
+    const feather = this.config.stoneGrassClearanceFeather;
+    const centerCellX = Math.floor(x / this.cellSize);
+    const centerCellZ = Math.floor(z / this.cellSize);
+    let closest = Number.POSITIVE_INFINITY;
+    for (
+      let dz = -CLEARANCE_SOURCE_CELL_MARGIN;
+      dz <= CLEARANCE_SOURCE_CELL_MARGIN;
+      dz += 1
+    ) {
+      for (
+        let dx = -CLEARANCE_SOURCE_CELL_MARGIN;
+        dx <= CLEARANCE_SOURCE_CELL_MARGIN;
+        dx += 1
+      ) {
+        for (const instance of this.getCellInstances(
+          centerCellX + dx,
+          centerCellZ + dz,
+        )) {
+          if (instance.clearRadius <= 0) continue;
+          const reach = instance.clearRadius + feather;
+          const offsetX = x - instance.x;
+          const offsetZ = z - instance.z;
+          const normalized =
+            Math.hypot(offsetX, offsetZ) / Math.max(1e-4, reach);
+          if (normalized >= closest) continue;
+          closest = normalized;
+          writeStoneGroundInfluence(
+            instance,
+            feather,
+            resolveStoneSkirtWidth(instance.clearRadius),
+            out,
+          );
+        }
+      }
+    }
+    if (!(closest < Number.POSITIVE_INFINITY)) {
+      clearStoneGroundInfluence(x, z, out);
+    }
+    return out;
   }
 
   sampleGrassClearance(x: number, z: number, extraRadius = 0): number {
@@ -460,7 +577,8 @@ export class StoneField {
     for (let cellZ = firstCellZ; cellZ <= lastCellZ; cellZ += 1) {
       for (let cellX = firstCellX; cellX <= lastCellX; cellX += 1) {
         this.getCellInstances(cellX, cellZ);
-        summary.singletons += this.cellSingletons.get(packLatticeKey(cellX, cellZ)) ?? 0;
+        summary.singletons +=
+          this.cellSingletons.get(packLatticeKey(cellX, cellZ)) ?? 0;
       }
     }
     return summary;
@@ -640,12 +758,24 @@ export class StoneField {
     const splitEligibleSlots = specs.some((spec) => spec.splitEligible) ? 1 : 0;
 
     const anchorSpec = specs[0];
+    // The anchor has to know it is half of something before it is placed: a
+    // formation is one body cut in two, so the piece that stands first is the
+    // major fragment, not a whole stone that a sibling is fitted to afterwards.
+    const anchorFragment: StoneFragmentId =
+      splitEligibleSlots > 0 &&
+      stoneFormationSplits(
+        this.parentRecipe(anchorSpec.archetype, anchorSpec.variantIndex),
+      )
+        ? "a"
+        : "whole";
+    let anchorIsFragment = anchorFragment === "a";
     validationAttempts += 1;
     const anchor = this.placeNormalMember(
       descriptor,
       anchorSpec,
       accepted,
       false,
+      anchorFragment,
     );
     if (!anchor.member) {
       return {
@@ -666,17 +796,25 @@ export class StoneField {
     for (let index = 1; index < specs.length; index += 1) {
       const spec = specs[index];
       if (spec.splitEligible && spec.fallback) {
-        const splitAttempt = this.trySplitHalf(
-          descriptor,
-          spec,
-          accepted[0],
-          accepted.slice(1),
-        );
+        const splitAttempt = anchorIsFragment
+          ? this.tryMatedFragment(
+              descriptor,
+              spec,
+              accepted[0],
+              accepted.slice(1),
+            )
+          : undefined;
         validationAttempts += 1;
         if (splitAttempt) {
           accepted.push(splitAttempt);
           splitSucceeded = true;
           continue;
+        }
+        // No sibling stood up, so the anchor goes back to being a whole stone
+        // rather than a body with an unexplained flat break down one side.
+        if (anchorIsFragment) {
+          accepted[0] = this.rejoinAnchor(accepted[0]);
+          anchorIsFragment = false;
         }
         validationAttempts += 1;
         usedFallback = true;
@@ -715,7 +853,63 @@ export class StoneField {
     };
   }
 
-  private trySplitHalf(
+  /**
+   * Puts a major fragment back together when its sibling could not be placed.
+   *
+   * The body only grows here -- the fragment is a subset of the whole -- and the
+   * anchor was cleared against the larger of the two radii when it was placed,
+   * so the position it already holds stays valid. Everything else about the
+   * stone is unchanged: this is the same rock, unbroken.
+   */
+  private rejoinAnchor(member: AcceptedMember): AcceptedMember {
+    const whole = this.getVariant(
+      member.instance.archetype,
+      member.instance.variantIndex,
+    );
+    return {
+      ...member,
+      footprintRadius: whole.metrics.footprintRadius * member.instance.scale,
+      instance: this.createInstance(
+        member.instance.x,
+        member.instance.z,
+        member.instance.height,
+        this.normalScratch.set(
+          member.instance.normalX,
+          member.instance.normalY,
+          member.instance.normalZ,
+        ),
+        member.instance.archetype,
+        member.instance.variantIndex,
+        member.instance.scale,
+        resolveStoneYaw(
+          member.instance.rotationY,
+          whole.metrics.fractureAzimuth,
+        ),
+        member.instance.paletteKey,
+        member.instance.valueScale,
+        member.instance.moss,
+        whole,
+        member.role,
+      ),
+    };
+  }
+
+  /**
+   * The sibling half of the anchor's body, put back on the break it was cut
+   * from.
+   *
+   * The offset is not chosen: both fragments were centred on their own contact
+   * polygon when they were baked, so the difference of those two centrings is
+   * exactly the translation that reunites them, and the crack gap is the only
+   * free parameter left. Scale, palette, value, and moss come from the anchor
+   * because this is not a related stone -- it is the same stone.
+   *
+   * The yaw is taken from the anchor rather than resolved again. Both halves
+   * carry the same break and so report near-identical fracture bearings, but
+   * "near-identical" opens a wedge along a metre of mated face; cancelling this
+   * fragment's own bearing against the anchor's finished rotation closes it.
+   */
+  private tryMatedFragment(
     descriptor: StoneClusterDescriptor,
     spec: StoneClusterMemberSpec,
     anchor: AcceptedMember,
@@ -724,47 +918,48 @@ export class StoneField {
     const memberRng = StoneRandom.fromSeed(descriptor.seed).fork(
       stoneClusterMemberLabel(spec.index),
     );
-    const scale =
-      anchor.instance.scale * memberRng.fork("scale-jitter").range(0.62, 0.92);
-    const variant = this.getVariant(
-      anchor.instance.archetype,
-      anchor.instance.variantIndex,
-    );
-    const footprint = variant.metrics.footprintRadius * scale;
+    const archetype = anchor.instance.archetype;
+    const variantIndex = anchor.instance.variantIndex;
+    const scale = anchor.instance.scale;
+    const major = this.getVariant(archetype, variantIndex, false, "a");
+    const minor = this.getVariant(archetype, variantIndex, false, "b");
+    const footprint = minor.metrics.footprintRadius * scale;
+
     const crackGap = memberRng
       .fork("split-gap")
-      .range(SPLIT_GAP_MIN, SPLIT_GAP_MAX);
-    const desiredDistance = resolveSplitHalfDistance(
-      anchor.footprintRadius,
-      footprint,
+      .range(FORMATION_GAP_MIN, FORMATION_GAP_MAX);
+    const parted = resolveStoneFormationOffset(
+      major.metrics,
+      minor.metrics,
+      scale,
       crackGap,
     );
+    if (!parted) {
+      return undefined;
+    }
+    const { x: offsetX, z: offsetZ } = parted;
     if (
-      desiredDistance >
+      Math.hypot(offsetX, offsetZ) >
       descriptor.majorRadius *
         this.config.stoneClusterCoreRatio *
         SPLIT_CORE_OFFSET_FACTOR
     ) {
       return undefined;
     }
-    const breakAngle =
-      descriptor.strike +
-      Math.PI * 0.5 +
-      memberRng.fork("split-angle").signed(0.35);
-    const x = anchor.instance.x + Math.cos(breakAngle) * desiredDistance;
-    const z = anchor.instance.z + Math.sin(breakAngle) * desiredDistance;
+
+    const yaw = anchor.instance.rotationY;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const x = anchor.instance.x + offsetX * cos + offsetZ * sin;
+    const z = anchor.instance.z - offsetX * sin + offsetZ * cos;
     if (!this.insideWorld(x, z) || !this.insideInfluence(descriptor, x, z)) {
       return undefined;
     }
     const height = this.field.sampleHeight(x, z);
     if (
       Math.abs(height - anchor.instance.height) >
-      0.8 * Math.max(1, anchor.instance.scale)
+      FORMATION_HEIGHT_TOLERANCE * Math.max(1, scale)
     ) {
-      return undefined;
-    }
-    const normal = this.field.sampleNormal(x, z, this.normalScratch);
-    if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }
     if (this.pathBlocks(x, z, height, scale, footprint)) {
@@ -773,22 +968,28 @@ export class StoneField {
     if (this.overlapsAny(x, z, footprint, others)) {
       return undefined;
     }
+    // The anchor's terrain normal, not this root's: the halves lean together,
+    // and letting each pick up its own slope shears the break open.
+    const normal = this.normalScratch.set(
+      anchor.instance.normalX,
+      anchor.instance.normalY,
+      anchor.instance.normalZ,
+    );
     const instance = this.createInstance(
       x,
       z,
       height,
       normal,
-      anchor.instance.archetype,
-      anchor.instance.variantIndex,
+      archetype,
+      variantIndex,
       scale,
-      descriptor.strike +
-        Math.PI +
-        memberRng.fork("split-yaw").signed(0.4),
+      resolveStoneYaw(yaw, minor.metrics.fractureAzimuth),
       descriptor.paletteKey,
       anchor.instance.valueScale,
       anchor.instance.moss,
-      variant,
+      minor,
       "secondary",
+      "b",
     );
     return {
       instance,
@@ -806,6 +1007,7 @@ export class StoneField {
     spec: StoneClusterMemberSpec,
     accepted: readonly AcceptedMember[],
     allowOverlapCorrection: boolean,
+    fragment: StoneFragmentId = "whole",
   ): { member?: AcceptedMember; corrected: boolean } {
     const root = clusterLocalToWorld(
       descriptor.centerX,
@@ -827,6 +1029,7 @@ export class StoneField {
       spec.archetype,
       spec.variantIndex,
       spec.scale,
+      fragment,
     );
     if (!sampled) {
       return { corrected: false };
@@ -865,6 +1068,7 @@ export class StoneField {
         spec.archetype,
         spec.variantIndex,
         spec.scale,
+        fragment,
       );
       if (!resampled) {
         return { corrected: true };
@@ -895,6 +1099,7 @@ export class StoneField {
       this.memberMoss(descriptor, spec),
       variant,
       spec.role,
+      fragment,
     );
     return {
       member: {
@@ -995,8 +1200,7 @@ export class StoneField {
         archetype,
         variantIndex,
         scale,
-        this.clusterField.sampleStrike(x, z) +
-          random.fork("yaw").signed(0.42),
+        this.clusterField.sampleStrike(x, z) + random.fork("yaw").signed(0.42),
         BIOME_PALETTE[biomeIndex],
         random.fork("value").range(0.92, 1.06),
         moss,
@@ -1174,8 +1378,8 @@ export class StoneField {
         const offsetX = existing.x - x;
         const offsetZ = existing.z - z;
         const existingFootprint =
-          this.getVariant(existing.archetype, existing.variantIndex).metrics
-            .footprintRadius * existing.scale;
+          this.getInstanceVariant(existing).metrics.footprintRadius *
+          existing.scale;
         const minimum = (existingFootprint + footprint) * 0.85 + 0.2;
         if (offsetX * offsetX + offsetZ * offsetZ < minimum * minimum) {
           blocked = true;
@@ -1269,6 +1473,7 @@ export class StoneField {
     archetype: StoneArchetypeId,
     variantIndex: number,
     scale: number,
+    fragment: StoneFragmentId = "whole",
   ):
     | {
         height: number;
@@ -1282,8 +1487,18 @@ export class StoneField {
     if (normal.y < SLOPE_REJECT_NY) {
       return undefined;
     }
-    const variant = this.getVariant(archetype, variantIndex);
-    const footprint = variant.metrics.footprintRadius * scale;
+    const variant = this.getVariant(archetype, variantIndex, false, fragment);
+    // A fragment placed here may still be rejoined into the whole body if its
+    // sibling fails to stand, and centring each piece on its own contact
+    // polygon means neither radius bounds the other. Clearing both keeps that
+    // reversal from putting stone through a path it was never checked against.
+    const footprint =
+      Math.max(
+        variant.metrics.footprintRadius,
+        fragment === "whole"
+          ? 0
+          : this.getVariant(archetype, variantIndex).metrics.footprintRadius,
+      ) * scale;
     return { height, normal, footprint, variant };
   }
 
@@ -1390,6 +1605,7 @@ export class StoneField {
     moss: number,
     variant: StoneMeshData,
     role: StoneClusterRole = "debris",
+    fragment: StoneFragmentId = "whole",
   ): StoneInstance {
     const graniteBlend = smoothstep(
       height,
@@ -1436,6 +1652,7 @@ export class StoneField {
       scale,
       archetype,
       variantIndex,
+      fragment,
       paletteKey,
       graniteBlend,
       valueScale,
@@ -1445,6 +1662,10 @@ export class StoneField {
       normalZ: normal.z,
       tiltStrength,
       clearRadius,
+      occlusionRadius: resolveStoneOcclusionRadius(
+        variant.metrics.footprintRadius * scale,
+        variant.metrics.height * scale,
+      ),
     };
   }
 

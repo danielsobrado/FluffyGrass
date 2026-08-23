@@ -113,8 +113,11 @@ try {
   const clusterVerification = await server.ssrLoadModule(
     "/src/world/stones/StoneClusterVerification.ts",
   );
-  const splitVerification = await server.ssrLoadModule(
-    "/src/world/stones/StoneSplitPlacementVerification.ts",
+  const formationVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneFormationVerification.ts",
+  );
+  const silhouetteVerification = await server.ssrLoadModule(
+    "/src/world/stones/StoneSilhouetteVerification.ts",
   );
   const pathVerification = await server.ssrLoadModule(
     "/src/world/stones/StonePathPlacementVerification.ts",
@@ -140,16 +143,17 @@ try {
 
   const summary = await verification.verifyStones(configSource);
   const profileSummary = profileVerification.verifyStoneProfiles();
-  const runtimeSummary = runtimeVerification.verifyRuntimeStoneVariants(
-    configSource,
-  );
+  const runtimeSummary =
+    runtimeVerification.verifyRuntimeStoneVariants(configSource);
   const growthSummary = growthVerification.verifyStoneGrowthField();
   const clearanceRegistrationSummary =
     clearanceRegistrationVerification.verifyStoneClearanceRegistration();
   const clusterConfigSummary =
     clusterConfigVerification.verifyStoneClusterConfig(configSource);
   const clusterSummary = clusterVerification.verifyStoneClusters(configSource);
-  const splitSummary = splitVerification.verifyStoneSplitPlacement();
+  const formationSummary = formationVerification.verifyStoneFormations();
+  const silhouetteSummary =
+    silhouetteVerification.verifyStoneSilhouetteQuality();
   const pathSummary = pathVerification.verifyStonePathPlacement();
   const pathFootprintSummary =
     pathFootprintVerification.verifyStonePathFootprints(configSource);
@@ -167,7 +171,7 @@ try {
     systemPerformanceVerification.verifyStoneSystemPerformance(configSource);
 
   console.log(
-    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clearanceRegistrationSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${splitSummary} · ${pathSummary} · ${pathFootprintSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
+    `[stones] OK · ${summary} · ${profileSummary} · ${runtimeSummary} · ${growthSummary} · ${clearanceRegistrationSummary} · ${clusterConfigSummary} · ${clusterSummary} · ${formationSummary} · ${silhouetteSummary} · ${pathSummary} · ${pathFootprintSummary} · ${edgeSummary} · ${clusterPerformanceSummary} · ${shaderSummary} · ${performanceSummary} · ${systemPerformanceSummary}`,
   );
 } catch (error) {
   console.error(`[stones] ${error?.message ?? error}`);

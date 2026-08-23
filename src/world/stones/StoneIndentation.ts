@@ -25,6 +25,13 @@ export function addStoneIndentation(
   if (recipe.archetype === "pebble" || recipe.archetype === "shard") {
     return polygons;
   }
+  // A formation fragment already carries the largest shape break the body will
+  // ever have. A second recess on top of it competes with that read, and -- since
+  // the two halves choose their host face independently -- can bite into one
+  // half's break outline and not the other's.
+  if (recipe.fracture) {
+    return polygons;
+  }
   const roll =
     hashStoneCell(recipe.seed, hashStoneLabel(recipe.archetype), 0x4e6f7463) /
     4294967296;

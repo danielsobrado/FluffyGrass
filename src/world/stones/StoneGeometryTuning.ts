@@ -185,3 +185,37 @@ export const STONE_CAVITY_UNDERCUT = 0.3;
  * albedo edge lands on a normal edge.
  */
 export const STONE_CUT_ACCENT = 0.09;
+
+/**
+ * A formation break goes further than a weathering cut, but only a little in
+ * value: the fresh-rock read is carried by the weathering channel below, and
+ * doubling it up here is what turns a break into a white slab.
+ */
+export const STONE_FRACTURE_ACCENT = 0.11;
+
+/**
+ * How far a break is pushed toward exposed mineral in the weathering field.
+ *
+ * Sized by measurement rather than by eye: at this value a third of the break
+ * saturates at full crust and the rest stays inside the transition band, so the
+ * interior reads pale while still showing its own mineral banding. Pushed
+ * higher the blotch clamps out and the break becomes one flat panel, which is
+ * the failure this whole channel exists to avoid. The shell got its colour from
+ * decades of weather; this surface has had none, and the difference between
+ * them is the whole reason a break reads as recent.
+ */
+export const STONE_FRACTURE_EXPOSURE = 0.1;
+
+/** What survives of a body's moss susceptibility on unweathered break rock. */
+export const STONE_FRACTURE_MOSS = 0.2;
+
+/**
+ * Depth of the shadow that fills the slot between two mated halves, and the
+ * share of body height it fades out over.
+ *
+ * The crack is open to the sky at the top and closed at the bottom, so the
+ * darkness belongs low. Painting the whole break face dark instead would lose
+ * the fresh stone that makes it a break at all.
+ */
+export const STONE_FRACTURE_SLOT_CAVITY = 0.45;
+export const STONE_FRACTURE_SLOT_HEIGHT = 0.55;

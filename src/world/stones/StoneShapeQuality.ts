@@ -1,3 +1,7 @@
+import {
+  scoreStoneRotationalSymmetry,
+  scoreStoneSilhouette,
+} from "./StoneSilhouetteQuality";
 import { buildStonePolyhedron, type StonePolygon } from "./StoneClipper";
 import { resolveStoneProfileHeights } from "./StoneProfile";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
@@ -9,6 +13,22 @@ import {
 } from "./StoneRecipe";
 
 const ATTEMPTS = 4;
+
+/**
+ * Sized against the measured spread of each term across the population: the
+ * silhouette score varies by roughly 0.1 within an archetype, so this weight
+ * makes it worth about a quarter of a point -- enough to decide between four
+ * candidates that are otherwise close, not enough to overrule a body that is
+ * structurally wrong.
+ */
+const SILHOUETTE_WEIGHT = 3;
+
+/**
+ * Symmetry runs 0 to about 0.6 in practice, so a fully repeating body loses
+ * most of a point. Deliberately harsher than the silhouette reward: a rock that
+ * matches itself every 60 degrees is not a rock.
+ */
+const ROTATIONAL_SYMMETRY_PENALTY = 1.5;
 const QUALITY_CACHE_LIMIT = 256;
 const QUALITY_SEED_SALT = 0x41727479;
 const TWO_PI = Math.PI * 2;
@@ -57,8 +77,7 @@ function coefficientOfVariation(values: readonly number[]): number {
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
   if (!(Math.abs(mean) > 1e-6)) return 0;
   const variance =
-    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
-    values.length;
+    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
   return Math.sqrt(variance) / Math.abs(mean);
 }
 
@@ -81,8 +100,7 @@ function profileArtDirection(recipe: StoneRecipe): number {
       const lowerSupport = ringSupport(recipe, ring, side);
       const upperSupport = ringSupport(recipe, ring + 1, side);
       slopes.push(
-        (upperSupport - lowerSupport) /
-          (heights[ring + 1] - heights[ring]),
+        (upperSupport - lowerSupport) / (heights[ring + 1] - heights[ring]),
       );
       if (upperSupport > lowerSupport * 1.015) {
         alwaysNarrows = false;
@@ -146,7 +164,8 @@ function profileArtDirection(recipe: StoneRecipe): number {
 
 /** Scores the final macro body, before optional near-range chips. */
 export function scoreStoneShape(recipe: StoneRecipe): number {
-  const faces = buildStonePolyhedron(recipe, false).filter(
+  const body = buildStonePolyhedron(recipe, false);
+  const faces = body.filter(
     (face) =>
       face.role !== "bottom" &&
       face.role !== "contact-bevel" &&
@@ -184,10 +203,8 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
     recipe.sideRadii.length;
   const asymmetry =
     Math.sqrt(
-      recipe.sideRadii.reduce(
-        (sum, value) => sum + (value - mean) ** 2,
-        0,
-      ) / recipe.sideRadii.length,
+      recipe.sideRadii.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+        recipe.sideRadii.length,
     ) / mean;
   const targetTop =
     recipe.silhouetteVariant === "capstone"
@@ -216,15 +233,21 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
     stumpPenalty * 4.2 +
     Math.min(mediumCount, 9) * 0.05 +
     Math.min(asymmetry, 0.28) * 2.15 +
-    profileArtDirection(recipe)
+    profileArtDirection(recipe) +
+    // Everything above is object space, and none of it can tell a dome from a
+    // faceted rock once the body is projected. These two close that gap: one
+    // rewards an outline that turns in a few decisive corners from the angles
+    // the game is played at, the other rejects bodies that still repeat
+    // themselves under rotation, which is the radial generator showing through.
+    scoreStoneSilhouette(body) * SILHOUETTE_WEIGHT -
+    scoreStoneRotationalSymmetry(body) * ROTATIONAL_SYMMETRY_PENALTY
   );
 }
 
 function cacheRecipe(key: string, recipe: StoneRecipe): StoneRecipe {
   if (qualityRecipeCache.size >= QUALITY_CACHE_LIMIT) {
     const oldestKey = qualityRecipeCache.keys().next().value as
-      | string
-      | undefined;
+      string | undefined;
     if (oldestKey !== undefined) {
       qualityRecipeCache.delete(oldestKey);
     }
@@ -233,7 +256,10 @@ function cacheRecipe(key: string, recipe: StoneRecipe): StoneRecipe {
   return recipe;
 }
 
-function resolveArchetypeSeed(archetype: StoneArchetypeId, seed: number): number {
+function resolveArchetypeSeed(
+  archetype: StoneArchetypeId,
+  seed: number,
+): number {
   return hashStoneCell(seed, hashStoneLabel(archetype), QUALITY_SEED_SALT);
 }
 

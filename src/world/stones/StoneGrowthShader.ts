@@ -393,10 +393,20 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
 const GRAIN_FRAGMENT_COMMON = `
 uniform sampler2D uStoneGrain;
 uniform float uStoneGrainStrength;
+uniform float uStoneGrainNormalStrength;
 uniform float uStoneGrainScale;
 uniform vec2 uStoneGrainFadeSquared;
 `;
 
+/**
+ * The grain is sampled unconditionally rather than behind its fade test.
+ *
+ * The bump below reads this height field with screen-space derivatives, and a
+ * derivative taken inside non-uniform control flow is undefined -- at the fade
+ * boundary that shows as a seam of wrong shading one pixel wide. Only detail
+ * batches compile this shader at all, so the three taps it costs are paid on
+ * the near ring and nowhere else.
+ */
 const GRAIN_COLOR = `
 vec3 stoneGrainCameraDelta = cameraPosition - vStoneWorldPosition;
 float stoneGrainDistanceSquared = dot(stoneGrainCameraDelta, stoneGrainCameraDelta);
@@ -405,19 +415,50 @@ float stoneGrainFade = 1.0 - smoothstep(
   uStoneGrainFadeSquared.y,
   stoneGrainDistanceSquared
 );
-if (stoneGrainFade > 0.001) {
-  vec3 stoneBlend = pow(abs(normalize(vStoneWorldNormal)), vec3(4.0));
-  stoneBlend /= max(stoneBlend.x + stoneBlend.y + stoneBlend.z, 0.0001);
-  vec2 stoneUvX = vStoneWorldPosition.zy * uStoneGrainScale;
-  vec2 stoneUvY = vStoneWorldPosition.xz * uStoneGrainScale;
-  vec2 stoneUvZ = vStoneWorldPosition.xy * uStoneGrainScale;
-  float stoneGrain =
-    texture2D(uStoneGrain, stoneUvX).r * stoneBlend.x +
-    texture2D(uStoneGrain, stoneUvY).r * stoneBlend.y +
-    texture2D(uStoneGrain, stoneUvZ).r * stoneBlend.z;
-  diffuseColor.rgb *= 1.0 +
-    (stoneGrain - 0.5) * 2.0 * uStoneGrainStrength * stoneGrainFade;
-}
+vec3 stoneBlend = pow(abs(normalize(vStoneWorldNormal)), vec3(4.0));
+stoneBlend /= max(stoneBlend.x + stoneBlend.y + stoneBlend.z, 0.0001);
+float stoneGrain =
+  texture2D(uStoneGrain, vStoneWorldPosition.zy * uStoneGrainScale).r *
+    stoneBlend.x +
+  texture2D(uStoneGrain, vStoneWorldPosition.xz * uStoneGrainScale).r *
+    stoneBlend.y +
+  texture2D(uStoneGrain, vStoneWorldPosition.xy * uStoneGrainScale).r *
+    stoneBlend.z;
+diffuseColor.rgb *= 1.0 +
+  (stoneGrain - 0.5) * 2.0 * uStoneGrainStrength * stoneGrainFade;
+`;
+
+/**
+ * Surface grain that moves the shading instead of the albedo.
+ *
+ * The albedo term above was judged and left off: at a feature size fine enough
+ * to see it reads as dirty concrete, and coarse enough to stay tasteful it is
+ * nearly constant across a one-metre stone. Both halves of that are about
+ * *value* -- a painted light-dark pattern competing with a flat-value palette.
+ * Perturbing the normal from the same height field is a different effect: value
+ * stays exactly where the palette put it, and what changes is how the surface
+ * catches the sun, which is what stone micro-relief actually does.
+ *
+ * The gradient comes from screen-space derivatives rather than extra taps, so
+ * this needs no tangents, no second UV set, and no additional texture reads --
+ * the same three samples the albedo term already pays for. It is the standard
+ * surface-gradient construction: build a basis from the derivatives of view
+ * position, project the height gradient onto it, and lean the normal away.
+ */
+const GRAIN_NORMAL = `
+vec3 stoneBumpSurfaceX = dFdx(-vViewPosition);
+vec3 stoneBumpSurfaceY = dFdy(-vViewPosition);
+float stoneBumpHeightX = dFdx(stoneGrain);
+float stoneBumpHeightY = dFdy(stoneGrain);
+vec3 stoneBumpR1 = cross(stoneBumpSurfaceY, normal);
+vec3 stoneBumpR2 = cross(normal, stoneBumpSurfaceX);
+float stoneBumpDeterminant = dot(stoneBumpSurfaceX, stoneBumpR1);
+vec3 stoneBumpGradient = sign(stoneBumpDeterminant) *
+  (stoneBumpHeightX * stoneBumpR1 + stoneBumpHeightY * stoneBumpR2);
+normal = normalize(
+  abs(stoneBumpDeterminant) * normal -
+    uStoneGrainNormalStrength * stoneGrainFade * stoneBumpGradient
+);
 `;
 
 /**
@@ -535,15 +576,23 @@ export function applyStoneSurfaceShader(
     };
     shader.uniforms.uStoneCrustBreakup = { value: STONE_CRUST_BREAKUP };
     shader.uniforms.uStoneWetDarken = { value: STONE_WET_DARKEN };
-    shader.uniforms.uStoneWetSheenStrength = { value: STONE_WET_SHEEN_STRENGTH };
+    shader.uniforms.uStoneWetSheenStrength = {
+      value: STONE_WET_SHEEN_STRENGTH,
+    };
     shader.uniforms.uStoneWetSheenPower = { value: STONE_WET_SHEEN_POWER };
 
     let fragmentCommon = GROWTH_FRAGMENT_COMMON;
     let colorFragment = GROWTH_COLOR;
+    let normalFragment = "";
     colorFragment += WET_COLOR;
     if (grainTexture) {
       shader.uniforms.uStoneGrain = { value: grainTexture };
-      shader.uniforms.uStoneGrainStrength = { value: config.stoneGrainStrength };
+      shader.uniforms.uStoneGrainStrength = {
+        value: config.stoneGrainStrength,
+      };
+      shader.uniforms.uStoneGrainNormalStrength = {
+        value: config.stoneGrainNormalStrength,
+      };
       shader.uniforms.uStoneGrainScale = { value: 1 / config.stoneGrainSize };
       shader.uniforms.uStoneGrainFadeSquared = {
         value: new THREE.Vector2(
@@ -553,6 +602,7 @@ export function applyStoneSurfaceShader(
       };
       fragmentCommon += GRAIN_FRAGMENT_COMMON;
       colorFragment += GRAIN_COLOR;
+      normalFragment += GRAIN_NORMAL;
     }
 
     shader.vertexShader = shader.vertexShader
@@ -568,13 +618,17 @@ export function applyStoneSurfaceShader(
         `#include <color_fragment>${colorFragment}`,
       )
       .replace(
+        "#include <normal_fragment_begin>",
+        `#include <normal_fragment_begin>${normalFragment}`,
+      )
+      .replace(
         "#include <opaque_fragment>",
         `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}${WET_SHEEN}#include <opaque_fragment>`,
       );
   };
 
   material.customProgramCacheKey = () =>
-    `world-stone-surface-v15-broken-bedding:${grainTexture ? "grain" : "growth"}`;
+    `world-stone-surface-v16-grain-bump:${grainTexture ? "grain" : "growth"}`;
   material.needsUpdate = true;
 }
 

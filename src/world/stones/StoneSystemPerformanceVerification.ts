@@ -26,6 +26,7 @@ function createInstance(
     rotationY: 0,
     scale: 1,
     archetype: "pebble",
+    fragment: "whole",
     variantIndex: 0,
     paletteKey: "meadowSage",
     graniteBlend: 0,
@@ -36,6 +37,7 @@ function createInstance(
     normalZ: 0,
     tiltStrength: 0,
     clearRadius: 0.4,
+    occlusionRadius: 0.9,
     wetness: STONE_WETNESS_DRY,
   };
 }
@@ -57,6 +59,7 @@ export function verifyStoneSystemPerformance(configSource: string): string {
       return out;
     },
     getVariant: variants.getVariant.bind(variants),
+    getInstanceVariant: variants.getInstanceVariant.bind(variants),
   } as unknown as StoneField;
 
   const scene = new THREE.Scene();
@@ -87,7 +90,10 @@ export function verifyStoneSystemPerformance(configSource: string): string {
   let detailedDraws = 0;
   let coarseDraws = 0;
   for (const child of scene.children) {
-    if (!(child instanceof THREE.Mesh) || !child.name.startsWith("world-stones-")) {
+    if (
+      !(child instanceof THREE.Mesh) ||
+      !child.name.startsWith("world-stones-")
+    ) {
       continue;
     }
     const material = child.material;

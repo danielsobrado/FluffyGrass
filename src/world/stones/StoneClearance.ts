@@ -1,6 +1,10 @@
 import type { WorldConfig } from "../WorldConfig";
 import { StoneClearanceCache } from "./StoneClearanceCache";
 import type { StoneField } from "./StoneField";
+import {
+  clearStoneGroundInfluence,
+  type MutableStoneGroundInfluence,
+} from "./StoneGroundInfluence";
 
 export interface StoneClearanceRegistration {
   dispose(): void;
@@ -128,4 +132,22 @@ export function sampleStoneGrassSkirt(
   }
   const source = field ?? activeField;
   return source ? source.sampleGrassSkirt(x, z) : 0;
+}
+
+/**
+ * The dominant stone influence at (x, z), for the terrain surface to carry to
+ * its fragment shader. Unregistered scenes report open ground.
+ */
+export function sampleStoneGroundInfluence(
+  x: number,
+  z: number,
+  out: MutableStoneGroundInfluence,
+  field?: StoneField,
+): MutableStoneGroundInfluence {
+  const source = field ?? activeField;
+  if (!source) {
+    clearStoneGroundInfluence(x, z, out);
+    return out;
+  }
+  return source.sampleGroundInfluence(x, z, out);
 }

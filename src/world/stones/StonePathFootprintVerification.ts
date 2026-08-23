@@ -43,8 +43,8 @@ export function verifyStonePathFootprints(configSource: string): string {
         }
         terrain.samplePathDistances(instance.x, instance.z, distances);
         const footprint =
-          stones.getVariant(instance.archetype, instance.variantIndex).metrics
-            .footprintRadius * instance.scale;
+          stones.getInstanceVariant(instance).metrics.footprintRadius *
+          instance.scale;
         const mainMargin =
           Math.abs(distances.x) - mainClearance - footprint;
         const branchMargin =

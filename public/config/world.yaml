@@ -296,8 +296,24 @@ stoneRenderBatchChunksPerAxis: 2
 stoneChunksPerFrame: 1
 # Paths keep occasional kicked-aside stones without becoming decorative kerbs.
 stoneVergeChance: 0.62
-# Close-range surface grain remains off.
+# Close-range surface grain. Both terms are implemented, both are off, and the
+# reason is the same for each: this material is Lambert with no specular and no
+# self-shadowing, so a perturbed normal only changes N.L -- a brightness blotch,
+# which is visually the same thing as an albedo blotch. The mechanism that makes
+# micro-relief read elsewhere, a highlight sliding across it, is not present.
+#
+# Swept with captures. The albedo term reads as dirty concrete under about 0.6 m
+# of feature size and is invisible above it. The normal term aliases into
+# per-pixel speckle at that same 0.6 m, needs roughly 3 m of feature size before
+# it stops looking like lichen, and by the strength where it stops competing with
+# the facets it can no longer be seen at all. Raise either towards 0.1 with
+# stoneGrainSize near 3 to judge it directly.
+#
+# Close-range flatness in this style is answered by the chamfered rims and the
+# baked edge accents, which reinforce the flat-value palette instead of arguing
+# with it.
 stoneGrainStrength: 0
+stoneGrainNormalStrength: 0
 stoneGrainSize: 0.6
 stoneGrainFadeDistance: 18
 

@@ -214,9 +214,8 @@ export class StoneRenderBatchBuilder {
 
   private resolveVariant(job: StoneRenderBatchBuildJob, index: number): void {
     const instance = job.instances[index];
-    const variant = this.stoneField.getVariant(
-      instance.archetype,
-      instance.variantIndex,
+    const variant = this.stoneField.getInstanceVariant(
+      instance,
       job.detailed[index],
     );
     job.variants[index] = variant;
