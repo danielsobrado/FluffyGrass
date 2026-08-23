@@ -4,6 +4,12 @@ import {
   STONE_ARCHETYPE_IDS,
   type StoneArchetypeId,
 } from "../../src/world/stones/StoneRecipe";
+import {
+  resolveStoneFormationOffset,
+  resolveStoneFragmentRecipe,
+  stoneFormationSplits,
+  type StoneFragmentId,
+} from "../../src/world/stones/StoneFormation";
 import { resolveQualityStoneRecipe } from "../../src/world/stones/StoneShapeQuality";
 import { generateStoneMesh } from "../../src/world/stones/StoneGeometry";
 import { WorldConfigLoader } from "../../src/world/WorldConfigLoader";
@@ -80,6 +86,26 @@ const mossParam = readNumberParam("moss", 0.7, 0, 1);
 const wetParam = readNumberParam("wet", 0, 0, 1);
 const growthParam = readGrowthMode(params.get("growth"));
 const chipsParam = params.get("chips") !== "0";
+/** Draw each splittable body as the mated pair it becomes in the world. */
+function readFormationMode(value: string | null): "off" | "pair" | "a" | "b" {
+  if (value === null || value === "0") return "off";
+  if (value === "1") return "pair";
+  if (value === "a" || value === "b") return value;
+  throw new Error(`Invalid formation=${value}; expected 1, a, or b.`);
+}
+/**
+ * "1" draws the mated pair as the world does. "a" or "b" draws that half alone
+ * and turns its break toward the camera, which is the only way to look at the
+ * break face: on a pair the two faces point at each other and are invisible
+ * however wide the crack is opened.
+ */
+const formationParam = readFormationMode(params.get("formation"));
+/**
+ * Crack width, in metres. The world picks its own narrow value; opening this up
+ * is the only way to inspect the break faces, which a mated pair points at each
+ * other and hides completely.
+ */
+const crackParam = readNumberParam("crack", 0.05, 0, 2);
 /** Contact shading and edge softness only read at close range; frame for it. */
 const columnsParam = Math.trunc(readNumberParam("columns", 8, 1, 16));
 const distanceParam = readNumberParam("dist", 0, 0, 80);
@@ -131,7 +157,10 @@ const sun = new THREE.DirectionalLight(
   WORLD_DEFAULT_SUN,
   WORLD_DEFAULT_SUN_INTENSITY,
 );
-sun.position.set(...WORLD_SUN_DIRECTION).normalize().multiplyScalar(60);
+sun.position
+  .set(...WORLD_SUN_DIRECTION)
+  .normalize()
+  .multiplyScalar(60);
 scene.add(sun);
 
 const ground = new THREE.Mesh(
@@ -173,6 +202,7 @@ const columns = columnsParam;
 const spacing = 2.6;
 const GROWTH_EPSILON = 1e-4;
 let totalTriangles = 0;
+let formations = 0;
 let totalVertices = 0;
 
 const shownArchetypes: readonly StoneArchetypeId[] = focusParam
@@ -182,105 +212,7 @@ const shownArchetypes: readonly StoneArchetypeId[] = focusParam
 shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
   for (let column = 0; column < columns; column += 1) {
     const seed = (seedOffset + row * 101 + column * 17 + 5) >>> 0;
-    const recipe = resolveQualityStoneRecipe(archetype, seed);
-    const mesh = generateStoneMesh(recipe, chipsParam);
-    totalTriangles += mesh.metrics.triangleCount;
-    totalVertices += mesh.metrics.vertexCount;
-
-    const palette =
-      paletteColumns[Math.min(column, paletteColumns.length - 1)];
-    const colors = new Float32Array(mesh.tones.length * 3);
-    colorizeStoneVertices(
-      mesh.tones,
-      mesh.wears,
-      mesh.bounces,
-      mesh.weatherings,
-      mesh.cavities,
-      undefined,
-      palette,
-      {
-        valueScale: 0.94 + ((seed * 2654435761) >>> 28) / 160,
-      },
-      colors,
-    );
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(mesh.positions, 3),
-    );
-    geometry.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    const mosses = new Float32Array(mesh.mosses.length);
-    const lichens = new Float32Array(mesh.mosses.length);
-    const seeds = new Float32Array(mesh.mosses.length);
-    const growthPositions = new Float32Array(mesh.mosses.length * 3);
-    const mossColors = new Float32Array(mesh.mosses.length * 3);
-    const wets = new Float32Array(mesh.mosses.length);
-    const beddings = new Float32Array(mesh.mosses.length);
-    const lichenColors = new Float32Array(mesh.mosses.length * 3);
-    const inverseGrowthRadius =
-      0.5 / Math.max(mesh.metrics.footprintRadius, GROWTH_EPSILON);
-    const inverseGrowthHeight =
-      1 / Math.max(mesh.metrics.height, GROWTH_EPSILON);
-    for (let vertex = 0; vertex < mesh.mosses.length; vertex += 1) {
-      mosses[vertex] =
-        growthParam === "moss"
-          ? Math.max(
-              Math.min(1, mesh.mosses[vertex] * (1.5 + mossParam)),
-              mossParam * 0.82,
-            )
-          : 0;
-      lichens[vertex] = growthParam === "lichen" ? 0.82 : 0;
-      seeds[vertex] = (seed % 104729) / 104729;
-      const offset = vertex * 3;
-      growthPositions[offset] = mesh.positions[offset] * inverseGrowthRadius;
-      growthPositions[offset + 1] =
-        mesh.positions[offset + 1] * inverseGrowthHeight;
-      growthPositions[offset + 2] =
-        mesh.positions[offset + 2] * inverseGrowthRadius;
-      mossColors[offset] = palette.moss.r;
-      mossColors[offset + 1] = palette.moss.g;
-      mossColors[offset + 2] = palette.moss.b;
-      lichenColors[offset] = palette.lichen.r;
-      lichenColors[offset + 1] = palette.lichen.g;
-      lichenColors[offset + 2] = palette.lichen.b;
-      wets[vertex] =
-        wetParam > 0
-          ? resolveStoneVertexWetness(
-              { strength: 1, topY: mesh.metrics.height * wetParam },
-              mesh.positions[offset + 1],
-            )
-          : 0;
-      beddings[vertex] = mesh.metrics.bedding;
-    }
-    geometry.setAttribute("stoneWet", new THREE.BufferAttribute(wets, 1));
-    geometry.setAttribute(
-      "stoneBedding",
-      new THREE.BufferAttribute(beddings, 1),
-    );
-    geometry.setAttribute(
-      "stoneWeathering",
-      new THREE.BufferAttribute(mesh.weatherings, 1),
-    );
-    geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1));
-    geometry.setAttribute("stoneLichen", new THREE.BufferAttribute(lichens, 1));
-    geometry.setAttribute("stoneGrowthSeed", new THREE.BufferAttribute(seeds, 1));
-    geometry.setAttribute(
-      "stoneGrowthPosition",
-      new THREE.BufferAttribute(growthPositions, 3),
-    );
-    geometry.setAttribute(
-      "stoneMossColor",
-      new THREE.BufferAttribute(mossColors, 3),
-    );
-    geometry.setAttribute(
-      "stoneLichenColor",
-      new THREE.BufferAttribute(lichenColors, 3),
-    );
-    geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-
-    const object = new THREE.Mesh(geometry, material);
+    const parent = resolveQualityStoneRecipe(archetype, seed);
     const rowScale =
       archetype === "pebble"
         ? 0.4
@@ -290,19 +222,172 @@ shownArchetypes.forEach((archetype: StoneArchetypeId, row: number) => {
             ? 1.15
             : 1;
     const scale = scaleParam * rowScale;
-    object.scale.setScalar(scale);
-    object.position.set(
-      (column - (columns - 1) / 2) * spacing,
-      -mesh.metrics.embed * mesh.metrics.height * scale * 0.5,
-      (row - (shownArchetypes.length - 1) / 2) * spacing,
+    const cellX = (column - (columns - 1) / 2) * spacing;
+    const cellZ = (row - (shownArchetypes.length - 1) / 2) * spacing;
+    const splits = formationParam !== "off" && stoneFormationSplits(parent);
+    const fragments: readonly StoneFragmentId[] = !splits
+      ? ["whole"]
+      : formationParam === "pair"
+        ? ["a", "b"]
+        : [formationParam];
+    if (splits) formations += 1;
+    const bodies = fragments.map((fragment) =>
+      generateStoneMesh(
+        resolveStoneFragmentRecipe(parent, fragment),
+        chipsParam,
+      ),
     );
-    object.rotation.y = (seed % 360) * (Math.PI / 180);
-    scene.add(object);
+    const major = splits
+      ? generateStoneMesh(resolveStoneFragmentRecipe(parent, "a"), chipsParam)
+      : undefined;
+    const minor = splits
+      ? generateStoneMesh(resolveStoneFragmentRecipe(parent, "b"), chipsParam)
+      : undefined;
+    const parted =
+      major && minor
+        ? resolveStoneFormationOffset(
+            major.metrics,
+            minor.metrics,
+            scale,
+            crackParam,
+          )
+        : undefined;
+    // A right-handed turn about +Y sends a local bearing to itself minus the
+    // yaw, so this lands the parting direction on +Z, straight at the camera.
+    // The minor half's break points the other way and needs the opposite turn.
+    const yaw =
+      parted && formationParam !== "pair" && formationParam !== "off"
+        ? Math.atan2(parted.z, parted.x) -
+          (formationParam === "a" ? Math.PI / 2 : -Math.PI / 2)
+        : (seed % 360) * (Math.PI / 180);
+
+    bodies.forEach((mesh, piece) => {
+      totalTriangles += mesh.metrics.triangleCount;
+      totalVertices += mesh.metrics.vertexCount;
+
+      const palette =
+        paletteColumns[Math.min(column, paletteColumns.length - 1)];
+      const colors = new Float32Array(mesh.tones.length * 3);
+      colorizeStoneVertices(
+        mesh.tones,
+        mesh.wears,
+        mesh.bounces,
+        mesh.weatherings,
+        mesh.cavities,
+        undefined,
+        palette,
+        {
+          valueScale: 0.94 + ((seed * 2654435761) >>> 28) / 160,
+        },
+        colors,
+      );
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(mesh.positions, 3),
+      );
+      geometry.setAttribute(
+        "normal",
+        new THREE.BufferAttribute(mesh.normals, 3),
+      );
+      geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      const mosses = new Float32Array(mesh.mosses.length);
+      const lichens = new Float32Array(mesh.mosses.length);
+      const seeds = new Float32Array(mesh.mosses.length);
+      const growthPositions = new Float32Array(mesh.mosses.length * 3);
+      const mossColors = new Float32Array(mesh.mosses.length * 3);
+      const wets = new Float32Array(mesh.mosses.length);
+      const beddings = new Float32Array(mesh.mosses.length);
+      const lichenColors = new Float32Array(mesh.mosses.length * 3);
+      const inverseGrowthRadius =
+        0.5 / Math.max(mesh.metrics.footprintRadius, GROWTH_EPSILON);
+      const inverseGrowthHeight =
+        1 / Math.max(mesh.metrics.height, GROWTH_EPSILON);
+      for (let vertex = 0; vertex < mesh.mosses.length; vertex += 1) {
+        mosses[vertex] =
+          growthParam === "moss"
+            ? Math.max(
+                Math.min(1, mesh.mosses[vertex] * (1.5 + mossParam)),
+                mossParam * 0.82,
+              )
+            : 0;
+        lichens[vertex] = growthParam === "lichen" ? 0.82 : 0;
+        seeds[vertex] = (seed % 104729) / 104729;
+        const offset = vertex * 3;
+        growthPositions[offset] = mesh.positions[offset] * inverseGrowthRadius;
+        growthPositions[offset + 1] =
+          mesh.positions[offset + 1] * inverseGrowthHeight;
+        growthPositions[offset + 2] =
+          mesh.positions[offset + 2] * inverseGrowthRadius;
+        mossColors[offset] = palette.moss.r;
+        mossColors[offset + 1] = palette.moss.g;
+        mossColors[offset + 2] = palette.moss.b;
+        lichenColors[offset] = palette.lichen.r;
+        lichenColors[offset + 1] = palette.lichen.g;
+        lichenColors[offset + 2] = palette.lichen.b;
+        wets[vertex] =
+          wetParam > 0
+            ? resolveStoneVertexWetness(
+                { strength: 1, topY: mesh.metrics.height * wetParam },
+                mesh.positions[offset + 1],
+              )
+            : 0;
+        beddings[vertex] = mesh.metrics.bedding;
+      }
+      geometry.setAttribute("stoneWet", new THREE.BufferAttribute(wets, 1));
+      geometry.setAttribute(
+        "stoneBedding",
+        new THREE.BufferAttribute(beddings, 1),
+      );
+      geometry.setAttribute(
+        "stoneWeathering",
+        new THREE.BufferAttribute(mesh.weatherings, 1),
+      );
+      geometry.setAttribute("stoneMoss", new THREE.BufferAttribute(mosses, 1));
+      geometry.setAttribute(
+        "stoneLichen",
+        new THREE.BufferAttribute(lichens, 1),
+      );
+      geometry.setAttribute(
+        "stoneGrowthSeed",
+        new THREE.BufferAttribute(seeds, 1),
+      );
+      geometry.setAttribute(
+        "stoneGrowthPosition",
+        new THREE.BufferAttribute(growthPositions, 3),
+      );
+      geometry.setAttribute(
+        "stoneMossColor",
+        new THREE.BufferAttribute(mossColors, 3),
+      );
+      geometry.setAttribute(
+        "stoneLichenColor",
+        new THREE.BufferAttribute(lichenColors, 3),
+      );
+      geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+
+      const object = new THREE.Mesh(geometry, material);
+      object.scale.setScalar(scale);
+      // The pair is offset in the major half's mesh space, so the placement turn
+      // has to be applied to the offset exactly as the object matrix applies it.
+      const offsetX = piece === 1 && parted ? parted.x : 0;
+      const offsetZ = piece === 1 && parted ? parted.z : 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      object.position.set(
+        cellX + offsetX * cos + offsetZ * sin,
+        -mesh.metrics.embed * mesh.metrics.height * scale * 0.5,
+        cellZ - offsetX * sin + offsetZ * cos,
+      );
+      object.rotation.y = yaw;
+      scene.add(object);
+    });
   }
 });
 
 if (out) {
-  out.textContent = `${shownArchetypes.length * columns} stones · ${totalTriangles.toLocaleString()} tris · ${totalVertices.toLocaleString()} verts · rows: ${shownArchetypes.join(", ")}`;
+  out.textContent = `${shownArchetypes.length * columns} stones${formations > 0 ? ` (${formations} mated formations)` : ""} · ${totalTriangles.toLocaleString()} tris · ${totalVertices.toLocaleString()} verts · rows: ${shownArchetypes.join(", ")}`;
 }
 
 function createProbeGrainTexture(): THREE.Texture {

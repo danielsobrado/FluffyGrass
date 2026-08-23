@@ -3,6 +3,11 @@ import { WorldConfigLoader } from "../../src/world/WorldConfigLoader";
 import { validateWorldConfig } from "../../src/world/WorldConfigValidator";
 import { TerrainField } from "../../src/world/TerrainField";
 import { StoneField } from "../../src/world/stones/StoneField";
+import {
+  createMutableStoneGroundInfluence,
+  resolveStoneContactBand,
+  resolveStoneContactShade,
+} from "../../src/world/stones/StoneGroundInfluence";
 import { WorldStoneSystem } from "../../src/world/stones/WorldStoneSystem";
 import type { WorldConfig } from "../../src/world/WorldConfig";
 import {
@@ -49,12 +54,14 @@ function readGrowthMode(value: string | null): GrowthMode {
   if (value === "natural" || value === "moss" || value === "lichen") {
     return value;
   }
-  throw new Error(`Invalid growth=${value}; expected natural, moss, or lichen.`);
+  throw new Error(
+    `Invalid growth=${value}; expected natural, moss, or lichen.`,
+  );
 }
 
 function reportFailure(detail: unknown): void {
   const message =
-    detail instanceof Error ? detail.stack ?? detail.message : String(detail);
+    detail instanceof Error ? (detail.stack ?? detail.message) : String(detail);
   if (out) {
     out.textContent = `PROBE FAILED\n${message}`;
     out.style.color = "#b00";
@@ -103,9 +110,18 @@ const probeChunkRadius = Math.max(
 );
 
 function withProbeRadius(config: WorldConfig): WorldConfig {
-  const stoneRadiusDesktop = Math.min(config.stoneRadiusDesktop, probeChunkRadius);
-  const stoneRadiusCompact = Math.min(config.stoneRadiusCompact, probeChunkRadius);
-  const stoneDetailRadius = Math.min(config.stoneDetailRadius, stoneRadiusDesktop);
+  const stoneRadiusDesktop = Math.min(
+    config.stoneRadiusDesktop,
+    probeChunkRadius,
+  );
+  const stoneRadiusCompact = Math.min(
+    config.stoneRadiusCompact,
+    probeChunkRadius,
+  );
+  const stoneDetailRadius = Math.min(
+    config.stoneDetailRadius,
+    stoneRadiusDesktop,
+  );
   const stoneDetailRadiusCompact = Math.min(
     config.stoneDetailRadiusCompact,
     stoneDetailRadius,
@@ -120,7 +136,10 @@ function withProbeRadius(config: WorldConfig): WorldConfig {
   };
 }
 
-function mergeStoneConfig(base: WorldConfig, overrides: Partial<WorldConfig>): WorldConfig {
+function mergeStoneConfig(
+  base: WorldConfig,
+  overrides: Partial<WorldConfig>,
+): WorldConfig {
   const merged = withProbeRadius({ ...base, ...overrides });
   validateWorldConfig(merged);
   return merged;
@@ -178,7 +197,10 @@ const sun = new THREE.DirectionalLight(
   WORLD_DEFAULT_SUN,
   WORLD_DEFAULT_SUN_INTENSITY,
 );
-sun.position.set(...WORLD_SUN_DIRECTION).normalize().multiplyScalar(200);
+sun.position
+  .set(...WORLD_SUN_DIRECTION)
+  .normalize()
+  .multiplyScalar(200);
 scene.add(sun);
 
 const resolution = 192;
@@ -195,6 +217,12 @@ const normalScratch = new THREE.Vector3();
 const colorScratch = new THREE.Color();
 const pathScratch = new THREE.Vector2();
 const PATH_SOIL_COLOR = new THREE.Color("#574833");
+/** Matches uTerrainStoneContactSoil, so the probe reads like the world does. */
+const STONE_SOIL_COLOR = new THREE.Color("#4a3626");
+const STONE_CONTACT_DARKENING = 0.26;
+/** Matches uTerrainStoneOcclusionStrength. */
+const STONE_OCCLUSION_STRENGTH = 0.3;
+const groundInfluence = createMutableStoneGroundInfluence();
 for (let index = 0; index < terrainPositions.count; index += 1) {
   const x = terrainPositions.getX(index) + focusX;
   const z = terrainPositions.getZ(index) + focusZ;
@@ -234,7 +262,11 @@ for (let index = 0; index < terrainPositions.count; index += 1) {
   terrainColors[index * 3 + 1] = colorScratch.g;
   terrainColors[index * 3 + 2] = colorScratch.b;
 }
-terrainGeometry.setAttribute("color", new THREE.BufferAttribute(terrainColors, 3));
+const meadowColors = terrainColors.slice();
+terrainGeometry.setAttribute(
+  "color",
+  new THREE.BufferAttribute(terrainColors, 3),
+);
 terrainGeometry.computeVertexNormals();
 scene.add(
   new THREE.Mesh(
@@ -273,6 +305,60 @@ function drainStoneBuild(system: WorldStoneSystem): void {
   );
 }
 
+/**
+ * Paints the stone contact band onto the probe's ground.
+ *
+ * The world resolves this in the terrain fragment shader, from the same centre
+ * and radii and the same falloff; this probe colours its ground on the CPU, so
+ * it re-applies rather than shares the code path. It is still the only place
+ * the band can be looked at, because the probe's ground is a plain coloured
+ * plane and never reaches the terrain material at all.
+ *
+ * Re-applied from the untouched meadow colours every time the stone field is
+ * rebuilt, so tuning the cluster menu does not leave stale soil behind stones
+ * that have moved.
+ */
+function applyStoneContactSoil(source: StoneField): void {
+  const attribute = terrainGeometry.getAttribute("color");
+  for (let index = 0; index < terrainPositions.count; index += 1) {
+    const offset = index * 3;
+    const x = terrainPositions.getX(index);
+    const z = terrainPositions.getZ(index);
+    colorScratch.setRGB(
+      meadowColors[offset],
+      meadowColors[offset + 1],
+      meadowColors[offset + 2],
+    );
+    source.sampleGroundInfluence(x, z, groundInfluence);
+    const distance = Math.hypot(
+      x - groundInfluence.centerX,
+      z - groundInfluence.centerZ,
+    );
+    const contact = resolveStoneContactBand(
+      distance,
+      groundInfluence.innerClearRadius,
+      groundInfluence.contactSoilRadius,
+    );
+    if (contact > 0.001) {
+      colorScratch.lerp(STONE_SOIL_COLOR, contact * 0.72);
+      colorScratch.multiplyScalar(
+        1 - STONE_CONTACT_DARKENING * contact * contact,
+      );
+    }
+    const shade = resolveStoneContactShade(
+      distance,
+      groundInfluence.occlusionRadius,
+    );
+    if (shade > 0.001) {
+      colorScratch.multiplyScalar(1 - STONE_OCCLUSION_STRENGTH * shade);
+    }
+    terrainColors[offset] = colorScratch.r;
+    terrainColors[offset + 1] = colorScratch.g;
+    terrainColors[offset + 2] = colorScratch.b;
+  }
+  attribute.needsUpdate = true;
+}
+
 function refreshDiagnostics(): void {
   const diagnostics = stones.getDiagnostics();
   const summary = stoneField.summarizeBounds(
@@ -295,6 +381,7 @@ function refreshDiagnostics(): void {
 }
 
 drainStoneBuild(stones);
+applyStoneContactSoil(stoneField);
 refreshDiagnostics();
 
 function rebuildStones(nextConfig: WorldConfig): void {
@@ -302,6 +389,7 @@ function rebuildStones(nextConfig: WorldConfig): void {
   stoneField = applyGrowth(new StoneField(field, nextConfig));
   stones = new WorldStoneSystem(scene, stoneField, nextConfig, false, false);
   drainStoneBuild(stones);
+  applyStoneContactSoil(stoneField);
   refreshDiagnostics();
 }
 
