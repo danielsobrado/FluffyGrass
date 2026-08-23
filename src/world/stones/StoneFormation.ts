@@ -79,6 +79,10 @@ const PAIR_CACHE_LIMIT = 128;
 
 /** Below this the two contact centroids coincide and there is no parting. */
 const PARTING_EPSILON = 1e-4;
+/** Maximum visible crack as a share of the larger fragment footprint. */
+const FORMATION_GAP_FOOTPRINT_RATIO = 0.05;
+/** Absolute world-space cap keeps even landmark stones from looking separated. */
+const FORMATION_GAP_MAX_METERS = 0.04;
 
 interface StoneFragmentPair {
   readonly a: StoneRecipe;
@@ -216,8 +220,8 @@ function fragmentIsViable(recipe: StoneRecipe): boolean {
  * Both fragments were centred on their own contact polygon when they were
  * baked, so the difference of those centrings is precisely the translation that
  * undoes the centring and puts the two pieces back on the plane they were cut
- * from. The crack gap is then the only thing separating them, and it runs along
- * the parting direction so the halves slide apart rather than shear.
+ * from. The requested crack gap is capped by the fragment footprint, so a
+ * fracture stays a narrow break instead of turning into two unrelated stones.
  *
  * Returns undefined when the two centrings coincide, which means the break did
  * not actually divide the body and there is no direction to part along.
@@ -232,8 +236,17 @@ export function resolveStoneFormationOffset(
   const partingZ = minor.contactOffsetZ - major.contactOffsetZ;
   const parting = Math.hypot(partingX, partingZ);
   if (!(parting > PARTING_EPSILON)) return undefined;
+
+  const scaledFootprint =
+    Math.max(major.footprintRadius, minor.footprintRadius) * Math.max(0, scale);
+  const maximumGap = Math.min(
+    FORMATION_GAP_MAX_METERS,
+    scaledFootprint * FORMATION_GAP_FOOTPRINT_RATIO,
+  );
+  const visibleGap = Math.min(Math.max(0, crackGap), maximumGap);
+
   return {
-    x: partingX * scale + (partingX / parting) * crackGap,
-    z: partingZ * scale + (partingZ / parting) * crackGap,
+    x: partingX * scale + (partingX / parting) * visibleGap,
+    z: partingZ * scale + (partingZ / parting) * visibleGap,
   };
 }
