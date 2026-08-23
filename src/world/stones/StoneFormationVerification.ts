@@ -6,7 +6,9 @@ import {
 import { generateStoneMesh } from "./StoneGeometry";
 import {
   canFractureStoneArchetype,
+  resolveStoneFormationGap,
   resolveStoneFormationOffset,
+  resolveStoneFractureHorizontalNormal,
   resolveStoneFragmentRecipe,
   stoneFormationSplits,
 } from "./StoneFormation";
@@ -15,14 +17,18 @@ import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
 
 const ENVELOPE_EPSILON = 0.012 + STONE_FRACTURE_RELIEF;
 const RIM_EPSILON = 5e-3;
-/** Smooth mineral fields may differ slightly across a healed rim point. */
 const MINERAL_RIM_EPSILON = 0.04;
 const MATERIAL_FRAME_EPSILON = 1e-6;
-const MAXIMUM_FORMATION_GAP_METERS = 0.04;
-const MAXIMUM_FORMATION_GAP_FOOTPRINT_RATIO = 0.05;
-const FORMATION_GAP_EPSILON = 1e-9;
+const FORMATION_EPSILON = 1e-8;
+const MINIMUM_DOMINANT_SHARE = 0.66;
+const MAXIMUM_DOMINANT_SHARE = 0.8;
 const MINIMUM_SPLIT_RATE = 0.7;
 const VARIANTS = 16;
+const GAP_TEST_RATIO_MIN = 0.006;
+const GAP_TEST_RATIO_MAX = 0.025;
+const GAP_TEST_MAX = 0.03;
+const GAP_TEST_SCALES = [0.45, 1, 2.75] as const;
+const GAP_TEST_ROLLS = [0, 0.25, 0.5, 0.75, 1] as const;
 
 function fail(message: string): never {
   throw new Error(`[stone-formations] ${message}`);
@@ -83,8 +89,9 @@ function verifyPair(
       Math.abs(fractureA.ny + fractureB.ny) < 1e-9 &&
       Math.abs(fractureA.nz + fractureB.nz) < 1e-9 &&
       Math.abs(fractureA.constant + fractureB.constant) < 1e-9,
-    `${archetype}:${seed} halves do not share one break plane.`,
+    `${archetype}:${seed} fragments do not share one break plane.`,
   );
+  verifyDominantFragmentShare(archetype, seed, parent, fractureA);
 
   const rims = [recipeA, recipeB].map((recipe) => {
     const relieved = addStoneFractureRelief(
@@ -129,9 +136,9 @@ function verifyPair(
   assert(
     major.metrics.triangleCount + minor.metrics.triangleCount <
       whole.metrics.triangleCount * 2,
-    `${archetype}:${seed} costs more as two halves than as two whole stones.`,
+    `${archetype}:${seed} costs more as two fragments than as two whole stones.`,
   );
-  verifyFormationGap(archetype, seed, major, minor);
+  verifyFormationGap(archetype, seed, recipeA, major, minor);
   verifyMaterialFrameContinuity(
     archetype,
     seed,
@@ -168,40 +175,107 @@ function verifyPair(
   }
 }
 
+function verifyDominantFragmentShare(
+  archetype: string,
+  seed: number,
+  parent: ReturnType<typeof resolveQualityStoneRecipe>,
+  fracture: NonNullable<ReturnType<typeof resolveStoneFragmentRecipe>["fracture"]>,
+): void {
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const face of buildStonePolyhedron(parent, false)) {
+    for (const point of face.points) {
+      const support =
+        fracture.nx * point.x +
+        fracture.ny * point.y +
+        fracture.nz * point.z;
+      minimum = Math.min(minimum, support);
+      maximum = Math.max(maximum, support);
+    }
+  }
+  assert(maximum > minimum, `${archetype}:${seed} has no fracture extent.`);
+  const share = (fracture.constant - minimum) / (maximum - minimum);
+  assert(
+    share >= MINIMUM_DOMINANT_SHARE && share <= MAXIMUM_DOMINANT_SHARE,
+    `${archetype}:${seed} dominant fragment share ${share.toFixed(3)} is not a natural chunk break.`,
+  );
+}
+
 function verifyFormationGap(
   archetype: string,
   seed: number,
+  recipeA: ReturnType<typeof resolveStoneFragmentRecipe>,
   major: ReturnType<typeof generateStoneMesh>,
   minor: ReturnType<typeof generateStoneMesh>,
 ): void {
-  const scale = 0.5;
-  const joined = resolveStoneFormationOffset(
-    major.metrics,
-    minor.metrics,
-    scale,
-    0,
-  );
-  const parted = resolveStoneFormationOffset(
-    major.metrics,
-    minor.metrics,
-    scale,
-    1,
-  );
-  assert(
-    joined !== undefined && parted !== undefined,
-    `${archetype}:${seed} has no measurable parting direction.`,
-  );
-  const visibleGap = Math.hypot(parted.x - joined.x, parted.z - joined.z);
-  const maximumGap = Math.min(
-    MAXIMUM_FORMATION_GAP_METERS,
-    Math.max(major.metrics.footprintRadius, minor.metrics.footprintRadius) *
-      scale *
-      MAXIMUM_FORMATION_GAP_FOOTPRINT_RATIO,
-  );
-  assert(
-    visibleGap <= maximumGap + FORMATION_GAP_EPSILON,
-    `${archetype}:${seed} opens a ${visibleGap.toFixed(4)} m crack; maximum is ${maximumGap.toFixed(4)} m.`,
-  );
+  const direction = resolveStoneFractureHorizontalNormal(recipeA);
+  assert(direction !== undefined, `${archetype}:${seed} has no horizontal break normal.`);
+
+  for (const scale of GAP_TEST_SCALES) {
+    const joined = resolveStoneFormationOffset(
+      major.metrics,
+      minor.metrics,
+      scale,
+      0,
+      direction,
+    );
+    assert(joined !== undefined, `${archetype}:${seed} has no parting direction.`);
+
+    let previousGap = -1;
+    for (const roll of GAP_TEST_ROLLS) {
+      const gap = resolveStoneFormationGap(
+        major.metrics,
+        minor.metrics,
+        scale,
+        roll,
+        GAP_TEST_RATIO_MIN,
+        GAP_TEST_RATIO_MAX,
+        GAP_TEST_MAX,
+      );
+      assert(
+        gap + FORMATION_EPSILON >= previousGap,
+        `${archetype}:${seed} aperture is not monotonic at scale ${scale}.`,
+      );
+      previousGap = gap;
+
+      const footprint =
+        Math.max(
+          major.metrics.materialFootprintRadius,
+          minor.metrics.materialFootprintRadius,
+        ) * scale;
+      const expected = Math.min(
+        GAP_TEST_MAX,
+        footprint *
+          (GAP_TEST_RATIO_MIN +
+            (GAP_TEST_RATIO_MAX - GAP_TEST_RATIO_MIN) * roll * roll),
+      );
+      assert(
+        Math.abs(gap - expected) <= FORMATION_EPSILON,
+        `${archetype}:${seed} aperture ${gap.toFixed(5)} differs from ${expected.toFixed(5)}.`,
+      );
+
+      const parted = resolveStoneFormationOffset(
+        major.metrics,
+        minor.metrics,
+        scale,
+        gap,
+        direction,
+      );
+      assert(parted !== undefined, `${archetype}:${seed} failed to part.`);
+      const dx = parted.x - joined.x;
+      const dz = parted.z - joined.z;
+      const opening = Math.hypot(dx, dz);
+      assert(
+        Math.abs(opening - gap) <= FORMATION_EPSILON,
+        `${archetype}:${seed} opens ${opening.toFixed(5)} for ${gap.toFixed(5)} requested.`,
+      );
+      const tangential = Math.abs(dx * direction.z - dz * direction.x);
+      assert(
+        tangential <= FORMATION_EPSILON,
+        `${archetype}:${seed} fracture shears sideways by ${tangential.toFixed(6)}.`,
+      );
+    }
+  }
 }
 
 function verifyMaterialFrameContinuity(
@@ -218,7 +292,7 @@ function verifyMaterialFrameContinuity(
           mesh.metrics.materialFootprintRadius -
             reference.materialFootprintRadius,
         ) <= MATERIAL_FRAME_EPSILON,
-      `${archetype}:${seed} fragment material frame differs across halves or LODs.`,
+      `${archetype}:${seed} fragment material frame differs across fragments or LODs.`,
     );
   }
 }

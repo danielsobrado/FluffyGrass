@@ -19,7 +19,9 @@ import {
   type MutableStoneGroundInfluence,
 } from "./StoneGroundInfluence";
 import {
+  resolveStoneFormationGap,
   resolveStoneFormationOffset,
+  resolveStoneFractureHorizontalNormal,
   resolveStoneFragmentRecipe,
   stoneFormationSplits,
   type StoneFragmentId,
@@ -50,9 +52,6 @@ import {
   singletonProbability,
   uplandGeologyBoost,
   smoothstep,
-  FORMATION_GAP_MAX,
-  FORMATION_GAP_MIN,
-  FORMATION_HEIGHT_TOLERANCE,
   SPLIT_CORE_OFFSET_FACTOR,
   STONE_CELL_DOMAIN,
   STONE_CELL_SOURCE_MARGIN,
@@ -934,19 +933,10 @@ export class StoneField {
   }
 
   /**
-   * The sibling half of the anchor's body, put back on the break it was cut
-   * from.
-   *
-   * The offset is not chosen: both fragments were centred on their own contact
-   * polygon when they were baked, so the difference of those two centrings is
-   * exactly the translation that reunites them, and the crack gap is the only
-   * free parameter left. Scale, palette, value, and moss come from the anchor
-   * because this is not a related stone -- it is the same stone.
-   *
-   * The yaw, base height, and terrain normal are taken from the anchor. A mated
-   * pair is one rigid body that has parted in XZ; re-sampling either transform
-   * per half shears the complementary break open. Terrain under the sibling is
-   * still sampled as a support check before the common transform is accepted.
+   * The detached fragment of the anchor body, returned to its original break and
+   * opened only by a small size-relative aperture. Both pieces share one rigid
+   * transform; terrain below the smaller fragment is a support check, not a
+   * second placement transform.
    */
   private tryMatedFragment(
     descriptor: StoneClusterDescriptor,
@@ -960,18 +950,27 @@ export class StoneField {
     const archetype = anchor.instance.archetype;
     const variantIndex = anchor.instance.variantIndex;
     const scale = anchor.instance.scale;
+    const parent = this.parentRecipe(archetype, variantIndex);
+    const majorRecipe = resolveStoneFragmentRecipe(parent, "a");
     const major = this.getVariant(archetype, variantIndex, false, "a");
     const minor = this.getVariant(archetype, variantIndex, false, "b");
     const footprint = minor.metrics.footprintRadius * scale;
 
-    const crackGap = memberRng
-      .fork("split-gap")
-      .range(FORMATION_GAP_MIN, FORMATION_GAP_MAX);
+    const crackGap = resolveStoneFormationGap(
+      major.metrics,
+      minor.metrics,
+      scale,
+      memberRng.fork("split-gap").next(),
+      this.config.stoneFormationGapRatioMin,
+      this.config.stoneFormationGapRatioMax,
+      this.config.stoneFormationGapMax,
+    );
     const parted = resolveStoneFormationOffset(
       major.metrics,
       minor.metrics,
       scale,
       crackGap,
+      resolveStoneFractureHorizontalNormal(majorRecipe),
     );
     if (!parted) {
       return undefined;
@@ -995,10 +994,16 @@ export class StoneField {
       return undefined;
     }
     const supportHeight = this.field.sampleHeight(x, z);
-    if (
-      Math.abs(supportHeight - anchor.instance.height) >
-      FORMATION_HEIGHT_TOLERANCE * Math.max(1, scale)
-    ) {
+    const supportTolerance = Math.min(
+      this.config.stoneFormationSupportHeightMax,
+      Math.max(
+        major.metrics.materialHeight,
+        minor.metrics.materialHeight,
+      ) *
+        scale *
+        this.config.stoneFormationSupportHeightRatio,
+    );
+    if (Math.abs(supportHeight - anchor.instance.height) > supportTolerance) {
       return undefined;
     }
     if (this.pathBlocks(x, z, supportHeight, scale, footprint)) {
