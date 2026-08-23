@@ -22,9 +22,10 @@ import {
   averageStoneFaceCorners,
   resolveCornerBounce,
   resolveCornerCavity,
-  resolveCornerWeathering,
   resolveCornerEdgeShading,
+  resolveCornerMineral,
   resolveCornerTone,
+  resolveCornerWeathering,
   resolveFaceTint,
   resolveMoss,
 } from "./StoneVertexShading";
@@ -36,6 +37,8 @@ export interface StoneMeshData {
   readonly wears: Float32Array;
   readonly bounces: Float32Array;
   readonly mosses: Float32Array;
+  /** Broad geological identity, independent from surface exposure/weathering. */
+  readonly minerals: Float32Array;
   /**
    * Where each corner sits between stained and bleached rock, and how deep in
    * a cavity it lies. Both are albedo: the lighting model never sees them.
@@ -133,6 +136,7 @@ export function generateStoneMesh(
   const wears = new Float32Array(vertexCount);
   const bounces = new Float32Array(vertexCount);
   const mosses = new Float32Array(vertexCount);
+  const minerals = new Float32Array(vertexCount);
   const weatherings = new Float32Array(vertexCount);
   const cavities = new Float32Array(vertexCount);
   const indices = new Uint16Array(triangleCount * 3);
@@ -174,6 +178,12 @@ export function generateStoneMesh(
         point.y,
         heightMetres,
         edgeShading.crease,
+      );
+      minerals[vertexCursor] = resolveCornerMineral(
+        point.x,
+        point.y,
+        point.z,
+        recipe,
       );
       weatherings[vertexCursor] = resolveCornerWeathering(
         point.x,
@@ -230,6 +240,7 @@ export function generateStoneMesh(
           wears,
           bounces,
           mosses,
+          minerals,
           weatherings,
           cavities,
         },
@@ -289,6 +300,7 @@ export function generateStoneMesh(
     wears,
     bounces,
     mosses,
+    minerals,
     weatherings,
     cavities,
     indices,
