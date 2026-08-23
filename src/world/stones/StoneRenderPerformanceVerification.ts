@@ -379,6 +379,11 @@ export function verifyStoneRenderPerformance(configSource: string): string {
     attribute(geometry, "stoneLichenColor"),
     "stoneLichenColor",
   );
+  const wet = requireInterleaved(attribute(geometry, "stoneWet"), "stoneWet");
+  const weathering = requireInterleaved(
+    attribute(geometry, "stoneWeathering"),
+    "stoneWeathering",
+  );
   const bedding = requireInterleaved(
     attribute(geometry, "stoneBedding"),
     "stoneBedding",
@@ -391,6 +396,8 @@ export function verifyStoneRenderPerformance(configSource: string): string {
       seed.data === byteData &&
       mossColor.data === byteData &&
       lichenColor.data === byteData &&
+      wet.data === byteData &&
+      weathering.data === byteData &&
       bedding.data === byteData &&
       color.normalized &&
       moss.normalized &&
@@ -398,8 +405,10 @@ export function verifyStoneRenderPerformance(configSource: string): string {
       seed.normalized &&
       mossColor.normalized &&
       lichenColor.normalized &&
+      wet.normalized &&
+      weathering.normalized &&
       bedding.normalized,
-    "Stone color, growth, and seed data must share one normalized Uint8 stream.",
+    "Stone color, growth, wetness, weathering, and bedding data must share one normalized Uint8 stream.",
   );
   assert(
     geometry.boundingBox !== null && geometry.boundingSphere !== null,
