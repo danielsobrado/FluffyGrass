@@ -39,10 +39,12 @@ vStoneLichenColor = stoneLichenColor;
 `;
 
 const COARSE_VERTEX_COMMON = `
+attribute float stoneWet;
 attribute float stoneMoss;
 attribute float stoneLichen;
 attribute vec3 stoneMossColor;
 attribute vec3 stoneLichenColor;
+varying float vStoneWet;
 varying float vStoneMoss;
 varying float vStoneLichen;
 varying vec3 vStoneMossColor;
@@ -50,6 +52,7 @@ varying vec3 vStoneLichenColor;
 `;
 
 const COARSE_VERTEX_POSITION = `
+vStoneWet = stoneWet;
 vStoneMoss = stoneMoss;
 vStoneLichen = stoneLichen;
 vStoneMossColor = stoneMossColor;
@@ -57,6 +60,8 @@ vStoneLichenColor = stoneLichenColor;
 `;
 
 const COARSE_FRAGMENT_COMMON = `
+uniform float uStoneWetDarken;
+varying float vStoneWet;
 varying float vStoneMoss;
 varying float vStoneLichen;
 varying vec3 vStoneMossColor;
@@ -68,6 +73,7 @@ if ((vStoneMoss + vStoneLichen) > 0.001) {
   diffuseColor.rgb = mix(diffuseColor.rgb, vStoneLichenColor, vStoneLichen);
   diffuseColor.rgb = mix(diffuseColor.rgb, vStoneMossColor, vStoneMoss);
 }
+diffuseColor.rgb *= mix(1.0, uStoneWetDarken, vStoneWet);
 `;
 
 const GROWTH_FRAGMENT_COMMON = `
@@ -657,6 +663,7 @@ export function applyStoneCoarseSurfaceShader(
   material: THREE.MeshLambertMaterial,
 ): void {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uStoneWetDarken = { value: STONE_WET_DARKEN };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>${COARSE_VERTEX_COMMON}`)
       .replace(
@@ -677,6 +684,6 @@ export function applyStoneCoarseSurfaceShader(
         `${SKY_SIDE_AMBIENT}${LIGHTING_FLOOR}#include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => "world-stone-coarse-v3-side-fill";
+  material.customProgramCacheKey = () => "world-stone-coarse-v4-wet-albedo";
   material.needsUpdate = true;
 }
