@@ -338,6 +338,8 @@ export function resolveCornerEdgeShading(
   corner: number,
   edgeSharpness: ReadonlyMap<string, number>,
   recipe: StoneRecipe,
+  materialOffsetX = 0,
+  materialOffsetZ = 0,
 ): { wear: number; crease: number } {
   const count = face.shared.length;
   const current = face.shared[corner];
@@ -354,10 +356,12 @@ export function resolveCornerEdgeShading(
   if (ridge <= 0) return { wear: 0, crease };
 
   const point = face.points[corner];
+  const materialX = point.x + materialOffsetX;
+  const materialZ = point.z + materialOffsetZ;
   const alongJitter = Math.pow(
     hashStoneCell(
-      Math.round(point.x * 37 + point.y * 91),
-      Math.round(point.z * 53 - point.y * 17),
+      Math.round(materialX * 37 + point.y * 91),
+      Math.round(materialZ * 53 - point.y * 17),
       recipe.seed,
     ) / 4294967296,
     1.6,
