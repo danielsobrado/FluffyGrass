@@ -2,14 +2,10 @@ import {
   STONE_BOUNCE_HEIGHT,
   STONE_CAVITY_CREASE,
   STONE_CAVITY_UNDERCUT,
-  STONE_CRUST_BAND,
-  STONE_CRUST_BLOTCH,
-  STONE_CRUST_PATCH_SIZE,
-  STONE_CRUST_THRESHOLD,
-  STONE_STAIN_THRESHOLD,
   STONE_CONTACT_SHADE_FLOOR,
   STONE_CONTACT_SHADE_HEIGHT,
   STONE_CREASE_SHADE,
+  STONE_CRUST_PATCH_SIZE,
   STONE_CUT_ACCENT,
   STONE_FRACTURE_ACCENT,
   STONE_FRACTURE_EXPOSURE,
@@ -18,6 +14,8 @@ import {
   STONE_FRACTURE_SLOT_HEIGHT,
   STONE_MINERAL_FACE_JITTER,
   STONE_MINERAL_PATCH_SIZE,
+  STONE_MINERAL_REGION_PRIMARY_RATIO,
+  STONE_MINERAL_REGION_SECONDARY_RATIO,
   STONE_MINERAL_TINT_STRENGTH,
   STONE_MOSS_CLIMB,
   STONE_MOSS_SHELTER_REACH,
@@ -27,6 +25,8 @@ import {
   STONE_TONE_DOWNWARD_COMPRESSION,
   STONE_TONE_FLOOR,
   STONE_TONE_RANGE,
+  STONE_WEATHERING_EXPOSURE_STRENGTH,
+  STONE_WEATHERING_NOISE_STRENGTH,
 } from "./StoneGeometryTuning";
 import type { WorkingStoneFace } from "./StoneMeshTopology";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
@@ -35,18 +35,9 @@ import type { StoneRecipe } from "./StoneRecipe";
 const STONE_MINERAL_SEED_XOR = 0x4d696e65;
 const STONE_MINERAL_ZONE_SEED_XOR = 0x5a6f6e65;
 const STONE_MINERAL_ZONE_DETAIL_SEED_XOR = 0x5265676e;
+const STONE_WEATHERING_SEED_XOR = 0x57656174;
 
-/**
- * Baked per-corner shading channels.
- *
- * Everything here is resolved once per mesh variant and packed into vertex
- * bytes, so the runtime cost of the whole look is zero. The channels are:
- * `tone` (value ramp position, including crease occlusion), `wear` (ridge
- * highlight), `moss` (growth potential), and `bounce` (turf light thrown back
- * up onto the lower body, which is what settles a stone into the field instead
- * of leaving it pasted on top).
- */
-
+/** Baked per-corner surface signals used by the static render batches. */
 export interface StoneVertexStreams {
   readonly positions: Float32Array;
   readonly normals: Float32Array;
@@ -54,17 +45,12 @@ export interface StoneVertexStreams {
   readonly wears: Float32Array;
   readonly bounces: Float32Array;
   readonly mosses: Float32Array;
+  readonly minerals: Float32Array;
   readonly weatherings: Float32Array;
   readonly cavities: Float32Array;
 }
 
-/**
- * Resolve the centre vertex of a centroid fan from the corners already written
- * at `baseVertex`. Its position is the corner average, which for a planar
- * polygon lies exactly on the face, so the silhouette never moves; its shading
- * is the corner average, which is what makes the fan interpolate as one smooth
- * umbrella instead of spokes radiating from a chosen corner.
- */
+/** Resolve the centre vertex of a centroid fan from its written corners. */
 export function averageStoneFaceCorners(
   streams: StoneVertexStreams,
   baseVertex: number,
@@ -81,6 +67,7 @@ export function averageStoneFaceCorners(
   let wear = 0;
   let bounce = 0;
   let moss = 0;
+  let mineral = 0;
   let weathering = 0;
   let cavity = 0;
   for (let corner = 0; corner < corners; corner += 1) {
@@ -96,6 +83,7 @@ export function averageStoneFaceCorners(
     wear += streams.wears[vertex];
     bounce += streams.bounces[vertex];
     moss += streams.mosses[vertex];
+    mineral += streams.minerals[vertex];
     weathering += streams.weatherings[vertex];
     cavity += streams.cavities[vertex];
   }
@@ -114,6 +102,7 @@ export function averageStoneFaceCorners(
   streams.wears[target] = wear * inverse;
   streams.bounces[target] = bounce * inverse;
   streams.mosses[target] = moss * inverse;
+  streams.minerals[target] = mineral * inverse;
   streams.weatherings[target] = weathering * inverse;
   streams.cavities[target] = cavity * inverse;
 }
@@ -134,14 +123,9 @@ export function clamp01(value: number): number {
 }
 
 /**
- * Broad object-space mineral variation with a small residual face term.
- *
- * A formation break is the one face that is not weathered rock: it exposes the
- * body's interior, which is paler and less stained than anything the weather
- * has reached, so it lifts further than an ordinary cut does.
- *
- * Neighbouring facets inherit nearly the same base value, so the stone reads as
- * one mineral body instead of a collection of randomly tinted panels.
+ * Small per-face residual tint. The cross-facet mineral field carries the
+ * geological regions; this only prevents adjacent exposed planes being exact
+ * copies of one another and accents genuine cuts/fractures.
  */
 export function resolveFaceTint(
   face: WorkingStoneFace,
@@ -181,11 +165,7 @@ export function resolveFaceTint(
   return mineral + faceJitter + breakAccent;
 }
 
-/**
- * Height shading stays gentle now that facets are smooth: the lighting model
- * can separate top from side on its own, and a steep painted ramp on top of it
- * reads as dirt rather than form.
- */
+/** Height remains a shallow contact cue; orientation and lighting carry form. */
 export function resolveCornerTone(
   faceTint: number,
   normalY: number,
@@ -198,21 +178,13 @@ export function resolveCornerTone(
       ? 0.5 + 0.5 * normalY
       : 0.5 + 0.5 * normalY * STONE_TONE_DOWNWARD_COMPRESSION;
   const exposure = Math.min(0.9, STONE_TONE_FLOOR + STONE_TONE_RANGE * facing);
-  // Short, so it reinforces the contact seam instead of becoming a second one.
-  // This used to ramp over 0.6 of the body: the whole lower half was walked
-  // down 14%, which is exactly the "broad height ramp turns the entire lower
-  // profile into a horizontal belt" that the contact term next to it is
-  // documented as being kept shallow to avoid. Two terms, one belt, and the
-  // careful one was not the one drawing it.
   const heightShade = 0.88 + 0.12 * smoothstep(y, 0, heightMetres * 0.26);
   const contactShade =
     STONE_CONTACT_SHADE_FLOOR +
     (1 - STONE_CONTACT_SHADE_FLOOR) *
       smoothstep(y, 0, heightMetres * STONE_CONTACT_SHADE_HEIGHT);
   const creaseShade = 1 - STONE_CREASE_SHADE * crease;
-  return clamp01(
-    exposure * heightShade * contactShade * creaseShade + faceTint,
-  );
+  return clamp01(exposure * heightShade * contactShade * creaseShade + faceTint);
 }
 
 /** Turf bounce reaches the lower body, strongest where the surface faces down. */
@@ -229,12 +201,7 @@ export function resolveCornerBounce(
   return clamp01(climb * facing * (1 - crease * 0.45));
 }
 
-/**
- * Moss reads how long a surface has been standing still, so the one face of a
- * formation that has not been standing at all keeps almost none of it. Not
- * quite none: a break that parted seasons ago has begun to take, and a hard
- * zero would draw the boundary as a decal edge along the rim.
- */
+/** Moss follows shelter and ground humidity rather than forming a height band. */
 export function resolveMoss(
   x: number,
   y: number,
@@ -245,10 +212,6 @@ export function resolveMoss(
   broken = false,
   crease = 0,
 ): number {
-  // Shelter competes with height rather than multiplying it, so a crease can
-  // hold moss where the open flank beside it has already dried out. Taking the
-  // greater of the two is what turns a band around the foot into growth that
-  // follows the body's own structure.
   const climb = Math.max(
     1 - smoothstep(y, 0, heightMetres * STONE_MOSS_CLIMB),
     clamp01(crease) * STONE_MOSS_SHELTER_REACH,
@@ -268,12 +231,7 @@ export function resolveMoss(
   return broken ? growth * STONE_FRACTURE_MOSS : growth;
 }
 
-/**
- * Blotchy low-frequency field in object space, for boundaries that cross
- * facets. A per-face or per-corner hash cannot do this: it would draw the
- * boundary along the geometry, which is exactly the tell that the pattern is
- * being generated by the mesh rather than deposited on it.
- */
+/** Smooth low-frequency value noise in object space. */
 function crustNoise(x: number, y: number, z: number, seed: number): number {
   const cellX = Math.floor(x);
   const cellY = Math.floor(y);
@@ -305,11 +263,44 @@ function crustNoise(x: number, y: number, z: number, seed: number): number {
 }
 
 /**
- * Broad mineral zoning reuses the signed weathering channel: 0.5 is the base
- * rock, the pale end is exposed cream mineral, and the warm end is iron-rich
- * stone. Two low-frequency object-space fields create a few coherent regions
- * that cross facet boundaries. Height and exposure only bias those regions;
- * they no longer define the pattern, so the result cannot collapse into bands.
+ * Geological mineral identity, independent of height and face orientation.
+ * Two body-relative fields make roughly 3-5 broad regions on a large stone and
+ * keep their boundaries crossing polygon edges instead of following them.
+ */
+export function resolveCornerMineral(
+  x: number,
+  y: number,
+  z: number,
+  recipe: StoneRecipe,
+): number {
+  const extent = Math.max(recipe.width, recipe.height, recipe.depth, 1e-4);
+  const primaryScale = Math.max(
+    STONE_MINERAL_PATCH_SIZE * 0.45,
+    extent * STONE_MINERAL_REGION_PRIMARY_RATIO,
+  );
+  const secondaryScale = Math.max(
+    STONE_MINERAL_PATCH_SIZE * 0.28,
+    extent * STONE_MINERAL_REGION_SECONDARY_RATIO,
+  );
+  const primary = crustNoise(
+    (x + z * 0.17) / primaryScale,
+    (y - x * 0.13) / (primaryScale * 0.91),
+    (z - y * 0.11) / primaryScale,
+    recipe.seed ^ STONE_MINERAL_ZONE_SEED_XOR,
+  );
+  const secondary = crustNoise(
+    (x - z * 0.23) / secondaryScale,
+    (y + z * 0.17) / (secondaryScale * 0.87),
+    (z + x * 0.14) / secondaryScale,
+    recipe.seed ^ STONE_MINERAL_ZONE_DETAIL_SEED_XOR,
+  );
+  return smoothstep(primary * 0.8 + secondary * 0.2, 0.16, 0.84);
+}
+
+/**
+ * Weathering is deliberately secondary to mineral identity. It can crust an
+ * exposed face or stain the soil-contact seam, but there is no broad height
+ * term left to turn the whole stone into a light-top/dark-bottom gradient.
  */
 export function resolveCornerWeathering(
   x: number,
@@ -320,61 +311,30 @@ export function resolveCornerWeathering(
   recipe: StoneRecipe,
   broken = false,
 ): number {
+  const extent = Math.max(recipe.width, recipe.height, recipe.depth, 1e-4);
+  const weatherScale = Math.max(STONE_CRUST_PATCH_SIZE, extent * 0.28);
+  const weatherNoise = crustNoise(
+    (x - z * 0.11) / weatherScale,
+    (y + x * 0.07) / (weatherScale * 0.93),
+    (z + y * 0.09) / weatherScale,
+    recipe.seed ^ STONE_WEATHERING_SEED_XOR,
+  );
   const exposure = clamp01(normalY);
-  const climb = smoothstep(y, heightMetres * 0.25, heightMetres * 0.8);
-  const macroScale = STONE_MINERAL_PATCH_SIZE * 1.08;
-  const detailScale = STONE_CRUST_PATCH_SIZE * 1.65;
-  const macro = crustNoise(
-    (x + z * 0.16) / macroScale,
-    (y - x * 0.11) / (macroScale * 0.88),
-    (z - y * 0.09) / macroScale,
-    recipe.seed ^ STONE_MINERAL_ZONE_SEED_XOR,
-  );
-  const secondary = crustNoise(
-    (x - z * 0.19) / detailScale,
-    (y + z * 0.13) / (detailScale * 0.82),
-    (z + x * 0.12) / detailScale,
-    recipe.seed ^ STONE_MINERAL_ZONE_DETAIL_SEED_XOR,
-  );
-  const mineralZone = macro * 0.72 + secondary * 0.28;
   const soilContact =
     1 -
     smoothstep(y, heightMetres * 0.03, heightMetres * STONE_SOIL_STAIN_HEIGHT);
   const soilFacing = 0.55 + 0.45 * clamp01(1 - normalY);
-  // A break has no soil stain to carry -- nothing has run down it and nothing
-  // has splashed up it -- so that term is dropped rather than merely outweighed.
   const field =
-    0.39 +
-    (mineralZone - 0.5) * STONE_CRUST_BLOTCH * 1.05 +
-    exposure * 0.12 +
-    climb * 0.08 +
+    0.5 +
+    (weatherNoise - 0.5) * STONE_WEATHERING_NOISE_STRENGTH +
+    (exposure - 0.5) * STONE_WEATHERING_EXPOSURE_STRENGTH +
     (broken
       ? STONE_FRACTURE_EXPOSURE
       : -soilContact * soilFacing * STONE_SOIL_STAIN_STRENGTH);
-  const crust = smoothstep(
-    field,
-    STONE_CRUST_THRESHOLD,
-    STONE_CRUST_THRESHOLD + STONE_CRUST_BAND,
-  );
-  const stain =
-    1 -
-    smoothstep(
-      field,
-      STONE_STAIN_THRESHOLD - STONE_CRUST_BAND,
-      STONE_STAIN_THRESHOLD,
-    );
-  return clamp01(0.5 + 0.5 * crust - 0.5 * stain);
+  return clamp01(field);
 }
 
-/**
- * Warm dark in the cracks and under the overhangs.
- *
- * Crease already darkens the tone, but a value cut inside one palette turns a
- * crack the palette's own shadow colour, which on a sage or grey stone is a
- * cool grey slot. Real cavities are warm and much darker than any lit face:
- * they hold soil and shadow, not stone. Separating cavity from tone lets the
- * crack read as depth, which is what makes two touching masses separable.
- */
+/** Warm dark in cracks and under overhangs. */
 export function resolveCornerCavity(
   crease: number,
   normalY: number,
@@ -385,19 +345,13 @@ export function resolveCornerCavity(
   const undercut = clamp01(-normalY) * STONE_CAVITY_UNDERCUT;
   const base = crease * STONE_CAVITY_CREASE + undercut;
   if (!broken) return clamp01(base);
-  // The slot between two halves is open to the sky at the top and pinched shut
-  // at the ground, so the shadow that fills it belongs low. Darkening the whole
-  // break face instead would bury the fresh stone that identifies it.
   const slot =
     1 -
     smoothstep(y, 0, Math.max(1e-4, heightMetres * STONE_FRACTURE_SLOT_HEIGHT));
   return clamp01(base + slot * STONE_FRACTURE_SLOT_CAVITY);
 }
 
-/**
- * Ridge highlight and crease occlusion share one signed dihedral lookup, so a
- * notch rim can never pick up the bright wear that belongs to an exposed edge.
- */
+/** Ridge highlight and crease occlusion share one signed dihedral lookup. */
 export function resolveCornerEdgeShading(
   face: WorkingStoneFace,
   corner: number,
