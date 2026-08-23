@@ -7,9 +7,7 @@ import {
 import { STONE_PATH_DISTANCE_PLATEAU } from "./stones/StonePathPlacement";
 import type { WorldConfig } from "./WorldConfig";
 
-/**
- * Geometric proofs for the fixed macro neighborhoods used by stone placement.
- */
+/** Geometric proofs for the fixed macro neighborhoods used by stone placement. */
 export function validateStoneClusterGeometry(config: WorldConfig): void {
   const epsilon = 1e-6;
   if (config.stoneClusterRadiusMin >= config.stoneClusterRadiusMax) {
@@ -30,6 +28,9 @@ export function validateStoneClusterGeometry(config: WorldConfig): void {
     throw new Error(
       "stoneClusterShoulderRatio must be lower than stoneClusterHaloRatio.",
     );
+  }
+  if (config.stoneFormationGapRatioMin > config.stoneFormationGapRatioMax) {
+    throw new Error("stoneFormationGapRatio range is reversed.");
   }
   if (!Number.isInteger(config.chunkSize / config.stoneCellSize)) {
     throw new Error("chunkSize must be divisible by stoneCellSize.");
