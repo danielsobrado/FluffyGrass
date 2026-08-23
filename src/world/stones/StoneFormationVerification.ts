@@ -16,6 +16,7 @@ const ENVELOPE_EPSILON = 0.012 + STONE_FRACTURE_RELIEF;
 const RIM_EPSILON = 5e-3;
 /** Smooth mineral fields may differ slightly across a healed rim point. */
 const MINERAL_RIM_EPSILON = 0.04;
+const MATERIAL_FRAME_EPSILON = 1e-6;
 const MINIMUM_SPLIT_RATE = 0.7;
 const VARIANTS = 16;
 
@@ -119,10 +120,20 @@ function verifyPair(
   const whole = generateStoneMesh(parent, false);
   const major = generateStoneMesh(recipeA, false);
   const minor = generateStoneMesh(recipeB, false);
+  const majorDetail = generateStoneMesh(recipeA, true);
+  const minorDetail = generateStoneMesh(recipeB, true);
   assert(
     major.metrics.triangleCount + minor.metrics.triangleCount <
       whole.metrics.triangleCount * 2,
     `${archetype}:${seed} costs more as two halves than as two whole stones.`,
+  );
+  verifyMaterialFrameContinuity(
+    archetype,
+    seed,
+    major,
+    minor,
+    majorDetail,
+    minorDetail,
   );
   verifyMineralContinuity(archetype, seed, major, minor);
 
@@ -149,6 +160,25 @@ function verifyPair(
         `${archetype}:${seed} fragment ${name} leaves the parent envelope at (${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}).`,
       );
     }
+  }
+}
+
+function verifyMaterialFrameContinuity(
+  archetype: string,
+  seed: number,
+  ...meshes: readonly ReturnType<typeof generateStoneMesh>[]
+): void {
+  const reference = meshes[0].metrics;
+  for (const mesh of meshes.slice(1)) {
+    assert(
+      Math.abs(mesh.metrics.materialHeight - reference.materialHeight) <=
+        MATERIAL_FRAME_EPSILON &&
+        Math.abs(
+          mesh.metrics.materialFootprintRadius -
+            reference.materialFootprintRadius,
+        ) <= MATERIAL_FRAME_EPSILON,
+      `${archetype}:${seed} fragment material frame differs across halves or LODs.`,
+    );
   }
 }
 
