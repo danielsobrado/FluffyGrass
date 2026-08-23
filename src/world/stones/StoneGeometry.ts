@@ -71,7 +71,7 @@ export interface StoneMeshMetrics {
   readonly fingerprint: number;
 }
 
-export interface StoneMaterialFrame {
+interface StoneMaterialFrame {
   readonly height: number;
   readonly footprintRadius: number;
 }
@@ -79,15 +79,13 @@ export interface StoneMaterialFrame {
 export function generateStoneMesh(
   recipe: StoneRecipe,
   includeChips = false,
-  materialFrame?: StoneMaterialFrame,
 ): StoneMeshData {
   const polygons = addStoneFractureRelief(
     addStoneIndentation(buildStonePolyhedron(recipe, includeChips), recipe),
     recipe,
   );
   const uniquePoints = transformStonePoints(polygons, recipe);
-  const stableMaterialFrame =
-    materialFrame ?? resolveStableMaterialFrame(recipe, includeChips);
+  const stableMaterialFrame = resolveStableMaterialFrame(recipe, includeChips);
 
   const contactOffset = centerStoneContact(polygons, uniquePoints);
   const faces = buildWorkingStoneFaces(polygons);
