@@ -1,6 +1,6 @@
 import type { StoneRecipe } from "./StoneRecipe";
 import type { StoneVec3 } from "./StoneClipper";
-import { buildStonePolyhedron } from "./StoneClipper";
+import { buildStonePolyhedron, facesFromPlanes } from "./StoneClipper";
 import {
   resolveStoneFacetSoftening,
   STONE_CENTROID_FAN_MIN_CORNERS,
@@ -85,20 +85,7 @@ export function generateStoneMesh(
     addStoneIndentation(buildStonePolyhedron(recipe, includeChips), recipe),
     recipe,
   );
-
-  const uniquePoints = new Set<StoneVec3>();
-  for (const polygon of polygons) {
-    for (const point of polygon.points) uniquePoints.add(point);
-  }
-
-  for (const point of uniquePoints) {
-    const shearedX = point.x + recipe.leanX * point.y;
-    const shearedZ = point.z + recipe.leanZ * point.y;
-    point.x = recipe.width * shearedX;
-    point.y = recipe.height * point.y;
-    point.z = recipe.depth * shearedZ;
-    if (Math.abs(point.y) <= STONE_SNAP_EPSILON) point.y = 0;
-  }
+  const uniquePoints = transformStonePoints(polygons, recipe);
 
   const contactOffset = centerStoneContact(polygons, uniquePoints);
   const faces = buildWorkingStoneFaces(polygons);
@@ -107,13 +94,13 @@ export function generateStoneMesh(
   const sharedFacePairs = countSharedStoneFacePairs(faces);
   const softNormals = buildStoneSoftNormals(faces, softening);
   const heightMetres = resolveStoneHeight(faces);
+  const inheritedMaterialFrame =
+    materialFrame ?? resolveInheritedMaterialFrame(recipe);
   // A tilted fracture can leave two halves with different clipped maxima. They
   // are still one parent rock, so height-relative paint/growth must use one
-  // denominator or the same rim point changes value across the crack. The
-  // runtime pool supplies the exact parent frame; direct fragment callers keep
-  // the recipe-height fallback so both halves still agree.
+  // denominator or the same rim point changes value across the crack.
   const shadingHeightMetres = Math.max(
-    materialFrame?.height ?? (recipe.fracture ? recipe.height : heightMetres),
+    inheritedMaterialFrame?.height ?? heightMetres,
     1e-3,
   );
   const { vertexCount, triangleCount } = resolveMeshCounts(faces);
@@ -267,7 +254,7 @@ export function generateStoneMesh(
     footprintRadius,
     materialHeight: shadingHeightMetres,
     materialFootprintRadius: Math.max(
-      materialFrame?.footprintRadius ?? footprintRadius,
+      inheritedMaterialFrame?.footprintRadius ?? footprintRadius,
       1e-4,
     ),
     embed: recipe.embed,
@@ -301,6 +288,43 @@ export function generateStoneMesh(
     indices,
     metrics,
   };
+}
+
+function transformStonePoints(
+  polygons: ReturnType<typeof buildStonePolyhedron>,
+  recipe: StoneRecipe,
+): Set<StoneVec3> {
+  const uniquePoints = new Set<StoneVec3>();
+  for (const polygon of polygons) {
+    for (const point of polygon.points) uniquePoints.add(point);
+  }
+  for (const point of uniquePoints) {
+    const shearedX = point.x + recipe.leanX * point.y;
+    const shearedZ = point.z + recipe.leanZ * point.y;
+    point.x = recipe.width * shearedX;
+    point.y = recipe.height * point.y;
+    point.z = recipe.depth * shearedZ;
+    if (Math.abs(point.y) <= STONE_SNAP_EPSILON) point.y = 0;
+  }
+  return uniquePoints;
+}
+
+/** Material coordinates for a fragment are measured on its frozen parent. */
+function resolveInheritedMaterialFrame(
+  recipe: StoneRecipe,
+): StoneMaterialFrame | undefined {
+  const inherited = recipe.inheritedSurface;
+  if (!recipe.fracture || !inherited) return undefined;
+  const parentFaces = facesFromPlanes([...inherited.coarse]);
+  const parentPoints = transformStonePoints(parentFaces, recipe);
+  let height = 0;
+  let footprintRadius = 0;
+  for (const point of parentPoints) {
+    height = Math.max(height, point.y);
+    footprintRadius = Math.max(footprintRadius, Math.hypot(point.x, point.z));
+  }
+  if (!(height > 0) || !(footprintRadius > 0)) return undefined;
+  return { height, footprintRadius };
 }
 
 /** Centres the body on its contact polygon and reports the shift applied. */
