@@ -83,7 +83,7 @@ export function createMutableStoneGroundInfluence(): MutableStoneGroundInfluence
   };
 }
 
-/** Normalized contact distance; lower values dominate. */
+/** Squared normalized contact distance; lower values dominate. */
 export function scoreStoneContactInfluence(
   instance: StoneInstance,
   x: number,
@@ -91,21 +91,23 @@ export function scoreStoneContactInfluence(
   feather: number,
 ): number {
   if (!(instance.clearRadius > 0)) return Number.POSITIVE_INFINITY;
-  const reach = instance.clearRadius + feather;
-  return Math.hypot(x - instance.x, z - instance.z) / Math.max(1e-4, reach);
+  const reach = Math.max(1e-4, instance.clearRadius + feather);
+  const dx = x - instance.x;
+  const dz = z - instance.z;
+  return (dx * dx + dz * dz) / (reach * reach);
 }
 
-/** Normalized sky-occlusion distance; lower values dominate. */
+/** Squared normalized sky-occlusion distance; lower values dominate. */
 export function scoreStoneOcclusionInfluence(
   instance: StoneInstance,
   x: number,
   z: number,
 ): number {
   if (!(instance.occlusionRadius > 0)) return Number.POSITIVE_INFINITY;
-  return (
-    Math.hypot(x - instance.x, z - instance.z) /
-    Math.max(1e-4, instance.occlusionRadius)
-  );
+  const reach = Math.max(1e-4, instance.occlusionRadius);
+  const dx = x - instance.x;
+  const dz = z - instance.z;
+  return (dx * dx + dz * dz) / (reach * reach);
 }
 
 /** Write only the compacted-soil owner. */
