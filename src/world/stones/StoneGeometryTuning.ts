@@ -10,8 +10,8 @@ export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
  * entire lower profile into a horizontal belt, while the real neighbour and
  * terrain-contact terms already provide the dark seam where the mass touches.
  */
-export const STONE_CONTACT_SHADE_FLOOR = 0.8;
-export const STONE_CONTACT_SHADE_HEIGHT = 0.11;
+export const STONE_CONTACT_SHADE_FLOOR = 0.86;
+export const STONE_CONTACT_SHADE_HEIGHT = 0.09;
 export const STONE_MOSS_CLIMB = 0.42;
 
 /**
@@ -37,11 +37,11 @@ export const STONE_INDENTATION_MINIMUM_AREA = 0.035;
  * The default limit therefore softens edges without rounding the boulder into
  * an icosphere-like dome.
  */
-export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.78;
+export const STONE_SOFT_NORMAL_ANGLE_LIMIT = 0.74;
 export const STONE_SOFT_NORMAL_COS_LIMIT = Math.cos(
   STONE_SOFT_NORMAL_ANGLE_LIMIT,
 );
-export const STONE_SOFT_NORMAL_STRENGTH = 0.62;
+export const STONE_SOFT_NORMAL_STRENGTH = 0.56;
 
 /**
  * Edge accents begin exactly where softening stops.
@@ -82,11 +82,11 @@ const STONE_FACET_SOFTENING_BY_ARCHETYPE: Readonly<
   Record<StoneArchetypeId, readonly [angleLimit: number, strength: number]>
 > = {
   boulder: [STONE_SOFT_NORMAL_ANGLE_LIMIT, STONE_SOFT_NORMAL_STRENGTH],
-  pebble: [0.8, 0.68],
-  outcrop: [0.66, 0.58],
-  slab: [0.54, 0.5],
-  block: [0.48, 0.46],
-  shard: [0.4, 0.42],
+  pebble: [0.78, 0.64],
+  outcrop: [0.62, 0.54],
+  slab: [0.52, 0.47],
+  block: [0.46, 0.43],
+  shard: [0.38, 0.4],
 };
 
 const STONE_FACET_SOFTENING: Readonly<
@@ -125,10 +125,10 @@ export function resolveStoneFacetSoftening(
  */
 export const STONE_CENTROID_FAN_MIN_CORNERS = 5;
 /** Concave dihedrals darken; the same signal drives crease occlusion. */
-export const STONE_CREASE_SHADE = 0.42;
-/** Height fraction reached by bounce light thrown up from the surrounding turf. */
-export const STONE_BOUNCE_HEIGHT = 0.24;
-export const STONE_BOUNCE_STRENGTH = 0.24;
+export const STONE_CREASE_SHADE = 0.28;
+/** Height fraction reached by bounce light thrown up from the surrounding ground. */
+export const STONE_BOUNCE_HEIGHT = 0.3;
+export const STONE_BOUNCE_STRENGTH = 0.22;
 
 /**
  * Value ramp driven by how far a corner faces up.
@@ -151,9 +151,9 @@ export const STONE_BOUNCE_STRENGTH = 0.24;
  * shaded flank is the flat-value read this palette is built on; only the half
  * that double-counts is compressed.
  */
-export const STONE_TONE_DOWNWARD_COMPRESSION = 0.46;
-export const STONE_TONE_FLOOR = 0.42;
-export const STONE_TONE_RANGE = 0.56;
+export const STONE_TONE_DOWNWARD_COMPRESSION = 0.42;
+export const STONE_TONE_FLOOR = 0.34;
+export const STONE_TONE_RANGE = 0.66;
 
 /**
  * Broad mineral identity is independent from weathering.
@@ -165,7 +165,7 @@ export const STONE_TONE_RANGE = 0.56;
  */
 export const STONE_MINERAL_PATCH_SIZE = 0.82;
 export const STONE_MINERAL_TINT_STRENGTH = 0.025;
-export const STONE_MINERAL_FACE_JITTER = 0.014;
+export const STONE_MINERAL_FACE_JITTER = 0.018;
 export const STONE_MINERAL_REGION_PRIMARY_RATIO = 0.62;
 export const STONE_MINERAL_REGION_SECONDARY_RATIO = 0.34;
 export const STONE_MINERAL_COLOR_STRENGTH = 0.34;
@@ -176,8 +176,8 @@ export const STONE_MINERAL_COLOR_STRENGTH = 0.34;
  * authority to redraw the body as a vertical gradient.
  */
 export const STONE_WEATHERING_NOISE_STRENGTH = 0.18;
-export const STONE_WEATHERING_EXPOSURE_STRENGTH = 0.08;
-export const STONE_WEATHERING_COLOR_STRENGTH = 0.46;
+export const STONE_WEATHERING_EXPOSURE_STRENGTH = 0.11;
+export const STONE_WEATHERING_COLOR_STRENGTH = 0.5;
 
 /**
  * Crust deposition.
@@ -202,34 +202,33 @@ export const STONE_CRUST_BAND = 0.1;
  */
 export const STONE_STAIN_THRESHOLD = 0.27;
 /** Lower-body soil deposition, expressed as a fraction of stone height. */
-export const STONE_SOIL_STAIN_HEIGHT = 0.11;
+export const STONE_SOIL_STAIN_HEIGHT = 0.15;
 /** Maximum field bias toward stain at the buried foot. */
-export const STONE_SOIL_STAIN_STRENGTH = 0.055;
+export const STONE_SOIL_STAIN_STRENGTH = 0.075;
 
 /**
  * Cavity depth.
  *
- * Concave breaks carry it almost fully: a crack is the one place on a stone
- * where almost no light arrives from anywhere. Downward faces get a smaller
- * share, since an undercut still sees the ground bounce that the baked turf
- * light already delivers.
+ * Concave breaks carry it strongly but do not become black lines. Downward
+ * faces get a smaller share because they still see reflected light from the
+ * ground and neighbouring stone faces.
  */
-export const STONE_CAVITY_CREASE = 0.92;
-export const STONE_CAVITY_UNDERCUT = 0.3;
+export const STONE_CAVITY_CREASE = 0.72;
+export const STONE_CAVITY_UNDERCUT = 0.22;
 
 /**
  * Fresh fracture exposes paler stone. Safe as a per-face step because cuts are
  * steep enough that the dihedral limit already denies them smoothing, so the
  * albedo edge lands on a normal edge.
  */
-export const STONE_CUT_ACCENT = 0.09;
+export const STONE_CUT_ACCENT = 0.075;
 
 /**
  * A formation break goes further than a weathering cut, but only a little in
  * value: the fresh-rock read is carried by the weathering channel below, and
  * doubling it up here is what turns a break into a white slab.
  */
-export const STONE_FRACTURE_ACCENT = 0.11;
+export const STONE_FRACTURE_ACCENT = 0.08;
 
 /**
  * How far a break is pushed toward exposed mineral in the weathering field.
@@ -255,5 +254,5 @@ export const STONE_FRACTURE_MOSS = 0.2;
  * darkness belongs low. Painting the whole break face dark instead would lose
  * the fresh stone that makes it a break at all.
  */
-export const STONE_FRACTURE_SLOT_CAVITY = 0.45;
-export const STONE_FRACTURE_SLOT_HEIGHT = 0.55;
+export const STONE_FRACTURE_SLOT_CAVITY = 0.32;
+export const STONE_FRACTURE_SLOT_HEIGHT = 0.48;

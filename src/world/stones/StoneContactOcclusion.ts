@@ -5,12 +5,10 @@ import type { StoneInstance } from "./StoneField";
  * Shade thrown by one stone onto the stone beside it.
  *
  * Every body in this system is shaded as though it were alone in the field: the
- * tone ramp, the crease occlusion and the turf bounce are all baked from one
- * mesh's own geometry. That is why a cluster reads as several stones standing
- * near each other rather than as one mass broken apart — in a photograph of a
- * real formation, the deep shade in the junction between two blocks is the
- * strongest value in the picture, and it is what tells the eye the two pieces
- * belong to each other.
+ * tone ramp, the crease occlusion and the ground bounce are all baked from one
+ * mesh's own geometry. A real formation still needs a darker junction between
+ * neighbouring blocks, but that junction must stay local and retain reflected
+ * light rather than becoming a black stripe.
  *
  * Nothing here is per-frame. Neighbours are known at batch build, the shade is
  * folded into the same vertex colour the palette already writes, and the
@@ -27,12 +25,12 @@ export interface StoneOccluder {
 
 /**
  * How far past its own body a stone keeps darkening its neighbour, as a share
- * of its radius. Contact shade is a near-field effect: at half a radius out the
- * junction has opened enough to see sky through it.
+ * of its radius. Contact shade is deliberately tight so the broad side planes
+ * keep their own colour instead of inheriting a grey halo from nearby stones.
  */
-const OCCLUSION_REACH_RATIO = 0.55;
-/** Deepest darkening at the point of contact. */
-export const STONE_CONTACT_OCCLUSION = 0.6;
+const OCCLUSION_REACH_RATIO = 0.42;
+/** Deepest colour mix at direct stone-to-stone contact. */
+export const STONE_CONTACT_OCCLUSION = 0.42;
 
 function smoothstep(value: number, minimum: number, maximum: number): number {
   if (value <= minimum) return 0;
@@ -104,8 +102,8 @@ export function collectStoneOccluders(
 /**
  * Occlusion at one vertex: the nearest neighbour wins rather than the sum, and
  * only surfaces that face a neighbour take it. Without the facing term the far
- * side of a stone darkens as well, which reads as the stone itself being
- * dirty instead of as a junction being deep.
+ * side of a stone darkens as well, which reads as the stone itself being dirty
+ * instead of as a junction being deep.
  */
 export function resolveStoneContactOcclusion(
   occluders: readonly StoneOccluder[],

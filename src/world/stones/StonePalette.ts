@@ -103,58 +103,58 @@ function palette(
 export const STONE_PALETTES = {
   meadowSage: palette(
     "meadow-sage",
-    "#453a30",
-    "#6c5b49",
-    "#ab9878",
-    "#c2ad8c",
+    "#403832",
+    "#66594d",
+    "#b39c78",
+    "#ccb38c",
     "#4f633e",
     "#9d9a75",
     0.58,
-    "#cdbc9c",
-    "#724630",
-    "#2b211a",
+    "#d2bea0",
+    "#75462f",
+    "#30231c",
     0.6,
   ),
   steppeTan: palette(
     "steppe-tan",
-    "#473527",
-    "#72543e",
-    "#a8825f",
-    "#c09873",
+    "#423329",
+    "#6c513e",
+    "#b08762",
+    "#c99d75",
     "#666a43",
     "#b4aa74",
     0.58,
-    "#d0b18c",
-    "#704832",
-    "#30231b",
+    "#d7b58d",
+    "#754832",
+    "#33251d",
     0.66,
   ),
   graniteGrey: palette(
     "granite-grey",
-    "#3f3d39",
-    "#635c53",
-    "#8f8679",
-    "#a89d8d",
+    "#393837",
+    "#5d5954",
+    "#968b7c",
+    "#b0a291",
     "#536844",
     "#a3a486",
     0.62,
-    "#c0b4a1",
-    "#6b5140",
-    "#2b2521",
+    "#c8baa6",
+    "#6f503e",
+    "#2e2925",
     0.62,
   ),
   mossy: palette(
     "mossy",
-    "#3c4036",
-    "#565b4b",
-    "#70745f",
-    "#878975",
+    "#383b35",
+    "#52574b",
+    "#777864",
+    "#8e8d77",
     "#50683f",
     "#878f69",
     0.52,
-    "#918b78",
-    "#584431",
-    "#251f19",
+    "#978f7b",
+    "#5d4432",
+    "#29231d",
     0.38,
   ),
 } as const;
@@ -169,8 +169,9 @@ export interface StoneTintParams {
   readonly weatheringBias?: number;
 }
 
-/** Light thrown back onto the lower body by the surrounding turf. */
-const TURF_BOUNCE = linearFromHex("#5a603f");
+/** Warm reflected light from soil and neighbouring mineral faces. */
+const GROUND_BOUNCE = linearFromHex("#876044");
+const GROUND_BOUNCE_WORLD_BLEND = 0.42;
 
 /** A trace of value stepping preserves the stylized read without contour bands. */
 const RAMP_BANDING_STRENGTH = 0.08;
@@ -348,9 +349,12 @@ export function colorizeStoneVertices(
 
     const bounce = bounces[index] * STONE_BOUNCE_STRENGTH;
     if (bounce > 0) {
-      r = mixChannel(r, TURF_BOUNCE.r, bounce);
-      g = mixChannel(g, TURF_BOUNCE.g, bounce);
-      b = mixChannel(b, TURF_BOUNCE.b, bounce);
+      const bounceR = mixChannel(stainR, GROUND_BOUNCE.r, GROUND_BOUNCE_WORLD_BLEND);
+      const bounceG = mixChannel(stainG, GROUND_BOUNCE.g, GROUND_BOUNCE_WORLD_BLEND);
+      const bounceB = mixChannel(stainB, GROUND_BOUNCE.b, GROUND_BOUNCE_WORLD_BLEND);
+      r = mixChannel(r, bounceR, bounce);
+      g = mixChannel(g, bounceG, bounce);
+      b = mixChannel(b, bounceB, bounce);
     }
 
     const contact = contacts ? contacts[index] * STONE_CONTACT_OCCLUSION : 0;

@@ -1,4 +1,5 @@
 import {
+  measureStoneSilhouetteComplexity,
   scoreStoneRotationalSymmetry,
   scoreStoneSilhouette,
 } from "./StoneSilhouetteQuality";
@@ -16,12 +17,12 @@ import {
   type StoneRecipe,
 } from "./StoneRecipe";
 
-const ATTEMPTS = 4;
+const ATTEMPTS = 6;
 
 /**
  * Sized against the measured spread of each term across the population: the
  * silhouette score varies by roughly 0.1 within an archetype, so this weight
- * makes it worth about a quarter of a point -- enough to decide between four
+ * makes it worth about a quarter of a point -- enough to decide between
  * candidates that are otherwise close, not enough to overrule a body that is
  * structurally wrong.
  */
@@ -33,6 +34,25 @@ const SILHOUETTE_WEIGHT = 3;
  * matches itself every 60 degrees is not a rock.
  */
 const ROTATIONAL_SYMMETRY_PENALTY = 1.5;
+
+/**
+ * A stone can become too graphically simple while still scoring well for broad
+ * dominant planes. Gameplay silhouettes should turn several times around the
+ * body so no single ruler-straight run owns the outline. These are targets, not
+ * minimum topology counts: the existing simplifier removes corners that are not
+ * visible at gameplay scale before this score sees them.
+ */
+const SILHOUETTE_CORNER_TARGET: Readonly<Record<StoneArchetypeId, number>> = {
+  pebble: 7,
+  boulder: 8,
+  slab: 8,
+  block: 7,
+  shard: 6,
+  outcrop: 9,
+};
+const SILHOUETTE_CORNER_WIDTH = 3.5;
+const SILHOUETTE_CORNER_WEIGHT = 0.55;
+
 const QUALITY_CACHE_LIMIT = 256;
 const QUALITY_SEED_SALT = 0x41727479;
 const TWO_PI = Math.PI * 2;
@@ -194,6 +214,19 @@ function shapedBody(recipe: StoneRecipe): StonePolygon[] {
   return body;
 }
 
+function silhouetteCornerStructureScore(
+  archetype: StoneArchetypeId,
+  body: readonly StonePolygon[],
+): number {
+  const complexity = measureStoneSilhouetteComplexity(body);
+  if (complexity.views === 0) return 0;
+  return targetScore(
+    complexity.meanMeaningfulCorners,
+    SILHOUETTE_CORNER_TARGET[archetype],
+    SILHOUETTE_CORNER_WIDTH,
+  );
+}
+
 /** Scores the final macro body, before optional near-range chips. */
 export function scoreStoneShape(recipe: StoneRecipe): number {
   const body = shapedBody(recipe);
@@ -255,6 +288,7 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
   const topDeficit = Math.max(0, targetTop - topShare) / targetTop;
   const stumpPenalty = longWallShare * topDeficit;
   const dominantPlaneScore = Math.min(1, primaryFour / 0.42);
+  const cornerStructure = silhouetteCornerStructureScore(recipe.archetype, body);
 
   return (
     primarySix * 4.2 +
@@ -266,6 +300,7 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
     Math.min(mediumCount, 9) * 0.05 +
     Math.min(asymmetry, 0.28) * 2.15 +
     profileArtDirection(recipe) +
+    cornerStructure * SILHOUETTE_CORNER_WEIGHT +
     // Everything above is object space, and none of it can tell a dome from a
     // faceted rock once the body is projected. These two close that gap: one
     // rewards an outline that turns in a few decisive corners from the angles
@@ -295,7 +330,7 @@ function resolveArchetypeSeed(
   return hashStoneCell(seed, hashStoneLabel(archetype), QUALITY_SEED_SALT);
 }
 
-/** Deterministic best-of-four selection with a bounded runtime cache. */
+/** Deterministic best-of-six selection with a bounded runtime cache. */
 export function resolveQualityStoneRecipe(
   archetype: StoneArchetypeId,
   seed: number,
@@ -307,9 +342,9 @@ export function resolveQualityStoneRecipe(
   }
 
   const archetypeSeed = resolveArchetypeSeed(archetype, seed);
-  // A best-of-four art-direction pass must not silently select away a named
-  // silhouette family. Choose the family once from the public variant seed,
-  // then compare geometry only within that family.
+  // An art-direction pass must not silently select away a named silhouette
+  // family. Choose the family once from the public variant seed, then compare
+  // geometry only within that family.
   const silhouetteVariant = resolveStoneSilhouetteVariant(archetype, seed);
   let best = resolveStoneRecipe(archetype, archetypeSeed, silhouetteVariant);
   let bestScore = scoreStoneShape(best);
