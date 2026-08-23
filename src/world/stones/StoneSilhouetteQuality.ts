@@ -35,6 +35,10 @@ interface Point2 {
   readonly y: number;
 }
 
+interface IndexedPoint2 extends Point2 {
+  readonly sourceIndex: number;
+}
+
 export interface StoneSilhouetteComplexity {
   readonly views: number;
   readonly meanRawCorners: number;
@@ -235,26 +239,47 @@ function scoreOutline(hull: readonly Point2[]): number {
   return turnConcentration * 0.9 + longRun * 0.7 - circularity * 0.9;
 }
 
+/**
+ * Greedy closed-hull simplification with an error bound against the original
+ * outline, not against the already-simplified neighbours.
+ *
+ * Checking only the current corner's distance lets many individually-small
+ * removals accumulate into a large shape change. That is especially dangerous
+ * here because a smooth round body can then report only a handful of
+ * "meaningful" corners and hide the topology problem this metric exists to
+ * diagnose. Each candidate therefore checks every original point that would be
+ * represented by the replacement segment.
+ */
 function simplifyClosedHull(hull: readonly Point2[]): Point2[] {
   if (hull.length <= 3) return [...hull];
-  const simplified = [...hull];
+  const simplified: IndexedPoint2[] = hull.map((point, sourceIndex) => ({
+    ...point,
+    sourceIndex,
+  }));
   let perimeter = 0;
   for (let index = 0; index < hull.length; index += 1) {
     const a = hull[index];
     const b = hull[(index + 1) % hull.length];
     perimeter += Math.hypot(b.x - a.x, b.y - a.y);
   }
-  if (!(perimeter > HULL_EPSILON)) return simplified;
+  if (!(perimeter > HULL_EPSILON)) return [...hull];
   const tolerance = perimeter * SILHOUETTE_SIMPLIFY_PERIMETER_RATIO;
 
   while (simplified.length > 3) {
     let candidate = -1;
     let minimumError = Number.POSITIVE_INFINITY;
     for (let index = 0; index < simplified.length; index += 1) {
-      const previous = simplified[(index + simplified.length - 1) % simplified.length];
-      const current = simplified[index];
+      const previous = simplified[
+        (index + simplified.length - 1) % simplified.length
+      ];
       const next = simplified[(index + 1) % simplified.length];
-      const error = pointSegmentDistance(current, previous, next);
+      const error = maximumSourceArcError(
+        hull,
+        previous.sourceIndex,
+        next.sourceIndex,
+        previous,
+        next,
+      );
       if (error < minimumError) {
         minimumError = error;
         candidate = index;
@@ -263,7 +288,26 @@ function simplifyClosedHull(hull: readonly Point2[]): Point2[] {
     if (candidate < 0 || minimumError > tolerance) break;
     simplified.splice(candidate, 1);
   }
-  return simplified;
+  return simplified.map(({ x, y }) => ({ x, y }));
+}
+
+function maximumSourceArcError(
+  source: readonly Point2[],
+  startIndex: number,
+  endIndex: number,
+  start: Point2,
+  end: Point2,
+): number {
+  let maximum = 0;
+  let index = (startIndex + 1) % source.length;
+  while (index !== endIndex) {
+    maximum = Math.max(
+      maximum,
+      pointSegmentDistance(source[index], start, end),
+    );
+    index = (index + 1) % source.length;
+  }
+  return maximum;
 }
 
 function pointSegmentDistance(point: Point2, a: Point2, b: Point2): number {
