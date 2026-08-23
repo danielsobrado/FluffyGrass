@@ -148,18 +148,20 @@ export function generateStoneMesh(
         heightMetres,
         edgeShading.crease,
       );
-      // Fragments are centred on different contact polygons. Add that centring
-      // shift back for geology so both halves sample the one parent-space field.
+      // Contact centring is a render transform, not a material transform. Add
+      // it back for every stochastic field so fragments sample one parent rock.
+      const materialX = point.x + contactOffset.x;
+      const materialZ = point.z + contactOffset.z;
       minerals[vertexCursor] = resolveCornerMineral(
-        point.x + contactOffset.x,
+        materialX,
         point.y,
-        point.z + contactOffset.z,
+        materialZ,
         recipe,
       );
       weatherings[vertexCursor] = resolveCornerWeathering(
-        point.x,
+        materialX,
         point.y,
-        point.z,
+        materialZ,
         softNormalY,
         heightMetres,
         recipe,
@@ -179,9 +181,9 @@ export function generateStoneMesh(
         edgeShading.crease,
       );
       const baseMoss = resolveMoss(
-        point.x,
+        materialX,
         point.y,
-        point.z,
+        materialZ,
         softNormalY,
         heightMetres,
         recipe,
