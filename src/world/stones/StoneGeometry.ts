@@ -87,7 +87,7 @@ export function generateStoneMesh(
   );
   const uniquePoints = transformStonePoints(polygons, recipe);
   const stableMaterialFrame =
-    materialFrame ?? resolveStableMaterialFrame(recipe, includeChips, uniquePoints);
+    materialFrame ?? resolveStableMaterialFrame(recipe, includeChips);
 
   const contactOffset = centerStoneContact(polygons, uniquePoints);
   const faces = buildWorkingStoneFaces(polygons);
@@ -322,27 +322,29 @@ function measureMaterialFrame(
 }
 
 /**
- * Material space follows the coarse parent, never the clipped/detail mesh.
- * This keeps a chip LOD switch and a formation split from moving geological
- * coordinates even though their render geometry legitimately changes.
+ * Whole stones preserve their existing centred coordinates; near geometry only
+ * borrows the coarse whole stone's frame so chips cannot move an LOD pattern.
+ * Fragments instead use the uncentred frozen parent frame because the writer
+ * adds their contact-centre shift back before packing material coordinates.
  */
 function resolveStableMaterialFrame(
   recipe: StoneRecipe,
   includeChips: boolean,
-  currentPoints: ReadonlySet<StoneVec3>,
 ): StoneMaterialFrame | undefined {
   const inherited = recipe.inheritedSurface;
   if (recipe.fracture && inherited) {
     const parentFaces = facesFromPlanes([...inherited.coarse]);
     return measureMaterialFrame(transformStonePoints(parentFaces, recipe));
   }
-  if (!includeChips) return measureMaterialFrame(currentPoints);
+  if (!includeChips) return undefined;
 
   const coarsePolygons = addStoneFractureRelief(
     addStoneIndentation(buildStonePolyhedron(recipe, false), recipe),
     recipe,
   );
-  return measureMaterialFrame(transformStonePoints(coarsePolygons, recipe));
+  const coarsePoints = transformStonePoints(coarsePolygons, recipe);
+  centerStoneContact(coarsePolygons, coarsePoints);
+  return measureMaterialFrame(coarsePoints);
 }
 
 /** Centres the body on its contact polygon and reports the shift applied. */
