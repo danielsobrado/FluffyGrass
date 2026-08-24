@@ -106,6 +106,15 @@ try {
   const COVERAGE = 1;
   const DETAIL_PRESERVED = 2;
 
+  const resolveScheduleJitter = (schedule) =>
+    schedule.worldSpaceJitter
+      ? resolveLodBandJitterMetres(
+          schedule.start,
+          schedule.end,
+          config.lodBandJitterRatio,
+        )
+      : 0;
+
   const offsets = [];
   for (let index = 0; index < JITTER_SAMPLES; index += 1) {
     // A lattice stride that is not a factor of the wander period, so the sample
@@ -211,17 +220,12 @@ try {
       );
     }
 
-    // Every schedule reads the same wander field at the same world position, so
-    // they shift together rather than drifting into each other independently.
-    // Checking per offset rather than at independent worst cases is what makes
-    // the correlated case provable instead of pessimistic.
+    // Only schedules whose runtime shader uses GrassLodBanding may wander here.
+    // Modelling synthetic jitter on raw camera-distance grass schedules would
+    // make this gate prove a renderer that does not exist.
     for (const offset of offsets) {
       const intervals = active.map((schedule) => {
-        const jitter = resolveLodBandJitterMetres(
-          schedule.start,
-          schedule.end,
-          config.lodBandJitterRatio,
-        );
+        const jitter = resolveScheduleJitter(schedule);
         return {
           key: schedule.key,
           // The boundary moves against a fixed camera distance, so a positive
@@ -258,11 +262,7 @@ try {
           if (schedule.scheduleClass !== COVERAGE) {
             continue;
           }
-          const jitter = resolveLodBandJitterMetres(
-            schedule.start,
-            schedule.end,
-            config.lodBandJitterRatio,
-          );
+          const jitter = resolveScheduleJitter(schedule);
           surviving *=
             1 - smoothstep(schedule.start, schedule.end, distance + jitter * offset);
         }
@@ -278,6 +278,46 @@ try {
   }
 
   assert(checkedDirections >= 7, "Every shipped art preset must be checked.");
+
+  // --- Runtime/registry wander contract ---
+  const nearMaterialSource = read("src/grass/materials/GrassNearMaterial.ts");
+  const impostorMaterialSource = read(
+    "src/world/grass/WorldGrassImpostorMaterial.ts",
+  );
+  const detailMaterialSource = read(
+    "src/world/grass/WorldDetailFoliageMaterial.ts",
+  );
+  const terrainMaterialSource = read("src/world/TerrainMaterialShader.ts");
+  const referenceDirection = Object.values(GRASS_ART_DIRECTIONS)[0];
+  const referenceSchedules = resolveLodSchedules(config, referenceDirection);
+  const scheduleByKey = new Map(
+    referenceSchedules.map((schedule) => [schedule.key, schedule]),
+  );
+
+  assert(
+    !nearMaterialSource.includes("GRASS_LOD_BAND_GLSL") &&
+      !scheduleByKey.get("near-density-boost")?.worldSpaceJitter,
+    "Near grass uses raw camera distance; the schedule registry must not invent wander for it.",
+  );
+  assert(
+    !impostorMaterialSource.includes("GRASS_LOD_BAND_GLSL") &&
+      !scheduleByKey.get("far-to-terrain")?.worldSpaceJitter,
+    "Far impostors use raw camera distance; the schedule registry must model that exactly.",
+  );
+  assert(
+    detailMaterialSource.includes("GRASS_LOD_BAND_GLSL") &&
+      scheduleByKey.get("detail-foliage-fade")?.worldSpaceJitter,
+    "Detail foliage uses world-space LOD wander and must be marked accordingly.",
+  );
+  assert(
+    terrainMaterialSource.includes("TERRAIN_MACRO_FIELD_FUNCTIONS") &&
+      scheduleByKey.get("terrain-canopy-merge")?.worldSpaceJitter,
+    "Terrain LOD schedules use the shared band field and must be marked accordingly.",
+  );
+  assert(
+    detailMaterialSource.includes("float foliageFadeDistance = min("),
+    "Detail foliage may not extend its shader fade beyond the CPU hard cutoff.",
+  );
 
   // --- The GLSL macro-field mirror must reproduce the CPU fields exactly ---
   //
@@ -326,6 +366,10 @@ try {
   assert(
     TERRAIN_MACRO_FIELD_APPLY.includes("vTerrainMacroDryness"),
     "The per-fragment dryness must subtract the vertex term it replaces, or it double-counts.",
+  );
+  assert(
+    TERRAIN_MACRO_FIELD_APPLY.includes("terrainHumidity = saturate("),
+    "Per-fragment dryness/vigour replacement must also correct their derived humidity.",
   );
   assert(
     TERRAIN_MACRO_FIELD_FUNCTIONS.includes(
