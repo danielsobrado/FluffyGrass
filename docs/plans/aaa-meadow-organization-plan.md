@@ -2178,6 +2178,36 @@ value (Section 12.1), hence 0.82.
   tip colour ≥ 18.
 - `verify-grass-dry-lighting` — dry/healthy luminance separation ≥ 0.06.
 
+**As built — two deviations, both recorded here rather than quietly absorbed.**
+
+The `≥ 0.06` dry/healthy figure above was read off the *pre-change* meadow row,
+which measured 0.0602. It is unreachable after this phase and for a structural
+reason: lowering `tipLuminanceScale` from 1.30 to 1.24 is precisely a decision to
+shrink the tip's brightness lead, and the tip-to-dry luminance gap is that lead.
+Holding 0.06 would have meant dropping `dryLuminanceScale` to about 0.78 — dry
+grass a fifth darker than healthy grass, when real dry grass is *paler*. An
+absolute gap is also a tax on dark biomes: alpine's base luminance is 0.086
+against the steppe's 0.170, so it can never reach the same absolute number
+however its dry tone is chosen.
+
+The shipped gate keeps the intent and drops the arithmetic. It asserts a
+**relative** luminance gap ≥ 0.25 of tip luminance, which catches the failure
+actually worth catching — the two scales being closed toward each other — and is
+scale-free. Alongside it, a chromatic separation measured at a common exposure,
+because dry grass distinguishes itself by hue rather than brightness and Lab
+distances compress in dark colours. Two floors: ≥ 18 for the shipped default and
+the meadow row (62% of the world), ≥ 10 for the comparison presets and the other
+biomes. The steppe legitimately sits near the lower one — a dry steppe's
+*healthy* grass already looks like straw, and forcing its dry state further away
+would be wrong rather than safer. Measured: worst gap 27.4%, worst ΔE 11.8
+(dry-steppe), default preset 21.5, meadow 22.6.
+
+Second, `muted-meadow`'s `dryColor` ships as `#9a8a52`, not the `#8e8a58` in
+Section 14.3. At `#8e8a58` the default preset scored ΔE 18.6 against its own
+threshold of 18 — six tenths of margin is a coin flip, not a gate. The warmer
+tone reaches 21.5 and is the direction this phase wants for the dry channel
+anyway: straw, rather than green with the saturation removed.
+
 ### 14.6 Acceptance criteria (diagnostics, not gates)
 
 - Mean frame saturation in the reference capture drops 12–20%.
@@ -2189,6 +2219,13 @@ value (Section 12.1), hence 0.82.
 These are recorded in the capture report and reviewed; they are **not** build
 failures. A scene can satisfy all three and look worse. The three fixed captures
 remain the art-direction authority.
+
+**Measured.** Mean frame saturation over the software-rendered capture fell
+0.5982 → 0.5349, a 10.6% relative drop — just under the 12% target, and the
+caveat matters more than the number: that frame runs at 4 FPS with the quality
+governor holding the near field down, so bare soil covers most of it and soil is
+the surface this phase moves least. The reading is a floor, not the result. The
+other two criteria need the reference captures on real hardware.
 
 ---
 

@@ -327,12 +327,19 @@ try {
   // the canopy merge all changed across exactly the radii the vegetation handed
   // off at. Six soft fades sharing two edges is what read as a band crossing the
   // hillside. Each owns its range now, and nothing may put them back.
+  // Read as one surface: the controller owns the material's lifecycle and the
+  // uniform module owns its table, and an assertion about what the ground is
+  // given should not care which of the two a value is written in.
   const terrainMaterialControllerSource = await import("node:fs").then(
     ({ readFileSync }) =>
-      readFileSync(
-        resolve(REPOSITORY_ROOT, "src/world/TerrainMaterialController.ts"),
-        "utf8",
-      ),
+      [
+        "src/world/TerrainMaterialController.ts",
+        "src/world/terrain/TerrainSurfaceUniforms.ts",
+      ]
+        .map((relativePath) =>
+          readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8"),
+        )
+        .join("\n"),
   );
   for (const [label, source] of [
     ["TERRAIN_DETAIL_COLOR", TERRAIN_DETAIL_COLOR],

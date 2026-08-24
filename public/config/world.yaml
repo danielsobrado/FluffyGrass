@@ -126,7 +126,7 @@ grassDryColorStrength: 0.58
 # amount -- which is what makes one saturation lever safe at all. It preserves
 # luminance by construction, so it cannot move the field's brightness or the LOD
 # colour-parity budget. Provisional at 0.06; the full palette pass raises it.
-grassPaletteDesaturation: 0.06
+grassPaletteDesaturation: 0.14
 
 # Vegetation communities.
 #

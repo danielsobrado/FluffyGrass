@@ -165,6 +165,109 @@ assert(
   "Flower tinting must retain per-pixel shade and stable per-instance variation.",
 );
 
+/**
+ * A flower has to read as a flower against the grass it stands in.
+ *
+ * The palette move muted the meadow, which helps here, but it moves the target:
+ * every tint is now compared against a duller, darker green than the one they
+ * were chosen against, and a tint that was a clear accent over a bright field
+ * can turn into a pale smudge over a muted one. The atlas draws petals as an
+ * unlit tint multiplied into the card, so this is the actual colour a viewer
+ * sees against the actual colour of the canopy behind it.
+ */
+{
+  const tuning = JSON.parse(read("src/grass/materials/GrassPaletteTuning.json"));
+  const biomeProfiles = JSON.parse(
+    read("src/grass/biome/GrassBiomeProfiles.json"),
+  );
+  const desaturation = Number(
+    read("public/config/world.yaml").match(
+      /^grassPaletteDesaturation:\s*([0-9.]+)$/m,
+    )?.[1],
+  );
+  assert(
+    Number.isFinite(desaturation),
+    "Unable to read grassPaletteDesaturation.",
+  );
+
+  const tints = [
+    ...species.matchAll(/\{ key: "([a-z-]+)", color: "(#[0-9a-f]{6})" \}/g),
+  ].map(([, key, color]) => ({ key, color }));
+  assert(
+    tints.length >= 8,
+    `Only ${tints.length} accent tints found; the tint table did not parse.`,
+  );
+
+  const luminanceOf = (color) =>
+    color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+
+  function parseHex(hex) {
+    const value = Number.parseInt(hex.slice(1), 16);
+    return [
+      ((value >> 16) & 255) / 255,
+      ((value >> 8) & 255) / 255,
+      (value & 255) / 255,
+    ].map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+    );
+  }
+
+  function toLab(color) {
+    const [r, g, b] = color;
+    const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+    const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+    const pivot = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    return [
+      116 * pivot(y) - 16,
+      500 * (pivot(x) - pivot(y)),
+      200 * (pivot(y) - pivot(z)),
+    ];
+  }
+
+  // The meadow tip as the renderer resolves it: luminance-balanced against the
+  // row's own base, then pulled toward its luminance by the global lever.
+  const meadow = biomeProfiles.meadow;
+  const meadowBase = parseHex(meadow.baseColor);
+  const meadowTip = parseHex(meadow.tipColor);
+  const tipFactor =
+    (Math.max(luminanceOf(meadowBase), 1e-4) * tuning.tipLuminanceScale) /
+    Math.max(luminanceOf(meadowTip), 1e-4);
+  const canopy = meadowTip.map((channel) => Math.min(1, channel * tipFactor));
+  const canopyLuminance = luminanceOf(canopy);
+  const canopyLab = toLab(
+    canopy.map(
+      (channel) => channel + (canopyLuminance - channel) * desaturation,
+    ),
+  );
+
+  const MINIMUM_TINT_DELTA_E = 18;
+  let worst = Infinity;
+  let worstKey = "";
+  for (const tint of tints) {
+    const lab = toLab(parseHex(tint.color));
+    const distance = Math.hypot(
+      lab[0] - canopyLab[0],
+      lab[1] - canopyLab[1],
+      lab[2] - canopyLab[2],
+    );
+    if (distance < worst) {
+      worst = distance;
+      worstKey = tint.key;
+    }
+    assert(
+      distance >= MINIMUM_TINT_DELTA_E,
+      `Accent tint ${tint.key} sits ΔE ${distance.toFixed(1)} from the meadow canopy; a flower that close to the grass is texture, not a flower.`,
+    );
+  }
+
+  console.log(
+    `[flower-variety] ${tints.length} accent tints clear the meadow canopy by ` +
+      `ΔE ${worst.toFixed(1)} at worst (${worstKey}), against a floor of ` +
+      `${MINIMUM_TINT_DELTA_E}.`,
+  );
+}
+
 console.log(
   "[flower-variety] Height, silhouette, composition, shading, and phenotype checks passed.",
 );

@@ -436,6 +436,7 @@ assert(desktopNear.average / desktopNear.legacyAverage <= 0.36, "Desktop near-fi
 assert(compactNear.average / compactNear.legacyAverage <= 0.36, "Compact near-field optimization regressed.");
 
 const baselineMidDistances = {
+  "muted-meadow": 80,
   "lush-hero": 80,
   "natural-meadow": 72,
   "golden-hour": 68,

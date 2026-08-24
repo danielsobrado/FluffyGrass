@@ -1,4 +1,27 @@
 {
+  "muted-meadow": {
+    "key": "muted-meadow",
+    "label": "Muted Meadow",
+    "baseColor": "#42702f",
+    "tipColor": "#8fae54",
+    "dryColor": "#9a8a52",
+    "rootDarkening": 0.41,
+    "tipColorStrength": 0.3,
+    "normalUp": 0.82,
+    "ambientBoost": 0.07,
+    "backlightStrength": 0.27,
+    "impostorBaseColorBlend": 0,
+    "impostorColorScale": 0.8,
+    "terrainGrassColor": "#5c7a3f",
+    "terrainGrassTintStrength": 0.3,
+    "densityScale": 0.94,
+    "windStrengthScale": 1,
+    "flutterStrengthScale": 0.9,
+    "nearDistance": 28,
+    "midDistance": 54,
+    "farDistance": 280,
+    "transitionDistance": 8
+  },
   "lush-hero": {
     "key": "lush-hero",
     "label": "Lush Hero",

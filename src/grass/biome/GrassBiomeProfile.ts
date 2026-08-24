@@ -68,7 +68,7 @@ export const GRASS_BIOME_HEIGHT_BAND_LIMIT = Object.freeze([0.7, 1.14] as const)
 export const GRASS_BIOME_WIDTH_BAND_LIMIT = Object.freeze([0.76, 1.1] as const);
 export const GRASS_BIOME_WIND_DAMPING_LIMIT = Object.freeze([0.7, 1] as const);
 
-export const GRASS_BIOME_VERSION = 4;
+export const GRASS_BIOME_VERSION = 5;
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 

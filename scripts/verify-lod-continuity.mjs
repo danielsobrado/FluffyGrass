@@ -65,6 +65,17 @@ const thirdPersonController = read("src/controls/ThirdPersonController.ts");
 const nearMaterial = read("src/grass/materials/GrassNearMaterial.ts");
 const sharedPalette = read("src/grass/materials/GrassPaletteShader.ts");
 const artDirections = JSON.parse(read("src/grass/GrassArtPresets.json"));
+// Read from the source of truth rather than named here: a gate that pins the
+// shipped preset by name goes quiet the moment the default moves, which is
+// exactly when its ceilings matter most.
+const defaultArtDirectionKey = read("src/grass/GrassArtDirection.ts").match(
+  /DEFAULT_GRASS_ART_DIRECTION_KEY: GrassArtDirectionKey =\s*"([a-z-]+)"/,
+)?.[1];
+if (!artDirections[defaultArtDirectionKey]) {
+  throw new Error(
+    `[lod-continuity] Unable to resolve the default art direction: ${defaultArtDirectionKey}.`,
+  );
+}
 const impostorMaterial = read(
   "src/world/grass/WorldGrassImpostorMaterial.ts",
 );
@@ -602,6 +613,7 @@ assert(
 );
 
 const expectedMidDistances = {
+  "muted-meadow": 54,
   "lush-hero": 54,
   "natural-meadow": 48,
   "golden-hour": 46,
@@ -837,7 +849,7 @@ assert(
 const baseBlend = Number(
   tuning.match(/IMPOSTOR_BASE_COLOR_BLEND\s*=\s*([0-9.]+)/)?.[1],
 );
-const defaultTipStrength = artDirections["lush-hero"]?.tipColorStrength;
+const defaultTipStrength = artDirections[defaultArtDirectionKey]?.tipColorStrength;
 assert(
   Number.isFinite(baseBlend) && baseBlend <= 0.1,
   "Far cards must not flatten the shared blade palette.",

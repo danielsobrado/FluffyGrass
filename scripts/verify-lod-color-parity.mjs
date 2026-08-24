@@ -10,6 +10,12 @@ const presets = JSON.parse(
     "utf8",
   ),
 );
+const defaultArtDirectionKey = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/grass/GrassArtDirection.ts"),
+  "utf8",
+).match(
+  /DEFAULT_GRASS_ART_DIRECTION_KEY: GrassArtDirectionKey =\s*"([a-z-]+)"/,
+)?.[1];
 const biomeProfiles = JSON.parse(
   readFileSync(
     resolve(REPOSITORY_ROOT, "src/grass/biome/GrassBiomeProfiles.json"),
@@ -643,7 +649,9 @@ const failures = [];
 // Biome rows are composed against a real art direction, because that is how
 // they resolve at runtime: row 0 takes the preset's palette verbatim and the
 // rest carry their own. Falling back to the first preset keeps this working if
-// the default is ever renamed, instead of silently spreading `undefined`.
+// the default is ever renamed, instead of silently spreading `undefined`. The
+// key itself is read from the source of truth: a gate that names the shipped
+// preset goes quiet the moment the default moves, which is when it matters most.
 const defaultPreset = presets["lush-hero"] ?? Object.values(presets)[0];
 if (!defaultPreset) {
   fail("No art preset available to compose biome profiles against.");

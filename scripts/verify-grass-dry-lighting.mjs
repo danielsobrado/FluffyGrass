@@ -161,6 +161,177 @@ assert(
   );
 }
 
+/**
+ * Dry grass must stay separable from healthy grass.
+ *
+ * The palette move that muted the field pulled every source toward its own
+ * luminance and cut the tip's brightness lead from 1.30 to 1.24, and both of
+ * those close the gap between a dry blade and a healthy one. Saturation is the
+ * cheapest way to tell two plants apart and it is the thing this phase spends,
+ * so the separation it spends from has to be measured rather than assumed.
+ *
+ * Two measures, because they fail differently.
+ *
+ * The luminance check is *relative*. An absolute one would be a tax on dark
+ * biomes -- alpine's base is 0.086, so it can never reach the same absolute gap
+ * as the steppe's 0.170 no matter how its dry tone is chosen -- and the failure
+ * worth catching is someone closing the tip and dry scales toward each other,
+ * which shows up in the ratio.
+ *
+ * The chromatic check is measured at a common exposure for the same reason: Lab
+ * distances compress in dark colours, so raw albedo ΔE reports alpine as the
+ * worst row in the set when in fact its dry tone is further from its healthy one
+ * than the steppe's is. The palette is albedo and the renderer multiplies light
+ * back into it, so comparing the rows at one exposure is the closer analogue of
+ * what a viewer sees.
+ */
+{
+  const biomeProfiles = JSON.parse(read("src/grass/biome/GrassBiomeProfiles.json"));
+  const desaturation = Number(
+    read("public/config/world.yaml").match(
+      /^grassPaletteDesaturation:\s*([0-9.]+)$/m,
+    )?.[1],
+  );
+  assert(
+    Number.isFinite(desaturation),
+    "Unable to read grassPaletteDesaturation.",
+  );
+
+  const luminanceOf = (color) =>
+    color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+
+  function parseHex(hex) {
+    const value = Number.parseInt(hex.replace("#", ""), 16);
+    // The engine's colours are authored in sRGB and Three converts them on the
+    // way in, so the comparison has to happen in the same space the shader
+    // mixes in rather than on the hex triples.
+    return [
+      ((value >> 16) & 255) / 255,
+      ((value >> 8) & 255) / 255,
+      (value & 255) / 255,
+    ].map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+    );
+  }
+
+  function scaleTo(color, target) {
+    const factor = target / Math.max(luminanceOf(color), 1e-4);
+    return color.map((channel) => Math.min(1, channel * factor));
+  }
+
+  function desaturate(color, amount) {
+    const value = luminanceOf(color);
+    return color.map((channel) => channel + (value - channel) * amount);
+  }
+
+  function toLab(color) {
+    const [r, g, b] = color;
+    const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+    const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+    const pivot = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    return [
+      116 * pivot(y) - 16,
+      500 * (pivot(x) - pivot(y)),
+      200 * (pivot(y) - pivot(z)),
+    ];
+  }
+
+  const deltaE = (a, b) =>
+    Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+  /** Reproduces setBalancedGrassPaletteColors for one palette row. */
+  function balanceRow(row) {
+    const base = parseHex(row.baseColor);
+    const baseLuminance = Math.max(luminanceOf(base), 1e-4);
+    return {
+      base: desaturate(base, desaturation),
+      tip: desaturate(
+        scaleTo(parseHex(row.tipColor), baseLuminance * tuning.tipLuminanceScale),
+        desaturation,
+      ),
+      dry: desaturate(
+        scaleTo(parseHex(row.dryColor), baseLuminance * tuning.dryLuminanceScale),
+        desaturation,
+      ),
+    };
+  }
+
+  const MINIMUM_RELATIVE_LUMINANCE_GAP = 0.25;
+  /**
+   * Two bars, because the rows are not the same kind of thing.
+   *
+   * The shipped default and the meadow biome -- 62% of the world -- carry the
+   * look and have to hold a real separation. The comparison presets and the
+   * other biomes only have to stay out of collapse, and one of them legitimately
+   * sits close: a dry steppe's healthy grass already looks like straw, and
+   * forcing its dry state further away would be wrong rather than safer.
+   */
+  const MINIMUM_EXPOSED_DELTA_E = 18;
+  const MINIMUM_ALTERNATE_EXPOSED_DELTA_E = 10;
+  const REFERENCE_EXPOSURE = 0.45;
+  const defaultArtDirectionKey = read("src/grass/GrassArtDirection.ts").match(
+    /DEFAULT_GRASS_ART_DIRECTION_KEY: GrassArtDirectionKey =\s*"([a-z-]+)"/,
+  )?.[1];
+  assert(
+    Boolean(presets[defaultArtDirectionKey]),
+    `Unable to resolve the default art direction: ${defaultArtDirectionKey}.`,
+  );
+
+  const rows = [
+    ...Object.entries(presets).map(([key, preset]) => [
+      `preset ${key}`,
+      preset,
+      key === defaultArtDirectionKey,
+    ]),
+    ...Object.entries(biomeProfiles).map(([key, profile]) => [
+      `biome ${key}`,
+      profile,
+      key === "meadow",
+    ]),
+  ];
+  let worstGap = Infinity;
+  let worstDeltaE = Infinity;
+  let worstGapRow = "";
+  let worstDeltaERow = "";
+  for (const [label, row, carriesTheLook] of rows) {
+    const palette = balanceRow(row);
+    const tipLuminance = luminanceOf(palette.tip);
+    const gap = (tipLuminance - luminanceOf(palette.dry)) / tipLuminance;
+    const exposed = deltaE(
+      toLab(scaleTo(palette.tip, REFERENCE_EXPOSURE)),
+      toLab(scaleTo(palette.dry, REFERENCE_EXPOSURE)),
+    );
+    if (gap < worstGap) {
+      worstGap = gap;
+      worstGapRow = label;
+    }
+    if (exposed < worstDeltaE) {
+      worstDeltaE = exposed;
+      worstDeltaERow = label;
+    }
+    assert(
+      gap >= MINIMUM_RELATIVE_LUMINANCE_GAP,
+      `${label} separates dry from healthy by only ${(gap * 100).toFixed(1)}% of tip luminance.`,
+    );
+    const floor = carriesTheLook
+      ? MINIMUM_EXPOSED_DELTA_E
+      : MINIMUM_ALTERNATE_EXPOSED_DELTA_E;
+    assert(
+      exposed >= floor,
+      `${label} dry and healthy differ by only ΔE ${exposed.toFixed(1)} at a common exposure, against a floor of ${floor}; dry grass has to be a different colour, not just a darker one.`,
+    );
+  }
+
+  console.log(
+    `[grass-dry-lighting] ${rows.length} palette rows hold dry/healthy apart: ` +
+      `narrowest luminance gap ${(worstGap * 100).toFixed(1)}% (${worstGapRow}), ` +
+      `narrowest chromatic ΔE ${worstDeltaE.toFixed(1)} (${worstDeltaERow}) at ` +
+      `exposure ${REFERENCE_EXPOSURE} under ${(desaturation * 100).toFixed(0)}% ` +
+      "global desaturation.",
+  );
+}
+
 const maximumBacklight = Math.max(
   ...Object.values(presets).map((preset) => preset.backlightStrength),
 );

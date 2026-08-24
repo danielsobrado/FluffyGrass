@@ -138,10 +138,10 @@ export function createTerrainSurfaceUniforms({
     uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
     uTerrainWetSheenStrength: { value: 0.55 },
     uTerrainWetSheenPower: { value: 42 },
-    uTerrainSoilRich: { value: new THREE.Color("#5b4931") },
-    uTerrainSoilDry: { value: new THREE.Color("#9a794b") },
+    uTerrainSoilRich: { value: new THREE.Color("#544433") },
+    uTerrainSoilDry: { value: new THREE.Color("#8d7550") },
     uTerrainPathSoil: { value: new THREE.Color("#795a38") },
-    uTerrainPathDust: { value: new THREE.Color("#c49a62") },
+    uTerrainPathDust: { value: new THREE.Color("#b8926a") },
     uTerrainPathGrit: { value: new THREE.Color("#b7a47f") },
     /**
      * Ground worked over by a stone sitting in it. Darker and less red than

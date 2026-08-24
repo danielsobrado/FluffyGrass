@@ -28,8 +28,20 @@ export interface GrassArtDirection {
   transitionDistance: number;
 }
 
+/**
+ * The shipped look.
+ *
+ * Moved off `lush-hero`, whose tips ran 38% brighter than its base before any
+ * lighting reached them. That is a hero shot's palette -- it reads as a single
+ * saturated green because every blade is near the top of the gamut, and nothing
+ * downstream can put contrast back into a field that has none. `muted-meadow`
+ * gives up the peak brightness for range: tips only 24% over base, a wider
+ * shade band, and a dry tone that is genuinely a different hue rather than the
+ * same green with the saturation pulled out. The old presets stay for
+ * comparison and are still exercised by every gate.
+ */
 export const DEFAULT_GRASS_ART_DIRECTION_KEY: GrassArtDirectionKey =
-  "lush-hero";
+  "muted-meadow";
 
 export const GRASS_ART_DIRECTIONS = Object.freeze(
   Object.fromEntries(
