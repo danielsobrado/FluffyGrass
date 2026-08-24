@@ -100,6 +100,17 @@ assert(
     !/uniform float uGrassNormalUp;/.test(nearMaterial),
     "The single-constant normal flattening must be gone.",
   );
+  // The macro blade-plane normal bypasses Three.js's defaultnormal_vertex
+  // instance correction, so it must explicitly divide by squared instance
+  // scale. Phase 5 introduced broad, non-uniform blades; without this the
+  // Phase 6 far normal is skewed by morphology instead of only by facing.
+  assert(
+    nearMaterial.includes("vec3 grassInstanceScaleSquared = vec3(") &&
+      nearMaterial.includes(
+        "grassBladePlaneNormal / max(grassInstanceScaleSquared, vec3(1e-8))",
+      ),
+    "The macro blade-plane normal must mirror Three.js inverse-scale correction for non-uniform instances.",
+  );
   // The schedule rides the shading micro fade, which every near and mid layer
   // shares. Keying it to a LOD distance instead is what produced an earlier
   // brightness ring at 6-7 m.
