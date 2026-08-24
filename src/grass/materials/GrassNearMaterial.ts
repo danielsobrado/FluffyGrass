@@ -121,7 +121,7 @@ uniform float uGrassGustScale;
 uniform float uGrassGustSpeed;
 uniform float uGrassFlutterStrength;
 uniform float uGrassFlutterSpeed;
-uniform float uGrassNormalUp;
+uniform vec2 uGrassNormalUpRange;
 uniform float uGrassWindLodScale;
 uniform float uGrassDitherSeed;
 uniform vec2 uGrassMicroFadeRange;
@@ -243,6 +243,27 @@ uniform float uGrassDistanceFade;
 // different way. It also leaves `grassWidthAxis` and `grassSide` in scope for
 // the sub-pixel width clamp further down.
 const VERTEX_NORMAL = `
+// The instance root, its camera distance, and the shading micro fade resolve
+// here rather than in the wind chunk below.
+//
+// They have to: this chunk runs in beginnormal_vertex, ahead of begin_vertex,
+// and the normal now depends on distance. Nothing here needs anything the
+// vertex stage does not already hold, and the wind chunk reuses these rather
+// than recomputing them.
+vec4 grassWorldRoot = modelMatrix * vec4(instanceMatrix[3].xyz, 1.0);
+float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
+// Deliberately NOT derived from this material's own LOD distance. Micro fade
+// drives the troughed normal, the normal flattening, the per-blade tone
+// variation and the flutter — all shading, none of it LOD. Keying it to
+// uGrassNearDistance gave the five near/mid layers five different schedules
+// (3.4 m, 9.4 m, 14.6 m), so the two co-located populations inside the
+// ultra-near band were lit differently and the handoff at 6-7 m read as a
+// brightness ring following the camera.
+float grassMicroFade = 1.0 - smoothstep(
+  uGrassMicroFadeRange.x,
+  uGrassMicroFadeRange.y,
+  grassCameraDistance
+);
 vec3 grassWidthAxis = cross(vec3(0.0, 1.0, 0.0), objectNormal);
 float grassWidthAxisLength = length(grassWidthAxis);
 grassWidthAxis = grassWidthAxisLength > 0.0001
@@ -253,9 +274,32 @@ vec3 grassBladePlaneNormal = normalize(cross(
   grassWidthAxis,
   vec3(0.0, 1.0, 0.0)
 ));
-objectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp));
+/**
+ * How far the blade normal is flattened toward world up — a schedule now,
+ * rather than one constant.
+ *
+ * At the shipped 0.76 more than three quarters of every blade normal was world
+ * up, so a blade facing the sun and a blade facing away returned nearly the
+ * same Lambert response: the near field had no form, only colour. It also
+ * flattened grassThinness in the fragment stage, which is the transmission
+ * term — so the backlighting was implemented correctly and then suppressed by
+ * the same constant.
+ *
+ * The flat normal is right for a card at 200 m that must not shimmer and wrong
+ * for a blade filling forty pixels, so it interpolates between the two. The far
+ * value must stay equal to the impostor material's own flattening, or the
+ * mid-to-far handoff shifts hue under the camera.
+ */
+float grassNormalUpHere = mix(
+  uGrassNormalUpRange.y,
+  uGrassNormalUpRange.x,
+  grassMicroFade
+);
+objectNormal = normalize(
+  mix(objectNormal, vec3(0.0, 1.0, 0.0), grassNormalUpHere)
+);
 grassBladePlaneNormal = normalize(
-  mix(grassBladePlaneNormal, vec3(0.0, 1.0, 0.0), uGrassNormalUp)
+  mix(grassBladePlaneNormal, vec3(0.0, 1.0, 0.0), grassNormalUpHere)
 );
 `;
 
@@ -271,7 +315,6 @@ varying float vGrassGust;
 const VERTEX_WIND = `
 // The instance's translation is its fourth column; multiplying the full matrix
 // by the origin is the same value for eight times the work, per vertex.
-vec4 grassWorldRoot = modelMatrix * vec4(instanceMatrix[3].xyz, 1.0);
 float grassDither = fract(
   grassBladeShade * 0.754877666 +
   grassPhase * 0.569840296 +
@@ -297,18 +340,6 @@ float grassFieldDither = fract(
 // truncation reproduces grassDither exactly and depends on it carrying no
 // per-instance term, so LOD selection and motion have to stay independent.
 float grassMotionPhase = fract(grassPhase + instanceVariation.x);
-float grassCameraDistance = distance(cameraPosition, grassWorldRoot.xyz);
-// Deliberately NOT derived from this material's own LOD distance. Micro fade
-// drives the troughed normal, the per-blade tone variation, and the flutter —
-// all shading, none of it LOD. Keying it to uGrassNearDistance gave the five
-// near/mid layers five different schedules (3.4 m, 9.4 m, 14.6 m), so the two
-// co-located populations inside the ultra-near band were lit differently and
-// the handoff at 6-7 m read as a brightness ring following the camera.
-float grassMicroFade = 1.0 - smoothstep(
-  uGrassMicroFadeRange.x,
-  uGrassMicroFadeRange.y,
-  grassCameraDistance
-);
 mat3 grassInstanceBasis = mat3(instanceMatrix);
 vec3 grassWidthAxisView = normalize(
   normalMatrix * grassInstanceBasis * grassWidthAxis
@@ -959,6 +990,7 @@ export class GrassNearMaterial {
     dryColor: "#a8a06a",
   };
 
+  private nearNormalUpScale = 1;
   private readonly uniforms = {
     uGrassTime: { value: 0 },
     uGrassWindDirection: { value: new THREE.Vector2(0.8, 0.35).normalize() },
@@ -990,7 +1022,15 @@ export class GrassNearMaterial {
     // so it reads the art direction's tip colour rather than spending three
     // more varyings to carry a per-biome one into the fragment stage.
     uGrassTipColor: { value: new THREE.Color(this.colorControls.tipColor) },
-    uGrassNormalUp: { value: 0.45 },
+    /**
+     * (near, far) flattening of the blade normal toward world up.
+     *
+     * The far entry is the authored preset value and must equal the impostor
+     * material's own flattening; the near entry is that scaled down, so a
+     * preset still carries one number and the schedule between them is a
+     * config lever rather than a second art decision.
+     */
+    uGrassNormalUpRange: { value: new THREE.Vector2(0.45, 0.45) },
     uGrassAmbientBoost: { value: 0.12 },
     uGrassBacklightStrength: { value: 0.16 },
     uGrassLodInvert: { value: 0 },
@@ -1164,7 +1204,7 @@ export class GrassNearMaterial {
     this.colorControls.dryColor = material.dryColor;
     this.artRootDarkening = material.rootDarkening;
     this.setPaletteColors();
-    this.uniforms.uGrassNormalUp.value = material.normalUp;
+    this.setNormalUp(material.normalUp);
     this.uniforms.uGrassAmbientBoost.value = material.ambientBoost;
     this.uniforms.uGrassBacklightStrength.value = material.backlightStrength;
     this.uniforms.uGrassWindDirection.value
@@ -1186,7 +1226,7 @@ export class GrassNearMaterial {
     this.artRootDarkening = direction.rootDarkening;
     this.artTipColorStrength = direction.tipColorStrength;
     this.setPaletteColors();
-    this.uniforms.uGrassNormalUp.value = direction.normalUp;
+    this.setNormalUp(direction.normalUp);
     this.uniforms.uGrassAmbientBoost.value = direction.ambientBoost;
     this.uniforms.uGrassBacklightStrength.value = direction.backlightStrength;
     this.uniforms.uGrassArtDensityScale.value = direction.densityScale;
@@ -1233,6 +1273,30 @@ export class GrassNearMaterial {
    */
   getDitherSeed(): number {
     return this.uniforms.uGrassDitherSeed.value;
+  }
+
+  /**
+   * Sets both ends of the flattening schedule from one authored value.
+   *
+   * A preset carries a single `normalUp`, which is the *far* end: the value a
+   * card at range needs to stay stable. The near end is that scaled by
+   * `grassNearNormalUpScale`, so blades close to the camera keep enough of
+   * their real normal to be lit by facing rather than only by colour.
+   */
+  private setNormalUp(farNormalUp: number): void {
+    const range = this.uniforms.uGrassNormalUpRange.value as THREE.Vector2;
+    range.y = farNormalUp;
+    range.x = farNormalUp * this.nearNormalUpScale;
+  }
+
+  /** Configured by the world; 1 restores the old single-value behaviour. */
+  setNearNormalUpScale(scale: number): void {
+    this.nearNormalUpScale = Number.isFinite(scale)
+      ? Math.min(1, Math.max(0, scale))
+      : 1;
+    this.setNormalUp(
+      (this.uniforms.uGrassNormalUpRange.value as THREE.Vector2).y,
+    );
   }
 
   /** Threshold-LOD materials only; ignored when coverage is resolved per blade. */
@@ -1483,11 +1547,20 @@ export class GrassNearMaterial {
         }
       });
     folder
-      .add(this.uniforms.uGrassNormalUp, "value", 0, 0.9, 0.01)
-      .name("Normal Up")
+      .add(
+        this.uniforms.uGrassNormalUpRange.value as THREE.Vector2,
+        "y",
+        0,
+        0.9,
+        0.01,
+      )
+      .name("Normal Up (far)")
       .onChange((value: number) => {
         for (const material of linkedMaterials) {
-          material.uniforms.uGrassNormalUp.value = value;
+          const range = material.uniforms.uGrassNormalUpRange
+            .value as THREE.Vector2;
+          range.y = value;
+          range.x = value * this.nearNormalUpScale;
         }
       });
     folder

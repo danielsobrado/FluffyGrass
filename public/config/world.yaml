@@ -355,6 +355,25 @@ terrainMossStrength: 0.30
 terrainClumpContactAo: 0.20
 terrainClumpLitterStrength: 0.18
 
+# Blade lighting.
+#
+# normalUp is 0.76 in every preset, so more than three quarters of each blade's
+# normal was world up: a blade facing the sun and a blade facing away returned
+# nearly the same Lambert response, and the near field had no form, only colour.
+# It also flattened the transmission term, so the backlighting was implemented
+# correctly and then suppressed by the same constant.
+#
+# The preset value stays the *far* end, which a distant card needs to stay
+# stable and which must match the impostor material. This scales the near end.
+grassNearNormalUpScale: 0.66
+# A blade standing under its neighbours receives less sky. The clump profile
+# already knows how tall its main tier is, so the shortfall of this blade against
+# that tier is how deep in the canopy it sits: no neighbour search, no runtime
+# cost, and it is the other half of the contact the ground now draws under a tuft.
+grassCanopyDepthAo: 0.26
+# And blades near a tuft's centre are more occluded than blades at its rim.
+grassClumpCoreAo: 0.12
+
 # Shared ground/grass procedural surface.
 terrainGroundNoiseWorldSize: 64
 terrainGroundMesoStrength: 0.18

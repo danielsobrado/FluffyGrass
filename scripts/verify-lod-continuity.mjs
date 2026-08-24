@@ -546,10 +546,20 @@ assert(
   // The near field applies it to all of its materials in one loop; the mid
   // material is set from the same two config values in its own constructor.
   assert(
-    /for \(const material of created\) \{\s*material\.setMicroDetailFadeRange\(\s*worldConfig\.grassMicroDetailFadeStart,\s*worldConfig\.grassMicroDetailFadeEnd,/.test(
+    /for \(const material of created\) \{[\s\S]{0,240}?material\.setMicroDetailFadeRange\(\s*worldConfig\.grassMicroDetailFadeStart,\s*worldConfig\.grassMicroDetailFadeEnd,/.test(
       nearField,
     ),
     "Every near grass material must be given the shared micro-detail fade range.",
+  );
+  // The normal-flattening schedule rides that same micro fade, so it carries the
+  // same requirement for the same reason: a material that missed it would light
+  // its blades on a different schedule from the layer drawing the blades beside
+  // them, which is the failure the shared fade exists to prevent.
+  assert(
+    /for \(const material of created\) \{[\s\S]{0,240}?material\.setNearNormalUpScale\(\s*worldConfig\.grassNearNormalUpScale,?\s*\)/.test(
+      nearField,
+    ),
+    "Every near grass material must be given the shared normal-flattening scale.",
   );
   assert(
     /this\.material\.setMicroDetailFadeRange\(\s*worldConfig\.grassMicroDetailFadeStart,\s*worldConfig\.grassMicroDetailFadeEnd,/.test(

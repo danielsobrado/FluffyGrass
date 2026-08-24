@@ -84,7 +84,16 @@ const LOD_DISTRIBUTION_SAMPLE_COUNT = 16384;
 const SAMPLE_DRYNESS = [0, 0.05, 0.15, 0.3];
 // Spans the canopy-occlusion range GrassFieldVariation can produce, not just
 // the old zero-mean per-blade tone jitter.
-const SAMPLE_ROOT_AO = [0.82, 0.94, 1, 1.06];
+/**
+ * Whole-blade occlusion values the parity check samples.
+ *
+ * The lower end used to be 0.82, which was the floor resolveGrassCanopyAo alone
+ * could reach. Blades now also carry how deep in their own tuft they sit, so the
+ * floor is 0.82 x (1 - 0.26) x (1 - 0.12) = 0.541 -- and a parity gate that only
+ * sampled the old range would be checking a blade population the field no longer
+ * produces.
+ */
+const SAMPLE_ROOT_AO = [0.54, 0.7, 0.82, 0.94, 1, 1.06];
 // Mirrors GRASS_MACRO_DRYNESS_STRENGTH and CANOPY_AO_STRENGTH in
 // src/grass/GrassFieldVariation.ts. Both LODs apply them at the same world
 // position from the same functions; the independent draws below are the

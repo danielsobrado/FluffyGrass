@@ -78,6 +78,78 @@ assert(
   "Blade sheen must stay subtle and tip-weighted so roots cannot bleach into a pale band.",
 );
 
+/**
+ * Blade normals must be flattened on a schedule, not by one constant.
+ *
+ * At the shipped 0.76 more than three quarters of every normal was world up, so
+ * a blade facing the sun and one facing away returned nearly the same Lambert
+ * response: the near field had form only in colour. The same constant flattened
+ * grassThinness, which is the transmission term, so the backlighting was
+ * implemented correctly and then suppressed.
+ *
+ * The far end must still equal the impostor material's own flattening, or the
+ * mid-to-far handoff shifts hue under a moving camera.
+ */
+{
+  assert(
+    nearMaterial.includes("uniform vec2 uGrassNormalUpRange;") &&
+      nearMaterial.includes("float grassNormalUpHere = mix("),
+    "Blade normal flattening must interpolate between a near and a far value.",
+  );
+  assert(
+    !/uniform float uGrassNormalUp;/.test(nearMaterial),
+    "The single-constant normal flattening must be gone.",
+  );
+  // The schedule rides the shading micro fade, which every near and mid layer
+  // shares. Keying it to a LOD distance instead is what produced an earlier
+  // brightness ring at 6-7 m.
+  assert(
+    /grassNormalUpHere = mix\(\s*uGrassNormalUpRange\.y,\s*uGrassNormalUpRange\.x,\s*grassMicroFade/.test(
+      nearMaterial,
+    ),
+    "The flattening schedule must ride the shared micro fade rather than a LOD distance.",
+  );
+
+  const worldYaml = read("public/config/world.yaml");
+  const nearScale = Number(
+    worldYaml.match(/^grassNearNormalUpScale:\s*([0-9.]+)/m)?.[1],
+  );
+  assert(
+    nearScale > 0.4 && nearScale < 1,
+    `grassNearNormalUpScale ${nearScale} must genuinely reduce the near flattening.`,
+  );
+
+  // What the change is actually for: a blade facing the sun must return
+  // materially more light than one facing away. Measured on the Lambert term
+  // the mix produces, at a distance inside the micro fade.
+  const farNormalUp = Math.max(
+    ...Object.values(presets).map((preset) => preset.normalUp),
+  );
+  const nearNormalUp = farNormalUp * nearScale;
+  const facingResponse = (bladeFacing, flatten) => {
+    // Blade plane normal against a sun 35 degrees above the horizon.
+    const sun = [Math.cos(0.61), Math.sin(0.61), 0];
+    const normal = [
+      bladeFacing * (1 - flatten),
+      flatten,
+      0,
+    ];
+    const length = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+    return Math.max(
+      0,
+      (normal[0] * sun[0] + normal[1] * sun[1] + normal[2] * sun[2]) / length,
+    );
+  };
+  const nearRatio =
+    facingResponse(1, nearNormalUp) / Math.max(facingResponse(-1, nearNormalUp), 1e-4);
+  const oldRatio =
+    facingResponse(1, farNormalUp) / Math.max(facingResponse(-1, farNormalUp), 1e-4);
+  assert(
+    nearRatio > oldRatio * 1.5,
+    `Near blades separate sun-facing from sun-averted by ${nearRatio.toFixed(2)}x against ${oldRatio.toFixed(2)}x at the far flattening; the schedule is not buying form.`,
+  );
+}
+
 const maximumBacklight = Math.max(
   ...Object.values(presets).map((preset) => preset.backlightStrength),
 );

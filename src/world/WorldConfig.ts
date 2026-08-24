@@ -240,6 +240,19 @@ export interface WorldConfig {
   /** Dark pool under each tuft, and the litter that gathers around it. */
   terrainClumpContactAo: number;
   terrainClumpLitterStrength: number;
+  /**
+   * Blade lighting.
+   *
+   * normalUp was one constant at 0.76, so three quarters of every blade normal
+   * was world up and a blade facing the sun returned nearly the same response
+   * as one facing away. This scales the near end of that schedule down; the
+   * preset still carries the far value a distant card needs.
+   */
+  grassNearNormalUpScale: number;
+  /** How much darker a blade sitting under its neighbours is. */
+  grassCanopyDepthAo: number;
+  /** How much darker a blade near the centre of its own tuft is. */
+  grassClumpCoreAo: number;
   /** World metres covered by one repeat of the generated surface-noise map. */
   terrainGroundNoiseWorldSize: number;
   terrainGroundMesoStrength: number;

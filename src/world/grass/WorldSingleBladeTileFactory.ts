@@ -787,8 +787,30 @@ export class WorldSingleBladeTileFactory {
       job.variations[variationOffset] = job.random.next();
       job.variations[variationOffset + 1] =
         job.random.range(0.84, 1.16) * biomeProfile.windDamping;
+      /**
+       * Whole-blade occlusion, in three parts.
+       *
+       * The field term says how shaded this patch of meadow is. The other two
+       * say where in its own tuft this blade stands, which the field term
+       * cannot: a blade shorter than the tuft's main tier is under the others,
+       * and a blade near the crown is more enclosed than one on the rim.
+       *
+       * Both are build-time and cost nothing at runtime — the clump profile
+       * already knows its own tier height, so no neighbour search is needed.
+       * This is the blade half of the contact the terrain now draws under each
+       * tuft; the two are meant to be read together.
+       */
+      const clumpTopHeight =
+        this.clusterProfile.heightScale * this.worldConfig.grassMainHeightScale;
+      const canopyDepth = THREE.MathUtils.clamp(
+        (clumpTopHeight - verticalScale) / Math.max(clumpTopHeight, 1e-3),
+        0,
+        1,
+      );
       job.variations[variationOffset + 2] =
         resolveGrassCanopyAo(vigor, suitability) *
+        (1 - this.worldConfig.grassCanopyDepthAo * canopyDepth) *
+        (1 - this.worldConfig.grassClumpCoreAo * (1 - sampleRadius)) *
         job.random.range(0.992, 1.008);
       let dryness =
         this.habitatSample.dryness * this.clusterProfile.drynessScale +

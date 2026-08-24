@@ -939,6 +939,7 @@ function createNearGrassResources(
     // One shading schedule for every layer. Passing each material its own LOD
     // distance here is what produced the 6-7 m brightness ring.
     for (const material of created) {
+      material.setNearNormalUpScale(worldConfig.grassNearNormalUpScale);
       material.setMicroDetailFadeRange(
         worldConfig.grassMicroDetailFadeStart,
         worldConfig.grassMicroDetailFadeEnd,
