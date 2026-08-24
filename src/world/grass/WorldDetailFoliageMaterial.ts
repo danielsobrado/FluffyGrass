@@ -161,9 +161,10 @@ void main() {
   // each individual card cut was dithered, and close enough to the near-to-mid
   // handoff to read as part of the same band. Staggering the departures turns
   // that line into a community thinning out, and the world-space wander stops
-  // what is left from tracing a circle centred on the viewer. The per-species
-  // offset may only move a departure inward: the CPU hard cutoff owns the
-  // shared outer edge and must never remove a card whose shader fade is live.
+  // what is left from tracing a circle centred on the viewer. Departures stay
+  // inside the authored inward stagger envelope: the CPU hard cutoff owns the
+  // shared outer edge, while the lower clamp keeps this fade from colliding with
+  // the preceding near-density transition when the wander field is negative.
   float speciesFadeOffset =
     (fract(speciesIndex * 0.61803398875) - 0.5) * uFadeStagger;
   float wanderedFoliageFadeDistance = uFadeDistance + speciesFadeOffset +
@@ -172,9 +173,10 @@ void main() {
       uFadeDistance + uFadeTransition,
       uLodBandJitterRatio
     ) * grassLodBandOffset(root.xz);
-  float foliageFadeDistance = min(
-    uFadeDistance,
-    wanderedFoliageFadeDistance
+  float foliageFadeDistance = clamp(
+    wanderedFoliageFadeDistance,
+    uFadeDistance - uFadeStagger * 0.5,
+    uFadeDistance
   );
   vDistanceFade = 1.0 - smoothstep(
     foliageFadeDistance - uFadeTransition,
