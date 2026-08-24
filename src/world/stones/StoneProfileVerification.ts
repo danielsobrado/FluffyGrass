@@ -1,4 +1,8 @@
-import { buildStonePlanes, type StonePlane } from "./StoneClipper";
+import {
+  buildStonePlanes,
+  PROFILE_GROUND_CLEARANCE,
+  type StonePlane,
+} from "./StoneClipper";
 import { resolveStoneProfileHeights } from "./StoneProfile";
 import { resolveStoneRecipe, STONE_ARCHETYPE_IDS } from "./StoneRecipe";
 
@@ -31,6 +35,7 @@ export function verifyStoneProfiles(): string {
   let capstoneUpperSamples = 0;
   let weatheredUpperRatio = 0;
   let weatheredUpperSamples = 0;
+  let groundedPlanes = 0;
 
   for (const archetype of STONE_ARCHETYPE_IDS) {
     for (let seed = 0; seed < SEEDS_PER_ARCHETYPE; seed += 1) {
@@ -111,17 +116,51 @@ export function verifyStoneProfiles(): string {
           const lowerZ = lower.centerZ + directionZ * lower.radii[side];
           const upperX = upper.centerX + directionX * upper.radii[side];
           const upperZ = upper.centerZ + directionZ * upper.radii[side];
-          const lowerDistance = Math.abs(
-            planeDistance(plane, lowerX, heights[segment], lowerZ),
+          const lowerSigned = planeDistance(
+            plane,
+            lowerX,
+            heights[segment],
+            lowerZ,
           );
-          const upperDistance = Math.abs(
-            planeDistance(plane, upperX, heights[segment + 1], upperZ),
+          const upperSigned = planeDistance(
+            plane,
+            upperX,
+            heights[segment + 1],
+            upperZ,
           );
+          // A plane may never pass inside its own ring points; that is the
+          // clipper silently eating authored mass and is always a bug.
           assert(
-            lowerDistance <= PLANE_TOLERANCE &&
-              upperDistance <= PLANE_TOLERANCE,
-            `${archetype}:${seed}:${side}:${segment} plane diverges from profile (${lowerDistance}/${upperDistance}).`,
+            lowerSigned <= PLANE_TOLERANCE &&
+              upperSigned <= PLANE_TOLERANCE,
+            `${archetype}:${seed}:${side}:${segment} plane cuts inside the profile (${lowerSigned}/${upperSigned}).`,
           );
+          // Outward divergence is legitimate in exactly one case: the clipper
+          // grounds a segment whose downward extrapolation would slice the
+          // contact polygon away. Such a plane is pushed out to tangency with
+          // ring 0 and stops cutting. Anything else must match the profile.
+          const contactSupport =
+            rings[0].radii[side] +
+            directionX * rings[0].centerX +
+            directionZ * rings[0].centerZ;
+          // The stored plane is normalized, which rescales `constant`. The
+          // horizontal part of the profile normal was unit before that, so
+          // dividing by it recovers the support the profile authored.
+          const horizontal = Math.hypot(plane.nx, plane.nz);
+          const groundSupport =
+            horizontal > 1e-9 ? plane.constant / horizontal : plane.constant;
+          const grounded =
+            segment > 0 &&
+            Math.abs(
+              groundSupport - (contactSupport + PROFILE_GROUND_CLEARANCE),
+            ) <= PLANE_TOLERANCE;
+          assert(
+            grounded ||
+              (Math.abs(lowerSigned) <= PLANE_TOLERANCE &&
+                Math.abs(upperSigned) <= PLANE_TOLERANCE),
+            `${archetype}:${seed}:${side}:${segment} plane diverges from profile without grounding (${lowerSigned}/${upperSigned}).`,
+          );
+          if (grounded) groundedPlanes += 1;
         }
       }
       profilesChecked += 1;
@@ -138,5 +177,5 @@ export function verifyStoneProfiles(): string {
     `Capstone roofs must remain materially broader than weathered roofs (${averageCapstoneUpperRatio.toFixed(3)} vs ${averageWeatheredUpperRatio.toFixed(3)}).`,
   );
 
-  return `${profilesChecked} layered profiles · ${capstonesChecked} capstones`;
+  return `${profilesChecked} layered profiles · ${capstonesChecked} capstones · ${groundedPlanes} grounded`;
 }

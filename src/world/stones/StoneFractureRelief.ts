@@ -39,6 +39,16 @@ const RELIEF_PERIOD_HEIGHT = 0.42;
 const RELIEF_PERIOD_ALONG = 0.55;
 /** Intersecting formation and cut relief gets only a small extra allowance. */
 const MAX_MIXED_RELIEF = 0.021;
+/**
+ * Fraction of the smallest face a rim point touches that relief may spend.
+ * Rim points are welded, so displacing one also drags every neighbouring face
+ * that shares it. A near-degenerate sliver can be narrower than the
+ * displacement itself, and moving its corners that far turns the face inside
+ * out. Ordinary faces are unaffected: at this fraction anything with a
+ * diagonal past about 0.14 already has more budget than MAX_MIXED_RELIEF can
+ * spend, so only near-degenerate slivers ever bind.
+ */
+const RELIEF_FACE_BUDGET = 0.15;
 const RELIEF_SEED_XOR = 0x52656c66;
 const CUT_RELIEF_SEED_XOR = 0x43757452;
 const HORIZONTAL_EPSILON = 1e-6;
@@ -105,6 +115,14 @@ export function addStoneFractureRelief(
   }
   if (offsets.size === 0) return polygons;
 
+  // Mated fragments must displace their shared rim identically. The budget is
+  // measured from incident faces, and the two halves of a break do not share
+  // those, so applying it to a fragment would part the rim. Whole stones carry
+  // the sliver protection; fragments keep exact parity, which the formation
+  // gate checks.
+  const budgets = recipe.fracture
+    ? undefined
+    : resolveReliefBudgets(polygons, offsets);
   const maximumCutRelief = resolveCutRelief(recipe);
   for (const [point, offset] of offsets) {
     const cutLength = Math.hypot(offset.cutX, offset.cutZ);
@@ -118,10 +136,63 @@ export function addStoneFractureRelief(
       x *= mixedScale;
       z *= mixedScale;
     }
+    const budget = budgets?.get(point);
+    if (budget !== undefined) {
+      const length = Math.hypot(x, z);
+      if (length > budget && length > HORIZONTAL_EPSILON) {
+        const scale = budget / length;
+        x *= scale;
+        z *= scale;
+      }
+    }
     point.x += x;
     point.z += z;
   }
   return polygons;
+}
+
+/**
+ * Budget each moving point by the smallest face it belongs to, measured as that
+ * face's bounding diagonal. Only slivers ever bind.
+ */
+function resolveReliefBudgets(
+  polygons: readonly StonePolygon[],
+  offsets: ReadonlyMap<StoneVec3, ReliefOffset>,
+): Map<StoneVec3, number> {
+  const budgets = new Map<StoneVec3, number>();
+  for (const polygon of polygons) {
+    let minimumX = Infinity;
+    let minimumY = Infinity;
+    let minimumZ = Infinity;
+    let maximumX = -Infinity;
+    let maximumY = -Infinity;
+    let maximumZ = -Infinity;
+    let touches = false;
+    for (const point of polygon.points) {
+      if (offsets.has(point)) touches = true;
+      if (point.x < minimumX) minimumX = point.x;
+      if (point.y < minimumY) minimumY = point.y;
+      if (point.z < minimumZ) minimumZ = point.z;
+      if (point.x > maximumX) maximumX = point.x;
+      if (point.y > maximumY) maximumY = point.y;
+      if (point.z > maximumZ) maximumZ = point.z;
+    }
+    if (!touches) continue;
+    const diagonal = Math.hypot(
+      maximumX - minimumX,
+      maximumY - minimumY,
+      maximumZ - minimumZ,
+    );
+    const budget = diagonal * RELIEF_FACE_BUDGET;
+    for (const point of polygon.points) {
+      if (!offsets.has(point)) continue;
+      const existing = budgets.get(point);
+      if (existing === undefined || budget < existing) {
+        budgets.set(point, budget);
+      }
+    }
+  }
+  return budgets;
 }
 
 function resolveReliefSources(recipe: StoneRecipe): ReliefSource[] {

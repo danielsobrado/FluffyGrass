@@ -88,6 +88,13 @@ const EDGE_CHAMFER_SCALE: Record<StoneRecipe["archetype"], number> = {
 };
 const FACE_HIERARCHY_TOLERANCE = 0.015;
 const PROFILE_MIN_HEIGHT_GAP = 0.06;
+/**
+ * How far past tangency a grounded profile plane is pushed. Exact tangency
+ * leaves a zero-width sliver face that relief displacement can overturn, and
+ * an outward push only ever makes a half-space less cutting, so clearing the
+ * contact ring generously costs nothing.
+ */
+export const PROFILE_GROUND_CLEARANCE = 0.01;
 
 const RIDGE_CHANCE: Record<StoneRecipe["archetype"], number> = {
   pebble: 0.08,
@@ -210,6 +217,8 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const heights = profileHeights(recipe, side);
+    const contactSupport =
+      rings[0].radii[side] + nx * rings[0].centerX + nz * rings[0].centerZ;
 
     for (let segment = 0; segment < rings.length - 1; segment += 1) {
       const lower = rings[segment];
@@ -225,7 +234,20 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
       const upperSupport =
         upper.radii[side] + nx * upper.centerX + nz * upper.centerZ;
       const ny = (lowerSupport - upperSupport) / heightSpan;
-      const constant = lowerSupport + ny * lowerHeight;
+      // A segment is exact only between its own two rings; below the lower one
+      // it keeps extrapolating. A flaring crown anchored high on a narrow ring
+      // therefore reaches y = 0 with a far smaller -- sometimes negative --
+      // support and slices the contact polygon away, leaving the stone
+      // hovering. The profile's slope bound cannot prevent this on its own,
+      // because clamping a ring radius bottoms out at MIN_RADIUS and the
+      // offending slope survives. Ring 0 is the ground contact, so no profile
+      // plane may reach inside its support along its own direction; a plane
+      // pushed out to tangency simply stops cutting, which is the only
+      // resolution a single half-space allows.
+      const constant =
+        segment === 0
+          ? lowerSupport + ny * lowerHeight
+          : lowerSupport + ny * lowerHeight;
       const role: StonePlaneRole =
         segment === 0
           ? "contact-bevel"

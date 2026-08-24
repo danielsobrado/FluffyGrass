@@ -8,7 +8,13 @@ import {
   TERRAIN_DETAIL_COLOR,
   TERRAIN_DETAIL_VERTEX,
 } from "../TerrainMaterialShader";
+import {
+  buildStoneSurfacePlanes,
+  facesFromPlanes,
+} from "./StoneClipper";
 import { StoneField, type StoneInstance } from "./StoneField";
+import { resolveQualityStoneRecipe } from "./StoneShapeQuality";
+import { STONE_ARCHETYPE_IDS } from "./StoneRecipe";
 import {
   scoreStoneContactInfluence,
   scoreStoneOcclusionInfluence,
@@ -18,6 +24,8 @@ import {
   resolveStoneWaterlineMoss,
   type StoneWetness,
 } from "./StoneWetness";
+
+const GROUND_SEEDS_PER_ARCHETYPE = 200;
 
 function fail(message: string): never {
   throw new Error(`[stone-latest-regressions] ${message}`);
@@ -155,6 +163,43 @@ function verifyTerrainStoneAttributes(configSource: string): void {
   }
 }
 
+/**
+ * A profile segment high on the body keeps extrapolating its slope downward,
+ * and a flaring crown anchored on a narrow ring could reach y = 0 with a
+ * negative support and clip the contact polygon away entirely -- leaving the
+ * stone hovering by up to 10 cm. StoneVerification checks raw recipes; the
+ * defect was three times more common under quality selection, because the
+ * shape scorer actively preferred the flared bodies that caused it. This
+ * checks the recipes that actually ship.
+ */
+function verifyQualityStonesReachTheGround(): number {
+  let checked = 0;
+  for (const archetype of STONE_ARCHETYPE_IDS) {
+    for (let variant = 0; variant < GROUND_SEEDS_PER_ARCHETYPE; variant += 1) {
+      const seed = (variant * 2654435761 + archetype.length * 977) >>> 0;
+      const recipe = resolveQualityStoneRecipe(archetype, seed);
+      const faces = facesFromPlanes(buildStoneSurfacePlanes(recipe, true));
+      const contact = faces.filter((face) => face.role === "bottom");
+      assert(
+        contact.length > 0,
+        `${archetype}:${seed} lost its ground contact polygon.`,
+      );
+      let minimumY = Infinity;
+      for (const face of faces) {
+        for (const point of face.points) {
+          if (point.y < minimumY) minimumY = point.y;
+        }
+      }
+      assert(
+        Math.abs(minimumY * recipe.height) <= 2e-3,
+        `${archetype}:${seed} hovers ${(minimumY * recipe.height).toFixed(4)}m above the ground.`,
+      );
+      checked += 1;
+    }
+  }
+  return checked;
+}
+
 function verifyShaderIdentityGuards(): void {
   assert(
     TERRAIN_DETAIL_VERTEX.includes("attribute vec2 terrainStoneOcclusionCenter") &&
@@ -174,5 +219,6 @@ export function verifyLatestStoneRegressions(configSource: string): string {
   const pairs = verifyRigidMatedPlacement(configSource);
   verifyTerrainStoneAttributes(configSource);
   verifyShaderIdentityGuards();
-  return `${pairs} rigid pairs + waterline + independent ground owners + terrain attributes`;
+  const grounded = verifyQualityStonesReachTheGround();
+  return `${pairs} rigid pairs + waterline + independent ground owners + terrain attributes + ${grounded} grounded quality bodies`;
 }
