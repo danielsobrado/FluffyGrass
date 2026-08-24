@@ -9,6 +9,10 @@ import {
   GRASS_LATTICE_NOISE_GLSL,
   GRASS_LOD_BAND_GLSL,
 } from "../../grass/GrassLodBanding";
+import {
+  TERRAIN_HUMIDITY_DRYNESS_WEIGHT,
+  TERRAIN_HUMIDITY_VIGOR_WEIGHT,
+} from "./TerrainSurfaceTuning";
 
 /**
  * The macro ecology fields, evaluated per fragment on the ground.
@@ -83,13 +87,26 @@ vec2 terrainSampleMacroField(vec2 world) {
  * the shader was given and adding the fragment evaluation of the same function
  * removes the double count exactly, which is the only reason
  * `vTerrainMacroDryness` is carried at all.
+ *
+ * Humidity is derived from both values by `TerrainSurfaceField`. Correct it by
+ * the same deltas so soil colour does not keep the aliased vertex-level macro
+ * pattern after dryness and vigour have moved to fragment resolution.
  */
 export const TERRAIN_MACRO_FIELD_APPLY = `
 vec2 terrainMacroField = terrainSampleMacroField(vTerrainWorldPosition.xz);
+float terrainVertexVigor = terrainVigor;
+float terrainVertexDryness = terrainDryness;
 terrainVigor = terrainMacroField.y;
 terrainDryness = saturate(
   terrainDryness +
     (terrainMacroField.x - vTerrainMacroDryness) *
       ${GRASS_MACRO_DRYNESS_STRENGTH.toFixed(4)}
+);
+terrainHumidity = saturate(
+  terrainHumidity +
+    (terrainVertexDryness - terrainDryness) *
+      ${TERRAIN_HUMIDITY_DRYNESS_WEIGHT.toFixed(4)} +
+    (terrainVigor - terrainVertexVigor) *
+      ${TERRAIN_HUMIDITY_VIGOR_WEIGHT.toFixed(4)}
 );
 `;
