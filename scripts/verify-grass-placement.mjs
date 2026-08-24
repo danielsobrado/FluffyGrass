@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIRECTORY, "..");
 
+/** Transects and distribution checks are deterministic; keep source reads simple. */
 function read(relativePath) {
   return readFileSync(resolve(REPOSITORY_ROOT, relativePath), "utf8").replaceAll(
     "\r\n",
@@ -393,6 +394,7 @@ const accentScale = readYamlNumber(worldConfigSource, "grassAccentHeightScale");
 const heightJitter = readYamlNumber(worldConfigSource, "grassBladeHeightJitter");
 const verticalScaleMax = readFactoryNumber("INSTANCE_VERTICAL_SCALE_MAX");
 const verticalScaleMin = readFactoryNumber("INSTANCE_VERTICAL_SCALE_MIN");
+const horizontalScaleMax = readFactoryNumber("INSTANCE_HORIZONTAL_SCALE_MAX");
 
 assert(
   understoryShare > 0 && accentShare > 0 && understoryShare + accentShare < 1,
@@ -465,6 +467,10 @@ console.log(
  */
 const tipDriftConfig = readYamlNumber(worldConfigSource, "grassBladeTipDrift");
 const broadShare = readYamlNumber(worldConfigSource, "grassBroadBladeShare");
+const broadWidthScale = readYamlNumber(
+  worldConfigSource,
+  "grassBroadBladeWidthScale",
+);
 const damageShare = readYamlNumber(worldConfigSource, "grassBladeDamageShare");
 const rosetteChance = readYamlNumber(worldConfigSource, "grassRosetteChance");
 const rosetteFan = readYamlNumber(worldConfigSource, "grassRosetteFanRadians");
@@ -573,28 +579,37 @@ function writeShapeChannels(random, driftScale) {
 }
 
 /**
- * Rosette density conservation.
+ * Rosette density and capacity conservation.
  *
- * Rosettes emit several blades from one placement cell. If the coverage each
- * blade is written with did not fall by the same expected factor, raising
- * `grassRosetteChance` would silently multiply the meadow's blade count —
- * which is a frame-time change disguised as an art control.
+ * Rosettes emit several blades from one placement cell. Coverage falls by the
+ * expected expansion so the population stays stable, but that expected value
+ * is not a worst-case buffer reservation. Production therefore reserves one
+ * slot for every unvisited base cell and spends only the remaining capacity on
+ * optional leaves. A high run of rosettes may lose extras; it must never stop
+ * the row-major cell walk and carve a spatial hole into the tile.
  */
 {
   const expansion = 1 + rosetteChance * 2.5;
   const random = new SeededRandom(0x2f6a88d1);
   const cells = 400_000;
-  // The coverage a cell would have written before rosettes existed.
+  const capacity = Math.ceil(cells * expansion);
   const baseCoverage = 0.62;
   const scaledCoverage = baseCoverage / expansion;
+  let emitted = 0;
+  let baseBlades = 0;
   let survivors = 0;
   for (let cell = 0; cell < cells; cell += 1) {
+    baseBlades += 1;
+    emitted += 1;
     if (random.next() < scaledCoverage) {
       survivors += 1;
     }
     if (random.next() < rosetteChance) {
       const leaves = 1 + Math.floor(random.next() * 4);
-      for (let leaf = 0; leaf < leaves; leaf += 1) {
+      const remainingCells = cells - cell - 1;
+      const extraBladeLimit = Math.max(emitted, capacity - remainingCells);
+      for (let leaf = 0; leaf < leaves && emitted < extraBladeLimit; leaf += 1) {
+        emitted += 1;
         if (random.next() < scaledCoverage) {
           survivors += 1;
         }
@@ -603,8 +618,16 @@ function writeShapeChannels(random, driftScale) {
   }
   const ratio = survivors / (cells * baseCoverage);
   assert(
-    Math.abs(ratio - 1) < 0.01,
-    `Rosettes must not change the blade count: ${ratio.toFixed(4)} of the pre-rosette field.`,
+    baseBlades === cells,
+    `Rosette capacity truncated the base placement grid at ${baseBlades}/${cells} cells.`,
+  );
+  assert(
+    emitted <= capacity,
+    `Rosette placement emitted ${emitted} blades into capacity ${capacity}.`,
+  );
+  assert(
+    Math.abs(ratio - 1) < 0.02,
+    `Rosettes must keep expected blade coverage stable: ${ratio.toFixed(4)} of the pre-rosette field.`,
   );
 
   assert(
@@ -613,14 +636,37 @@ function writeShapeChannels(random, driftScale) {
     "Per-blade coverage must divide by the rosette expansion.",
   );
   assert(
-    factorySource.includes("job.bladeCount < job.capacity"),
-    "The placement loop and the leaf loop must both be bounded by capacity, not by the cell count.",
+    factorySource.includes(
+      "const remainingCells = job.requestedCount - job.nextIndex;",
+    ) &&
+      factorySource.includes("job.capacity - remainingCells") &&
+      factorySource.includes("job.bladeCount < extraBladeLimit") &&
+      !factorySource.includes(
+        "return job.nextIndex >= job.requestedCount || job.bladeCount >= job.capacity",
+      ),
+    "Rosette leaves must spend only surplus capacity while every base placement cell remains visitable.",
+  );
+  assert(
+    factorySource.includes("this.buildBufferPool.get(capacity)") &&
+      factorySource.includes("const capacity = buffers.matrixValues.length / 16;"),
+    "Build-buffer pooling must be keyed by physical capacity, not by a cell count that gets expanded twice.",
+  );
+  assert(
+    factorySource.includes("const leafWidth = THREE.MathUtils.clamp(") &&
+      factorySource.includes("const leafHeight = THREE.MathUtils.clamp(") &&
+      factorySource.includes("INSTANCE_HORIZONTAL_SCALE_MAX") &&
+      factorySource.includes("INSTANCE_VERTICAL_SCALE_MAX"),
+    "Rosette leaves must stay inside the horizontal and vertical scale ceilings charged by culling bounds.",
+  );
+  assert(
+    broadWidthScale <= horizontalScaleMax,
+    `Broad blade scale ${broadWidthScale} exceeds the charged horizontal ceiling ${horizontalScaleMax}.`,
   );
   assert(
     factorySource.includes(
       "Math.ceil(requestedCount * this.rosetteExpansion)",
     ),
-    "Buffers must reserve the rosette expansion.",
+    "Buffers must reserve the configured rosette expansion budget.",
   );
   assert(
     allocationSource.includes("resolveGrassRosetteExpansion(rosetteChance)"),
@@ -632,8 +678,9 @@ function writeShapeChannels(random, driftScale) {
   );
 
   console.log(
-    `[grass-placement] rosettes at ${(rosetteChance * 100).toFixed(0)}% expand ` +
-      `placement by ${expansion.toFixed(3)}x and hold the blade count to ` +
+    `[grass-placement] rosettes at ${(rosetteChance * 100).toFixed(0)}% reserve ` +
+      `${capacity} blades for ${cells} cells (${expansion.toFixed(3)}x), emit ` +
+      `${emitted} without skipping a base cell, and hold coverage to ` +
       `${(ratio * 100).toFixed(2)}% of the pre-rosette field; leaves fan ` +
       `${rosetteFan} rad apart and drift ${rosetteDriftScale} against ` +
       `${understoryDriftScale} in the open.`,
