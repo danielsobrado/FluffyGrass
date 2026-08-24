@@ -502,7 +502,7 @@ try {
     "uTerrainHollowDarkening",
     "uTerrainHollowMoisture",
     "uTerrainMossStrength",
-    "uTerrainClumpCell",
+    "uTerrainClumpSpan",
     "uTerrainClumpAo",
     "uTerrainClumpLitter",
     "uTerrainClumpSeed",
@@ -530,17 +530,16 @@ try {
   // must name the same lattice cell. A decorative contact shadow is worse than
   // none: it puts shade where nothing stands.
   {
-    const { CLUMP_CELLS } = await server.ssrLoadModule(
-      "/src/world/grass/WorldSingleBladeTileFactory.ts",
-    );
-    const expectedCell = rawConfig.grassNearTileSize / CLUMP_CELLS;
-    assert(
-      Number.isFinite(expectedCell) && expectedCell > 0,
-      "The near-grass clump cell size must resolve.",
+    const { resolveGrassPlacementGrid } = await server.ssrLoadModule(
+      "/src/world/grass/GrassClumpLattice.ts",
     );
     assert(
-      terrainMaterialControllerSource.includes("GRASS_CLUMP_CELLS"),
-      "The terrain must take its clump cell size from the placement constant rather than restating it.",
+      typeof resolveGrassPlacementGrid === "function",
+      "The clump lattice must be resolvable from one shared place.",
+    );
+    assert(
+      terrainMaterialControllerSource.includes("resolveGrassPlacementGrid"),
+      "The terrain must take its clump geometry from the shared placement resolver rather than restating it; a contact shadow that lands near a tuft rather than under one is worse than none.",
     );
   }
 
