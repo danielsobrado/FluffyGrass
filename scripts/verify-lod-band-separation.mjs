@@ -95,6 +95,13 @@ try {
   } = await server.ssrLoadModule("/src/grass/GrassLodBanding.ts");
   const { GRASS_MACRO_DRYNESS_STRENGTH, ...macroFields } =
     await server.ssrLoadModule("/src/grass/GrassFieldVariation.ts");
+  const {
+    DETAIL_FOLIAGE_FADE_DISTANCE,
+    DETAIL_FOLIAGE_FADE_TRANSITION,
+    DETAIL_FOLIAGE_FADE_STAGGER,
+  } = await server.ssrLoadModule(
+    "/src/world/grass/WorldDetailFoliageField.ts",
+  );
 
   const config = new WorldConfigLoader().parse(
     read("public/config/world.yaml"),
@@ -315,8 +322,19 @@ try {
     "Terrain LOD schedules use the shared band field and must be marked accordingly.",
   );
   assert(
-    detailMaterialSource.includes("float foliageFadeDistance = min("),
-    "Detail foliage may not extend its shader fade beyond the CPU hard cutoff.",
+    detailMaterialSource.includes("float foliageFadeDistance = clamp("),
+    "Detail foliage must clamp its staggered shader fade inside the CPU-owned envelope.",
+  );
+
+  const nearDensityEnd =
+    config.grassNearDensityBoostDistance + config.grassNearDensityBoostTransition;
+  const earliestFoliageStart =
+    DETAIL_FOLIAGE_FADE_DISTANCE -
+    DETAIL_FOLIAGE_FADE_STAGGER * 0.5 -
+    DETAIL_FOLIAGE_FADE_TRANSITION;
+  assert(
+    earliestFoliageStart >= nearDensityEnd,
+    `Detail-foliage stagger may begin at ${earliestFoliageStart.toFixed(1)} m, before the near-density transition ends at ${nearDensityEnd.toFixed(1)} m.`,
   );
 
   // --- The GLSL macro-field mirror must reproduce the CPU fields exactly ---
