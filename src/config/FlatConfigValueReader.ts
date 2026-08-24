@@ -4,6 +4,7 @@ export interface ConfigNumberRule {
   minimum?: number;
   exclusiveMinimum?: number;
   maximum?: number;
+  exclusiveMaximum?: number;
   integer?: boolean;
 }
 
@@ -66,6 +67,14 @@ export class FlatConfigValueReader {
     if (rule.minimum !== undefined && value < rule.minimum) {
       throw new Error(
         `${this.configName} config value ${key} must be at least ${rule.minimum}.`,
+      );
+    }
+    if (
+      rule.exclusiveMaximum !== undefined &&
+      value >= rule.exclusiveMaximum
+    ) {
+      throw new Error(
+        `${this.configName} config value ${key} must be lower than ${rule.exclusiveMaximum}.`,
       );
     }
     if (rule.maximum !== undefined && value > rule.maximum) {
