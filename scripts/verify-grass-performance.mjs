@@ -858,15 +858,40 @@ assert(
     Math.round(16 * 16 * yamlAccentDensity) <=
       ACCENT_CANDIDATES_PER_TILE_CEILING &&
     accentTileSize === 16 &&
-    Number(
-      detailFoliageAtlasFactory.match(
-        /DETAIL_FOLIAGE_VARIANT_ROWS = (\d+)/,
-      )?.[1],
-    ) === 2 &&
     maxAccentSpecies === 10 &&
     nearField.includes("DETAIL_FOLIAGE_TILES_PER_FRAME = 1"),
-  `Detail foliage must keep 16 m tiles, 10 species, 2 phenotype rows, one tile/frame, and ≤ ${ACCENT_CANDIDATES_PER_TILE_CEILING} candidates.`,
+  `Detail foliage must keep 16 m tiles, 10 species, one tile/frame, and ≤ ${ACCENT_CANDIDATES_PER_TILE_CEILING} candidates.`,
 );
+// The phenotype row count is not a runtime cost -- it changes neither
+// candidates, tiles, draws nor vertices -- so it is bounded by the memory it
+// actually spends rather than pinned to a number. Four rows exist because two
+// silhouettes per species left a stand of broadleaf or shrub reading as one
+// undifferentiated mass; pinning the count here would have made fixing that a
+// performance failure.
+{
+  const variantRows = Number(
+    detailFoliageAtlasFactory.match(/DETAIL_FOLIAGE_VARIANT_ROWS = (\d+)/)?.[1],
+  );
+  const cellResolution = Number(
+    detailFoliageAtlasFactory.match(
+      /DETAIL_FOLIAGE_CELL_RESOLUTION = (\d+)/,
+    )?.[1],
+  );
+  const cellPadding = Number(
+    detailFoliageAtlasFactory.match(/DETAIL_FOLIAGE_CELL_PADDING = (\d+)/)?.[1],
+  );
+  const cellSize = cellResolution + cellPadding * 2;
+  const atlasBytes = variantRows * maxAccentSpecies * cellSize * cellSize * 4;
+  const ATLAS_BYTE_CEILING = 8 * 1024 * 1024;
+  assert(
+    Number.isFinite(variantRows) && variantRows >= 2,
+    "The detail-foliage atlas must carry at least two phenotype rows per species.",
+  );
+  assert(
+    atlasBytes <= ATLAS_BYTE_CEILING,
+    `Detail foliage atlas is ${(atlasBytes / 1024 / 1024).toFixed(2)} MB, above the ${ATLAS_BYTE_CEILING / 1024 / 1024} MB ceiling.`,
+  );
+}
 assert(
   detailFoliageField.includes("castShadow = false") &&
     detailFoliageField.includes("receiveShadow = false") &&

@@ -114,19 +114,24 @@ assert(
     broadleafMax < seedMax,
   "Replacement plants must keep a lower, wider silhouette than seed heads and daisies.",
 );
+// Four phenotype rows, and they must be maturation states rather than reseeds:
+// the understory families are large, low-contrast and mid-green, so a row that
+// differs only by seed leaves a stand of them reading as one plant.
 assert(
   atlas.includes("private drawLowShrub(") &&
     atlas.includes("private drawBroadleafRosette(") &&
-    /drawLowShrub\([\s\S]*variant % 2 === 1/.test(atlas) &&
-    /drawBroadleafRosette\([\s\S]*variant % 2 === 1/.test(atlas) &&
+    /drawLowShrub\([\s\S]*?variant % DETAIL_FOLIAGE_VARIANT_ROWS/.test(atlas) &&
+    /drawBroadleafRosette\([\s\S]*?variant % DETAIL_FOLIAGE_VARIANT_ROWS/.test(
+      atlas,
+    ) &&
     atlas.includes("private drawCloverPatch(") &&
     atlas.includes("private drawLeafLitter(") &&
     atlas.includes("DETAIL_FOLIAGE_CELL_RESOLUTION = 112") &&
-    atlas.includes("DETAIL_FOLIAGE_VARIANT_ROWS = 2") &&
+    atlas.includes("DETAIL_FOLIAGE_VARIANT_ROWS = 4") &&
     atlas.includes("columns * cellSize") &&
     !atlas.includes("drawSprig") &&
     !atlas.includes('case "tall-tuft"'),
-  "Atlas must draw shrub, rosette, and ground-layer phenotypes on the 10x2 1280x256 layout.",
+  "Atlas must draw shrub, rosette, and ground-layer phenotypes on the 10x4 1280x512 layout.",
 );
 assert(
   species.includes('key: "daisy"') &&

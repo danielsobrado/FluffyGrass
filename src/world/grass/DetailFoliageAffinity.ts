@@ -20,6 +20,21 @@ import {
 } from "./DetailFoliageRandom";
 import type { DetailFoliageTuning } from "./DetailFoliageTuning";
 import type { DetailFoliageDistributionSample } from "./WorldDetailFoliageDistribution";
+import {
+  FOLIAGE_PHENOTYPE_GRAZED,
+  FOLIAGE_PHENOTYPE_JUVENILE,
+  FOLIAGE_PHENOTYPE_MATURE,
+  FOLIAGE_PHENOTYPE_SENESCENT,
+} from "./WorldDetailFoliageAtlasFactory";
+
+/**
+ * Share of plants drawn from the grazed row.
+ *
+ * Small, and independent of maturity: a plant is eaten or trodden by accident,
+ * not by age. Large enough that a stand is not uniformly intact, which is the
+ * tell that a population was generated rather than grown.
+ */
+const DETAIL_FOLIAGE_GRAZED_SHARE = 0.11;
 
 export interface DetailFoliageSelection {
   speciesIndex: number;
@@ -471,19 +486,42 @@ export function detailFoliageMaturity(
   );
 }
 
+/**
+ * Which phenotype row a plant grows into.
+ *
+ * The atlas carries four maturation states rather than two reseeds, so this
+ * picks along that axis instead of flipping a bit. Maturity biases the choice
+ * toward the fuller rows; the roll then decides, so a colony holds a spread of
+ * ages rather than one age everywhere — which is what a stand of one species
+ * actually looks like.
+ *
+ * The grazed row is deliberately rare and deliberately not maturity-driven: a
+ * plant is eaten or trodden by accident, not by age.
+ */
 export function detailFoliageVariantRow(
   distribution: DetailFoliageDistributionSample,
   candidateHash: number,
   tuning: DetailFoliageTuning,
 ): number {
   const maturity = detailFoliageMaturity(distribution, candidateHash, tuning);
-  const pMatureRow = clamp01(
-    tuning.maturePhenotypeBias * (0.35 + 0.65 * maturity),
+  const roll = detailFoliageChannel01(
+    candidateHash,
+    DETAIL_FOLIAGE_PHENOTYPE_SALT,
   );
-  return detailFoliageChannel01(candidateHash, DETAIL_FOLIAGE_PHENOTYPE_SALT) <
-    pMatureRow
-    ? 1
-    : 0;
+  if (roll < DETAIL_FOLIAGE_GRAZED_SHARE) {
+    return FOLIAGE_PHENOTYPE_GRAZED;
+  }
+  const remaining =
+    (roll - DETAIL_FOLIAGE_GRAZED_SHARE) / (1 - DETAIL_FOLIAGE_GRAZED_SHARE);
+  const pFull = clamp01(tuning.maturePhenotypeBias * (0.35 + 0.65 * maturity));
+  if (remaining >= pFull) {
+    return FOLIAGE_PHENOTYPE_JUVENILE;
+  }
+  // Inside the full-grown share, senescence is the tail of maturity: an old
+  // stand carries more of it than a young one.
+  return remaining < pFull * clamp01(0.24 + 0.36 * maturity)
+    ? FOLIAGE_PHENOTYPE_SENESCENT
+    : FOLIAGE_PHENOTYPE_MATURE;
 }
 
 export function pickDetailFoliageWeightedIndex(

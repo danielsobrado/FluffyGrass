@@ -223,10 +223,22 @@ export function resolveGrassAccentTintRow(key: string): number {
  * a single attribute, which keeps the accent layer on the same four-attribute
  * budget as every other grass layer.
  */
+/**
+ * Packs a card's identity into one float attribute.
+ *
+ * The species stride was 16, which left `variantRow` exactly one bit and capped
+ * the atlas at two phenotypes per species. Four maturation states need two, so
+ * the stride is 32; the tint keeps its low three bits. The widest value this
+ * produces is 10 species x 32 + 3 x 8 + 7 = 351, exact in a float32 attribute
+ * with three orders of magnitude to spare.
+ *
+ * The decode in `WorldDetailFoliageMaterial`'s vertex stage must use the same
+ * stride, and `verify-understory-morphology` parses both to check that it does.
+ */
 export function packGrassAccent(
   speciesIndex: number,
   variantRow: number,
   tintRow: number,
 ): number {
-  return speciesIndex * 16 + variantRow * 8 + tintRow;
+  return speciesIndex * 32 + variantRow * 8 + tintRow;
 }

@@ -60,7 +60,11 @@ const DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT = 0.36;
 const DETAIL_FOLIAGE_GROUNDCOVER_FORWARD_COMPONENT = Math.sqrt(
   1 - DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT ** 2,
 );
-const DETAIL_FOLIAGE_UNDERSTORY_EDGE_DARKENING = 0.13;
+// Raised from 0.13. The understory leaves now carry real margins, midribs and
+// folds; at the old strength the edge term was too weak for any of that to
+// register, which would have meant paying for silhouette detail and not seeing
+// it.
+const DETAIL_FOLIAGE_UNDERSTORY_EDGE_DARKENING = 0.2;
 const DETAIL_FOLIAGE_UNDERSTORY_EDGE_RANGE = 0.25;
 const DETAIL_FOLIAGE_UNDERSTORY_DETAIL_FADE_START = 8;
 const DETAIL_FOLIAGE_UNDERSTORY_DETAIL_FADE_END = 24;
@@ -149,9 +153,11 @@ void main() {
 
   // Decoded ahead of the fade rather than after it, because the fade is now a
   // function of which species this card is.
+  // Stride 32, not 16: four phenotype rows need two bits where the old packing
+  // left one. Kept in step with packGrassAccent by verify-understory-morphology.
   float accent = instanceAccent;
-  float speciesIndex = floor(accent / 16.0);
-  float packedRemainder = accent - speciesIndex * 16.0;
+  float speciesIndex = floor(accent / 32.0);
+  float packedRemainder = accent - speciesIndex * 32.0;
   float variantRow = floor(packedRemainder / 8.0);
   vTint = packedRemainder - variantRow * 8.0;
   vCell = vec2(speciesIndex, variantRow);
