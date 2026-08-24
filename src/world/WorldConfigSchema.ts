@@ -284,7 +284,7 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassBladeDamageShare: { minimum: 0, maximum: 0.2 },
   grassRosetteChance: { minimum: 0, maximum: 0.5 },
   grassRosetteFanRadians: {
-    minimum: 0.1,
+    exclusiveMinimum: 0.1,
     exclusiveMaximum: MAX_GRASS_ROSETTE_FAN_RADIANS,
   },
   terrainGroundNoiseWorldSize: { minimum: 16, maximum: 256 },
