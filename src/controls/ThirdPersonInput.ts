@@ -73,8 +73,8 @@ export class ThirdPersonInput {
       (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0);
     const rawHorizontalMovement = keyboardX + touch.x + joystick.x;
     const horizontalMovement = hudSettingsStore.getInvertHorizontalMovement()
-      ? rawHorizontalMovement
-      : -rawHorizontalMovement;
+      ? -rawHorizontalMovement
+      : rawHorizontalMovement;
     target.set(
       THREE.MathUtils.clamp(horizontalMovement, -1, 1),
       THREE.MathUtils.clamp(keyboardY + touch.y + joystick.y, -1, 1),
