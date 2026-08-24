@@ -152,6 +152,18 @@ try {
       "Sparse density retention threshold must remain a fractional biome-relative value.",
     );
     await expectReject(
+      () =>
+        load(
+          worldLoader,
+          worldSource.replace(
+            "grassRosetteFanRadians: 0.42",
+            `grassRosetteFanRadians: ${Math.PI / 4}`,
+          ),
+        ),
+      /grassRosetteFanRadians must be lower than/,
+      "A four-leaf rosette fan must stay strictly inside a half turn.",
+    );
+    await expectReject(
       () => load(worldLoader, `${worldSource}\nunknownProductionSetting: 1\n`),
       /Unknown world config value: unknownProductionSetting/,
       "Unknown world keys must fail closed.",
