@@ -176,11 +176,9 @@ export class HydrologyField {
       z !== this.carvedSampleZ ||
       Math.abs(carvedHeight - this.carvedSampleHeight) > SAMPLE_HEIGHT_EPSILON
     ) {
-      this.sampleStructure(
-        x,
-        z,
-        this.resolveSourceHeight(x, z, carvedHeight) ?? carvedHeight,
-      );
+      const sourceHeight =
+        this.resolveSourceHeight(x, z, carvedHeight) ?? this.sampleRawHeight(x, z);
+      this.sampleStructure(x, z, sourceHeight);
       this.carvedSampleX = x;
       this.carvedSampleZ = z;
       this.carvedSampleHeight = carvedHeight;
