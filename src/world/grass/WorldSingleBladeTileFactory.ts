@@ -101,7 +101,9 @@ export interface WorldSingleBladeTileBuildJob {
   requestedCount: number;
   /**
    * Blades the buffers can hold. Larger than {@link requestedCount}, which is
-   * the placement *cell* count: a rosette cell emits several leaves.
+   * the placement *cell* count: a rosette cell may emit several leaves.
+   * Remaining cells always keep one reserved slot, so optional rosette leaves
+   * can consume this budget without truncating the base placement grid.
    */
   capacity: number;
   columns: number;
@@ -379,7 +381,7 @@ export class WorldSingleBladeTileFactory {
         stage: "mesh",
         cachedPlacement,
         requestedCount,
-        capacity: this.resolveBladeCapacity(requestedCount),
+        capacity: cachedPlacement.matrixValues.length / 16,
         columns: 0,
         rows: 0,
         cellWidth: 0,
@@ -432,7 +434,7 @@ export class WorldSingleBladeTileFactory {
       placementKey,
       stage: "lattice",
       requestedCount,
-      capacity: this.resolveBladeCapacity(requestedCount),
+      capacity: buffers.matrixValues.length / 16,
       columns,
       rows,
       cellWidth,
@@ -491,7 +493,7 @@ export class WorldSingleBladeTileFactory {
         job.heightLattice = undefined;
       }
       if (job.bladeCount === 0) {
-        this.releaseBuildBuffers(job.requestedCount, job);
+        this.releaseBuildBuffers(job);
         this.rememberEmptyPlacement(job.placementKey);
         return { complete: true, empty: true };
       }
@@ -513,11 +515,6 @@ export class WorldSingleBladeTileFactory {
     let processed = 0;
     while (
       job.nextIndex < job.requestedCount &&
-      // Rosettes make the blade count run ahead of the cell count, so the
-      // buffers -- not the grid -- are what the loop is bounded by. The
-      // expansion is an expectation, and a tile whose rosettes all rolled four
-      // leaves would otherwise write past the reservation.
-      job.bladeCount < job.capacity &&
       (processed === 0 ||
         processed % DEADLINE_CHECK_INTERVAL !== 0 ||
         performance.now() < deadline)
@@ -825,7 +822,7 @@ export class WorldSingleBladeTileFactory {
         this.clusterProfile.heightScale *
           job.random.range(...biomeProfile.widthBand) *
           this.clusterProfile.widthScale *
-            broadWidthScale *
+          broadWidthScale *
           (isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1),
         0.76,
         INSTANCE_HORIZONTAL_SCALE_MAX,
@@ -920,15 +917,27 @@ export class WorldSingleBladeTileFactory {
        * and it is also the more correct model: these leaves share a root, a
        * soil and a light budget, so they should share the sampled values and
        * re-roll only their presentation.
+       *
+       * Capacity is an expected expansion, not a worst-case five-blade reserve.
+       * Optional leaves therefore use only the slots left after reserving one
+       * base blade for every placement cell still to visit. A dense run of
+       * rosettes can lose optional leaves, but it can never cut the spatial grid
+       * short and leave a row-order hole in the meadow.
        */
       if (
         !isAccentBlade &&
         job.random.next() < this.worldConfig.grassRosetteChance
       ) {
         const leaves = 1 + Math.floor(job.random.next() * 4);
+        const remainingCells = job.requestedCount - job.nextIndex;
+        const extraBladeLimit = Math.max(
+          job.bladeCount,
+          job.capacity - remainingCells,
+        );
+        const parentBaseWidth = horizontalScale / broadWidthScale;
         for (
           let leaf = 0;
-          leaf < leaves && job.bladeCount < job.capacity;
+          leaf < leaves && job.bladeCount < extraBladeLimit;
           leaf += 1
         ) {
           const fan =
@@ -951,15 +960,19 @@ export class WorldSingleBladeTileFactory {
             job.bladeCount,
             ROSETTE_DRIFT_SCALE,
           );
-          const leafWidth =
-            horizontalScale *
-            (leafBroad ? this.worldConfig.grassBroadBladeWidthScale : 1) *
-            job.random.range(0.86, 1.08);
-          this.scale.set(
-            leafWidth,
-            verticalScale * job.random.range(0.74, 1.08),
-            leafWidth,
+          const leafWidth = THREE.MathUtils.clamp(
+            parentBaseWidth *
+              (leafBroad ? this.worldConfig.grassBroadBladeWidthScale : 1) *
+              job.random.range(0.86, 1.08),
+            0.76,
+            INSTANCE_HORIZONTAL_SCALE_MAX,
           );
+          const leafHeight = THREE.MathUtils.clamp(
+            verticalScale * job.random.range(0.74, 1.08),
+            INSTANCE_VERTICAL_SCALE_MIN,
+            INSTANCE_VERTICAL_SCALE_MAX,
+          );
+          this.scale.set(leafWidth, leafHeight, leafWidth);
           this.matrix.compose(this.localPosition, this.align, this.scale);
           this.matrix.toArray(job.matrixValues, job.bladeCount * 16);
           const leafOffset = job.bladeCount * 4;
@@ -980,8 +993,7 @@ export class WorldSingleBladeTileFactory {
       }
     }
 
-    // Either every cell was visited or the buffers filled; both are done.
-    return job.nextIndex >= job.requestedCount || job.bladeCount >= job.capacity;
+    return job.nextIndex >= job.requestedCount;
   }
 
   private advanceFinalize(
@@ -1109,7 +1121,7 @@ export class WorldSingleBladeTileFactory {
         job.reorderVisited = new Uint8Array(job.bladeCount);
         job.reorderMatrixScratch = new Float32Array(16);
         job.reorderVariationScratch = new Float32Array(4);
-    job.reorderShapeScratch = new Uint8Array(4);
+        job.reorderShapeScratch = new Uint8Array(4);
         job.stage = "reorder";
       }
       return this.continueBuild(job, deadline);
@@ -1316,6 +1328,7 @@ export class WorldSingleBladeTileFactory {
     job.reorderVisited = undefined;
     job.reorderMatrixScratch = undefined;
     job.reorderVariationScratch = undefined;
+    job.reorderShapeScratch = undefined;
     job.reorderCycleStart = undefined;
     job.reorderCycleTarget = undefined;
     job.reorderCoverageScratch = undefined;
@@ -1393,7 +1406,7 @@ export class WorldSingleBladeTileFactory {
       const evicted = this.placementLru.get(oldestKey);
       this.placementLru.delete(oldestKey);
       if (evicted) {
-        this.releaseBuildBuffers(evicted.matrixValues.length / 16, evicted);
+        this.releaseBuildBuffers(evicted);
       }
     }
   }
@@ -1432,7 +1445,7 @@ export class WorldSingleBladeTileFactory {
       this.latticePool.push(job.heightLattice);
       job.heightLattice = undefined;
     }
-    this.releaseBuildBuffers(job.requestedCount, job);
+    this.releaseBuildBuffers(job);
   }
 
   dispose(): void {
@@ -1464,11 +1477,10 @@ export class WorldSingleBladeTileFactory {
   }
 
   /**
-   * Blades a tile with this many placement cells has to be able to hold.
-   *
-   * Rosettes emit extra leaves from a cell, so the reservation is the cell
-   * count times the expansion. Per-blade coverage divides by the same number,
-   * so the *expected* population is unchanged and only the peak grows.
+   * Blades a tile with this many placement cells can spend on base blades and
+   * optional rosette leaves. The expected expansion keeps memory predictable;
+   * the sampling loop reserves one slot for every unvisited base cell, so a
+   * high rosette roll can reduce optional leaves but can never truncate space.
    */
   private resolveBladeCapacity(requestedCount: number): number {
     return Math.ceil(requestedCount * this.rosetteExpansion);
@@ -1476,7 +1488,7 @@ export class WorldSingleBladeTileFactory {
 
   private acquireBuildBuffers(requestedCount: number): TileBuildBuffers {
     const capacity = this.resolveBladeCapacity(requestedCount);
-    const pool = this.buildBufferPool.get(requestedCount);
+    const pool = this.buildBufferPool.get(capacity);
     const buffers = pool?.pop();
     if (buffers) {
       return buffers;
@@ -1490,14 +1502,12 @@ export class WorldSingleBladeTileFactory {
     };
   }
 
-  private releaseBuildBuffers(
-    requestedCount: number,
-    buffers: TileBuildBuffers,
-  ): void {
-    let pool = this.buildBufferPool.get(requestedCount);
+  private releaseBuildBuffers(buffers: TileBuildBuffers): void {
+    const capacity = buffers.matrixValues.length / 16;
+    let pool = this.buildBufferPool.get(capacity);
     if (!pool) {
       pool = [];
-      this.buildBufferPool.set(requestedCount, pool);
+      this.buildBufferPool.set(capacity, pool);
     }
     if (pool.length < 4) {
       pool.push({
