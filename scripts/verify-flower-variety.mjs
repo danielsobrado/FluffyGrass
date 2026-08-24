@@ -166,19 +166,31 @@ assert(
 );
 
 /**
- * A flower has to read as a flower against the grass it stands in.
+ * A flower has to read as a flower against the shipped grass palette.
  *
- * The palette move muted the meadow, which helps here, but it moves the target:
- * every tint is now compared against a duller, darker green than the one they
- * were chosen against, and a tint that was a clear accent over a bright field
- * can turn into a pale smudge over a muted one. The atlas draws petals as an
- * unlit tint multiplied into the card, so this is the actual colour a viewer
- * sees against the actual colour of the canopy behind it.
+ * Biome row zero delegates its colors to the active art direction. Measuring
+ * against the profile JSON instead would freeze this gate to a palette that is
+ * not rendered whenever the default preset changes. The tint itself is checked
+ * before shared lighting; later petal shade and lighting may alter value, but
+ * they cannot rescue a source tint that already collapses into the canopy hue.
  */
 {
   const tuning = JSON.parse(read("src/grass/materials/GrassPaletteTuning.json"));
   const biomeProfiles = JSON.parse(
     read("src/grass/biome/GrassBiomeProfiles.json"),
+  );
+  const presets = JSON.parse(read("src/grass/GrassArtPresets.json"));
+  const defaultArtDirectionKey = read("src/grass/GrassArtDirection.ts").match(
+    /DEFAULT_GRASS_ART_DIRECTION_KEY: GrassArtDirectionKey =\s*"([a-z-]+)"/,
+  )?.[1];
+  assert(
+    biomeProfiles.meadow?.paletteSource === "art",
+    "The meadow row must delegate its palette to the active art direction.",
+  );
+  const meadow = presets[defaultArtDirectionKey];
+  assert(
+    Boolean(meadow),
+    `Unable to resolve the default art direction: ${defaultArtDirectionKey}.`,
   );
   const desaturation = Number(
     read("public/config/world.yaml").match(
@@ -225,15 +237,14 @@ assert(
     ];
   }
 
-  // The meadow tip as the renderer resolves it: luminance-balanced against the
-  // row's own base, then pulled toward its luminance by the global lever.
-  const meadow = biomeProfiles.meadow;
+  // Mirrors setBalancedGrassPaletteColors: balance the tip against the active
+  // base first, then apply the luminance-preserving global desaturation.
   const meadowBase = parseHex(meadow.baseColor);
   const meadowTip = parseHex(meadow.tipColor);
   const tipFactor =
     (Math.max(luminanceOf(meadowBase), 1e-4) * tuning.tipLuminanceScale) /
     Math.max(luminanceOf(meadowTip), 1e-4);
-  const canopy = meadowTip.map((channel) => Math.min(1, channel * tipFactor));
+  const canopy = meadowTip.map((channel) => channel * tipFactor);
   const canopyLuminance = luminanceOf(canopy);
   const canopyLab = toLab(
     canopy.map(
@@ -257,13 +268,13 @@ assert(
     }
     assert(
       distance >= MINIMUM_TINT_DELTA_E,
-      `Accent tint ${tint.key} sits ΔE ${distance.toFixed(1)} from the meadow canopy; a flower that close to the grass is texture, not a flower.`,
+      `Accent tint ${tint.key} sits ΔE ${distance.toFixed(1)} from the shipped meadow canopy; a flower that close to the grass is texture, not a flower.`,
     );
   }
 
   console.log(
-    `[flower-variety] ${tints.length} accent tints clear the meadow canopy by ` +
-      `ΔE ${worst.toFixed(1)} at worst (${worstKey}), against a floor of ` +
+    `[flower-variety] ${tints.length} accent tints clear ${defaultArtDirectionKey} ` +
+      `by ΔE ${worst.toFixed(1)} at worst (${worstKey}), against a floor of ` +
       `${MINIMUM_TINT_DELTA_E}.`,
   );
 }
