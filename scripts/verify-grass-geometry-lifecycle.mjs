@@ -37,6 +37,14 @@ assert(
 );
 
 assert(
+  /if \(sharedAttributes\?\.shape\) \{\s*geometry\.setAttribute\("instanceShape", sharedAttributes\.shape\);\s*\}/.test(
+    source,
+  ) &&
+    !source.includes("new Uint8Array(instanceCount * 4).fill(128)"),
+  "Shape attributes must only exist on geometry whose material consumes them; non-shape LODs must not allocate a fallback buffer.",
+);
+
+assert(
   /private createVariants\([\s\S]*?const variants: THREE\.BufferGeometry\[\] = \[\];[\s\S]*?try \{[\s\S]*?variants\.push\([\s\S]*?return variants;[\s\S]*?catch \(error\)[\s\S]*?disposeGrassGeometryResources\(variants, "partial variant set"\)/.test(
     source,
   ),
@@ -78,5 +86,5 @@ assert(
 );
 
 console.log(
-  "[grass-geometry-lifecycle] Clump, instanced, shared patch, and variant geometry ownership verified.",
+  "[grass-geometry-lifecycle] Clump, instanced, optional shape, shared patch, and variant geometry ownership verified.",
 );
