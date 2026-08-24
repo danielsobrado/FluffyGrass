@@ -10,7 +10,7 @@ import {
   TERRAIN_DETAIL_VERTEX,
   TERRAIN_WET_SHEEN,
 } from "./TerrainMaterialShader";
-import { CLUMP_CELLS as GRASS_CLUMP_CELLS } from "./grass/WorldSingleBladeTileFactory";
+import { resolveGrassPlacementGrid } from "./grass/GrassClumpLattice";
 import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
@@ -19,7 +19,7 @@ import {
   resolveTerrainMacroFieldExtent,
 } from "./terrain/TerrainMacroFieldTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v15-substrate";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v16-clump-alignment";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -50,6 +50,14 @@ export class TerrainMaterialController {
       macroFieldTexture = compact
         ? createTerrainMacroFieldTexture(config.worldSize)
         : undefined;
+      const nearDensity = compact
+        ? config.grassNearBladesPerSquareMeterCompact
+        : config.grassNearBladesPerSquareMeterDesktop;
+      const basePlacementGrid = resolveGrassPlacementGrid(
+        config.grassNearTileSize,
+        nearDensity,
+        1,
+      );
       this.material = material;
       this.surfaceNoiseTexture = surfaceNoiseTexture;
       this.macroFieldTexture = macroFieldTexture;
@@ -123,17 +131,19 @@ export class TerrainMaterialController {
         uTerrainHollowMoisture: { value: config.terrainHollowMoisture },
         uTerrainMossStrength: { value: config.terrainMossStrength },
         /**
-         * The near-grass clump lattice, so the dark pool lands under a tuft
-         * rather than near one. WorldSingleBladeTileFactory divides each
-         * grassNearTileSize tile into CLUMP_CELLS per axis; the two have to
-         * name the same cell or the contact shadow is decorative.
+         * Exact base near-grass clump span. Placement and terrain use the same
+         * requested-count/grid resolver, including compact density and the
+         * slightly different X/Z dimensions caused by rows versus columns.
          */
-        uTerrainClumpCell: {
-          value: config.grassNearTileSize / GRASS_CLUMP_CELLS,
+        uTerrainClumpSpan: {
+          value: new THREE.Vector2(
+            basePlacementGrid.clumpSpanX,
+            basePlacementGrid.clumpSpanZ,
+          ),
         },
         uTerrainClumpAo: { value: config.terrainClumpContactAo },
         uTerrainClumpLitter: { value: config.terrainClumpLitterStrength },
-        uTerrainClumpSeed: { value: (config.seed ^ 0x2b_74_c9_15) >>> 0 },
+        uTerrainClumpSeed: { value: config.seed >>> 0 },
         uTerrainMacroField: { value: macroFieldTexture ?? null },
         uTerrainMacroFieldExtent: {
           value: new THREE.Vector2(
