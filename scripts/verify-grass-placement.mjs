@@ -581,12 +581,12 @@ function writeShapeChannels(random, driftScale) {
 /**
  * Rosette density and capacity conservation.
  *
- * Rosettes emit several blades from one placement cell. Coverage falls by the
- * expected expansion so the population stays stable, but that expected value
- * is not a worst-case buffer reservation. Production therefore reserves one
- * slot for every unvisited base cell and spends only the remaining capacity on
- * optional leaves. A high run of rosettes may lose extras; it must never stop
- * the row-major cell walk and carve a spatial hole into the tile.
+ * Rosettes emit several blades from eligible placement cells. Coverage falls
+ * by the expected expansion for those blades so the population stays stable.
+ * Accent blades are deliberately ineligible for rosettes and therefore retain
+ * full authored coverage instead of paying for leaves they can never emit.
+ * Capacity remains an expected reservation: optional leaves may be clipped, but
+ * the row-major base-cell walk must never be truncated.
  */
 {
   const expansion = 1 + rosetteChance * 2.5;
@@ -597,14 +597,24 @@ function writeShapeChannels(random, driftScale) {
   const scaledCoverage = baseCoverage / expansion;
   let emitted = 0;
   let baseBlades = 0;
+  let accentCells = 0;
+  let accentSurvivors = 0;
   let survivors = 0;
   for (let cell = 0; cell < cells; cell += 1) {
+    const isAccent = random.next() < accentShare;
+    const parentCoverage = isAccent ? baseCoverage : scaledCoverage;
     baseBlades += 1;
     emitted += 1;
-    if (random.next() < scaledCoverage) {
-      survivors += 1;
+    if (isAccent) {
+      accentCells += 1;
     }
-    if (random.next() < rosetteChance) {
+    if (random.next() < parentCoverage) {
+      survivors += 1;
+      if (isAccent) {
+        accentSurvivors += 1;
+      }
+    }
+    if (!isAccent && random.next() < rosetteChance) {
       const leaves = 1 + Math.floor(random.next() * 4);
       const remainingCells = cells - cell - 1;
       const extraBladeLimit = Math.max(emitted, capacity - remainingCells);
@@ -617,6 +627,7 @@ function writeShapeChannels(random, driftScale) {
     }
   }
   const ratio = survivors / (cells * baseCoverage);
+  const accentRatio = accentSurvivors / (accentCells * baseCoverage);
   assert(
     baseBlades === cells,
     `Rosette capacity truncated the base placement grid at ${baseBlades}/${cells} cells.`,
@@ -629,11 +640,18 @@ function writeShapeChannels(random, driftScale) {
     Math.abs(ratio - 1) < 0.02,
     `Rosettes must keep expected blade coverage stable: ${ratio.toFixed(4)} of the pre-rosette field.`,
   );
+  assert(
+    Math.abs(accentRatio - 1) < 0.02,
+    `Accent blades must retain authored coverage: ${accentRatio.toFixed(4)} of the pre-rosette accent population.`,
+  );
 
   assert(
-    factorySource.includes("this.rosetteExpansion") &&
-      factorySource.includes("/\n        this.rosetteExpansion;"),
-    "Per-blade coverage must divide by the rosette expansion.",
+    factorySource.includes(
+      "const coverageExpansion = isAccentBlade ? 1 : this.rosetteExpansion;",
+    ) &&
+      factorySource.includes("/\n        coverageExpansion;") &&
+      factorySource.includes("!isAccentBlade &&"),
+    "Only rosette-eligible blades may divide coverage by the rosette expansion.",
   );
   assert(
     factorySource.includes(
@@ -680,10 +698,10 @@ function writeShapeChannels(random, driftScale) {
   console.log(
     `[grass-placement] rosettes at ${(rosetteChance * 100).toFixed(0)}% reserve ` +
       `${capacity} blades for ${cells} cells (${expansion.toFixed(3)}x), emit ` +
-      `${emitted} without skipping a base cell, and hold coverage to ` +
-      `${(ratio * 100).toFixed(2)}% of the pre-rosette field; leaves fan ` +
-      `${rosetteFan} rad apart and drift ${rosetteDriftScale} against ` +
-      `${understoryDriftScale} in the open.`,
+      `${emitted} without skipping a base cell, hold total coverage to ` +
+      `${(ratio * 100).toFixed(2)}% and accent coverage to ` +
+      `${(accentRatio * 100).toFixed(2)}%; leaves fan ${rosetteFan} rad apart ` +
+      `and drift ${rosetteDriftScale} against ${understoryDriftScale} in the open.`,
   );
 }
 
