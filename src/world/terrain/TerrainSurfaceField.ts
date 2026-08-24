@@ -26,6 +26,10 @@ import {
   sampleGrassMacroDryness,
   sampleGrassMacroVigor,
 } from "../../grass/GrassFieldVariation";
+import {
+  TERRAIN_HUMIDITY_DRYNESS_WEIGHT,
+  TERRAIN_HUMIDITY_VIGOR_WEIGHT,
+} from "./TerrainSurfaceTuning";
 
 /** Packed semantic channels consumed by the terrain shader. */
 export interface TerrainSurfaceTargets {
@@ -126,8 +130,8 @@ export class TerrainSurfaceField {
         (this.config.grassMaxAltitude - this.config.grassMinAltitude),
     );
     const humidity = clamp01(
-      (1 - this.habitatSample.dryness) * 0.68 +
-        vigor * 0.32 +
+      (1 - this.habitatSample.dryness) * TERRAIN_HUMIDITY_DRYNESS_WEIGHT +
+        vigor * TERRAIN_HUMIDITY_VIGOR_WEIGHT +
         hydrology.humidityBoost,
     );
 
