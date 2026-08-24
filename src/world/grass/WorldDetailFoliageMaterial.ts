@@ -56,11 +56,18 @@ const DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT = 0.36;
 const DETAIL_FOLIAGE_GROUNDCOVER_FORWARD_COMPONENT = Math.sqrt(
   1 - DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT ** 2,
 );
-const DETAIL_FOLIAGE_GROUNDCOVER_EDGE_DARKENING = 0.13;
-const DETAIL_FOLIAGE_GROUNDCOVER_EDGE_RANGE = 0.25;
-const DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_START = 8;
-const DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_END = 24;
-const DETAIL_FOLIAGE_GROUNDCOVER_MASK_GLSL = createGroundcoverMaskGlsl();
+const DETAIL_FOLIAGE_UNDERSTORY_EDGE_DARKENING = 0.13;
+const DETAIL_FOLIAGE_UNDERSTORY_EDGE_RANGE = 0.25;
+const DETAIL_FOLIAGE_UNDERSTORY_DETAIL_FADE_START = 8;
+const DETAIL_FOLIAGE_UNDERSTORY_DETAIL_FADE_END = 24;
+const DETAIL_FOLIAGE_GROUNDCOVER_MASK_GLSL = createCategoryMaskGlsl([
+  "groundcover",
+]);
+const DETAIL_FOLIAGE_UNDERSTORY_MASK_GLSL = createCategoryMaskGlsl([
+  "groundcover",
+  "shrub",
+  "broadleaf",
+]);
 /**
  * Card sway as a fraction of card height per unit of configured wind strength.
  * The placement bounds charge for this exact product, so the two must move
@@ -69,9 +76,9 @@ const DETAIL_FOLIAGE_GROUNDCOVER_MASK_GLSL = createGroundcoverMaskGlsl();
  */
 export const DETAIL_FOLIAGE_WIND_SHEAR_FACTOR = 0.4;
 
-function createGroundcoverMaskGlsl(): string {
-  const terms = GRASS_ACCENT_SPECIES.filter(
-    (species) => species.category === "groundcover",
+function createCategoryMaskGlsl(categories: readonly string[]): string {
+  const terms = GRASS_ACCENT_SPECIES.filter((species) =>
+    categories.includes(species.category),
   ).map(
     (species) =>
       `step(abs(speciesIndex - ${species.index.toFixed(1)}), 0.25)`,
@@ -103,6 +110,7 @@ flat varying float vTint;
 flat varying float vBiome;
 flat varying float vPhenotype;
 flat varying float vGroundcover;
+flat varying float vUnderstory;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
@@ -153,6 +161,7 @@ void main() {
   );
   float groundcover = ${DETAIL_FOLIAGE_GROUNDCOVER_MASK_GLSL};
   vGroundcover = groundcover;
+  vUnderstory = ${DETAIL_FOLIAGE_UNDERSTORY_MASK_GLSL};
 
   // Upright species remain yaw-only billboards so flowers and ferns cannot
   // disappear edge-on. Groundcover is different: making every low card face
@@ -273,6 +282,7 @@ flat varying float vTint;
 flat varying float vBiome;
 flat varying float vPhenotype;
 flat varying float vGroundcover;
+flat varying float vUnderstory;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
@@ -328,34 +338,34 @@ void main() {
     float(${GRASS_MAX_ACCENT_TINTS} - 1)
   ) + 0.5);
 
-  // Groundcover already encodes per-leaf/per-fragment shade in the atlas, but
-  // the shared grass palette deliberately compresses that range. Restore local
-  // contrast near the camera and darken only the antialiased silhouette fringe;
-  // this separates overlapping leaflets without adding geometry or texture taps.
-  float groundcoverDetailFade = 1.0 - smoothstep(
-    ${DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_START.toFixed(1)},
-    ${DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_END.toFixed(1)},
+  // These species already encode separate leaf/fragment shades in the atlas,
+  // but the shared grass palette deliberately compresses that range. Restore
+  // local contrast near the camera and darken the antialiased silhouette fringe
+  // so rosettes and shrubs keep individual leaves instead of one green mass.
+  float understoryDetailFade = 1.0 - smoothstep(
+    ${DETAIL_FOLIAGE_UNDERSTORY_DETAIL_FADE_START.toFixed(1)},
+    ${DETAIL_FOLIAGE_UNDERSTORY_DETAIL_FADE_END.toFixed(1)},
     vCameraDistance
   );
-  float groundcoverShade = mix(
-    0.82,
-    1.12,
-    smoothstep(0.24, 0.58, accentData.g)
+  float understoryShade = mix(
+    0.76,
+    1.14,
+    smoothstep(0.22, 0.58, accentData.g)
   );
-  float groundcoverInterior = smoothstep(
+  float understoryInterior = smoothstep(
     cutoff,
-    min(0.96, cutoff + ${DETAIL_FOLIAGE_GROUNDCOVER_EDGE_RANGE.toFixed(2)}),
+    min(0.96, cutoff + ${DETAIL_FOLIAGE_UNDERSTORY_EDGE_RANGE.toFixed(2)}),
     atlasColor.a
   );
-  float groundcoverEdge = mix(
-    ${(1 - DETAIL_FOLIAGE_GROUNDCOVER_EDGE_DARKENING).toFixed(2)},
+  float understoryEdge = mix(
+    ${(1 - DETAIL_FOLIAGE_UNDERSTORY_EDGE_DARKENING).toFixed(2)},
     1.0,
-    groundcoverInterior
+    understoryInterior
   );
   color *= mix(
     1.0,
-    groundcoverShade * groundcoverEdge,
-    vGroundcover * groundcoverDetailFade
+    understoryShade * understoryEdge,
+    vUnderstory * understoryDetailFade
   );
 
   // Petal tint used to replace the semantic atlas colour completely whenever
