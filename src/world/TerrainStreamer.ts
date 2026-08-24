@@ -70,7 +70,7 @@ export class TerrainStreamer {
     let cascades: WorldCascadeSystem | undefined;
 
     try {
-      materialController = new TerrainMaterialController(config, shadows);
+      materialController = new TerrainMaterialController(config, shadows, compact);
       this.materialController = materialController;
       waterMaterialController =
         config.waterEnabled >= 1

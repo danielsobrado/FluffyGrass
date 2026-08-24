@@ -1,3 +1,4 @@
+import { GRASS_MID_DENSITY_FALLOFF } from "../grass/GrassLodTuning";
 import { validateHydrologyConfig } from "./hydrology/HydrologyConfigValidator";
 import { createWorldHorizonAxis } from "./horizon/WorldHorizonGrid";
 import { validateStoneClusterGeometry } from "./WorldConfigStoneCluster";
@@ -15,6 +16,12 @@ const MAX_SPAWN_SEARCH_STEPS_PER_RADIUS = 64;
  * the cheap layer and starts competing with the terrain it backs.
  */
 const MAX_HORIZON_TRIANGLES = 120000;
+/**
+ * Metres the canopy merge may begin before the mid density falloff completes.
+ * Both schedules wander, so a hard boundary between them would fail on the tail
+ * rather than on the intent.
+ */
+const CANOPY_MERGE_FALLOFF_SLACK = 12;
 
 export function validateWorldConfig(config: WorldConfig): void {
   const worldChunks = config.worldSize / config.chunkSize;
@@ -243,6 +250,8 @@ export function validateWorldConfig(config: WorldConfig): void {
     );
   }
 
+  validateTerrainDistanceSchedules(config);
+
   validateGrassStreamRadius("desktop", config.grassRadiusDesktop, config);
   validateGrassStreamRadius("compact", config.grassRadiusCompact, config);
 
@@ -407,6 +416,49 @@ function validateFauna(config: WorldConfig): void {
  * than to within a rounding error. The remaining checks bound cost and enforce
  * minimum coverage.
  */
+/**
+ * The ground's distance schedules, and the ordering that keeps them from
+ * stacking back into the ring they were separated to remove.
+ *
+ * `verify-lod-band-separation` enforces the full conflict-class rules across
+ * every schedule in the renderer; these are the ones expressible from world
+ * config alone, so they fail at load rather than at build.
+ */
+function validateTerrainDistanceSchedules(config: WorldConfig): void {
+  const ranges: readonly [string, number, number][] = [
+    ["terrainMicroDetail", config.terrainMicroDetailStart, config.terrainMicroDetailEnd],
+    ["terrainMesoDetail", config.terrainMesoDetailStart, config.terrainMesoDetailEnd],
+    ["terrainCanopyMerge", config.terrainCanopyMergeStart, config.terrainCanopyMergeEnd],
+  ];
+  for (const [label, start, end] of ranges) {
+    if (start >= end) {
+      throw new Error(`${label}Start must be lower than ${label}End.`);
+    }
+  }
+  if (config.terrainMicroDetailEnd > config.terrainMesoDetailStart) {
+    throw new Error(
+      "The terrain micro-detail fade must complete before meso detail begins to fade.",
+    );
+  }
+  if (config.terrainMesoDetailEnd > config.terrainCanopyMergeEnd) {
+    throw new Error(
+      "Meso mottling must not outlive the canopy merge that replaces the ground it varies.",
+    );
+  }
+  // The ground may only start reading as canopy once the blades have actually
+  // thinned. Keyed to the mid layer's density falloff rather than to the near
+  // handoff, which is the mistake this whole separation exists to undo. The
+  // slack absorbs the falloff's own jittered tail.
+  if (
+    config.terrainCanopyMergeStart <
+    GRASS_MID_DENSITY_FALLOFF.end - CANOPY_MERGE_FALLOFF_SLACK
+  ) {
+    throw new Error(
+      "terrainCanopyMergeStart must not precede the mid density falloff's completion.",
+    );
+  }
+}
+
 function validateHorizonShell(config: WorldConfig): void {
   if (config.horizonEnabled < 1) {
     return;

@@ -2,6 +2,33 @@
 // mid band and crossfade them only at the mid-to-far boundary; this removes a
 // full-screen layer of redundant overdraw without reducing blade density.
 export const GRASS_MID_IMPOSTOR_UNDERFILL = 0;
+/**
+ * The mid layer's distance thinning. `floor` is the fraction of blades still
+ * submitted at `end` metres; the survivors are widened by `1/sqrt(floor)` and
+ * pay the invented coverage back in colour, so the field's average brightness —
+ * which is what `verify-lod-color-parity` bounds — does not move.
+ *
+ * Moved out from 28→62. Those edges were the grass preset's own near and mid
+ * distances, so the thinning of the blade grain happened across exactly the
+ * radii where the ground's colour, its mottling, and the near/mid handoff were
+ * all also changing. Six soft fades sharing two edges read as one hard ring;
+ * this is one of the six, and it now shares an edge with none of them.
+ *
+ * Lives here rather than beside the material that reads it because the world
+ * config validator has to check the ground's canopy merge against it, and
+ * pulling a THREE material into config validation to learn two numbers would be
+ * the wrong dependency.
+ */
+export const GRASS_MID_DENSITY_FALLOFF: Readonly<{
+  start: number;
+  end: number;
+  floor: number;
+}> = Object.freeze({
+  start: 36,
+  end: 74,
+  floor: 0.18,
+});
+
 export const GRASS_IMPOSTOR_FOOTPRINT_SCALE = 1.12;
 export const GRASS_IMPOSTOR_MAX_HORIZONTAL_SCALE = 1.1;
 export const GRASS_IMPOSTOR_MAX_VERTICAL_SCALE = 1.2;

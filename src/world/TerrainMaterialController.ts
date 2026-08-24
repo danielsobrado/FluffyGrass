@@ -13,12 +13,17 @@ import {
 import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
+import {
+  createTerrainMacroFieldTexture,
+  resolveTerrainMacroFieldExtent,
+} from "./terrain/TerrainMacroFieldTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v11-stone-contact-identity";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v12-band-separation";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
   private readonly surfaceNoiseTexture: THREE.DataTexture;
+  private readonly macroFieldTexture?: THREE.DataTexture;
   private readonly palette = new TerrainSurfacePalette();
   private readonly uniforms: Record<string, THREE.IUniform>;
   private disposed = false;
@@ -26,13 +31,27 @@ export class TerrainMaterialController {
   constructor(
     config: WorldConfig,
     readonly shadows: boolean,
+    /**
+     * Selects how the macro ecology fields reach the fragment stage.
+     *
+     * Desktop evaluates them exactly, sixteen integer hashes per ground
+     * fragment. Integrated GPUs commonly issue integer multiplies at a quarter
+     * of their float rate, so compact reads a baked 4 m grid of the same
+     * functions instead and accepts about 1.5% of resampling error for it.
+     */
+    private readonly compact = false,
   ) {
     const material = new THREE.MeshLambertMaterial({ vertexColors: true });
     let surfaceNoiseTexture: THREE.DataTexture | undefined;
+    let macroFieldTexture: THREE.DataTexture | undefined;
     try {
       surfaceNoiseTexture = createTerrainSurfaceNoiseTexture(config.seed);
+      macroFieldTexture = compact
+        ? createTerrainMacroFieldTexture(config.worldSize)
+        : undefined;
       this.material = material;
       this.surfaceNoiseTexture = surfaceNoiseTexture;
+      this.macroFieldTexture = macroFieldTexture;
       this.uniforms = {
         uTerrainSurfaceNoise: { value: this.surfaceNoiseTexture },
         uTerrainNoiseWorldSize: { value: config.terrainGroundNoiseWorldSize },
@@ -43,12 +62,42 @@ export class TerrainMaterialController {
           value: config.terrainGroundCanopyDarkening,
         },
         uTerrainGrassTintStrength: { value: 0.5 },
-        uTerrainLodDistances: {
-          value: new THREE.Vector4(
-            config.grassUltraNearDistance,
-            config.grassUltraNearTransitionDistance,
-            config.grassNearDistance,
-            config.grassMidDistance,
+        /**
+         * The ground's own distance schedules.
+         *
+         * These used to be one vec4 filled from the grass preset's near and mid
+         * distances, so the ground's micro grain, its meso mottling and its
+         * canopy merge all changed across the same radii the vegetation handed
+         * off at. That is what made the hillside band. They are independent
+         * config now, and `setGrassArtDirection` no longer touches them.
+         */
+        uTerrainMicroRange: {
+          value: new THREE.Vector2(
+            config.terrainMicroDetailStart,
+            config.terrainMicroDetailEnd,
+          ),
+        },
+        uTerrainMesoRange: {
+          value: new THREE.Vector2(
+            config.terrainMesoDetailStart,
+            config.terrainMesoDetailEnd,
+          ),
+        },
+        uTerrainCanopyMergeRange: {
+          value: new THREE.Vector2(
+            config.terrainCanopyMergeStart,
+            config.terrainCanopyMergeEnd,
+          ),
+        },
+        uTerrainCanopyMergeStrength: {
+          value: config.terrainCanopyMergeStrength,
+        },
+        uTerrainBandJitterRatio: { value: config.lodBandJitterRatio },
+        uTerrainMacroField: { value: macroFieldTexture ?? null },
+        uTerrainMacroFieldExtent: {
+          value: new THREE.Vector2(
+            resolveTerrainMacroFieldExtent(config.worldSize),
+            resolveTerrainMacroFieldExtent(config.worldSize),
           ),
         },
         uTerrainPathHalfWidth: {
@@ -96,7 +145,7 @@ export class TerrainMaterialController {
       this.configureMaterial();
     } catch (error) {
       try {
-        disposeResources([material, surfaceNoiseTexture]);
+        disposeResources([material, surfaceNoiseTexture, macroFieldTexture]);
       } catch (cleanupError) {
         console.warn(
           "[Drusniel World] Terrain material construction cleanup failed.",
@@ -112,9 +161,10 @@ export class TerrainMaterialController {
       return;
     }
     this.palette.apply(direction);
-    const lod = this.uniforms.uTerrainLodDistances.value as THREE.Vector4;
-    lod.z = direction.nearDistance;
-    lod.w = direction.midDistance;
+    // Deliberately does not touch the ground's distance schedules. Deriving
+    // them from the preset's near/mid distances is what put three ground terms
+    // on the same two radii as three vegetation terms; the ground keeps its own
+    // ranges whatever the art direction does with the grass.
     this.uniforms.uTerrainGrassTintStrength.value =
       direction.terrainGrassTintStrength;
   }
@@ -124,7 +174,11 @@ export class TerrainMaterialController {
       return;
     }
     this.disposed = true;
-    disposeResources([this.material, this.surfaceNoiseTexture]);
+    disposeResources([
+      this.material,
+      this.surfaceNoiseTexture,
+      this.macroFieldTexture,
+    ]);
   }
 
   private configureMaterial(): void {
@@ -144,7 +198,9 @@ export class TerrainMaterialController {
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "#include <common>",
-          `#include <common>${TERRAIN_DETAIL_FRAGMENT}`,
+          `#include <common>${
+            this.compact ? "\n#define TERRAIN_MACRO_FIELD_TEXTURE\n" : ""
+          }${TERRAIN_DETAIL_FRAGMENT}`,
         )
         .replace(
           "#include <color_fragment>",
@@ -159,7 +215,10 @@ export class TerrainMaterialController {
           `vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;${TERRAIN_WET_SHEEN}`,
         );
     };
-    this.material.customProgramCacheKey = () => MATERIAL_CACHE_KEY;
+    // The macro-field define changes the compiled program, so the two profiles
+    // must not share a cache entry.
+    this.material.customProgramCacheKey = () =>
+      this.compact ? `${MATERIAL_CACHE_KEY}-macro-texture` : MATERIAL_CACHE_KEY;
     this.material.needsUpdate = true;
   }
 }

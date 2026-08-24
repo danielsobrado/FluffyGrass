@@ -111,6 +111,23 @@ export function sampleTerrainSurfaceNoisePixel(
  */
 export const TERRAIN_DRY_FIBRE_PULSE_MEAN = 0.082;
 
+/**
+ * Mean of `smoothstep(0.64, 0.86, B)` over the fine channel, measured across the
+ * whole 256x256 field at level 0 and quantized exactly as the texture stores it.
+ *
+ * The grit pulse had the same defect the fibre pulse was fixed for and kept it:
+ * it is strictly positive, so weighting it by the micro-detail fade removed
+ * brightness from paths as the fade closed rather than removing only speckle.
+ * Paths lightened across the micro boundary — one of the six camera-distance
+ * schedules that stacked into the visible ring. Holding this mean constant means
+ * only the variance around it disappears with distance.
+ *
+ * Measured over the six seeds `verify-terrain-surface` sweeps, where it spans
+ * 0.0805 to 0.0909; B is a value-noise/hash blend rather than a uniform, so this
+ * is not something the smoothstep knees predict.
+ */
+export const TERRAIN_GRIT_PULSE_MEAN = 0.0857;
+
 export function createTerrainSurfaceNoiseTexture(seed: number): THREE.DataTexture {
   const data = new Uint8Array(
     TERRAIN_SURFACE_NOISE_SIZE * TERRAIN_SURFACE_NOISE_SIZE * 4,

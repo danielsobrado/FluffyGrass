@@ -266,8 +266,8 @@ assert(
   lineCount(terrainMaterial) <= EXTRACTED_MODULE_MAX_LINES &&
     terrainMaterial.includes("onBeforeCompile") &&
     terrainMaterial.includes("setGrassArtDirection") &&
-    terrainMaterial.includes(
-      "disposeResources([this.material, this.surfaceNoiseTexture])",
+    /disposeResources\(\[\s*this\.material,\s*this\.surfaceNoiseTexture,\s*this\.macroFieldTexture,\s*\]\)/.test(
+      terrainMaterial,
     ) &&
     terrainShader.includes("TERRAIN_DETAIL_COLOR"),
   "Terrain material and shader modules must own terrain rendering concerns outside the streamer.",

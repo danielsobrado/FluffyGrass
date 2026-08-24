@@ -45,6 +45,7 @@ try {
   );
   const {
     TERRAIN_DRY_FIBRE_PULSE_MEAN,
+    TERRAIN_GRIT_PULSE_MEAN,
     TERRAIN_SURFACE_NOISE_SIZE,
     createTerrainSurfaceNoiseTexture,
     sampleTerrainSurfaceNoisePixel,
@@ -170,6 +171,44 @@ try {
     );
   }
 
+  // The grit pulse had the same defect the fibre pulse was fixed for and kept
+  // it: strictly positive, so weighting it by the micro fade removed brightness
+  // from paths rather than removing only speckle. Paths lightened across the
+  // micro boundary, which was one of the six schedules stacking into the band.
+  {
+    const gritSample = new Float64Array(4);
+    let worstGritMean = 0;
+    let bestGritMean = 1;
+    for (const seed of [rawConfig.seed, 1337, 1, 99991, 2026, 7]) {
+      let total = 0;
+      let count = 0;
+      for (let y = 0; y < TERRAIN_SURFACE_NOISE_SIZE; y += 1) {
+        for (let x = 0; x < TERRAIN_SURFACE_NOISE_SIZE; x += 1) {
+          sampleTerrainSurfaceNoisePixel(x, y, seed, gritSample);
+          const blue = Math.round(gritSample[2] * 255) / 255;
+          const t = Math.min(1, Math.max(0, (blue - 0.64) / (0.86 - 0.64)));
+          total += t * t * (3 - 2 * t);
+          count += 1;
+        }
+      }
+      const mean = total / count;
+      worstGritMean = Math.max(worstGritMean, mean);
+      bestGritMean = Math.min(bestGritMean, mean);
+    }
+    const drift = Math.max(
+      Math.abs(worstGritMean - TERRAIN_GRIT_PULSE_MEAN),
+      Math.abs(bestGritMean - TERRAIN_GRIT_PULSE_MEAN),
+    );
+    assert(
+      drift <= 0.006,
+      `TERRAIN_GRIT_PULSE_MEAN ${TERRAIN_GRIT_PULSE_MEAN} is ${drift.toFixed(4)} from the measured grit mean (${bestGritMean.toFixed(4)}-${worstGritMean.toFixed(4)}).`,
+    );
+    assert(
+      TERRAIN_DETAIL_COLOR.includes(TERRAIN_GRIT_PULSE_MEAN.toFixed(4)),
+      "The terrain shader must hold the measured grit mean as micro detail fades.",
+    );
+  }
+
   textureA.dispose();
   textureB.dispose();
   textureC.dispose();
@@ -280,11 +319,53 @@ try {
     setStoneClearanceField(undefined);
   }
 
+  // The ground's three distance schedules used to run on one vec4 filled from
+  // the grass preset's near and mid distances, so micro grain, meso mottling and
+  // the canopy merge all changed across exactly the radii the vegetation handed
+  // off at. Six soft fades sharing two edges is what read as a band crossing the
+  // hillside. Each owns its range now, and nothing may put them back.
+  const terrainMaterialControllerSource = await import("node:fs").then(
+    ({ readFileSync }) =>
+      readFileSync(
+        resolve(REPOSITORY_ROOT, "src/world/TerrainMaterialController.ts"),
+        "utf8",
+      ),
+  );
+  for (const [label, source] of [
+    ["TERRAIN_DETAIL_COLOR", TERRAIN_DETAIL_COLOR],
+    ["TERRAIN_DETAIL_FRAGMENT", TERRAIN_DETAIL_FRAGMENT],
+    ["TerrainMaterialController", terrainMaterialControllerSource],
+  ]) {
+    assert(
+      !source.includes("uTerrainLodDistances"),
+      `${label} must not re-derive the ground's schedules from the grass LOD distances.`,
+    );
+  }
+  for (const uniform of [
+    "uTerrainMicroRange",
+    "uTerrainMesoRange",
+    "uTerrainCanopyMergeRange",
+    "uTerrainCanopyMergeStrength",
+    "uTerrainBandJitterRatio",
+  ]) {
+    assert(
+      TERRAIN_DETAIL_FRAGMENT.includes(uniform),
+      `The terrain shader must declare ${uniform}.`,
+    );
+    assert(
+      terrainMaterialControllerSource.includes(uniform),
+      `The terrain material controller must supply ${uniform}.`,
+    );
+  }
   assert(
-    TERRAIN_DETAIL_COLOR.includes(
-      "uTerrainLodDistances.x + uTerrainLodDistances.y",
-    ),
-    "Ultra-near micro detail must stay full through its grass radius and fade afterward.",
+    TERRAIN_DETAIL_COLOR.includes("grassLodBandOffset(vTerrainWorldPosition.xz)"),
+    "The ground's schedules must wander in world space rather than tracing a circle around the camera.",
+  );
+  // Applied to the distance, never to the edges: that is what makes the
+  // ordering invariant hold by construction instead of by a bound on the jitter.
+  assert(
+    !/smoothstep\(\s*uTerrain\w+Range\.x\s*\+/.test(TERRAIN_DETAIL_COLOR),
+    "The band wander must offset the distance, not the schedule edges.",
   );
   assert(
     TERRAIN_DETAIL_COLOR.includes(

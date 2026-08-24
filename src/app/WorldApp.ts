@@ -20,6 +20,7 @@ import { WorldStoneSystem } from "../world/stones/WorldStoneSystem";
 import { TerrainField } from "../world/TerrainField";
 import { TerrainStreamer } from "../world/TerrainStreamer";
 import type { WorldConfig } from "../world/WorldConfig";
+import { setGrassPaletteDesaturation } from "../grass/materials/GrassPaletteShader";
 import { WorldConfigLoader } from "../world/WorldConfigLoader";
 import { WorldGrassSystem } from "../world/WorldGrassSystem";
 import { GrassArtMenu } from "./GrassArtMenu";
@@ -270,6 +271,11 @@ export class WorldApp {
             loaded,
           )
         : loaded;
+    // Before anything resolves a palette. `TerrainSurfacePalette` balances its
+    // rows in its own constructor and the grass materials do the same at build,
+    // so a lever applied after this point would reach some LODs and not others
+    // — which is the one failure a global saturation control must not have.
+    setGrassPaletteDesaturation(config.grassPaletteDesaturation);
     const app = new WorldApp(canvas, profile, config);
     if (profile.showGui && params.get("riverTuning") === "1") {
       try {

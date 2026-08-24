@@ -116,11 +116,15 @@ assert(
 
 assert(
   terrainMaterial.includes('import { disposeResources } from "../render/ResourceDisposal"') &&
-    terrainMaterial.includes("disposeResources([material, surfaceNoiseTexture])") &&
-    terrainMaterial.includes("disposeResources([this.material, this.surfaceNoiseTexture])") &&
+    terrainMaterial.includes(
+      "disposeResources([material, surfaceNoiseTexture, macroFieldTexture])",
+    ) &&
+    /disposeResources\(\[\s*this\.material,\s*this\.surfaceNoiseTexture,\s*this\.macroFieldTexture,\s*\]\)/.test(
+      terrainMaterial,
+    ) &&
     terrainMaterial.includes("Terrain material construction cleanup failed.") &&
     terrainMaterial.includes("private disposed = false"),
-  "Terrain material setup and teardown must attempt both material and surface-texture cleanup even when one disposer fails.",
+  "Terrain material setup and teardown must attempt every texture it owns — surface noise and the compact profile's baked macro field — even when one disposer fails.",
 );
 
 for (const [name, source, constructionCleanup, normalCleanup, cleanupLog] of [

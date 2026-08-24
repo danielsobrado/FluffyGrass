@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { GrassArtDirection } from "../../grass/GrassArtDirection";
 import {
+  GRASS_LATTICE_NOISE_GLSL,
+  GRASS_LOD_BAND_GLSL,
+} from "../../grass/GrassLodBanding";
+import {
   GRASS_ACCENT_SPECIES,
   GRASS_ACCENT_TINTS,
   GRASS_MAX_ACCENT_SPECIES,
@@ -89,6 +93,8 @@ function createCategoryMaskGlsl(categories: readonly string[]): string {
 const VERTEX_SHADER = `
 #include <common>
 #include <lights_pars_begin>
+${GRASS_LATTICE_NOISE_GLSL}
+${GRASS_LOD_BAND_GLSL}
 attribute vec4 instanceVariation;
 attribute float instanceCoverage;
 attribute float instanceBiome;
@@ -101,6 +107,8 @@ uniform float uWindNoiseScale;
 uniform float uWindNoiseSpeed;
 uniform float uFadeDistance;
 uniform float uFadeTransition;
+uniform float uFadeStagger;
+uniform float uLodBandJitterRatio;
 uniform float uDensityScale;
 uniform float uNormalUp;
 uniform float uSpeciesWind[${GRASS_MAX_ACCENT_SPECIES}];
@@ -138,22 +146,39 @@ void main() {
   // not folded into this threshold: doing so made whole flowers blink on and
   // off as the camera moved. The fragment stage fades their alpha instead.
   float coverage = min(instanceCoverage * uDensityScale, 1.0);
-  vDistanceFade = 1.0 - smoothstep(
-    uFadeDistance - uFadeTransition,
-    uFadeDistance + uFadeTransition,
-    cameraDistance
-  );
-  if (instanceVariation.x > coverage) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
 
+  // Decoded ahead of the fade rather than after it, because the fade is now a
+  // function of which species this card is.
   float accent = instanceAccent;
   float speciesIndex = floor(accent / 16.0);
   float packedRemainder = accent - speciesIndex * 16.0;
   float variantRow = floor(packedRemainder / 8.0);
   vTint = packedRemainder - variantRow * 8.0;
   vCell = vec2(speciesIndex, variantRow);
+
+  // Every species used to leave at the same distance, which removed the whole
+  // understory across one ring -- a line across the mid ground however well
+  // each individual card cut was dithered, and close enough to the near-to-mid
+  // handoff to read as part of the same band. Staggering the departures turns
+  // that line into a community thinning out, and the world-space wander stops
+  // what is left from tracing a circle centred on the viewer.
+  float speciesFadeOffset =
+    (fract(speciesIndex * 0.61803398875) - 0.5) * uFadeStagger;
+  float foliageFadeDistance = uFadeDistance + speciesFadeOffset +
+    grassLodBandJitterMetres(
+      uFadeDistance - uFadeTransition,
+      uFadeDistance + uFadeTransition,
+      uLodBandJitterRatio
+    ) * grassLodBandOffset(root.xz);
+  vDistanceFade = 1.0 - smoothstep(
+    foliageFadeDistance - uFadeTransition,
+    foliageFadeDistance + uFadeTransition,
+    cameraDistance
+  );
+  if (instanceVariation.x > coverage) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   // Reuse the stable density dither as a cheap phenotype seed. It never changes
   // at runtime and costs no fifth instance attribute.
   vPhenotype = fract(
@@ -424,6 +449,10 @@ function createBiomeShadeRows(
 export interface WorldDetailFoliageMaterialOptions {
   fadeDistance: number;
   fadeTransition: number;
+  /** Metres a species may leave early or late relative to the shared fade. */
+  fadeStagger: number;
+  /** Share of the transition width spent wandering in world space. */
+  lodBandJitterRatio: number;
   noiseWind: boolean;
 }
 
@@ -459,6 +488,8 @@ export class WorldDetailFoliageMaterial {
       uAlphaCutoff: { value: DETAIL_FOLIAGE_ALPHA_CUTOFF },
       uFadeDistance: { value: options.fadeDistance },
       uFadeTransition: { value: options.fadeTransition },
+      uFadeStagger: { value: options.fadeStagger },
+      uLodBandJitterRatio: { value: options.lodBandJitterRatio },
       uDensityScale: { value: 1 },
       uSpeciesWind: { value: speciesWind },
       uTime: { value: 0 },

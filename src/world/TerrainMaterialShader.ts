@@ -1,7 +1,12 @@
 import { GRASS_MAX_BIOMES } from "../grass/biome/GrassBiomeProfile";
 import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
 import {
+  TERRAIN_MACRO_FIELD_APPLY,
+  TERRAIN_MACRO_FIELD_FUNCTIONS,
+} from "./terrain/TerrainMacroFieldShader";
+import {
   TERRAIN_DRY_FIBRE_PULSE_MEAN,
+  TERRAIN_GRIT_PULSE_MEAN,
   TERRAIN_SURFACE_NOISE_SIZE,
 } from "./terrain/TerrainSurfaceNoiseTexture";
 
@@ -10,7 +15,9 @@ export const TERRAIN_DETAIL_VERTEX = `
 attribute vec3 terrainPath;
 attribute vec4 terrainEcology;
 attribute vec4 terrainEnvironment;
-attribute vec3 terrainBiome;
+// .xyz is the biome pair and its blend; .w is the macro dryness this vertex was
+// sampled with, which the fragment stage subtracts before re-adding its own.
+attribute vec4 terrainBiome;
 attribute vec4 terrainStoneInfluence;
 attribute vec2 terrainStoneOcclusionCenter;
 attribute float terrainStoneOcclusion;
@@ -28,6 +35,7 @@ varying vec3 vTerrainBiomeCanopy;
 varying vec4 vTerrainStoneInfluence;
 varying vec2 vTerrainStoneOcclusionCenter;
 varying float vTerrainStoneOcclusion;
+varying float vTerrainMacroDryness;
 
 int terrainResolveBiomeRow(float biome) {
   return int(clamp(biome, 0.0, float(TERRAIN_MAX_BIOMES - 1)) + 0.5);
@@ -42,6 +50,7 @@ vTerrainEnvironment = terrainEnvironment;
 vTerrainStoneInfluence = terrainStoneInfluence;
 vTerrainStoneOcclusionCenter = terrainStoneOcclusionCenter;
 vTerrainStoneOcclusion = terrainStoneOcclusion;
+vTerrainMacroDryness = terrainBiome.w;
 int terrainBiomeA = terrainResolveBiomeRow(terrainBiome.x);
 int terrainBiomeB = terrainResolveBiomeRow(terrainBiome.y);
 float terrainBiomeBlend = saturate(terrainBiome.z);
@@ -84,7 +93,11 @@ uniform float uTerrainMicroStrength;
 uniform float uTerrainNormalStrength;
 uniform float uTerrainCanopyDarkening;
 uniform float uTerrainGrassTintStrength;
-uniform vec4 uTerrainLodDistances;
+uniform vec2 uTerrainMicroRange;
+uniform vec2 uTerrainMesoRange;
+uniform vec2 uTerrainCanopyMergeRange;
+uniform float uTerrainCanopyMergeStrength;
+uniform float uTerrainBandJitterRatio;
 uniform vec2 uTerrainPathHalfWidth;
 uniform float uTerrainPathEdge;
 uniform float uTerrainPathClearance;
@@ -112,7 +125,9 @@ varying vec3 vTerrainBiomeCanopy;
 varying vec4 vTerrainStoneInfluence;
 varying vec2 vTerrainStoneOcclusionCenter;
 varying float vTerrainStoneOcclusion;
+varying float vTerrainMacroDryness;
 ${TERRAIN_ROCK_FUNCTIONS}
+${TERRAIN_MACRO_FIELD_FUNCTIONS}
 `;
 
 export const TERRAIN_DETAIL_COLOR = `
@@ -159,20 +174,50 @@ vec2 terrainWallUv = vec2(
 ) * 0.037;
 vec2 terrainWallDdx = dFdx(terrainWallUv);
 vec2 terrainWallDdy = dFdy(terrainWallUv);
+/**
+ * The ground's three distance schedules.
+ *
+ * All three used to run on a single vec4 borrowed from the grass preset's own
+ * near and mid distances: micro over 6->7 m, and meso *and* the canopy merge
+ * over the same 28->54 m the near-to-mid handoff, the mid density falloff and
+ * the detail-foliage fade were already using. Six soft fades sharing two edges
+ * is what read as one hard ring crossing the hillside. Each owns its range now.
+ *
+ * One shared wander sample, three amplitudes. Three decorrelated fields would
+ * let the weights disagree at a point and mottle ground that should be smooth;
+ * what has to differ is *where* each boundary sits, and the differing widths
+ * already deliver that.
+ */
+float terrainBandOffset = grassLodBandOffset(vTerrainWorldPosition.xz);
 float terrainMicroWeight = 1.0 - smoothstep(
-  uTerrainLodDistances.x,
-  uTerrainLodDistances.x + uTerrainLodDistances.y,
-  terrainDistance
+  uTerrainMicroRange.x,
+  uTerrainMicroRange.y,
+  terrainDistance +
+    grassLodBandJitterMetres(
+      uTerrainMicroRange.x,
+      uTerrainMicroRange.y,
+      uTerrainBandJitterRatio
+    ) * terrainBandOffset
 );
 float terrainMesoWeight = 1.0 - smoothstep(
-  uTerrainLodDistances.z,
-  uTerrainLodDistances.w,
-  terrainDistance
+  uTerrainMesoRange.x,
+  uTerrainMesoRange.y,
+  terrainDistance +
+    grassLodBandJitterMetres(
+      uTerrainMesoRange.x,
+      uTerrainMesoRange.y,
+      uTerrainBandJitterRatio
+    ) * terrainBandOffset
 );
 float terrainFarMerge = smoothstep(
-  uTerrainLodDistances.z,
-  uTerrainLodDistances.w,
-  terrainDistance
+  uTerrainCanopyMergeRange.x,
+  uTerrainCanopyMergeRange.y,
+  terrainDistance +
+    grassLodBandJitterMetres(
+      uTerrainCanopyMergeRange.x,
+      uTerrainCanopyMergeRange.y,
+      uTerrainBandJitterRatio
+    ) * terrainBandOffset
 );
 
 vec2 terrainBaseUv = vTerrainWorldPosition.xz / uTerrainNoiseWorldSize;
@@ -228,6 +273,7 @@ float terrainHumidity = saturate(vTerrainEnvironment.y);
 float terrainWaterProximity = saturate(vTerrainEnvironment.z);
 float terrainStoneClearance = saturate(vTerrainEnvironment.w);
 float terrainRootScale = saturate(vTerrainBiomeBase.a);
+${TERRAIN_MACRO_FIELD_APPLY}
 
 vec2 terrainPathGrassHalfWidth = uTerrainPathHalfWidth + vec2(
   uTerrainPathEdge + uTerrainPathClearance
@@ -313,10 +359,14 @@ terrainSurfaceColor = mix(
 vec3 terrainCanopy = vTerrainBiomeCanopy;
 terrainCanopy = mix(terrainCanopy, vTerrainBiomeDry, terrainDryness * 0.68);
 terrainCanopy *= 0.78 + terrainMacroVariation;
+// Capped rather than complete. Ground fully replaced by canopy colour is a
+// claim the impostor cards are already making at this range; the ground only
+// has to agree with them, not become them. Running the mix to 1 is what made
+// this the one ground term that moved the mean colour with distance.
 terrainSurfaceColor = mix(
   terrainSurfaceColor,
   terrainCanopy,
-  terrainFarMerge * terrainCoverage
+  terrainFarMerge * terrainCoverage * uTerrainCanopyMergeStrength
 );
 
 /**
@@ -501,8 +551,15 @@ vec3 terrainPathColor = mix(
 );
 terrainPathColor *= 1.0 -
   uTerrainPathCoreDarkening * terrainPathCore * terrainPathCore;
-float terrainGrit = smoothstep(0.64, 0.86, terrainMicroNoise.b) *
-  terrainMicroWeight;
+// Mean-preserved, for the same reason the dry fibre pulse above is: this pulse
+// is strictly positive, so weighting it by the micro fade removed *brightness*
+// as the fade closed rather than only removing speckle. Paths lightened across
+// the micro boundary, which is one of the six schedules that stacked into the
+// visible ring. Only the variance around the mean may disappear with distance.
+float terrainGrit = ${TERRAIN_GRIT_PULSE_MEAN.toFixed(4)} +
+  (smoothstep(0.64, 0.86, terrainMicroNoise.b) -
+    ${TERRAIN_GRIT_PULSE_MEAN.toFixed(4)}) *
+    terrainMicroWeight;
 terrainPathColor = mix(terrainPathColor, uTerrainPathGrit, terrainGrit * 0.24);
 diffuseColor.rgb = mix(
   diffuseColor.rgb,

@@ -19,9 +19,9 @@
  */
 
 /** Metres per lattice cell of the dryness field. */
-const DRYNESS_PERIOD = 27;
+export const DRYNESS_PERIOD = 27;
 /** Metres per lattice cell of the vigour field, deliberately not a multiple. */
-const VIGOR_PERIOD = 19;
+export const VIGOR_PERIOD = 19;
 /**
  * Metres per lattice cell of the clearing field, and deliberately the shortest
  * of the three. Dryness and vigour band the meadow at regional scale; a
@@ -29,8 +29,8 @@ const VIGOR_PERIOD = 19;
  * is a handful of metres, not tens of them.
  */
 const CLEARING_PERIOD = 7;
-const DRYNESS_SEED = 0x51_7c_c1_b7;
-const VIGOR_SEED = 0x27_22_0a_95;
+export const DRYNESS_SEED = 0x51_7c_c1_b7;
+export const VIGOR_SEED = 0x27_22_0a_95;
 const CLEARING_SEED = 0x6d_1f_93_2b;
 
 /**

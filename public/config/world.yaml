@@ -45,6 +45,10 @@ grassNearBladesPerSquareMeterCompact: 40
 # the desktop near-field triangle ceiling affords: 7 m measures 1,004,544
 # against the 1,000,000 bound.
 grassUltraNearDistance: 6
+# Left at 1 m deliberately. This is a geometry swap, not a coverage change: the
+# same blades stand on both sides of it, the segmented silhouette simply gives
+# way to the one-triangle one at the same roots. Widening it bought nothing the
+# eye can see and cost 24k triangles against the near-field ceiling.
 grassUltraNearTransitionDistance: 1
 grassUltraNearDensityMultiplier: 2
 grassUltraNearDensityMultiplierCompact: 1.5
@@ -56,7 +60,7 @@ grassUltraNearDensityMultiplierCompact: 1.5
 # density across a single metre, which read as a brightness ring riding at a
 # fixed radius around the player. The decay must finish before the mid patches
 # take over, since they carry no counterpart population.
-grassNearDensityBoostDistance: 14
+grassNearDensityBoostDistance: 13
 grassNearDensityBoostTransition: 6
 
 # Bridge LOD keeps the near field's exact blade placements before the repeated
@@ -71,7 +75,7 @@ grassNearBridgeTransitionDistance: 2
 # lit the same way whichever layer draws it. Keyed to the world, deliberately
 # not to any LOD boundary.
 grassMicroDetailFadeStart: 3
-grassMicroDetailFadeEnd: 10
+grassMicroDetailFadeEnd: 13
 
 # Sparse is relative to each biome's own expected density. This keeps normal
 # steppe/alpine open without applying the sparse-cluster suppression twice.
@@ -111,6 +115,15 @@ grassDisturbanceDensityReduction: 0.88
 grassWetHeightBoost: 0.32
 grassDryHeightReduction: 0.42
 grassDryColorStrength: 0.58
+
+# How far every grass palette colour is pulled toward its own luminance.
+#
+# Applied inside setBalancedGrassPaletteColors, so it moves the near blades, the
+# mid blades, the impostor cards and the terrain's grass tint by exactly the same
+# amount -- which is what makes one saturation lever safe at all. It preserves
+# luminance by construction, so it cannot move the field's brightness or the LOD
+# colour-parity budget. Provisional at 0.06; the full palette pass raises it.
+grassPaletteDesaturation: 0.06
 
 # Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
 detailFoliageDensity: 20.0
@@ -248,7 +261,7 @@ pathSpacing: 640
 pathEdgeRoughness: 0.5
 pathGrassClearance: 0.15
 
-# Shared ground/grass procedural surface. Detail fades reuse grass LOD ranges.
+# Shared ground/grass procedural surface.
 terrainGroundNoiseWorldSize: 64
 terrainGroundMesoStrength: 0.18
 terrainGroundMicroStrength: 0.12
@@ -256,6 +269,40 @@ terrainGroundNormalStrength: 0.30
 terrainGroundCanopyDarkening: 0.22
 terrainPathCoreDarkening: 0.08
 terrainPathVergeDryness: 0.38
+
+# The ground's own distance schedules. These used to be borrowed from the grass
+# preset's near (28 m) and mid (54 m) distances, which is what made the hillside
+# band: three ground terms and three vegetation terms all changed across the
+# same two radii, so six soft fades read as one hard ring following the camera.
+# Each now owns its range, and no two share an edge.
+#
+# Micro grain was the worst of them at 6 -> 7 m: a one-metre transition on a
+# term that is not fully mean-preserved. 18 m of transition is long enough that
+# the speckle leaving is never an event.
+terrainMicroDetailStart: 9
+terrainMicroDetailEnd: 27
+# Meso mottling is zero-mean, so only its variance collapses here. Kept well
+# clear of both the near-to-mid handoff and the canopy merge below.
+terrainMesoDetailStart: 46
+terrainMesoDetailEnd: 100
+# Where the open ground starts reading as canopy instead of soil. This is the
+# only ground term that moves the mean colour rather than the grain, so it is
+# the one that most needed its own schedule: it now begins past the mid layer's
+# density falloff (74 m), where the blades have genuinely thinned, rather than
+# at the 28 m near handoff where they have not.
+terrainCanopyMergeStart: 64
+terrainCanopyMergeEnd: 136
+# And it no longer completes. Ground fully replaced by canopy colour is a claim
+# the impostor cards are already making; the ground only needs to agree with
+# them, not to become them.
+terrainCanopyMergeStrength: 0.62
+
+# Share of a distance schedule's own transition width spent wandering in world
+# space. Separating the edges stops the fades stacking; this stops each
+# remaining one from tracing a circle centred on the viewer. Applied to the
+# distance rather than to the edges, so a jittered start can never cross a
+# jittered end.
+lodBandJitterRatio: 0.33
 
 grassMinAltitude: -20
 grassMaxAltitude: 118

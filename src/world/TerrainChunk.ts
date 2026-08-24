@@ -112,7 +112,7 @@ export class TerrainChunkBuilder {
   private readonly pathDistances = new THREE.Vector2();
   private readonly ecology = new THREE.Vector4();
   private readonly environment = new THREE.Vector4();
-  private readonly biome = new THREE.Vector3();
+  private readonly biome = new THREE.Vector4();
   private readonly hydrology: HydrologySample = createHydrologySample();
   /** Distinct from `ecology` above, which is the packed shader channel. */
   private readonly ecologySample: WorldEcologySample = createEcologySample();
@@ -156,7 +156,7 @@ export class TerrainChunkBuilder {
     this.paths = new Float32Array(vertexCount * 3);
     this.ecologies = new Float32Array(vertexCount * 4);
     this.environments = new Float32Array(vertexCount * 4);
-    this.biomes = new Float32Array(vertexCount * 3);
+    this.biomes = new Float32Array(vertexCount * 4);
     this.stoneContacts = new Float32Array(vertexCount * 4);
     this.stoneOcclusionCenters = new Float32Array(vertexCount * 2);
     this.stoneOcclusions = new Float32Array(vertexCount);
@@ -276,10 +276,11 @@ export class TerrainChunkBuilder {
       this.stoneOcclusionCenters[stoneOcclusionOffset + 1] =
         this.stoneOcclusionCenter.y;
 
-      const biomeOffset = this.nextVertex * 3;
+      const biomeOffset = this.nextVertex * 4;
       this.biomes[biomeOffset] = this.biome.x;
       this.biomes[biomeOffset + 1] = this.biome.y;
       this.biomes[biomeOffset + 2] = this.biome.z;
+      this.biomes[biomeOffset + 3] = this.biome.w;
       if (this.waterGeometryBuilder) {
         this.waterGeometryBuilder.writeVertex(
           this.nextVertex,
@@ -361,7 +362,7 @@ export class TerrainChunkBuilder {
       );
       geometry.setAttribute(
         "terrainBiome",
-        new THREE.BufferAttribute(this.biomes, 3),
+        new THREE.BufferAttribute(this.biomes, 4),
       );
       geometry.setAttribute(
         "terrainStoneInfluence",

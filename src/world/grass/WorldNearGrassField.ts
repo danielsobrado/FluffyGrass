@@ -32,6 +32,7 @@ import {
 } from "./DetailFoliageTuning";
 import {
   DETAIL_FOLIAGE_FADE_DISTANCE,
+  DETAIL_FOLIAGE_FADE_STAGGER,
   DETAIL_FOLIAGE_FADE_TRANSITION,
   WorldDetailFoliageFactory,
   WorldDetailFoliageField,
@@ -416,6 +417,8 @@ export class WorldNearGrassField {
         {
           fadeDistance: DETAIL_FOLIAGE_FADE_DISTANCE,
           fadeTransition: DETAIL_FOLIAGE_FADE_TRANSITION,
+          fadeStagger: DETAIL_FOLIAGE_FADE_STAGGER,
+          lodBandJitterRatio: this.worldConfig.lodBandJitterRatio,
           noiseWind: !this.profile.compact,
         },
       );

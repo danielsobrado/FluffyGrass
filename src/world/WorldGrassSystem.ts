@@ -18,10 +18,8 @@ import {
 } from "../grass/GrassPatchGrid";
 import { GrassConfigLoader } from "../grass/internal/GrassConfigLoader";
 import { SeededRandom } from "../grass/internal/SeededRandom";
-import {
-  GRASS_MID_DENSITY_FALLOFF,
-  GrassNearMaterial,
-} from "../grass/materials/GrassNearMaterial";
+import { GRASS_MID_DENSITY_FALLOFF } from "../grass/GrassLodTuning";
+import { GrassNearMaterial } from "../grass/materials/GrassNearMaterial";
 import { WindField } from "../grass/wind/WindField";
 import {
   GRASS_WIND_NOISE_SCALE,

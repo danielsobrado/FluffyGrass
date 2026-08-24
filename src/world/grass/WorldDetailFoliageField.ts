@@ -115,18 +115,46 @@ export const DETAIL_FOLIAGE_DENSITY = 20;
  */
 export const DETAIL_FOLIAGE_DENSITY_CEILING = 20;
 /**
- * Midpoint and half-width of the dither fade that ends the layer.
+ * Midpoint of the dither fade that ends the layer. The outer edge — this plus
+ * the half-width below — is what matters and is unchanged at 41-42 m.
  *
- * Pushed out with the density, because the argument for ending at 30 m was
- * conditional on the old one and expired with it. At 0.35 cards/m² a plant at
- * 30 m genuinely was a sub-pixel sprinkle the mid band could stand in for. At
- * meadow density the same distance holds recognisable ferns and flower
+ * That edge was pushed out with the density, because the argument for ending at
+ * 30 m was conditional on the old one and expired with it. At 0.35 cards/m² a
+ * plant at 30 m genuinely was a sub-pixel sprinkle the mid band could stand in
+ * for. At meadow density the same distance holds recognisable ferns and flower
  * colonies, and cutting them there put a visible line across the ground beyond
  * which the world became grass and nothing else — exactly the mid-ground the
  * reference fills with plants.
+ *
+ * The midpoint then came *in* from 38 when the half-width was widened, so the
+ * layer thins over a long approach while still being gone by the distance the
+ * performance gate bounds.
  */
-export const DETAIL_FOLIAGE_FADE_DISTANCE = 38;
-export const DETAIL_FOLIAGE_FADE_TRANSITION = 4;
+export const DETAIL_FOLIAGE_FADE_DISTANCE = 32;
+/**
+ * Widened from 4 m, inward.
+ *
+ * An eight-metre ring inside which the entire understory disappeared was a line
+ * however well each individual card cut was dithered, and it sat close enough to
+ * the near-to-mid handoff and the mid density falloff to read as part of the
+ * same band. The understory now thins from 23 m instead of vanishing between 38
+ * and 42, and the per-species stagger in {@link ./WorldDetailFoliageMaterial}
+ * spreads the departures across that range so a community thins rather than a
+ * sheet lifting.
+ *
+ * Widened inward rather than outward on purpose. The outer edge is a
+ * performance budget, not an art choice: past 42 m a card is a sub-pixel
+ * sprinkle the mid band already provides, and `verify-grass-performance` bounds
+ * the drawn tile count from exactly this sum. Pushing the fade out would have
+ * bought a smoother profile with draw calls; moving the near edge costs
+ * nothing, because the resident and drawn sets are unchanged.
+ */
+export const DETAIL_FOLIAGE_FADE_TRANSITION = 9;
+/**
+ * Metres by which a species may leave early or late relative to the shared
+ * fade. Derived from a species index, so it is stable and costs no attribute.
+ */
+export const DETAIL_FOLIAGE_FADE_STAGGER = 8;
 /**
  * Lead on the residency radius, so a tile is resident before its cards can
  * draw. Without it a tile arrives exactly where the shader starts keeping

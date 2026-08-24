@@ -18,6 +18,49 @@ function luminance(color: THREE.Color): number {
   );
 }
 
+const desaturationScratch = new THREE.Color();
+let paletteDesaturation = 0;
+
+/**
+ * How far every grass palette colour is pulled toward its own luminance.
+ *
+ * Set once at bootstrap from `config.grassPaletteDesaturation`. Module state
+ * rather than a parameter because the palette sources are resolved from a dozen
+ * call sites — near blades, mid blades, impostor rows, the terrain's grass tint
+ * — and a lever that reached only some of them would break LOD colour parity,
+ * which is exactly the failure it is meant to avoid.
+ */
+export function setGrassPaletteDesaturation(amount: number): void {
+  paletteDesaturation = Number.isFinite(amount)
+    ? Math.min(Math.max(amount, 0), 1)
+    : 0;
+}
+
+export function getGrassPaletteDesaturation(): number {
+  return paletteDesaturation;
+}
+
+/**
+ * Pulls a palette colour toward its own luminance.
+ *
+ * The blend runs toward the colour's own luminance, so it cannot move the
+ * field's brightness — which is what lets one art lever change every LOD at once
+ * without moving the near/mid/far parity budget. Applied after luminance
+ * balancing for the same reason: balancing is a ratio between the three sources,
+ * and desaturation preserves each one's luminance, so the two commute.
+ */
+export function applyGrassPaletteDesaturation(
+  color: THREE.Color,
+  amount = paletteDesaturation,
+): void {
+  if (!(amount > 0)) {
+    return;
+  }
+  const value = luminance(color);
+  desaturationScratch.setRGB(value, value, value);
+  color.lerp(desaturationScratch, Math.min(amount, 1));
+}
+
 export function setBalancedGrassPaletteColors(
   baseTarget: THREE.Color,
   tipTarget: THREE.Color,
@@ -38,6 +81,11 @@ export function setBalancedGrassPaletteColors(
     (baseLuminance * tuning.dryLuminanceScale) /
       Math.max(luminance(dryTarget), 0.0001),
   );
+  // Every palette source in the renderer passes through here, which is the one
+  // property that makes a global saturation lever safe at all.
+  applyGrassPaletteDesaturation(baseTarget);
+  applyGrassPaletteDesaturation(tipTarget);
+  applyGrassPaletteDesaturation(dryTarget);
 }
 
 /**

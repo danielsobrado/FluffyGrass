@@ -1,7 +1,7 @@
 {
   "tipStart": 0.38,
   "tipEnd": 1,
-  "tipLuminanceScale": 1.38,
+  "tipLuminanceScale": 1.3,
   "dryLuminanceScale": 0.9,
   "shadeDrynessPivot": 0.18,
   "shadeDrynessScale": 0.2,

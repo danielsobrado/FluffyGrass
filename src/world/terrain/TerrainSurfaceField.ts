@@ -22,7 +22,10 @@ import {
   createMutableStoneGroundInfluence,
   type MutableStoneGroundInfluence,
 } from "../stones/StoneGroundInfluence";
-import { sampleGrassMacroVigor } from "../../grass/GrassFieldVariation";
+import {
+  sampleGrassMacroDryness,
+  sampleGrassMacroVigor,
+} from "../../grass/GrassFieldVariation";
 
 /** Packed semantic channels consumed by the terrain shader. */
 export interface TerrainSurfaceTargets {
@@ -30,8 +33,16 @@ export interface TerrainSurfaceTargets {
   ecology: THREE.Vector4;
   /** normalized altitude, humidity, water proximity, stone clearance */
   environment: THREE.Vector4;
-  /** dominant biome, neighbor biome, neighbor blend */
-  biome: THREE.Vector3;
+  /**
+   * Dominant biome, neighbor biome, neighbor blend, and the macro dryness this
+   * vertex was sampled with.
+   *
+   * The fourth channel exists so the fragment stage can subtract the
+   * low-frequency dryness a vertex could resolve before adding the one it
+   * evaluates itself. Without it the per-fragment field would double-count the
+   * term `sampleGrassHabitat` already folded into `ecology.z`.
+   */
+  biome: THREE.Vector4;
   /** Dominant compacted-soil stone: centre XZ, inner radius, outer radius. */
   stoneContact: THREE.Vector4;
   /**
@@ -144,6 +155,11 @@ export class TerrainSurfaceField {
       influence.occlusionCenterZ,
     );
     targets.stoneOcclusionRadius = influence.occlusionRadius;
-    targets.biome.set(biome.indexA, biome.indexB, biome.blend);
+    targets.biome.set(
+      biome.indexA,
+      biome.indexB,
+      biome.blend,
+      sampleGrassMacroDryness(x, z),
+    );
   }
 }

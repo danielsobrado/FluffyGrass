@@ -90,6 +90,8 @@ export interface WorldConfig {
   grassWetHeightBoost: number;
   grassDryHeightReduction: number;
   grassDryColorStrength: number;
+  /** How far every grass palette colour is pulled toward its own luminance. */
+  grassPaletteDesaturation: number;
   detailFoliageDensity: number;
   detailFoliageColonyWorldSize: number;
   detailFoliageClumpWorldSize: number;
@@ -200,6 +202,24 @@ export interface WorldConfig {
   terrainGroundCanopyDarkening: number;
   terrainPathCoreDarkening: number;
   terrainPathVergeDryness: number;
+  /**
+   * The ground's own distance schedules, in metres.
+   *
+   * These used to be borrowed from the grass preset's near and mid distances,
+   * which is what made the hillside band: three ground terms and three
+   * vegetation terms all changed across the same two radii. Each now owns its
+   * range and no two share an edge; `verify-lod-band-separation` enforces it.
+   */
+  terrainMicroDetailStart: number;
+  terrainMicroDetailEnd: number;
+  terrainMesoDetailStart: number;
+  terrainMesoDetailEnd: number;
+  terrainCanopyMergeStart: number;
+  terrainCanopyMergeEnd: number;
+  /** Ceiling on how far the ground may be replaced by canopy colour. */
+  terrainCanopyMergeStrength: number;
+  /** Share of a schedule's transition width spent wandering in world space. */
+  lodBandJitterRatio: number;
   grassMinAltitude: number;
   grassMaxAltitude: number;
   grassMaxSlopeDegrees: number;

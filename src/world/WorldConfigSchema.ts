@@ -5,6 +5,7 @@ import {
   UINT32_INTEGER_RULE,
   type ConfigNumberRule,
 } from "../config/FlatConfigValueReader";
+import { MAX_LOD_BAND_JITTER_RATIO } from "../grass/GrassLodBanding";
 import { DETAIL_FOLIAGE_TUNING_LIMITS } from "./grass/DetailFoliageTuning";
 import type { WorldConfig } from "./WorldConfig";
 
@@ -111,6 +112,7 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassWetHeightBoost: { minimum: 0, maximum: 0.4 },
   grassDryHeightReduction: { minimum: 0, maximum: 0.5 },
   grassDryColorStrength: { minimum: 0, maximum: 0.7 },
+  grassPaletteDesaturation: { minimum: 0, maximum: 0.35 },
   detailFoliageDensity: {
     minimum: DETAIL_FOLIAGE_TUNING_LIMITS.density.min,
     maximum: DETAIL_FOLIAGE_TUNING_LIMITS.density.max,
@@ -257,6 +259,14 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   terrainGroundCanopyDarkening: { minimum: 0, maximum: 0.5 },
   terrainPathCoreDarkening: { minimum: 0, maximum: 0.5 },
   terrainPathVergeDryness: { minimum: 0, maximum: 1 },
+  terrainMicroDetailStart: { minimum: 2, maximum: 30 },
+  terrainMicroDetailEnd: { minimum: 6, maximum: 80 },
+  terrainMesoDetailStart: { minimum: 10, maximum: 120 },
+  terrainMesoDetailEnd: { minimum: 20, maximum: 260 },
+  terrainCanopyMergeStart: { minimum: 20, maximum: 200 },
+  terrainCanopyMergeEnd: { minimum: 40, maximum: 400 },
+  terrainCanopyMergeStrength: { minimum: 0, maximum: 1 },
+  lodBandJitterRatio: { minimum: 0, maximum: MAX_LOD_BAND_JITTER_RATIO },
   grassMinAltitude: {},
   grassMaxAltitude: {},
   grassMaxSlopeDegrees: { minimum: 1, maximum: 89 },

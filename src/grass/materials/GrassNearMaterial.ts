@@ -6,7 +6,10 @@ import type {
   GrassWindConfig,
 } from "../GrassConfig";
 import type { GrassArtDirection } from "../GrassArtDirection";
-import { GRASS_GUST_TIP_BOOST } from "../GrassLodTuning";
+import {
+  GRASS_GUST_TIP_BOOST,
+  GRASS_MID_DENSITY_FALLOFF,
+} from "../GrassLodTuning";
 import { grassGroundShadow } from "../interaction/GrassGroundShadow";
 import { grassTrailField } from "../interaction/GrassTrailField";
 import {
@@ -72,21 +75,12 @@ const MINIMUM_BLADE_PIXEL_WIDTH = 1.15;
 const MAXIMUM_BLADE_WIDEN_RATIO = 3;
 const MAXIMUM_BLADE_WIDEN_METRES = 0.06;
 
-/** Distance band over which the mid layer thins its blades. */
-const DEFAULT_DENSITY_FALLOFF_START = 30;
-const DEFAULT_DENSITY_FALLOFF_END = 64;
-
 /**
- * The mid layer's distance thinning. `floor` is the fraction of blades still
- * submitted at `end` metres; the survivors are widened by `1/sqrt(floor)` and
- * pay the invented coverage back in colour, so the field's average brightness —
- * which is what `verify-lod-color-parity` bounds — does not move.
+ * Distance band over which the mid layer thins its blades, for materials that
+ * are never handed a configured one. Kept in step with the shipped schedule.
  */
-export const GRASS_MID_DENSITY_FALLOFF = Object.freeze({
-  start: 28,
-  end: 62,
-  floor: 0.18,
-});
+const DEFAULT_DENSITY_FALLOFF_START = GRASS_MID_DENSITY_FALLOFF.start;
+const DEFAULT_DENSITY_FALLOFF_END = GRASS_MID_DENSITY_FALLOFF.end;
 
 
 /**
