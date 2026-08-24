@@ -217,7 +217,6 @@ export class TerrainField {
     this.pathAltitudeFadeEnd =
       this.pathAltitudeFadeStart + config.rollingHeight;
   }
-
   sampleHeight(x: number, z: number): number {
     return this.hydrology.carveHeight(x, z, this.sampleRawHeight(x, z));
   }
@@ -635,7 +634,7 @@ export class TerrainField {
       height,
       landform,
       hydrology,
-      this.resolvePathGrassMask(pathDistances, height),
+      this.resolvePathGrassMask(pathDistances, height, 0, x, z),
       shade,
       target,
     );
