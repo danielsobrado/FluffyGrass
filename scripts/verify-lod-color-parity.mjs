@@ -646,15 +646,17 @@ function analyzePreset(preset) {
 
 validateInputs();
 const failures = [];
-// Biome rows are composed against a real art direction, because that is how
-// they resolve at runtime: row 0 takes the preset's palette verbatim and the
-// rest carry their own. Falling back to the first preset keeps this working if
-// the default is ever renamed, instead of silently spreading `undefined`. The
-// key itself is read from the source of truth: a gate that names the shipped
-// preset goes quiet the moment the default moves, which is when it matters most.
-const defaultPreset = presets["lush-hero"] ?? Object.values(presets)[0];
+// Biome rows resolve against the shipped art direction at runtime: row zero
+// takes that palette verbatim while profile-backed rows replace only their own
+// palette controls. Resolve the declared default strictly; falling back to an
+// arbitrary preset would let a broken default key turn this gate green.
+const defaultPreset = defaultArtDirectionKey
+  ? presets[defaultArtDirectionKey]
+  : undefined;
 if (!defaultPreset) {
-  fail("No art preset available to compose biome profiles against.");
+  fail(
+    `Unable to resolve the default art direction: ${String(defaultArtDirectionKey)}.`,
+  );
 }
 const biomeDirections = Object.values(biomeProfiles).map((profile) =>
   profile.paletteSource === "art"
