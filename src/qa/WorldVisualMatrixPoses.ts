@@ -123,6 +123,23 @@ function canopyEvaluationPoses(): WorldVisualPose[] {
 }
 
 /**
+ * Art-direction authority for the meadow organization plan.
+ *
+ * The close view deliberately uses the rocky landmark: it contains the same
+ * grass/flowers/stone/soil relationships as the supplied reference instead of
+ * photographing an empty test carpet. The two fixed AB-meadow views keep macro
+ * comparisons stable across revisions and expose the 60 m and 90 m scales the
+ * plan explicitly calls out.
+ */
+function meadowReviewPoses(locations: WorldVisualLocations): WorldVisualPose[] {
+  return [
+    look("meadow-review-third-person", locations.rocky, 6, 2.2, 0.4, 0.75),
+    look("meadow-review-aerial-60m", AB_MEADOW, 60, 24, -0.25, 0.85),
+    look("meadow-review-long-90m", AB_MEADOW, 90, 30, -0.72, -0.72),
+  ];
+}
+
+/**
  * A macro stone cluster this seed actually has, at fixed world coordinates.
  *
  * `stoneFormation` cannot find one. Its score rejects any point whose
@@ -231,6 +248,7 @@ export function createWorldVisualPoses(
     ...stoneDistancePoses(),
     ...abMeadowPoses(),
     ...canopyEvaluationPoses(),
+    ...meadowReviewPoses(locations),
     ...distancePoses(AB_MEADOW),
     look("g10-meadow", AB_MEADOW, 7.5, 2.4, 0.55, 0.55),
     look("g10-water-edge", locations.waterEdge, 6.5, 2.1, 0.7, 0.2),

@@ -130,8 +130,8 @@ try {
     world.grassUltraNearDensityMultiplier,
   );
   assert(
-    shippedNearStack === 24999,
-    `The shipped desktop near-tile stack must reserve 24,999 blade slots, received ${shippedNearStack}.`,
+    shippedNearStack === 20967,
+    `The shipped desktop near-tile stack must reserve 20,967 blade slots, received ${shippedNearStack}.`,
   );
 
   expectReject(

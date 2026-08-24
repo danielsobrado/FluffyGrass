@@ -6,7 +6,7 @@ import type { WorldConfig } from "./WorldConfig";
  * Absolute allocation ceilings for valid-but-pathological world tuning.
  *
  * The shipped world uses 1,344 source blades per patch and reserves a worst
- * near-field stack of 24,999 blade slots per tile after rosette expansion.
+ * near-field stack of 20,967 blade slots per tile after rosette expansion.
  * These limits leave tuning headroom while preventing a large patch/tile from
  * turning one build job or draw stack into an unbounded allocation.
  */

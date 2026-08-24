@@ -1,6 +1,6 @@
 # AAA Meadow Organization, Material Separation, and Visual Hierarchy Plan
 
-Status: planned (revision 2)
+Status: completed and reviewed (revision 3)
 Baseline date: 2026-08-24
 Baseline branch: `main`
 Baseline commit checked before writing: `64b1445` (`fix(grass): separate understory leaf forms`)
@@ -14,6 +14,25 @@ Companion documents:
 - [tiny-glade-detail-foliage-plan.md](tiny-glade-detail-foliage-plan.md)
 
 ### Revision history
+
+**Revision 3** — post-implementation code and visual review:
+
+1. Added the missing `npm run test:meadow-shots` workflow. It captures three
+   settled, clean 1920×1080 review frames, keeps the diagnostic/isolation checks
+   active until capture time, and records luminance, saturation, vegetation
+   separation, and screen-radial luminance in one JSON report.
+2. The review set isolates the meadow from the out-of-scope scenic layer while
+   retaining terrain, stones, water, flowers, and every grass LOD. This prevents
+   clipped tree crowns from obscuring the two macro-organization captures.
+3. The broadleaf-understory realised-share floor is **3%**, not 5%: less than 3%
+   of the shipped world is shaded, so forcing a 5% share would put understory on
+   ecologically invalid open ground. The mostly-grass upper bound is 72% for the
+   same measured-world reason. The gate and this plan now agree.
+4. Moved the last parallel art table, community archetype bias, into version 2
+   of `WorldCommunityProfiles.json`.
+5. Visual A/B review reduced `grassRosetteChance` from 0.22 to **0.12**. Coverage
+   remains 100.09% in the deterministic placement gate while repeated near-field
+   crown bundles and submitted geometry both fall.
 
 **Revision 2** — reworked after review. Five substantive changes:
 
@@ -1198,7 +1217,8 @@ already there.
 
 `WorldCommunityProfiles.ts` validates the JSON with the same `assertRecord` /
 `assertFiniteInRange` / `fail` helpers `GrassBiomeProfile.ts` uses, and carries
-`WORLD_COMMUNITY_VERSION = 1`, bumped whenever the JSON changes.
+`WORLD_COMMUNITY_VERSION = 2`, bumped when the archetype-bias art row moved into
+the JSON during implementation review.
 
 ### 9.6 Wiring
 
@@ -1371,7 +1391,7 @@ New `scripts/verify-community-field.mjs` (`npm run test:community`), modelled on
    These fail loudly if anyone ever reintroduces a write-back, and they are the
    machine-checkable form of invariant 5.
 2. **Realised shares.** Measured, not enforced. Assert each community's share is
-   in [0.05, 0.40] and that `shortSward + tallColony` ∈ [0.42, 0.66] — the
+   in [0.03, 0.40] and that `shortSward + tallColony` ∈ [0.42, 0.72] — the
    authored hierarchy, expressed as a band rather than a quota.
 3. **Patch scale.** Mean connected-run length along an axis within ±30% of
    `grassCommunityWorldSize`.
@@ -2034,7 +2054,7 @@ Two correctness requirements that must not be skipped:
   must fall by the same expected factor or the field densifies:
   `effectiveDensity = habitat.density / (1 + grassRosetteChance * 2.5)`.
 
-Config: `grassRosetteChance: 0.22` (0–0.5),
+Config: `grassRosetteChance: 0.12` (0–0.5),
 `grassRosetteFanRadians: 0.42` (0.1–0.9).
 
 ### 13.5 Verification
@@ -2275,7 +2295,7 @@ comment explaining the value, per the file's existing style).
 | `grassBroadBladeShare` | 0.09 | 0–0.25 | 5 |
 | `grassBroadBladeWidthScale` | 1.75 | 1–2.2 | 5 |
 | `grassBladeDamageShare` | 0.07 | 0–0.2 | 5 |
-| `grassRosetteChance` | 0.22 | 0–0.5 | 5 |
+| `grassRosetteChance` | 0.12 | 0–0.5 | 5 |
 | `grassRosetteFanRadians` | 0.42 | 0.1–0.9 | 5 |
 
 Not config keys — art tuning, authored in
@@ -2348,7 +2368,8 @@ the chain, and Pages deployment stays manual via `npm run deploy:pages`.
 Deliberately **outside** the default build chain. Uses the existing `qa/` harness
 and `.shots/` convention, seed `42017`, three poses:
 
-1. **Reference third-person** — the pose in the original screenshot.
+1. **Reference-like third-person** — the deterministic rocky meadow landmark,
+   chosen to frame grass, flowers, exposed soil, and stones together.
 2. **Aerial 60 m** — community structure.
 3. **Aerial 90 m, long view** — LOD banding and distant structure.
 
@@ -2365,7 +2386,7 @@ Only the analytic profile bound in 6.7.2 fails the build.
 |---|---|---|
 | Per-fragment macro noise exceeds budget, especially on compact | Frame time | Benchmark **before** implementing; baked 512² macro texture is a specified path, not a fallback, and is the default on compact |
 | GLSL/JS hash divergence on some driver | Ground/blade pattern mismatch | Parity gate at 1e-5 over 4 096 samples; failure mode is a soft mismatch, not a crash |
-| Community selection collapses to one dominant community on some seeds | Monotonous world | `verify-community-field` bounds realised shares to [0.05, 0.40] each across six seeds; `weight_c` is the corrective lever |
+| Community selection collapses to one dominant community | Monotonous world | `verify-community-field` bounds realised shares to [0.03, 0.40] over 400,000 shipped-world samples; profile `weight` is the corrective lever |
 | `grassCommunityEcologyStrength` too high reads as a contour map | Artificial | Default 0.78, not 1; the monotonicity assertion proves the lever's direction so it can be tuned with confidence |
 | Phase 3 lands before 3b and amplifies the green-mass defect | Visible regression | 3b **gates** 3; if it slips, broadleaf weight ships at 0.4 of target |
 | `instanceShape` desynchronises from `instanceMatrix` after compaction | Scrambled morphology | Typed swap path plus the synthetic-compaction assertion in 13.5 |

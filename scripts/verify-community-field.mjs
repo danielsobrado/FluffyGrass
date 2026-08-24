@@ -129,6 +129,21 @@ try {
     `Expected five communities, found ${COMMUNITY_PROFILES.length}.`,
   );
   assert(WORLD_COMMUNITY_VERSION >= 1, "Community profiles must be versioned.");
+  assert(
+    COMMUNITY_PROFILES.every(
+      (profile) =>
+        Number.isFinite(profile.archetypeBias) &&
+        profile.archetypeBias >= -1 &&
+        profile.archetypeBias <= 1,
+    ),
+    "Every versioned community profile must carry its grass-archetype bias.",
+  );
+  assert(
+    !read("src/world/grass/GrassHabitatField.ts").includes(
+      "COMMUNITY_ARCHETYPE_BIAS",
+    ),
+    "Community archetype art direction must live in WorldCommunityProfiles.json, not a parallel TypeScript table.",
+  );
 
   // --- Sweep the world once, accumulating everything the checks need ---
   const counts = new Array(COMMUNITY_COUNT).fill(0);

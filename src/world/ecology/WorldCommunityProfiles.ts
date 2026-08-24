@@ -33,7 +33,7 @@ export const COMMUNITY_FLOWER_MEADOW = 3;
 export const COMMUNITY_BROADLEAF_UNDERSTORY = 4;
 export const COMMUNITY_COUNT = 5;
 
-export const WORLD_COMMUNITY_VERSION = 1;
+export const WORLD_COMMUNITY_VERSION = 2;
 
 /**
  * The ecology channels a community is scored against.
@@ -80,6 +80,8 @@ export interface CommunityProfile {
   label: string;
   /** Prior weight before ecology and noise have their say. */
   weight: number;
+  /** Tie-break toward dry/sparse (+) or tall/wet (-) grass archetypes. */
+  archetypeBias: number;
   preferences: CommunityPreferences;
   response: CommunityResponse;
 }
@@ -201,6 +203,12 @@ function resolveProfiles(): readonly CommunityProfile[] {
       index,
       label: typeof entry.label === "string" ? entry.label : key,
       weight: assertFiniteInRange(entry.weight, 0.01, 4, `${key} weight`),
+      archetypeBias: assertFiniteInRange(
+        entry.archetypeBias,
+        -1,
+        1,
+        `${key} archetype bias`,
+      ),
       preferences: preferences as unknown as CommunityPreferences,
       response: response as unknown as CommunityResponse,
     };

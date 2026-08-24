@@ -67,6 +67,7 @@
     "test:imported-rig": "node scripts/verify-imported-rig.mjs",
     "test:navigation": "node scripts/verify-navigation.mjs",
     "test:path-verge": "node scripts/verify-path-verge.mjs",
+    "test:meadow-shots": "node scripts/capture-meadow-shots.mjs",
     "test:stones": "node scripts/verify-stones.mjs",
     "shots:stones": "node scripts/capture-stone-shots.mjs",
     "test:stone-lifecycle": "node scripts/verify-stone-lifecycle.mjs",

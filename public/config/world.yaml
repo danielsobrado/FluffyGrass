@@ -407,7 +407,7 @@ grassBladeDamageShare: 0.07
 # so they cost a matrix compose each. Raising the chance does NOT densify the
 # meadow: per-blade coverage divides by the same expected factor, so the field
 # trades single blades for fewer, fuller plants at a constant blade count.
-grassRosetteChance: 0.22
+grassRosetteChance: 0.12
 # Angle between neighbouring leaves in a fan, in radians.
 grassRosetteFanRadians: 0.42
 

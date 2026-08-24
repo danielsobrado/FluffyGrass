@@ -10,7 +10,10 @@
 // FLUFFY_PROFILE (desktop/compact runtime profile),
 // FLUFFY_NO_TERRAIN (hide terrain and water through the isolation harness),
 // FLUFFY_NO_GRASS (hide every grass population through the isolation harness),
-// FLUFFY_NO_WATER (hide only water through the isolation harness).
+// FLUFFY_NO_WATER (hide only water through the isolation harness),
+// FLUFFY_NO_SCENIC (hide trees/fauna while retaining stones and terrain),
+// FLUFFY_CLEAN_SHOT (hide every HTML overlay while writing the PNG),
+// FLUFFY_VIEWPORT (exact CSS viewport as WIDTHxHEIGHT, e.g. 1920x1080).
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +38,11 @@ const NO_GRASS_QUERY = process.env.FLUFFY_NO_GRASS === "1"
 const NO_WATER_QUERY = process.env.FLUFFY_NO_WATER === "1"
   ? "&noWater=1"
   : "";
+const NO_SCENIC_QUERY = process.env.FLUFFY_NO_SCENIC === "1"
+  ? "&noScenic=1"
+  : "";
+const CLEAN_SHOT = process.env.FLUFFY_CLEAN_SHOT === "1";
+const VIEWPORT = parseViewport(process.env.FLUFFY_VIEWPORT ?? "1280x720");
 // GPU timing is off by default because it forces a query per frame and skews
 // the very number it reports. Turn it on deliberately when a capture is being
 // taken to answer a cost question rather than a look question — with the
@@ -53,7 +61,7 @@ const STATS_QUERY = GPU_TIMING ? "" : "&stats=1";
 const PROFILE_QUERY = RUNTIME_PROFILE
   ? `&profile=${encodeURIComponent(RUNTIME_PROFILE)}`
   : "";
-const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly${STATS_QUERY}&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${PROFILE_QUERY}${GPU_TIMING_QUERY}`;
+const URL_BASE = `http://localhost:${DEV_PORT}/?qa=visual-matrix&control=fly${STATS_QUERY}&debug=1${GRASS_LAYER_QUERY}${NO_TERRAIN_QUERY}${NO_GRASS_QUERY}${NO_WATER_QUERY}${NO_SCENIC_QUERY}${PROFILE_QUERY}${GPU_TIMING_QUERY}`;
 const PORT = parsePort(process.env.FLUFFY_CDP_PORT ?? 9333, "CDP");
 // Chrome rather than Edge on purpose. Other capture scripts in this project
 // open with `taskkill /IM msedge.exe /F`, which kills every Edge on the machine
@@ -74,6 +82,23 @@ function parsePort(value, label) {
     throw new Error(`invalid ${label} port: ${value}`);
   }
   return parsed;
+}
+
+function parseViewport(value) {
+  const match = /^(\d+)x(\d+)$/.exec(value);
+  const width = Number(match?.[1]);
+  const height = Number(match?.[2]);
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width < 320 ||
+    height < 240 ||
+    width > 7680 ||
+    height > 4320
+  ) {
+    throw new Error(`invalid viewport: ${value}`);
+  }
+  return { width, height };
 }
 
 /**
@@ -112,7 +137,7 @@ const child = spawn(
     "--ignore-gpu-blocklist",
     "--enable-gpu-rasterization",
     `--remote-debugging-port=${PORT}`,
-    "--window-size=1280,720",
+    `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
     `--user-data-dir=${PROFILE}`,
     "--no-first-run",
     // Headless Chrome still parks a renderer it considers occluded: the frame
@@ -201,8 +226,115 @@ const evaluate = async (expression) =>
     })
   )?.result?.value;
 
+async function measureScreenshot(base64) {
+  const dataUrl = JSON.stringify(`data:image/png;base64,${base64}`);
+  const serialized = await evaluate(
+    `(async () => {
+      const image = new Image();
+      image.src = ${dataUrl};
+      await image.decode();
+      const width = Math.min(320, image.naturalWidth);
+      const height = Math.max(1, Math.round(width * image.naturalHeight / image.naturalWidth));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0, width, height);
+      const pixels = context.getImageData(0, 0, width, height).data;
+      const luminance = [];
+      const vegetationLuminance = [];
+      const radialSums = new Array(16).fill(0);
+      const radialCounts = new Array(16).fill(0);
+      let saturationSum = 0;
+      for (let y = 0, offset = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1, offset += 4) {
+          const red = pixels[offset] / 255;
+          const green = pixels[offset + 1] / 255;
+          const blue = pixels[offset + 2] / 255;
+          const maximum = Math.max(red, green, blue);
+          const minimum = Math.min(red, green, blue);
+          const value = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+          luminance.push(value);
+          saturationSum += maximum > 0 ? (maximum - minimum) / maximum : 0;
+          const saturation = maximum > 0 ? (maximum - minimum) / maximum : 0;
+          if (
+            saturation > 0.12 &&
+            green > red * 1.01 &&
+            green > blue * 1.05
+          ) {
+            vegetationLuminance.push(value);
+          }
+          const nx = (x + 0.5 - width * 0.5) / (width * 0.5);
+          const ny = (y + 0.5 - height * 0.5) / (height * 0.5);
+          const bin = Math.min(15, Math.floor(Math.hypot(nx, ny) / Math.SQRT2 * 16));
+          radialSums[bin] += value;
+          radialCounts[bin] += 1;
+        }
+      }
+      luminance.sort((left, right) => left - right);
+      let low = 1;
+      let high = 0;
+      let vegetationSum = 0;
+      for (const value of vegetationLuminance) {
+        low = Math.min(low, value);
+        high = Math.max(high, value);
+        vegetationSum += value;
+      }
+      if (vegetationLuminance.length === 0) low = 0;
+      let lowCount = 0;
+      let highCount = 0;
+      for (let iteration = 0; iteration < 12 && vegetationLuminance.length > 0; iteration += 1) {
+        let lowSum = 0;
+        let highSum = 0;
+        lowCount = 0;
+        highCount = 0;
+        const midpoint = (low + high) * 0.5;
+        for (const value of vegetationLuminance) {
+          if (value <= midpoint) {
+            lowSum += value;
+            lowCount += 1;
+          } else {
+            highSum += value;
+            highCount += 1;
+          }
+        }
+        if (lowCount > 0) low = lowSum / lowCount;
+        if (highCount > 0) high = highSum / highCount;
+      }
+      const mean = luminance.reduce((sum, value) => sum + value, 0) / luminance.length;
+      const vegetationTotal = Math.max(vegetationLuminance.length, 1);
+      const vegetationMean = vegetationSum / vegetationTotal;
+      const betweenClusterVariance =
+        (lowCount * (low - vegetationMean) ** 2 + highCount * (high - vegetationMean) ** 2) /
+        vegetationTotal;
+      return JSON.stringify({
+        sampleSize: [width, height],
+        meanLuminance: mean,
+        medianLuminance: luminance[Math.floor(luminance.length * 0.5)],
+        meanSaturation: saturationSum / luminance.length,
+        vegetationPixelShare: vegetationLuminance.length / luminance.length,
+        vegetationTwoMeans: {
+          low,
+          high,
+          lowShare: lowCount / vegetationTotal,
+          betweenClusterVariance,
+        },
+        screenRadialLuminance: radialSums.map((sum, index) =>
+          sum / Math.max(radialCounts[index], 1)),
+      });
+    })()`,
+  );
+  return serialized ? JSON.parse(serialized) : null;
+}
+
 await send("Page.enable");
 await send("Runtime.enable");
+await send("Emulation.setDeviceMetricsOverride", {
+  width: VIEWPORT.width,
+  height: VIEWPORT.height,
+  deviceScaleFactor: 1,
+  mobile: false,
+});
 await send("Page.navigate", { url: URL_BASE });
 
 let poses = null;
@@ -368,11 +500,36 @@ for (const { name, index } of matches) {
     `(document.body.innerText || '').split(String.fromCharCode(10)).slice(0, 14).join(String.fromCharCode(10))`,
   );
   console.log(hud);
+  if (CLEAN_SHOT) {
+    await evaluate(
+      `(() => { for (const child of document.body.children) {
+        if (child.id !== 'canvas' && child.tagName !== 'SCRIPT') {
+          child.dataset.captureVisibility = child.style.visibility;
+          child.style.visibility = 'hidden';
+        }
+      } })()`,
+    );
+    // Let one full frame render without overlays before asking Chrome for the
+    // compositor surface. This keeps clean art-review shots free of stale UI
+    // pixels while all streaming and diagnostic assertions above stay active.
+    await sleep(100);
+  }
   const shot = await send("Page.captureScreenshot", { format: "png" });
   if (shot?.data) {
     const out = `${OUT_DIR}/desktop-${name}.png`;
     writeFileSync(out, Buffer.from(shot.data, "base64"));
+    capture.imageMetrics = await measureScreenshot(shot.data);
     console.log("  wrote", out);
+  }
+  if (CLEAN_SHOT) {
+    await evaluate(
+      `(() => { for (const child of document.body.children) {
+        if ('captureVisibility' in child.dataset) {
+          child.style.visibility = child.dataset.captureVisibility;
+          delete child.dataset.captureVisibility;
+        }
+      } })()`,
+    );
   }
 }
 
@@ -393,6 +550,9 @@ writeFileSync(
       terrainVisible: process.env.FLUFFY_NO_TERRAIN !== "1",
       grassVisible: process.env.FLUFFY_NO_GRASS !== "1",
       waterVisible: process.env.FLUFFY_NO_WATER !== "1",
+      scenicVisible: process.env.FLUFFY_NO_SCENIC !== "1",
+      cleanShot: CLEAN_SHOT,
+      viewport: VIEWPORT,
       runtime: runtimeReport,
       captures,
     },

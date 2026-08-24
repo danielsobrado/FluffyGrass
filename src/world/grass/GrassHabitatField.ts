@@ -6,7 +6,10 @@ import {
   sampleGrassMacroVigor,
 } from "../../grass/GrassFieldVariation";
 import type { WorldEcologySample } from "../ecology/WorldEcologyField";
-import type { CommunityResponse } from "../ecology/WorldCommunityProfiles";
+import {
+  COMMUNITY_PROFILES,
+  type CommunityResponse,
+} from "../ecology/WorldCommunityProfiles";
 import type { WorldConfig } from "../WorldConfig";
 
 /**
@@ -44,18 +47,6 @@ export const GRASS_CLUSTER_ARCHETYPE_COUNT = 6;
 
 const ARCHETYPE_SALT = 0xa3;
 const GRASS_DENSITY_EPSILON = 0.0001;
-
-/**
- * Which way each community leans the archetype thresholds, indexed by community.
- *
- * Positive pushes toward the drier/shorter/sparser end of the chain below,
- * negative toward the taller/wetter end. Small on purpose: this is a tie-break
- * on ground the thresholds are already close to indifferent about, not a
- * decision.
- */
-const COMMUNITY_ARCHETYPE_BIAS: readonly number[] = Object.freeze([
-  0.6, -0.7, 0.9, -0.1, -0.4,
-]);
 
 export function createGrassHabitatSample(): GrassHabitatSample {
   return {
@@ -293,7 +284,11 @@ export function resolveGrassClusterArchetype(
    * are among the conditions that selected this community in the first place,
    * so leaning on them here would be the same circularity in miniature.
    */
-  const communityLean = (COMMUNITY_ARCHETYPE_BIAS[communityIndex] ?? 0) * 0.12;
+  // Positive profile values lean toward the drier/shorter/sparser end of the
+  // chain below; negative values lean taller/wetter. The art value lives beside
+  // the rest of its community profile so tuning never requires a TS edit.
+  const communityLean =
+    (COMMUNITY_PROFILES[communityIndex]?.archetypeBias ?? 0) * 0.12;
   if (habitat.directionalLean + identityBias > 0.45) {
     return GRASS_CLUSTER_FLATTENED;
   }
