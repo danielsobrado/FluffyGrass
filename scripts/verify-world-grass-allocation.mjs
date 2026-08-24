@@ -25,6 +25,42 @@ function expectReject(action, pattern, message) {
   );
 }
 
+function resolvePlacementCount(tileSize, density, multiplier) {
+  return Math.max(1, Math.round(tileSize ** 2 * density * multiplier));
+}
+
+function resolvePopulationCapacity(
+  tileSize,
+  density,
+  multiplier,
+  rosetteChance,
+) {
+  const expansion = 1 + rosetteChance * 2.5;
+  return Math.ceil(
+    resolvePlacementCount(tileSize, density, multiplier) * expansion,
+  );
+}
+
+function resolveNearStackCapacity(world, density, ultraMultiplier) {
+  const base = resolvePopulationCapacity(
+    world.grassNearTileSize,
+    density,
+    1,
+    world.grassRosetteChance,
+  );
+  const additionalMultiplier = Math.max(0, ultraMultiplier - 1);
+  if (additionalMultiplier === 0) {
+    return base;
+  }
+  const additional = resolvePopulationCapacity(
+    world.grassNearTileSize,
+    density,
+    additionalMultiplier,
+    world.grassRosetteChance,
+  );
+  return base + additional * 2;
+}
+
 const worldSource = readFileSync(
   resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
   "utf8",
@@ -33,12 +69,24 @@ const loaderSource = readFileSync(
   resolve(REPOSITORY_ROOT, "src/world/WorldConfigLoader.ts"),
   "utf8",
 );
+const validatorSource = readFileSync(
+  resolve(REPOSITORY_ROOT, "src/world/WorldGrassAllocationValidator.ts"),
+  "utf8",
+);
 assert(
   loaderSource.includes(
     'import { validateWorldGrassAllocationConfig } from "./WorldGrassAllocationValidator"',
   ) &&
     loaderSource.includes("validateWorldGrassAllocationConfig(config)"),
   "Every production world config load must enforce the grass allocation ceilings.",
+);
+assert(
+  validatorSource.includes(
+    'import { resolveGrassPlacementGrid } from "./grass/GrassClumpLattice"',
+  ) &&
+    validatorSource.includes("Math.ceil(") &&
+    validatorSource.includes("resolveNearPopulationCapacity("),
+  "The near allocation ceiling must reuse runtime placement rounding and capacity ceiling rules.",
 );
 
 const server = await createServer({
@@ -76,13 +124,14 @@ try {
     ) === 1344,
     "The shipped desktop source patch must remain the reviewed 1,344 blades.",
   );
+  const shippedNearStack = resolveNearStackCapacity(
+    world,
+    world.grassNearBladesPerSquareMeterDesktop,
+    world.grassUltraNearDensityMultiplier,
+  );
   assert(
-    Math.round(
-      world.grassNearTileSize ** 2 *
-        world.grassNearBladesPerSquareMeterDesktop *
-        (2 * world.grassUltraNearDensityMultiplier - 1),
-    ) === 16128,
-    "The shipped desktop near-tile stack must remain the reviewed 16,128 blades.",
+    shippedNearStack === 24999,
+    `The shipped desktop near-tile stack must reserve 24,999 blade slots, received ${shippedNearStack}.`,
   );
 
   expectReject(
@@ -117,11 +166,27 @@ try {
         grassUltraNearDensityMultiplier: 3,
       }),
     new RegExp(`above the ${MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE} safety ceiling`),
-    "Oversized near-tile stacks must fail before typed-array allocation.",
+    "Oversized near-tile stacks must fail before near-field residency begins.",
+  );
+
+  // This is the rounding boundary that the old one-shot formula missed:
+  // round(total * expansion) is 40,000, while the runtime's separately rounded
+  // populations and separately ceiled buffers reserve 40,001 slots.
+  expectReject(
+    () =>
+      validateWorldGrassAllocationConfig({
+        ...world,
+        grassNearTileSize: 5,
+        grassNearBladesPerSquareMeterDesktop: 153,
+        grassUltraNearDensityMultiplier: 2.85,
+        grassRosetteChance: 0.49,
+      }),
+    new RegExp(`above the ${MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE} safety ceiling`),
+    "Near allocation validation must reject values that cross the ceiling only after runtime rounding.",
   );
 
   console.log(
-    `[world-grass-allocation] Patch ${MAX_GRASS_SOURCE_BLADES_PER_PATCH}, batch ${MAX_GRASS_MID_TRIANGLES_PER_RENDER_BATCH}, near stack ${MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE} ceilings and loader integration verified.`,
+    `[world-grass-allocation] Patch ${MAX_GRASS_SOURCE_BLADES_PER_PATCH}, batch ${MAX_GRASS_MID_TRIANGLES_PER_RENDER_BATCH}, near stack ${MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE} ceilings, exact runtime rounding, and loader integration verified.`,
   );
 } finally {
   await server.close();
