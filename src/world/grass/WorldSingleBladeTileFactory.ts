@@ -893,16 +893,17 @@ export class WorldSingleBladeTileFactory {
         sampleAngle,
         gapIdentity,
       );
-      // Divided by the rosette expansion: a rosette cell emits several
-      // blades, so without this the field densifies by exactly that factor as
-      // soon as the chance is non-zero. Every blade pays it, not just the
-      // rosettes, because the expansion is an expectation over all cells.
+      // Rosette-eligible blades divide by the expected expansion so their
+      // parent plus optional leaves preserve the pre-rosette coverage. Accent
+      // blades never emit rosette leaves, so applying that divisor to them
+      // would silently thin the authored accent population.
+      const coverageExpansion = isAccentBlade ? 1 : this.rosetteExpansion;
       const bladeCoverage =
         (this.habitatSample.density *
           (pioneer > 0 ? this.worldConfig.grassPathPioneerCoverage : pathMask) *
           stoneMask *
           clusterCoverage) /
-        this.rosetteExpansion;
+        coverageExpansion;
       job.coverages[job.bladeCount] = bladeCoverage;
       job.biomes[job.bladeCount] = biomeIndex;
       const parentVariationOffset = variationOffset;
