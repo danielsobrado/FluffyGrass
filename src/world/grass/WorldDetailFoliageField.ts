@@ -14,6 +14,17 @@ import {
   sampleStoneGrassClearance,
   sampleStoneGrassSkirt,
 } from "../stones/StoneClearance";
+import {
+  createCommunitySample,
+  pickCommunityIndex,
+  sampleWorldCommunity,
+  type WorldCommunitySample,
+} from "../ecology/WorldCommunityField";
+import {
+  createCommunityResponse,
+  resolveCommunityResponse,
+} from "../ecology/WorldCommunityResponse";
+import type { CommunityResponse } from "../ecology/WorldCommunityProfiles";
 import type { TerrainField } from "../TerrainField";
 import type { WorldConfig } from "../WorldConfig";
 import {
@@ -290,6 +301,10 @@ export class WorldDetailFoliageFactory {
   /** What a species' `canopyHeightBand` of 1.0 resolves to, in metres. */
   private readonly canopyHeight: number;
   private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
+  private readonly communitySample: WorldCommunitySample =
+    createCommunitySample();
+  private readonly communityResponse: CommunityResponse =
+    createCommunityResponse();
   private readonly distribution: WorldDetailFoliageDistribution;
   private readonly distributionSample = createDetailFoliageDistributionSample();
   private readonly selection = createDetailFoliageSelection();
@@ -402,6 +417,13 @@ export class WorldDetailFoliageFactory {
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const profile = GRASS_BIOME_PROFILES[biomeIndex];
       const ecology = this.field.sampleEcologyAt(x, z, height);
+      sampleWorldCommunity(x, z, ecology, this.worldConfig, this.communitySample);
+      resolveCommunityResponse(
+        this.communitySample,
+        this.worldConfig,
+        this.communityResponse,
+      );
+      const communityIndex = pickCommunityIndex(x, z, this.communitySample);
       sampleGrassHabitat(
         x,
         z,
@@ -412,6 +434,7 @@ export class WorldDetailFoliageFactory {
         profile.heightBand[1],
         profile.drynessBias,
         profile.accentDensity,
+        this.communityResponse,
         this.worldConfig,
         this.habitatSample,
       );
@@ -469,6 +492,7 @@ export class WorldDetailFoliageFactory {
           stoneSkirt,
           distribution,
           candidateHash,
+          communityIndex,
           this.tuning,
           this.selection,
         )
@@ -483,12 +507,18 @@ export class WorldDetailFoliageFactory {
         candidateHash,
         this.tuning,
       );
+      // Scaled by the grass around it, not only by the species band. A daisy in
+      // a tall colony should be a taller daisy; without this it is the same
+      // daisy standing in taller grass, which is most of why the flowers read
+      // as sprinkled onto the meadow rather than grown in it.
       const cardHeight =
         lerp(
           species.canopyHeightBand[0],
           species.canopyHeightBand[1],
           heightRoll,
-        ) * this.canopyHeight;
+        ) *
+        this.canopyHeight *
+        lerp(1, this.habitatSample.height, this.tuning.grassHeightCoupling);
       const cardWidth = cardHeight * species.aspect;
       this.position.set(
         x,

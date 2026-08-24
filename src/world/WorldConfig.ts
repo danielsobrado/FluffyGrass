@@ -92,6 +92,22 @@ export interface WorldConfig {
   grassDryColorStrength: number;
   /** How far every grass palette colour is pulled toward its own luminance. */
   grassPaletteDesaturation: number;
+  /**
+   * Vegetation communities: where they organise, how strongly ecology decides
+   * which one, and how hard each expresses itself.
+   *
+   * The art tables -- prior weights, preference curves, responses, species
+   * affinity -- live in src/world/ecology/WorldCommunityProfiles.json, because
+   * those are the numbers a visual tuning pass edits.
+   */
+  grassCommunityWorldSize: number;
+  grassCommunityEcologyStrength: number;
+  grassCommunityStrength: number;
+  grassCommunityBorderWidth: number;
+  grassCommunityQuietStrength: number;
+  terrainCommunityTintStrength: number;
+  detailFoliageCommunityStrength: number;
+  detailFoliageGrassHeightCoupling: number;
   detailFoliageDensity: number;
   detailFoliageColonyWorldSize: number;
   detailFoliageClumpWorldSize: number;

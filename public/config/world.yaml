@@ -102,7 +102,10 @@ grassBladeHeightJitter: 0.04
 # Strength is the look: wet banks, dry crowns, rock, and paths must read from
 # a standing camera, not only from a habitat debug overlay.
 grassMacroPatchWorldSize: 36
-grassMacroPatchStrength: 0.52
+# Reduced from 0.52 with the community field. This 36 m patch field responds to
+# the same ecology the communities now do, so at its old strength the two fought:
+# a doubled structure at two nearby scales reads as mud rather than as either.
+grassMacroPatchStrength: 0.34
 grassWetDensityBoost: 0.45
 grassDryDensityReduction: 0.68
 grassRockDensityReduction: 0.82
@@ -124,6 +127,41 @@ grassDryColorStrength: 0.58
 # luminance by construction, so it cannot move the field's brightness or the LOD
 # colour-parity budget. Provisional at 0.06; the full palette pass raises it.
 grassPaletteDesaturation: 0.06
+
+# Vegetation communities.
+#
+# The meadow varied dryness, vigour, clearing and patch density, but nothing
+# ever named a *community* -- so every point in it was "grass, a bit drier or
+# wetter", and nothing made density, height, accent share, understory ratio and
+# clump archetype agree about what a given patch of ground is.
+#
+# Ecology decides which communities are possible here; this field decides which
+# of the possible ones organises, and gives the patch its shape. The art tables
+# (prior weights, preference curves, responses, species affinity) are in
+# src/world/ecology/WorldCommunityProfiles.json.
+#
+# Metres per lattice cell: a patch you can trace the boundary of from a standing
+# camera, and above twice the coarsest terrain vertex spacing so the ground can
+# still carry the field at the far ring. The validator enforces that floor.
+grassCommunityWorldSize: 26
+# How much ecology constrains the choice. At 1 the communities follow moisture
+# and slope isolines and read as a contour map; at 0 they are pure noise, which
+# is the scatter this field replaces. 0.78 leaves noise enough room to break up
+# the contours without letting a bare break open on wet, sheltered ground.
+grassCommunityEcologyStrength: 0.78
+# How hard a community expresses itself in the middle of its own patch.
+grassCommunityStrength: 0.85
+# Half-width of the ecotone, in units of the score margin. Wider means more
+# ground where two communities interleave.
+grassCommunityBorderWidth: 0.18
+# How much incident a quiet patch gives up. Takes the accent layer and the
+# clump-scale variety, never density: quiet ground is not bare ground, it is
+# somewhere for the eye to rest between the richer patches.
+grassCommunityQuietStrength: 0.7
+# How far the ground agrees with the community standing on it. This is what
+# keeps dark colonies, dry patches and bare breaks legible at 200 m, where the
+# blades are long gone and only the terrain is left.
+terrainCommunityTintStrength: 0.42
 
 # Detail foliage composition. Tile topology, material, atlas, LOD and radius stay fixed.
 detailFoliageDensity: 20.0
@@ -148,6 +186,14 @@ detailFoliageEcologyStrength: 0.72
 detailFoliageEdgeCompanionStrength: 0.30
 detailFoliageStoneFringeStrength: 0.38
 detailFoliagePathFringeStrength: 0.18
+# How much the community a plant stands in decides whether that species belongs
+# there. Multiplied into the ecology habitat score the layer already computes, so
+# a species becomes common in a community without becoming unconditional.
+detailFoliageCommunityStrength: 0.80
+# How far an accent takes its height from the grass around it. A daisy in a tall
+# colony should be a taller daisy; without this it is the same daisy in taller
+# grass, which is why the flowers read as sprinkled on rather than grown in.
+detailFoliageGrassHeightCoupling: 0.55
 
 # Mid blades use cheaper single triangles but retain every source blade.
 # Underlayer is the tuft body: raising it (and thinning the mid-height band in

@@ -102,6 +102,7 @@ export class TerrainChunkBuilder {
   private readonly ecologies: Float32Array;
   private readonly environments: Float32Array;
   private readonly biomes: Float32Array;
+  private readonly communities: Float32Array;
   private readonly stoneContacts: Float32Array;
   private readonly stoneOcclusionCenters: Float32Array;
   private readonly stoneOcclusions: Float32Array;
@@ -113,6 +114,7 @@ export class TerrainChunkBuilder {
   private readonly ecology = new THREE.Vector4();
   private readonly environment = new THREE.Vector4();
   private readonly biome = new THREE.Vector4();
+  private readonly community = new THREE.Vector2();
   private readonly hydrology: HydrologySample = createHydrologySample();
   /** Distinct from `ecology` above, which is the packed shader channel. */
   private readonly ecologySample: WorldEcologySample = createEcologySample();
@@ -122,6 +124,7 @@ export class TerrainChunkBuilder {
     ecology: this.ecology,
     environment: this.environment,
     biome: this.biome,
+    community: this.community,
     stoneContact: this.stoneContact,
     stoneOcclusionCenter: this.stoneOcclusionCenter,
     stoneOcclusionRadius: 0,
@@ -157,6 +160,7 @@ export class TerrainChunkBuilder {
     this.ecologies = new Float32Array(vertexCount * 4);
     this.environments = new Float32Array(vertexCount * 4);
     this.biomes = new Float32Array(vertexCount * 4);
+    this.communities = new Float32Array(vertexCount * 2);
     this.stoneContacts = new Float32Array(vertexCount * 4);
     this.stoneOcclusionCenters = new Float32Array(vertexCount * 2);
     this.stoneOcclusions = new Float32Array(vertexCount);
@@ -276,6 +280,9 @@ export class TerrainChunkBuilder {
       this.stoneOcclusionCenters[stoneOcclusionOffset + 1] =
         this.stoneOcclusionCenter.y;
 
+      this.communities[stoneOcclusionOffset] = this.community.x;
+      this.communities[stoneOcclusionOffset + 1] = this.community.y;
+
       const biomeOffset = this.nextVertex * 4;
       this.biomes[biomeOffset] = this.biome.x;
       this.biomes[biomeOffset + 1] = this.biome.y;
@@ -363,6 +370,10 @@ export class TerrainChunkBuilder {
       geometry.setAttribute(
         "terrainBiome",
         new THREE.BufferAttribute(this.biomes, 4),
+      );
+      geometry.setAttribute(
+        "terrainCommunity",
+        new THREE.BufferAttribute(this.communities, 2),
       );
       geometry.setAttribute(
         "terrainStoneInfluence",

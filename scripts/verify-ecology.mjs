@@ -59,6 +59,10 @@ try {
     resolveGrassClusterArchetype,
     sampleGrassHabitat,
   } = await server.ssrLoadModule("/src/world/grass/GrassHabitatField.ts");
+  const { NEUTRAL_COMMUNITY_RESPONSE: NEUTRAL_COMMUNITY } =
+    await server.ssrLoadModule(
+      "/src/world/ecology/WorldCommunityProfiles.ts",
+    );
 
   const configSource = readFileSync(
     resolve(REPOSITORY_ROOT, "public/config/world.yaml"),
@@ -297,7 +301,7 @@ try {
     rockiness: 0.04,
     shade: 0,
   };
-  sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, config, habitat);
+  sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, NEUTRAL_COMMUNITY, config, habitat);
   const healthyDensity = habitat.density;
   const healthyHeight = habitat.height;
   for (const name of Object.keys(habitat)) {
@@ -316,6 +320,7 @@ try {
     1.12,
     0.2,
     0.2,
+    NEUTRAL_COMMUNITY,
     config,
     habitat,
   );
@@ -335,6 +340,7 @@ try {
     1.12,
     0,
     0.2,
+    NEUTRAL_COMMUNITY,
     config,
     habitat,
   );
@@ -352,6 +358,7 @@ try {
     1.12,
     0,
     0.2,
+    NEUTRAL_COMMUNITY,
     config,
     habitat,
   );
@@ -359,9 +366,9 @@ try {
     habitat.density <= healthyDensity + 1e-9,
     "Disturbed ground must not grow denser than the equivalent healthy sample.",
   );
-  sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, config, habitat);
-  const firstArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config);
-  const secondArchetype = resolveGrassClusterArchetype(habitat, 4, 9, config);
+  sampleGrassHabitat(12, -8, healthy, 1, 0, 0.9, 1.12, 0, 0.2, NEUTRAL_COMMUNITY, config, habitat);
+  const firstArchetype = resolveGrassClusterArchetype(habitat, 0, 4, 9, config);
+  const secondArchetype = resolveGrassClusterArchetype(habitat, 0, 4, 9, config);
   assert(
     firstArchetype === secondArchetype &&
       firstArchetype >= 0 &&
@@ -374,6 +381,7 @@ try {
   normalLowDensityBiome.densityRetention = 1;
   const normalLowDensityArchetype = resolveGrassClusterArchetype(
     normalLowDensityBiome,
+    0,
     4,
     9,
     config,
@@ -387,6 +395,7 @@ try {
   normalLowDensityBiome.densityRetention = 0.2 / 0.42;
   const degradedLowDensityArchetype = resolveGrassClusterArchetype(
     normalLowDensityBiome,
+    0,
     4,
     9,
     config,
@@ -399,6 +408,7 @@ try {
   normalLowDensityBiome.dryness = 0.8;
   const degradedDryBiomeArchetype = resolveGrassClusterArchetype(
     normalLowDensityBiome,
+    0,
     4,
     9,
     config,
@@ -428,6 +438,7 @@ try {
     0.94,
     0.48,
     0.6,
+    NEUTRAL_COMMUNITY,
     config,
     habitat,
   );
@@ -446,6 +457,7 @@ try {
     0.94,
     0.48,
     0.6,
+    NEUTRAL_COMMUNITY,
     config,
     habitat,
   );
@@ -463,6 +475,7 @@ try {
     0.94,
     0.48,
     0.6,
+    NEUTRAL_COMMUNITY,
     config,
     habitat,
   );

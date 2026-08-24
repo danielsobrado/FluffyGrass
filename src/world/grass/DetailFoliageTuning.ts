@@ -15,6 +15,10 @@ export interface DetailFoliageTuning {
   edgeCompanionStrength: number;
   stoneFringeStrength: number;
   pathFringeStrength: number;
+  /** How far the community decides whether a species belongs here. */
+  communityStrength: number;
+  /** How far an accent takes its height from the grass around it. */
+  grassHeightCoupling: number;
 }
 
 export const DETAIL_FOLIAGE_TUNING_LIMITS = {
@@ -32,6 +36,8 @@ export const DETAIL_FOLIAGE_TUNING_LIMITS = {
   edgeCompanionStrength: { min: 0, max: 0.8, step: 0.02 },
   stoneFringeStrength: { min: 0, max: 1, step: 0.02 },
   pathFringeStrength: { min: 0, max: 1, step: 0.02 },
+  communityStrength: { min: 0, max: 1, step: 0.02 },
+  grassHeightCoupling: { min: 0, max: 1, step: 0.02 },
 } as const;
 
 export type DetailFoliageTuningKey = keyof DetailFoliageTuning;
@@ -60,6 +66,8 @@ function copyTuning(tuning: DetailFoliageTuning): DetailFoliageTuning {
     edgeCompanionStrength: tuning.edgeCompanionStrength,
     stoneFringeStrength: tuning.stoneFringeStrength,
     pathFringeStrength: tuning.pathFringeStrength,
+    communityStrength: tuning.communityStrength,
+    grassHeightCoupling: tuning.grassHeightCoupling,
   };
 }
 
@@ -81,6 +89,8 @@ export function createDetailFoliageTuning(
     edgeCompanionStrength: config.detailFoliageEdgeCompanionStrength,
     stoneFringeStrength: config.detailFoliageStoneFringeStrength,
     pathFringeStrength: config.detailFoliagePathFringeStrength,
+    communityStrength: config.detailFoliageCommunityStrength,
+    grassHeightCoupling: config.detailFoliageGrassHeightCoupling,
   });
 }
 

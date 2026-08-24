@@ -18,6 +18,7 @@ import {
   DETAIL_FOLIAGE_TINT_COHERENCE_SALT,
   detailFoliageChannel01,
 } from "./DetailFoliageRandom";
+import { COMMUNITY_SPECIES_AFFINITY } from "../ecology/WorldCommunityProfiles";
 import type { DetailFoliageTuning } from "./DetailFoliageTuning";
 import type { DetailFoliageDistributionSample } from "./WorldDetailFoliageDistribution";
 import {
@@ -280,11 +281,22 @@ function adjustedWeight(
   pathFringe: number,
   stoneFringe: number,
   openness: number,
+  communityIndex: number,
   tuning: DetailFoliageTuning,
 ): number {
   const species = GRASS_ACCENT_SPECIES[entry.speciesIndex];
   const habitatScore = scoreDetailFoliageHabitat(entry.speciesIndex, ecology);
-  const weight = entry.weight * lerp(1, habitatScore, tuning.ecologyStrength);
+  // The community this plant stands in, multiplied into the ecology score
+  // rather than replacing it: a species becomes *common* in a community
+  // without becoming unconditional there, which is the same shape the ecology
+  // term beside it already has.
+  const communityScore = lerp(
+    1,
+    COMMUNITY_SPECIES_AFFINITY[entry.speciesIndex]?.[communityIndex] ?? 1,
+    tuning.communityStrength,
+  );
+  const weight =
+    entry.weight * lerp(1, habitatScore, tuning.ecologyStrength) * communityScore;
   if (!(weight > 0) || !Number.isFinite(weight) || !species) {
     return 0;
   }
@@ -308,6 +320,7 @@ function companionScaledWeight(
   pathFringe: number,
   stoneFringe: number,
   openness: number,
+  communityIndex: number,
   tuning: DetailFoliageTuning,
   dominantCategory: GrassAccentCategory | undefined,
 ): number {
@@ -318,6 +331,7 @@ function companionScaledWeight(
     pathFringe,
     stoneFringe,
     openness,
+    communityIndex,
     tuning,
   );
   if (weight <= 0 || dominantCategory === undefined) {
@@ -342,6 +356,7 @@ function pickWeightedEntry(
   pathFringe: number,
   stoneFringe: number,
   openness: number,
+  communityIndex: number,
   tuning: DetailFoliageTuning,
   roll: number,
   dominantCategory: GrassAccentCategory | undefined,
@@ -355,6 +370,7 @@ function pickWeightedEntry(
       pathFringe,
       stoneFringe,
       openness,
+      communityIndex,
       tuning,
       dominantCategory,
     );
@@ -376,6 +392,7 @@ function pickWeightedEntry(
       pathFringe,
       stoneFringe,
       openness,
+      communityIndex,
       tuning,
       dominantCategory,
     );
@@ -565,6 +582,7 @@ export function resolveDetailFoliageSelection(
   stoneSkirt: number,
   distribution: DetailFoliageDistributionSample,
   candidateHash: number,
+  communityIndex: number,
   tuning: DetailFoliageTuning,
   target: DetailFoliageSelection,
 ): boolean {
@@ -586,6 +604,7 @@ export function resolveDetailFoliageSelection(
     pathFringe,
     stoneFringe,
     openness,
+    communityIndex,
     tuning,
     distribution.familyRoll,
     undefined,
@@ -611,6 +630,7 @@ export function resolveDetailFoliageSelection(
       pathFringe,
       stoneFringe,
       openness,
+      communityIndex,
       tuning,
       companionRoll,
       GRASS_ACCENT_SPECIES[dominant.speciesIndex]?.category,
@@ -624,6 +644,7 @@ export function resolveDetailFoliageSelection(
         pathFringe,
         stoneFringe,
         openness,
+        communityIndex,
         tuning,
         companionRoll,
         undefined,

@@ -2,6 +2,16 @@ import * as THREE from "three";
 import { GRASS_BIOME_PROFILES } from "../../grass/biome/GrassBiomeProfile";
 import type { WorldEcologySample } from "../ecology/WorldEcologyField";
 import type { HydrologySample } from "../hydrology/HydrologyField";
+import {
+  createCommunitySample,
+  sampleWorldCommunity,
+  type WorldCommunitySample,
+} from "../ecology/WorldCommunityField";
+import {
+  createCommunityResponse,
+  resolveCommunityResponse,
+} from "../ecology/WorldCommunityResponse";
+import type { CommunityResponse } from "../ecology/WorldCommunityProfiles";
 import type { WorldConfig } from "../WorldConfig";
 import {
   createGrassBiomeSample,
@@ -56,6 +66,18 @@ export interface TerrainSurfaceTargets {
   stoneOcclusionCenter?: THREE.Vector2;
   /** Reach of the independently selected contact-shadow owner. */
   stoneOcclusionRadius: number;
+  /**
+   * Vegetation community index and how strongly it expresses itself here.
+   *
+   * Carried per vertex rather than reproduced per fragment, and that is a
+   * Nyquist argument rather than a convenience: the far terrain ring samples
+   * every 10.67 m, which resolves a 26 m community field comfortably. The 19 m
+   * vigour field does not, which is why that one moved into the fragment stage
+   * and this one did not. The world config validator holds that relationship.
+   *
+   * Optional so isolated probes need not supply it; runtime terrain always does.
+   */
+  community?: THREE.Vector2;
 }
 
 function clamp01(value: number): number {
@@ -69,6 +91,9 @@ export class TerrainSurfaceField {
     createGrassHabitatSample();
   private readonly groundInfluence: MutableStoneGroundInfluence =
     createMutableStoneGroundInfluence();
+  private readonly communitySample: WorldCommunitySample = createCommunitySample();
+  private readonly communityResponse: CommunityResponse =
+    createCommunityResponse();
 
   constructor(private readonly config: WorldConfig) {}
 
@@ -112,6 +137,12 @@ export class TerrainSurfaceField {
         0,
       biome.blend,
     );
+    sampleWorldCommunity(x, z, ecology, this.config, this.communitySample);
+    resolveCommunityResponse(
+      this.communitySample,
+      this.config,
+      this.communityResponse,
+    );
     sampleGrassHabitat(
       x,
       z,
@@ -122,6 +153,7 @@ export class TerrainSurfaceField {
       heightMax,
       drynessBias,
       accentDensity,
+      this.communityResponse,
       this.config,
       this.habitatSample,
     );
@@ -159,6 +191,7 @@ export class TerrainSurfaceField {
       influence.occlusionCenterZ,
     );
     targets.stoneOcclusionRadius = influence.occlusionRadius;
+    targets.community?.set(this.communitySample.index, this.communitySample.core);
     targets.biome.set(
       biome.indexA,
       biome.indexB,

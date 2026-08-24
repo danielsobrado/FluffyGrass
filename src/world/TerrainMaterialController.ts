@@ -18,7 +18,7 @@ import {
   resolveTerrainMacroFieldExtent,
 } from "./terrain/TerrainMacroFieldTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v12-band-separation";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v13-communities";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -93,6 +93,17 @@ export class TerrainMaterialController {
           value: config.terrainCanopyMergeStrength,
         },
         uTerrainBandJitterRatio: { value: config.lodBandJitterRatio },
+        uTerrainCommunityTintStrength: {
+          value: config.terrainCommunityTintStrength,
+        },
+        /**
+         * Damp organic ground under a closed leaf layer. Darker and cooler than
+         * any soil tone, because it is not soil: it is accumulated leaf litter
+         * and moss, and it has to be a different material from both the earth
+         * beside it and the canopy above it or the broadleaf community reads as
+         * more of the same green.
+         */
+        uTerrainMoss: { value: new THREE.Color("#4a5f34") },
         uTerrainMacroField: { value: macroFieldTexture ?? null },
         uTerrainMacroFieldExtent: {
           value: new THREE.Vector2(

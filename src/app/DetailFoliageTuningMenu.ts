@@ -24,6 +24,8 @@ const CONTROL_LABELS: Record<DetailFoliageTuningKey, string> = {
   edgeCompanionStrength: "Edge companions",
   stoneFringeStrength: "Stone fringe",
   pathFringeStrength: "Path fringe",
+  communityStrength: "Community influence",
+  grassHeightCoupling: "Grass height coupling",
 };
 
 const YAML_KEYS: Record<DetailFoliageTuningKey, string> = {
@@ -41,6 +43,8 @@ const YAML_KEYS: Record<DetailFoliageTuningKey, string> = {
   edgeCompanionStrength: "detailFoliageEdgeCompanionStrength",
   stoneFringeStrength: "detailFoliageStoneFringeStrength",
   pathFringeStrength: "detailFoliagePathFringeStrength",
+  communityStrength: "detailFoliageCommunityStrength",
+  grassHeightCoupling: "detailFoliageGrassHeightCoupling",
 };
 
 const TUNING_KEYS = Object.keys(CONTROL_LABELS) as DetailFoliageTuningKey[];

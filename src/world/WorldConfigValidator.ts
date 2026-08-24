@@ -251,6 +251,7 @@ export function validateWorldConfig(config: WorldConfig): void {
   }
 
   validateTerrainDistanceSchedules(config);
+  validateCommunityField(config);
 
   validateGrassStreamRadius("desktop", config.grassRadiusDesktop, config);
   validateGrassStreamRadius("compact", config.grassRadiusCompact, config);
@@ -455,6 +456,39 @@ function validateTerrainDistanceSchedules(config: WorldConfig): void {
   ) {
     throw new Error(
       "terrainCanopyMergeStart must not precede the mid density falloff's completion.",
+    );
+  }
+}
+
+/**
+ * The community field is carried to the ground one value per terrain vertex, so
+ * its period has to stay above twice the coarsest vertex spacing, or the distant
+ * ground loses exactly the structure the field exists to give it.
+ *
+ * This is the same Nyquist argument that moved the 19 m vigour field to a
+ * per-fragment evaluation. The community field does not need that treatment: at
+ * the shipped 64 m chunk and far resolution 7 the vertex spacing is 10.67 m
+ * against a 26 m period, which resolves comfortably. But that holds only while
+ * the numbers stay in that relationship, and nothing else would notice if they
+ * stopped.
+ */
+function validateCommunityField(config: WorldConfig): void {
+  const farVertexSpacing =
+    config.chunkSize / Math.max(1, config.terrainFarResolution - 1);
+  const required = 2.1 * farVertexSpacing;
+  if (config.grassCommunityWorldSize < required) {
+    throw new Error(
+      `grassCommunityWorldSize must be at least ${required.toFixed(1)} m to survive the far terrain ring's ${farVertexSpacing.toFixed(2)} m vertex spacing.`,
+    );
+  }
+  // Two structural fields at nearby scales read as mud rather than as either.
+  const macro = config.grassMacroPatchWorldSize;
+  const separation =
+    Math.abs(config.grassCommunityWorldSize - macro) /
+    Math.max(1, Math.min(config.grassCommunityWorldSize, macro));
+  if (separation < 0.25) {
+    throw new Error(
+      "grassCommunityWorldSize and grassMacroPatchWorldSize must differ by at least 25%.",
     );
   }
 }

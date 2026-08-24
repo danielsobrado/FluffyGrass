@@ -6,6 +6,7 @@ import {
   sampleGrassMacroVigor,
 } from "../../grass/GrassFieldVariation";
 import type { WorldEcologySample } from "../ecology/WorldEcologyField";
+import type { CommunityResponse } from "../ecology/WorldCommunityProfiles";
 import type { WorldConfig } from "../WorldConfig";
 
 /**
@@ -43,6 +44,18 @@ export const GRASS_CLUSTER_ARCHETYPE_COUNT = 6;
 
 const ARCHETYPE_SALT = 0xa3;
 const GRASS_DENSITY_EPSILON = 0.0001;
+
+/**
+ * Which way each community leans the archetype thresholds, indexed by community.
+ *
+ * Positive pushes toward the drier/shorter/sparser end of the chain below,
+ * negative toward the taller/wetter end. Small on purpose: this is a tie-break
+ * on ground the thresholds are already close to indifferent about, not a
+ * decision.
+ */
+const COMMUNITY_ARCHETYPE_BIAS: readonly number[] = Object.freeze([
+  0.6, -0.7, 0.9, -0.1, -0.4,
+]);
 
 export function createGrassHabitatSample(): GrassHabitatSample {
   return {
@@ -115,6 +128,18 @@ export function sampleGrassHabitat(
   heightBandMax: number,
   drynessBias: number,
   accentDensity: number,
+  /**
+   * What the vegetation community here does to composition.
+   *
+   * Resolved by the caller rather than sampled here, so this stays a pure
+   * mapper and every layer shares one resolution instead of four call sites
+   * each deciding how to read a community.
+   *
+   * It carries no dryness, and that absence is the contract: dryness is one of
+   * the ecology channels that *selected* the community, so writing it back
+   * would close a loop. See `WorldCommunityProfiles`.
+   */
+  community: CommunityResponse,
   config: WorldConfig,
   target: GrassHabitatSample,
 ): GrassHabitatSample {
@@ -130,6 +155,11 @@ export function sampleGrassHabitat(
     1 + (patch * 2 - 1) * config.grassMacroPatchStrength * (1 - hostile * 0.85);
 
   let density = biomeDensity;
+  // Applied before the climate retention floor below, deliberately. A bare
+  // break should be allowed to fall through to bare ground the way a clearing
+  // is; the floor exists to stop *climate* zeroing a meadow, not to stop
+  // composition doing it.
+  density *= community.density;
   density *= 1 + moisture * fertility * config.grassWetDensityBoost;
   density *=
     1 -
@@ -182,6 +212,7 @@ export function sampleGrassHabitat(
     Math.min(
       1.22,
       biomeHeight *
+        community.height *
         (1 + moisture * fertility * config.grassWetHeightBoost) *
         (1 - (1 - moisture) * config.grassDryHeightReduction) *
         (1 - disturbance * 0.28) *
@@ -201,13 +232,16 @@ export function sampleGrassHabitat(
   // Dense habitats grow fuller clumps, while sparse ground opens enough that
   // the soil can visually participate instead of every surviving blade keeping
   // the same footprint.
-  target.clumpScale = lerp(0.68, 1.27, target.density);
+  target.clumpScale = lerp(0.68, 1.27, target.density) * community.clumpScale;
   target.underlayer = clamp01(
-    lerp(0.34, 0.6, 1.1 - target.height) * (1 - disturbance * 0.68),
+    lerp(0.34, 0.6, 1.1 - target.height) *
+      (1 - disturbance * 0.68) *
+      community.understory,
   );
   target.directionalLean = clamp01(disturbance * 0.76 + exposure * 0.16);
   target.accentChance = clamp01(
-    accentDensity *
+    community.accentChance *
+      accentDensity *
       fertility *
       (1 - disturbance) *
       (0.35 + moisture * 0.65) *
@@ -223,6 +257,17 @@ export function sampleGrassHabitat(
  */
 export function resolveGrassClusterArchetype(
   habitat: GrassHabitatSample,
+  /**
+   * The community this clump stands in, as a nudge rather than an override.
+   *
+   * A first draft of the community work special-cased this chain -- if the
+   * community is a short sward, return SHORT_DRY, and so on -- and needing that
+   * was the symptom that the causality was inverted. Now that a community is
+   * itself selected by the ecology these thresholds already read, the two agree
+   * most of the time on their own; this only sharpens the agreement at the
+   * margin, where the thresholds are close to indifferent anyway.
+   */
+  communityIndex: number,
   clumpColumn: number,
   clumpRow: number,
   config: WorldConfig,
@@ -233,10 +278,29 @@ export function resolveGrassClusterArchetype(
     (config.seed ^ ARCHETYPE_SALT) >>> 0,
   );
   const identityBias = (roll - 0.5) * 0.08;
+  /**
+   * The community's nudge, applied only to the two thresholds it has an
+   * unambiguous direction for.
+   *
+   * A first attempt folded this into `identityBias` and added the result to all
+   * four comparisons, which cannot work: they do not point the same way. A
+   * positive bias makes ground read drier *and* less sparse, because dryness is
+   * compared above its threshold and retention below its own. `verify-ecology`
+   * caught it as a degraded biome that stopped being sparse.
+   *
+   * Positive means drier and shorter. Sparseness and flattening are left to
+   * ecology alone: those are consequences of disturbance and thin ground, which
+   * are among the conditions that selected this community in the first place,
+   * so leaning on them here would be the same circularity in miniature.
+   */
+  const communityLean = (COMMUNITY_ARCHETYPE_BIAS[communityIndex] ?? 0) * 0.12;
   if (habitat.directionalLean + identityBias > 0.45) {
     return GRASS_CLUSTER_FLATTENED;
   }
-  if (habitat.dryness + identityBias > 0.4 && habitat.height < 1) {
+  if (
+    habitat.dryness + identityBias + communityLean > 0.4 &&
+    habitat.height < 1
+  ) {
     return GRASS_CLUSTER_SHORT_DRY;
   }
   if (
@@ -245,7 +309,10 @@ export function resolveGrassClusterArchetype(
   ) {
     return GRASS_CLUSTER_SPARSE_OPEN;
   }
-  if (habitat.height + identityBias > 1.01 && habitat.dryness < 0.36) {
+  if (
+    habitat.height + identityBias - communityLean > 1.01 &&
+    habitat.dryness < 0.36
+  ) {
     return GRASS_CLUSTER_TALL_WET;
   }
   if (habitat.accentChance > 0.2 && roll > 0.64) return GRASS_CLUSTER_ACCENT;

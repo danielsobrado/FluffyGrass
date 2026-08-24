@@ -13,6 +13,17 @@ import {
 } from "../../grass/biome/GrassBiomeProfile";
 import type { RuntimeProfile } from "../../runtime/RuntimeConfig";
 import { sampleStoneGrassClearance } from "../stones/StoneClearance";
+import {
+  createCommunitySample,
+  pickCommunityIndex,
+  sampleWorldCommunity,
+  type WorldCommunitySample,
+} from "../ecology/WorldCommunityField";
+import {
+  createCommunityResponse,
+  resolveCommunityResponse,
+} from "../ecology/WorldCommunityResponse";
+import type { CommunityResponse } from "../ecology/WorldCommunityProfiles";
 import { TERRAIN_NORMAL_STEP, type TerrainField } from "../TerrainField";
 import { TerrainHeightLattice } from "../TerrainHeightLattice";
 import type { WorldConfig } from "../WorldConfig";
@@ -241,6 +252,10 @@ export class WorldSingleBladeTileFactory {
   private readonly matrix = new THREE.Matrix4();
   private readonly biomeSample: GrassBiomeSample = createGrassBiomeSample();
   private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
+  private readonly communitySample: WorldCommunitySample =
+    createCommunitySample();
+  private readonly communityResponse: CommunityResponse =
+    createCommunityResponse();
   private readonly clusterProfile: GrassClusterProfile = createGrassClusterProfile();
   private readonly placementCache = new Map<string, WorldSingleBladePlacement>();
   private readonly placementLru = new Map<string, WorldSingleBladePlacement>();
@@ -516,6 +531,13 @@ export class WorldSingleBladeTileFactory {
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
       const ecology = this.field.sampleEcologyAt(x, z, height);
+      sampleWorldCommunity(x, z, ecology, this.worldConfig, this.communitySample);
+      resolveCommunityResponse(
+        this.communitySample,
+        this.worldConfig,
+        this.communityResponse,
+      );
+      const communityIndex = pickCommunityIndex(x, z, this.communitySample);
       sampleGrassHabitat(
         x,
         z,
@@ -526,11 +548,13 @@ export class WorldSingleBladeTileFactory {
         biomeProfile.heightBand[1],
         biomeProfile.drynessBias,
         biomeProfile.accentDensity,
+        this.communityResponse,
         this.worldConfig,
         this.habitatSample,
       );
       const archetype = resolveGrassClusterArchetype(
         this.habitatSample,
+        communityIndex,
         clumpColumn,
         clumpRow,
         this.worldConfig,

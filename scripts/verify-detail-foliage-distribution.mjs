@@ -86,6 +86,8 @@ const PRODUCTION_TUNING = {
   edgeCompanionStrength: readWorldNumber("detailFoliageEdgeCompanionStrength"),
   stoneFringeStrength: readWorldNumber("detailFoliageStoneFringeStrength"),
   pathFringeStrength: readWorldNumber("detailFoliagePathFringeStrength"),
+  communityStrength: readWorldNumber("detailFoliageCommunityStrength"),
+  grassHeightCoupling: readWorldNumber("detailFoliageGrassHeightCoupling"),
 };
 
 const MEADOW_ECOLOGY = {
@@ -221,6 +223,7 @@ try {
             0,
             sample,
             hash,
+            0,
             tuning,
             selection,
           )
@@ -371,6 +374,7 @@ try {
             0,
             sample,
             hash,
+            0,
             tuning,
             selection,
           )

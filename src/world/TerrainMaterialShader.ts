@@ -18,6 +18,10 @@ attribute vec4 terrainEnvironment;
 // .xyz is the biome pair and its blend; .w is the macro dryness this vertex was
 // sampled with, which the fragment stage subtracts before re-adding its own.
 attribute vec4 terrainBiome;
+// Community index and how strongly it expresses itself. Carried per vertex
+// because a 26 m field resolves at the far ring's 10.67 m spacing; the 19 m
+// vigour field does not, which is why that one is evaluated per fragment.
+attribute vec2 terrainCommunity;
 attribute vec4 terrainStoneInfluence;
 attribute vec2 terrainStoneOcclusionCenter;
 attribute float terrainStoneOcclusion;
@@ -36,6 +40,7 @@ varying vec4 vTerrainStoneInfluence;
 varying vec2 vTerrainStoneOcclusionCenter;
 varying float vTerrainStoneOcclusion;
 varying float vTerrainMacroDryness;
+varying vec2 vTerrainCommunity;
 
 int terrainResolveBiomeRow(float biome) {
   return int(clamp(biome, 0.0, float(TERRAIN_MAX_BIOMES - 1)) + 0.5);
@@ -51,6 +56,7 @@ vTerrainStoneInfluence = terrainStoneInfluence;
 vTerrainStoneOcclusionCenter = terrainStoneOcclusionCenter;
 vTerrainStoneOcclusion = terrainStoneOcclusion;
 vTerrainMacroDryness = terrainBiome.w;
+vTerrainCommunity = terrainCommunity;
 int terrainBiomeA = terrainResolveBiomeRow(terrainBiome.x);
 int terrainBiomeB = terrainResolveBiomeRow(terrainBiome.y);
 float terrainBiomeBlend = saturate(terrainBiome.z);
@@ -98,6 +104,8 @@ uniform vec2 uTerrainMesoRange;
 uniform vec2 uTerrainCanopyMergeRange;
 uniform float uTerrainCanopyMergeStrength;
 uniform float uTerrainBandJitterRatio;
+uniform float uTerrainCommunityTintStrength;
+uniform vec3 uTerrainMoss;
 uniform vec2 uTerrainPathHalfWidth;
 uniform float uTerrainPathEdge;
 uniform float uTerrainPathClearance;
@@ -126,6 +134,7 @@ varying vec4 vTerrainStoneInfluence;
 varying vec2 vTerrainStoneOcclusionCenter;
 varying float vTerrainStoneOcclusion;
 varying float vTerrainMacroDryness;
+varying vec2 vTerrainCommunity;
 ${TERRAIN_ROCK_FUNCTIONS}
 ${TERRAIN_MACRO_FIELD_FUNCTIONS}
 `;
@@ -354,6 +363,46 @@ terrainSurfaceColor = mix(
   terrainSurfaceColor,
   terrainThatch,
   terrainCoverage * (1.0 - terrainDryness) * terrainVigor * 0.28
+);
+
+/**
+ * The ground agrees with the community standing on it.
+ *
+ * Without this the communities exist only in the geometry and leave with it: at
+ * 200 m the blades are gone and the ground underneath knows nothing about which
+ * patch it is, which is exactly the failure that makes a distant meadow read as
+ * noise. A tint costs one attribute read and keeps dark colonies, dry patches
+ * and bare breaks legible past the last blade.
+ *
+ * The index is piecewise constant, so a triangle spanning two communities would
+ * interpolate to a value belonging to neither. The same coherence guard the
+ * stone-contact identity uses applies: where the index has a gradient across the
+ * pixel, fade the tint out rather than paint an invented community.
+ */
+float terrainCommunityIndexSlope = max(
+  abs(dFdx(vTerrainCommunity.x)),
+  abs(dFdy(vTerrainCommunity.x))
+);
+float terrainCommunityCoherence =
+  1.0 - smoothstep(0.02, 0.35, terrainCommunityIndexSlope);
+int terrainCommunity = int(vTerrainCommunity.x + 0.5);
+vec3 terrainCommunityTint = terrainSurfaceColor;
+if (terrainCommunity == 2) {
+  // Bare break: soil, not thinned green.
+  terrainCommunityTint = uTerrainSoilDry;
+} else if (terrainCommunity == 4) {
+  // Broadleaf understory: damp organic ground under a closed leaf layer.
+  terrainCommunityTint = uTerrainMoss;
+} else if (terrainCommunity == 0) {
+  // Short sward: drier and paler than the meadow it sits in.
+  terrainCommunityTint = mix(terrainSurfaceColor, vTerrainBiomeDry, 0.34);
+}
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  terrainCommunityTint,
+  saturate(vTerrainCommunity.y) *
+    terrainCommunityCoherence *
+    uTerrainCommunityTintStrength
 );
 
 vec3 terrainCanopy = vTerrainBiomeCanopy;

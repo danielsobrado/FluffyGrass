@@ -45,6 +45,16 @@ import { GrassQualityGovernor } from "../runtime/GrassQualityGovernor";
 import type { RuntimeProfile } from "../runtime/RuntimeConfig";
 import { APP_VERSION } from "../version";
 import { sampleStoneGrassClearance } from "./stones/StoneClearance";
+import {
+  createCommunitySample,
+  sampleWorldCommunity,
+  type WorldCommunitySample,
+} from "./ecology/WorldCommunityField";
+import {
+  createCommunityResponse,
+  resolveCommunityResponse,
+} from "./ecology/WorldCommunityResponse";
+import type { CommunityResponse } from "./ecology/WorldCommunityProfiles";
 import type { TerrainField } from "./TerrainField";
 import type { WorldConfig } from "./WorldConfig";
 import { WorldGrassImpostorAtlasFactory } from "./grass/WorldGrassImpostorAtlasFactory";
@@ -253,6 +263,10 @@ export class WorldGrassSystem {
   private readonly cameraPosition = new THREE.Vector3();
   private readonly previousReconcilePosition = new THREE.Vector2();
   private readonly habitatSample: GrassHabitatSample = createGrassHabitatSample();
+  private readonly communitySample: WorldCommunitySample =
+    createCommunitySample();
+  private readonly communityResponse: CommunityResponse =
+    createCommunityResponse();
   private readonly nearField: WorldNearGrassField;
   private readonly farGroups = new Set<WorldGrassFarGroup>();
   private readonly fadingChunks = new Set<WorldGrassChunk>();
@@ -1097,6 +1111,12 @@ export class WorldGrassSystem {
       const biomeIndex = pickGrassBiomeIndex(x, z, biomeSample);
       const biomeProfile = GRASS_BIOME_PROFILES[biomeIndex];
       const ecology = this.field.sampleEcologyAt(x, z, height);
+      sampleWorldCommunity(x, z, ecology, this.worldConfig, this.communitySample);
+      resolveCommunityResponse(
+        this.communitySample,
+        this.worldConfig,
+        this.communityResponse,
+      );
       sampleGrassHabitat(
         x,
         z,
@@ -1107,6 +1127,7 @@ export class WorldGrassSystem {
         biomeProfile.heightBand[1],
         biomeProfile.drynessBias,
         biomeProfile.accentDensity,
+        this.communityResponse,
         this.worldConfig,
         this.habitatSample,
       );
