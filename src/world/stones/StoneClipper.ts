@@ -247,7 +247,10 @@ export function buildStonePlanes(recipe: StoneRecipe): StonePlane[] {
       const constant =
         segment === 0
           ? lowerSupport + ny * lowerHeight
-          : lowerSupport + ny * lowerHeight;
+          : Math.max(
+              lowerSupport + ny * lowerHeight,
+              contactSupport + PROFILE_GROUND_CLEARANCE,
+            );
       const role: StonePlaneRole =
         segment === 0
           ? "contact-bevel"
