@@ -225,6 +225,21 @@ export interface WorldConfig {
   grassDisturbanceHeightReduction: number;
   /** Mineral soil carried up into the vegetation beside a tread. */
   terrainVergeFleckStrength: number;
+  /**
+   * Ground substrate. Soil colour used to be a function of how the grass was
+   * doing -- every term that greened the blades also warmed the earth under
+   * them -- so the two could never separate. These give the ground its own
+   * causes: parent material, drainage, curvature and organic matter.
+   */
+  terrainSoilHueWorldSize: number;
+  terrainSoilHueStrength: number;
+  terrainGroundFleckStrength: number;
+  terrainHollowDarkening: number;
+  terrainHollowMoisture: number;
+  terrainMossStrength: number;
+  /** Dark pool under each tuft, and the litter that gathers around it. */
+  terrainClumpContactAo: number;
+  terrainClumpLitterStrength: number;
   /** World metres covered by one repeat of the generated surface-noise map. */
   terrainGroundNoiseWorldSize: number;
   terrainGroundMesoStrength: number;

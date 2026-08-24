@@ -16,7 +16,11 @@ import {
 
 export const TERRAIN_DETAIL_VERTEX = `
 #define TERRAIN_MAX_BIOMES ${GRASS_MAX_BIOMES}
-attribute vec3 terrainPath;
+// .xy are the signed distances to the two path fields, .z is path visibility,
+// and .w is landform convexity remapped to [0, 1] -- the fragment stage has
+// slope from its own derivatives but no curvature, and slope cannot tell a
+// hollow from a bank.
+attribute vec4 terrainPath;
 attribute vec4 terrainEcology;
 attribute vec4 terrainEnvironment;
 // .xyz is the biome pair and its blend; .w is the macro dryness this vertex was
@@ -34,7 +38,7 @@ uniform vec3 uTerrainBiomeTip[TERRAIN_MAX_BIOMES];
 uniform vec3 uTerrainBiomeDry[TERRAIN_MAX_BIOMES];
 uniform vec2 uTerrainBiomeShade[TERRAIN_MAX_BIOMES];
 varying vec3 vTerrainWorldPosition;
-varying vec3 vTerrainPath;
+varying vec4 vTerrainPath;
 varying vec4 vTerrainEcology;
 varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
@@ -110,6 +114,20 @@ uniform float uTerrainCanopyMergeStrength;
 uniform float uTerrainBandJitterRatio;
 uniform float uTerrainCommunityTintStrength;
 uniform vec3 uTerrainMoss;
+uniform vec3 uTerrainSoilGrey;
+uniform float uTerrainSoilHuePeriod;
+uniform uint uTerrainSoilHueSeed;
+uniform float uTerrainSoilHueStrength;
+uniform float uTerrainFleckStrength;
+uniform float uTerrainFleckPeriod;
+uniform uint uTerrainFleckSeed;
+uniform float uTerrainHollowDarkening;
+uniform float uTerrainHollowMoisture;
+uniform float uTerrainMossStrength;
+uniform float uTerrainClumpCell;
+uniform float uTerrainClumpAo;
+uniform float uTerrainClumpLitter;
+uniform uint uTerrainClumpSeed;
 uniform vec2 uTerrainPathHalfWidth;
 uniform float uTerrainPathEdge;
 uniform float uTerrainPathClearance;
@@ -130,7 +148,7 @@ uniform float uTerrainStoneContactReach;
 uniform float uTerrainStoneContactDarkening;
 uniform float uTerrainStoneOcclusionStrength;
 varying vec3 vTerrainWorldPosition;
-varying vec3 vTerrainPath;
+varying vec4 vTerrainPath;
 varying vec4 vTerrainEcology;
 varying vec4 vTerrainEnvironment;
 varying vec4 vTerrainBiomeBase;
@@ -279,6 +297,30 @@ if (terrainMicroWeight > 0.001) {
   );
 }
 
+/**
+ * A 2-5 m mottle.
+ *
+ * The existing octaves sit at 64 m, 29.5 m and 7.4 m, so nothing occupied the
+ * band a walking camera reads as soil texture -- the ground had structure you
+ * could see from a hill and structure at your feet, with a gap exactly where a
+ * standing player looks.
+ *
+ * Taken from the shared lattice noise rather than from the surface texture, and
+ * that is a correctness requirement rather than a preference. This term is
+ * weighted by the micro-detail fade, so its *mean* has to be zero or the ground
+ * changes brightness as the fade closes -- the defect the fibre and grit pulses
+ * were both fixed for. The texture cannot supply that: its broad channel is two
+ * and five cells across the whole map, so its mean is decided by a handful of
+ * hashes and measures anywhere from 0.407 to 0.684 depending on the seed. Two
+ * octaves of lattice value noise average uniform hashes and are centred on 0.5
+ * by construction, whatever the seed.
+ */
+float terrainFleck = grassPatchNoise(
+  vTerrainWorldPosition.xz,
+  uTerrainFleckPeriod,
+  uTerrainFleckSeed
+) - 0.5;
+
 float terrainSuitability = saturate(vTerrainEcology.x);
 float terrainVigor = saturate(vTerrainEcology.y);
 float terrainDryness = saturate(vTerrainEcology.z);
@@ -344,10 +386,46 @@ terrainDryness = saturate(
 );
 terrainHumidity = saturate(terrainHumidity - terrainPathExposure * 0.18);
 
+// Curvature, which the fragment stage had no way to know.
+//
+// Slope comes free from the derivatives, but slope cannot tell a hollow from a
+// bank: both are tilted. Depressions collect water, litter and shadow, and
+// without them the ground has exactly one tone per ecology value -- which is
+// what makes an open patch read as a flat fill however much noise is on it.
+float terrainConcavity = saturate((0.5 - vTerrainPath.w) * 2.0);
+terrainHumidity = saturate(
+  terrainHumidity + terrainConcavity * uTerrainHollowMoisture
+);
+
 float terrainMacroVariation = (terrainBaseNoise.r - 0.5) * 0.16;
 float terrainMesoVariation = (terrainMesoNoise.g - 0.5) *
   uTerrainMesoStrength * terrainMesoWeight;
-vec3 terrainSoil = mix(uTerrainSoilDry, uTerrainSoilRich, terrainHumidity);
+/**
+ * Soil colour, given causes of its own.
+ *
+ * This was a straight mix on humidity, and humidity is derived from grass
+ * dryness -- so every term that greened the blades also warmed the earth under
+ * them and the two could never separate. That coupling is most of why the base
+ * terrain, the blades and the understory all sat in one hue.
+ *
+ * Real soil colour comes from parent material and drainage, neither of which
+ * the vegetation decides. This field is independent of every ecology term on
+ * purpose, and it is what lets open ground disagree with the grass standing
+ * beside it.
+ */
+float terrainSoilHue = grassPatchNoise(
+  vTerrainWorldPosition.xz,
+  uTerrainSoilHuePeriod,
+  uTerrainSoilHueSeed
+);
+vec3 terrainSoilVariant = terrainSoilHue < 0.42
+  ? uTerrainSoilGrey
+  : (terrainSoilHue > 0.74 ? uTerrainSoilRich : uTerrainSoilDry);
+vec3 terrainSoil = mix(
+  mix(uTerrainSoilDry, uTerrainSoilRich, terrainHumidity),
+  terrainSoilVariant,
+  uTerrainSoilHueStrength
+);
 terrainSoil *= mix(1.0, 0.62, terrainWaterProximity * 0.78);
 terrainSoil *= 1.0 + terrainMacroVariation * 0.45 + terrainMesoVariation;
 
@@ -580,11 +658,74 @@ terrainSurfaceColor = mix(
   vTerrainBiomeDry * 0.68,
   terrainDryFibre * 0.34
 );
+// Zero-mean, so it registers as detail-preserved and fades safely.
+terrainSurfaceColor *= 1.0 +
+  terrainFleck * uTerrainFleckStrength * terrainMicroWeight;
 float terrainMicroAlbedo = (terrainMicroNoise.b - 0.5) *
   uTerrainMicroStrength * terrainMicroWeight;
 terrainSurfaceColor *= 1.0 + terrainMicroAlbedo;
 terrainSurfaceColor *= 1.0 -
   uTerrainCanopyDarkening * terrainCoverage * terrainVigor;
+
+/**
+ * Moss and accumulated organic matter.
+ *
+ * Not more grass tint: it gathers where water sits, light is scarce and nothing
+ * scours it, and it is a genuinely different material from both the soil beside
+ * it and the canopy over it. Gating on slope keeps it off the banks, where
+ * nothing accumulates; reading the fleck channel gives it a patchy, colony-like
+ * footprint rather than a smooth wash.
+ */
+float terrainMossAmount = saturate(terrainHumidity * 1.25 - 0.42) *
+  saturate(1.0 - terrainSlope * 2.2) *
+  smoothstep(-0.08, 0.28, terrainFleck) *
+  (0.35 + 0.65 * terrainConcavity);
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  uTerrainMoss,
+  saturate(terrainMossAmount) * uTerrainMossStrength
+);
+
+// Depressions sit in their own shade.
+terrainSurfaceColor *= 1.0 - uTerrainHollowDarkening * terrainConcavity;
+
+/**
+ * The dark pool under each tuft, and the litter that gathers around it.
+ *
+ * The canopy darkening above is smooth over tens of metres, so the ground knew
+ * *that* grass was standing on it but never *where*. The eye uses exactly that
+ * -- a small dark contact region at the root -- to decide whether a blade is
+ * standing in the earth or pasted onto it.
+ *
+ * Sampled on the same lattice the blades are placed on, so the dark pool lands
+ * under the tuft rather than near it. Gated on the micro weight because a 2.7 m
+ * feature is sub-pixel past that range and would otherwise shimmer.
+ */
+vec2 terrainClumpUv = vTerrainWorldPosition.xz / uTerrainClumpCell;
+vec2 terrainClumpCellId = floor(terrainClumpUv);
+int terrainClumpX = int(terrainClumpCellId.x);
+int terrainClumpZ = int(terrainClumpCellId.y);
+vec2 terrainClumpCenter = terrainClumpCellId + vec2(
+  0.35 + 0.30 * grassLatticeHash01(terrainClumpX, terrainClumpZ, uTerrainClumpSeed),
+  0.35 + 0.30 * grassLatticeHash01(
+    terrainClumpX,
+    terrainClumpZ,
+    uTerrainClumpSeed ^ 0x9e3779b9u
+  )
+);
+float terrainClumpDistance = length(terrainClumpUv - terrainClumpCenter);
+float terrainClumpShade = 1.0 - smoothstep(0.16, 0.52, terrainClumpDistance);
+terrainSurfaceColor *= 1.0 - uTerrainClumpAo * terrainClumpShade *
+  terrainCoverage * terrainMicroWeight;
+// Organic matter accumulates around a clump rather than under it.
+float terrainClumpLitter = smoothstep(0.30, 0.50, terrainClumpDistance) *
+  (1.0 - smoothstep(0.50, 0.72, terrainClumpDistance));
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  mix(uTerrainMoss, vTerrainBiomeDry * 0.6, terrainDryness),
+  terrainClumpLitter * terrainCoverage * terrainMicroWeight *
+    uTerrainClumpLitter
+);
 
 float shoreBand = smoothstep(
   0.94,
@@ -711,8 +852,11 @@ float terrainSurfaceNormalMask = max(
  * a cliff's structure must not: a gorge wall is read from across the gorge.
  */
 float terrainMicroHeight = (
-  (terrainMicroNoise.b - 0.5) * 0.7 +
-  (terrainMicroNoise.a - 0.5) * 0.3
+  (terrainMicroNoise.b - 0.5) * 0.58 +
+  (terrainMicroNoise.a - 0.5) * 0.24 +
+  // The flecks perturb the normal as well as the albedo, or they read as dirt
+  // printed on a flat surface rather than as a surface.
+  terrainFleck * 0.18
 ) * mix(1.0, 0.58, terrainWaterProximity) * terrainMicroWeight +
   terrainRockRelief * terrainCliff;
 

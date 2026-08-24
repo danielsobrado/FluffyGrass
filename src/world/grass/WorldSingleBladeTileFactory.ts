@@ -153,7 +153,7 @@ const STONE_CONTACT_HEIGHT_FLOOR = 0.46;
  * scale above one blade, and that uniformity is the single largest structural
  * difference between this field and a hand-authored one.
  */
-const CLUMP_CELLS = 3;
+export const CLUMP_CELLS = 3;
 const CLUMP_CENTER_JITTER = 0.15;
 const CLUMP_RADIUS_SALT = 0x5b;
 const CLUMP_ASPECT_SALT = 0x6d;

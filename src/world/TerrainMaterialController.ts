@@ -10,6 +10,7 @@ import {
   TERRAIN_DETAIL_VERTEX,
   TERRAIN_WET_SHEEN,
 } from "./TerrainMaterialShader";
+import { CLUMP_CELLS as GRASS_CLUMP_CELLS } from "./grass/WorldSingleBladeTileFactory";
 import type { WorldConfig } from "./WorldConfig";
 import { TerrainSurfacePalette } from "./terrain/TerrainSurfacePalette";
 import { createTerrainSurfaceNoiseTexture } from "./terrain/TerrainSurfaceNoiseTexture";
@@ -18,7 +19,7 @@ import {
   resolveTerrainMacroFieldExtent,
 } from "./terrain/TerrainMacroFieldTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v14-verge";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v15-substrate";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -104,6 +105,35 @@ export class TerrainMaterialController {
          * more of the same green.
          */
         uTerrainMoss: { value: new THREE.Color("#4a5f34") },
+        /**
+         * The third soil tone. Grey-brown rather than warm, because two tones
+         * mixed on one axis can only ever be one hue at two brightnesses --
+         * which is what let the ground read as a single mustard fill wherever
+         * the grass opened up.
+         */
+        uTerrainSoilGrey: { value: new THREE.Color("#7a6f5c") },
+        uTerrainSoilHuePeriod: { value: config.terrainSoilHueWorldSize },
+        uTerrainSoilHueSeed: { value: (config.seed ^ 0x5a_3d_11_07) >>> 0 },
+        uTerrainSoilHueStrength: { value: config.terrainSoilHueStrength },
+        uTerrainFleckStrength: { value: config.terrainGroundFleckStrength },
+        /** Metres per cell of the soil mottle: the 2-5 m band nothing occupied. */
+        uTerrainFleckPeriod: { value: 3.4 },
+        uTerrainFleckSeed: { value: (config.seed ^ 0x6c_18_3b_a9) >>> 0 },
+        uTerrainHollowDarkening: { value: config.terrainHollowDarkening },
+        uTerrainHollowMoisture: { value: config.terrainHollowMoisture },
+        uTerrainMossStrength: { value: config.terrainMossStrength },
+        /**
+         * The near-grass clump lattice, so the dark pool lands under a tuft
+         * rather than near one. WorldSingleBladeTileFactory divides each
+         * grassNearTileSize tile into CLUMP_CELLS per axis; the two have to
+         * name the same cell or the contact shadow is decorative.
+         */
+        uTerrainClumpCell: {
+          value: config.grassNearTileSize / GRASS_CLUMP_CELLS,
+        },
+        uTerrainClumpAo: { value: config.terrainClumpContactAo },
+        uTerrainClumpLitter: { value: config.terrainClumpLitterStrength },
+        uTerrainClumpSeed: { value: (config.seed ^ 0x2b_74_c9_15) >>> 0 },
         uTerrainMacroField: { value: macroFieldTexture ?? null },
         uTerrainMacroFieldExtent: {
           value: new THREE.Vector2(

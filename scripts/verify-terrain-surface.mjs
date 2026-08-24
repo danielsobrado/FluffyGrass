@@ -487,6 +487,89 @@ try {
     "Meadow, steppe, and alpine terrain palettes must remain visibly distinct.",
   );
 
+  // --- Substrate ---
+  //
+  // Soil colour used to be a straight mix on humidity, and humidity is derived
+  // from grass dryness, so every term that greened the blades warmed the earth
+  // under them. That coupling is most of why the ground and the canopy read as
+  // one hue, and it is the thing these checks exist to keep broken.
+  for (const uniform of [
+    "uTerrainSoilGrey",
+    "uTerrainSoilHuePeriod",
+    "uTerrainSoilHueSeed",
+    "uTerrainSoilHueStrength",
+    "uTerrainFleckStrength",
+    "uTerrainHollowDarkening",
+    "uTerrainHollowMoisture",
+    "uTerrainMossStrength",
+    "uTerrainClumpCell",
+    "uTerrainClumpAo",
+    "uTerrainClumpLitter",
+    "uTerrainClumpSeed",
+  ]) {
+    assert(
+      TERRAIN_DETAIL_FRAGMENT.includes(uniform),
+      `The terrain shader must declare ${uniform}.`,
+    );
+    assert(
+      terrainMaterialControllerSource.includes(uniform),
+      `The terrain material controller must supply ${uniform}.`,
+    );
+  }
+  assert(
+    TERRAIN_DETAIL_COLOR.includes("terrainSoilHue") &&
+      TERRAIN_DETAIL_COLOR.includes("uTerrainSoilHueStrength"),
+    "Soil colour must have a cause independent of how the grass is doing.",
+  );
+  assert(
+    TERRAIN_DETAIL_COLOR.includes("terrainConcavity"),
+    "The ground must read landform curvature; slope alone cannot tell a hollow from a bank.",
+  );
+
+  // The dark pool has to land under a tuft, so the terrain and the placement
+  // must name the same lattice cell. A decorative contact shadow is worse than
+  // none: it puts shade where nothing stands.
+  {
+    const { CLUMP_CELLS } = await server.ssrLoadModule(
+      "/src/world/grass/WorldSingleBladeTileFactory.ts",
+    );
+    const expectedCell = rawConfig.grassNearTileSize / CLUMP_CELLS;
+    assert(
+      Number.isFinite(expectedCell) && expectedCell > 0,
+      "The near-grass clump cell size must resolve.",
+    );
+    assert(
+      terrainMaterialControllerSource.includes("GRASS_CLUMP_CELLS"),
+      "The terrain must take its clump cell size from the placement constant rather than restating it.",
+    );
+  }
+
+  // The fleck octave must be zero-mean, or the ground changes brightness as the
+  // micro fade closes -- the defect the fibre and grit pulses were both fixed
+  // for. It is taken from the lattice noise rather than the surface texture for
+  // exactly this reason: the texture's broad channel is two and five cells
+  // across the whole map, so its mean is decided by a handful of hashes and
+  // measures 0.407 to 0.684 depending on the seed, which no single constant can
+  // correct. Two octaves of lattice noise average uniform hashes and are centred
+  // by construction.
+  {
+    const { samplePathEdgeNoise: latticeProbe } = await server.ssrLoadModule(
+      "/src/grass/GrassFieldVariation.ts",
+    );
+    let total = 0;
+    let count = 0;
+    for (let index = 0; index < 300000; index += 1) {
+      const x = -1500 + ((index * 3.37) % 3000);
+      const z = -1500 + ((index * 11.71) % 3000);
+      total += latticeProbe(x, z);
+      count += 1;
+    }
+    assert(
+      Math.abs(total / count) < 0.01,
+      `The fleck channel means ${(total / count).toFixed(4)} against zero; a biased mottle changes ground brightness as it fades.`,
+    );
+  }
+
   console.log(
     "[terrain-surface] Determinism, bounded ecology, environment semantics, LOD, stone, biome, and path parity verified.",
   );

@@ -1085,12 +1085,17 @@ assert(
     nearMaterial.includes("grassTrailAxisView"),
   "Wind and trail deformation must rotate the lighting normal with the blade.",
 );
+// The attribute carries four channels now: the two signed path distances, the
+// altitude visibility, and landform convexity. The fourth was added because the
+// fragment stage has slope from its own derivatives but no curvature, and slope
+// cannot tell a hollow from a bank.
 assert(
   terrainField.includes("samplePathVisibility(height") &&
-    terrainChunk.includes("new THREE.BufferAttribute(this.paths, 3)") &&
+    terrainChunk.includes("new THREE.BufferAttribute(this.paths, 4)") &&
     terrainMaterialShader.includes("terrainPathVisibility") &&
-    terrainMaterialShader.includes("abs(vTerrainPath.xy)"),
-  "Terrain path altitude visibility must be interpolated separately from signed distances.",
+    terrainMaterialShader.includes("abs(vTerrainPath.xy)") &&
+    terrainMaterialShader.includes("vTerrainPath.w"),
+  "Terrain path altitude visibility and landform convexity must be interpolated separately from the signed distances.",
 );
 assert(
   terrainStreamer.includes("buildDeadline - performance.now()") &&

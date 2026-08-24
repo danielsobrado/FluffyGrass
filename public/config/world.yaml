@@ -326,6 +326,35 @@ grassDisturbanceHeightReduction: 0.52
 # of exposure, which is what the eye reads as a worn edge.
 terrainVergeFleckStrength: 0.34
 
+# Ground substrate.
+#
+# Soil colour was a function of how the grass was doing: humidity is derived from
+# grass dryness, and the soil mix reads humidity, so every term that greened the
+# blades also warmed the earth under them. The two could never separate, which is
+# most of why the meadow read as one hue. Real soil colour comes from parent
+# material and drainage, and neither is decided by the vegetation.
+#
+# Metres per cell of the independent soil-tone field, and how far it overrides
+# the humidity mix.
+terrainSoilHueWorldSize: 14
+terrainSoilHueStrength: 0.38
+# A 2-5 m mottle. The existing octaves sit at 64, 29.5 and 7.4 m, so nothing
+# occupied the band a walking camera reads as soil texture.
+terrainGroundFleckStrength: 0.16
+# Depressions collect water, litter and shadow. Without curvature the ground has
+# exactly one tone per ecology value, which is what makes an open patch read as a
+# flat fill however much noise is layered on it.
+terrainHollowDarkening: 0.14
+terrainHollowMoisture: 0.12
+# Organic matter, not more grass tint: it accumulates where water sits and light
+# is scarce, and it is a genuinely different material from both soil and canopy.
+terrainMossStrength: 0.30
+# The ground under a tuft is darker than the ground between tufts, and the eye
+# uses exactly that to decide whether a blade stands in the earth or is pasted
+# onto it. Sampled on the same lattice the blades are placed on.
+terrainClumpContactAo: 0.20
+terrainClumpLitterStrength: 0.18
+
 # Shared ground/grass procedural surface.
 terrainGroundNoiseWorldSize: 64
 terrainGroundMesoStrength: 0.18

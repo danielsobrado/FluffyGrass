@@ -156,7 +156,7 @@ export class TerrainChunkBuilder {
     this.positions = new Float32Array(vertexCount * 3);
     this.normals = new Float32Array(vertexCount * 3);
     this.colors = new Float32Array(vertexCount * 3);
-    this.paths = new Float32Array(vertexCount * 3);
+    this.paths = new Float32Array(vertexCount * 4);
     this.ecologies = new Float32Array(vertexCount * 4);
     this.environments = new Float32Array(vertexCount * 4);
     this.biomes = new Float32Array(vertexCount * 4);
@@ -245,9 +245,16 @@ export class TerrainChunkBuilder {
       );
 
       const offset = this.nextVertex * 3;
-      this.paths[offset] = this.pathDistances.x;
-      this.paths[offset + 1] = this.pathDistances.y;
-      this.paths[offset + 2] = this.field.samplePathVisibility(height);
+      const pathOffset = this.nextVertex * 4;
+      this.paths[pathOffset] = this.pathDistances.x;
+      this.paths[pathOffset + 1] = this.pathDistances.y;
+      this.paths[pathOffset + 2] = this.field.samplePathVisibility(height);
+      // Landform convexity, remapped to [0, 1]. The fragment stage has slope from
+      // its own derivatives but no curvature, so depressions could not darken --
+      // and without curvature the ground has exactly one tone per ecology value,
+      // which is what makes an open patch read as a flat fill however much noise
+      // is layered on it.
+      this.paths[pathOffset + 3] = this.field.sampleCurvature(x, z) * 0.5 + 0.5;
       this.positions[offset] = x;
       this.positions[offset + 1] = height;
       this.positions[offset + 2] = z;
@@ -357,7 +364,7 @@ export class TerrainChunkBuilder {
       geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
       geometry.setAttribute(
         "terrainPath",
-        new THREE.BufferAttribute(this.paths, 3),
+        new THREE.BufferAttribute(this.paths, 4),
       );
       geometry.setAttribute(
         "terrainEcology",
