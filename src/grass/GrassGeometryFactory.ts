@@ -110,24 +110,13 @@ export class GrassGeometryFactory {
           new THREE.InstancedBufferAttribute(variationValues, 4),
       );
       const instanceCount = variationValues.length / 4;
-      /**
-       * Per-blade silhouette. Layers that do not vary shape -- the mid and far
-       * populations, and the island regression scene -- get a neutral buffer
-       * rather than an unbound attribute.
-       *
-       * Filled with 128, not 0: the channels are normalized, and the shader
-       * decodes tip drift as `x * 2 - 1`, so a zero-filled buffer would lean
-       * every blade hard to one side rather than leaving it straight.
-       */
-      geometry.setAttribute(
-        "instanceShape",
-        sharedAttributes?.shape ??
-          new THREE.InstancedBufferAttribute(
-            new Uint8Array(instanceCount * 4).fill(128),
-            4,
-            true,
-          ),
-      );
+      // Shape variation is compile-time optional in the material. Only the
+      // near-world path that compiles it supplies this attribute; attaching a
+      // fallback here would allocate and upload four unused bytes per instance
+      // for every other grass representation.
+      if (sharedAttributes?.shape) {
+        geometry.setAttribute("instanceShape", sharedAttributes.shape);
+      }
       const resolvedCoverage =
         coverageValues ?? new Float32Array(instanceCount).fill(1);
       geometry.setAttribute(
