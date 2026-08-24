@@ -3,6 +3,7 @@ import {
   PATH_EDGE_PERIOD,
   PATH_EDGE_SEED,
 } from "../grass/GrassFieldVariation";
+import { GRASS_CLUMP_LATTICE_GLSL } from "./grass/GrassClumpLattice";
 import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
 import {
   TERRAIN_MACRO_FIELD_APPLY,
@@ -124,7 +125,7 @@ uniform uint uTerrainFleckSeed;
 uniform float uTerrainHollowDarkening;
 uniform float uTerrainHollowMoisture;
 uniform float uTerrainMossStrength;
-uniform float uTerrainClumpCell;
+uniform vec2 uTerrainClumpSpan;
 uniform float uTerrainClumpAo;
 uniform float uTerrainClumpLitter;
 uniform uint uTerrainClumpSeed;
@@ -161,6 +162,7 @@ varying float vTerrainMacroDryness;
 varying vec2 vTerrainCommunity;
 ${TERRAIN_ROCK_FUNCTIONS}
 ${TERRAIN_MACRO_FIELD_FUNCTIONS}
+${GRASS_CLUMP_LATTICE_GLSL}
 `;
 
 export const TERRAIN_DETAIL_COLOR = `
@@ -493,16 +495,23 @@ terrainSurfaceColor = mix(
  * and bare breaks legible past the last blade.
  *
  * The index is piecewise constant, so a triangle spanning two communities would
- * interpolate to a value belonging to neither. The same coherence guard the
- * stone-contact identity uses applies: where the index has a gradient across the
- * pixel, fade the tint out rather than paint an invented community.
+ * interpolate to a value belonging to neither. The guard is normalized by the
+ * screen-space world-position derivative, so the same world-space identity
+ * change gets the same answer near and far instead of depending on triangle
+ * size in pixels.
  */
-float terrainCommunityIndexSlope = max(
+float terrainWorldGradient = max(
+  length(dFdx(vTerrainWorldPosition.xz)),
+  length(dFdy(vTerrainWorldPosition.xz))
+);
+float terrainCommunityIndexGradient = max(
   abs(dFdx(vTerrainCommunity.x)),
   abs(dFdy(vTerrainCommunity.x))
 );
+float terrainCommunityIndexSlope =
+  terrainCommunityIndexGradient / max(1e-4, terrainWorldGradient);
 float terrainCommunityCoherence =
-  1.0 - smoothstep(0.02, 0.35, terrainCommunityIndexSlope);
+  1.0 - smoothstep(0.01, 0.08, terrainCommunityIndexSlope);
 int terrainCommunity = int(vTerrainCommunity.x + 0.5);
 vec3 terrainCommunityTint = terrainSurfaceColor;
 if (terrainCommunity == 2) {
@@ -548,10 +557,6 @@ terrainSurfaceColor = mix(
  * phantom halo. This deliberately prefers a tiny gap at a Voronoi boundary over
  * inventing a stone that does not exist.
  */
-float terrainStoneWorldGradient = max(
-  length(dFdx(vTerrainWorldPosition.xz)),
-  length(dFdy(vTerrainWorldPosition.xz))
-);
 float terrainStoneContactCenterGradient = max(
   length(dFdx(vTerrainStoneInfluence.xy)),
   length(dFdy(vTerrainStoneInfluence.xy))
@@ -561,9 +566,9 @@ float terrainStoneContactRadiusGradient = max(
   abs(dFdy(vTerrainStoneInfluence.w))
 );
 float terrainStoneContactIdentitySlope = max(
-  terrainStoneContactCenterGradient / max(1e-4, terrainStoneWorldGradient),
+  terrainStoneContactCenterGradient / max(1e-4, terrainWorldGradient),
   terrainStoneContactRadiusGradient /
-    max(1e-4, terrainStoneWorldGradient * max(0.25, vTerrainStoneInfluence.w))
+    max(1e-4, terrainWorldGradient * max(0.25, vTerrainStoneInfluence.w))
 );
 float terrainStoneContactCoherence =
   1.0 - smoothstep(0.05, 0.35, terrainStoneContactIdentitySlope);
@@ -621,9 +626,9 @@ float terrainStoneOcclusionRadiusGradient = max(
 );
 float terrainStoneOcclusionIdentitySlope = max(
   terrainStoneOcclusionCenterGradient /
-    max(1e-4, terrainStoneWorldGradient),
+    max(1e-4, terrainWorldGradient),
   terrainStoneOcclusionRadiusGradient /
-    max(1e-4, terrainStoneWorldGradient * max(0.25, vTerrainStoneOcclusion))
+    max(1e-4, terrainWorldGradient * max(0.25, vTerrainStoneOcclusion))
 );
 float terrainStoneOcclusionCoherence =
   1.0 - smoothstep(0.05, 0.35, terrainStoneOcclusionIdentitySlope);
@@ -697,22 +702,13 @@ terrainSurfaceColor *= 1.0 - uTerrainHollowDarkening * terrainConcavity;
  * -- a small dark contact region at the root -- to decide whether a blade is
  * standing in the earth or pasted onto it.
  *
- * Sampled on the same lattice the blades are placed on, so the dark pool lands
- * under the tuft rather than near it. Gated on the micro weight because a 2.7 m
- * feature is sub-pixel past that range and would otherwise shimmer.
+ * The span, hash and centre jitter are the exact CPU placement contract. The
+ * effect follows the near-detail schedule because once individual tufts are no
+ * longer resolved their root contacts must disappear with them, not remain as
+ * an independent dotted pattern on the ground.
  */
-vec2 terrainClumpUv = vTerrainWorldPosition.xz / uTerrainClumpCell;
-vec2 terrainClumpCellId = floor(terrainClumpUv);
-int terrainClumpX = int(terrainClumpCellId.x);
-int terrainClumpZ = int(terrainClumpCellId.y);
-vec2 terrainClumpCenter = terrainClumpCellId + vec2(
-  0.35 + 0.30 * grassLatticeHash01(terrainClumpX, terrainClumpZ, uTerrainClumpSeed),
-  0.35 + 0.30 * grassLatticeHash01(
-    terrainClumpX,
-    terrainClumpZ,
-    uTerrainClumpSeed ^ 0x9e3779b9u
-  )
-);
+vec2 terrainClumpUv = vTerrainWorldPosition.xz / uTerrainClumpSpan;
+vec2 terrainClumpCenter = grassClumpCenter(terrainClumpUv, uTerrainClumpSeed);
 float terrainClumpDistance = length(terrainClumpUv - terrainClumpCenter);
 float terrainClumpShade = 1.0 - smoothstep(0.16, 0.52, terrainClumpDistance);
 terrainSurfaceColor *= 1.0 - uTerrainClumpAo * terrainClumpShade *
