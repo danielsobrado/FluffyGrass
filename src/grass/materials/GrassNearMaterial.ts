@@ -409,8 +409,18 @@ mat3 grassInstanceBasis = mat3(instanceMatrix);
 vec3 grassWidthAxisView = normalize(
   normalMatrix * grassInstanceBasis * grassWidthAxis
 );
+// Three.js applies this inverse-scale correction to objectNormal in
+// defaultnormal_vertex. The macro blade-plane normal bypasses that chunk, so it
+// must mirror the same transform here or Phase 5's broad/non-uniform instances
+// skew the far end of the Phase 6 lighting fade.
+vec3 grassInstanceScaleSquared = vec3(
+  dot(grassInstanceBasis[0], grassInstanceBasis[0]),
+  dot(grassInstanceBasis[1], grassInstanceBasis[1]),
+  dot(grassInstanceBasis[2], grassInstanceBasis[2])
+);
 vec3 grassBladePlaneNormalView = normalize(
-  normalMatrix * grassInstanceBasis * grassBladePlaneNormal
+  normalMatrix * grassInstanceBasis *
+    (grassBladePlaneNormal / max(grassInstanceScaleSquared, vec3(1e-8)))
 );
 // Trough curvature is micro detail: progressively remove it without erasing
 // the direction of the blade plane itself.
