@@ -13,6 +13,7 @@ const MAX_TERRAIN_STREAM_RADIUS = 16;
 const MAX_TERRAIN_NEAR_RESOLUTION = 129;
 const MAX_TERRAIN_MID_RESOLUTION = 65;
 const MAX_TERRAIN_FAR_RESOLUTION = 33;
+const MAX_GRASS_ROSETTE_FAN_RADIANS = Math.PI / 4;
 /**
  * Shell bounds. The spacing ceiling keeps the shell from coarsening past the
  * point where its silhouette stops resembling the terrain it stands in for,
@@ -282,7 +283,10 @@ export const WORLD_CONFIG_SCHEMA: WorldConfigSchema = {
   grassBroadBladeWidthScale: { minimum: 1, maximum: 2.2 },
   grassBladeDamageShare: { minimum: 0, maximum: 0.2 },
   grassRosetteChance: { minimum: 0, maximum: 0.5 },
-  grassRosetteFanRadians: { minimum: 0.1, maximum: 0.9 },
+  grassRosetteFanRadians: {
+    minimum: 0.1,
+    exclusiveMaximum: MAX_GRASS_ROSETTE_FAN_RADIANS,
+  },
   terrainGroundNoiseWorldSize: { minimum: 16, maximum: 256 },
   terrainGroundMesoStrength: { minimum: 0, maximum: 0.5 },
   terrainGroundMicroStrength: { minimum: 0, maximum: 0.35 },
