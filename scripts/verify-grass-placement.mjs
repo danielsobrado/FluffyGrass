@@ -42,6 +42,8 @@ function readYamlNumber(source, key) {
 }
 
 const worldConfigSource = read("public/config/world.yaml");
+const allocationSource = read("src/world/WorldGrassAllocationValidator.ts");
+const nearMaterialSource = read("src/grass/materials/GrassNearMaterial.ts");
 const factorySource = read("src/world/grass/WorldSingleBladeTileFactory.ts");
 const profileSource = read("src/world/grass/GrassClusterProfile.ts");
 const patchFactorySource = read(
@@ -79,7 +81,7 @@ assert(
     factorySource.includes("resolveGrassClusterCoverage(") &&
     factorySource.includes("mixGrassAngle(") &&
     factorySource.includes("this.clusterProfile.leanTowardMax") &&
-    factorySource.includes("GRASS_PLACEMENT_VERSION = 14") &&
+    factorySource.includes("GRASS_PLACEMENT_VERSION = 15") &&
     factorySource.includes("placement-${GRASS_PLACEMENT_VERSION}"),
   "The tuft distribution must read its shape and morphology from configuration and version its placement cache key.",
 );
@@ -449,4 +451,227 @@ console.log(
       3,
     )}/${accentShare}, jitter ±${heightJitter}, inside vertical scale ` +
     `[${verticalScaleMin}, ${verticalScaleMax}] and shared by mid/far source blades.`,
+);
+
+/**
+ * Per-blade silhouette.
+ *
+ * The near field instances one cached source triangle, so every blade's shape
+ * is whatever `writeShapeChannels` writes into four normalized bytes. The
+ * generator is reproduced here rather than inspected, because the failures that
+ * matter are statistical: a drift that is not zero-mean leans the whole meadow
+ * one way, and a share that drifts from configuration is invisible in the
+ * source and obvious on screen.
+ */
+const tipDriftConfig = readYamlNumber(worldConfigSource, "grassBladeTipDrift");
+const broadShare = readYamlNumber(worldConfigSource, "grassBroadBladeShare");
+const damageShare = readYamlNumber(worldConfigSource, "grassBladeDamageShare");
+const rosetteChance = readYamlNumber(worldConfigSource, "grassRosetteChance");
+const rosetteFan = readYamlNumber(worldConfigSource, "grassRosetteFanRadians");
+const understoryDriftScale = readFactoryNumber("UNDERSTORY_FREE_DRIFT_SCALE");
+const rosetteDriftScale = readFactoryNumber("ROSETTE_DRIFT_SCALE");
+
+function encodeShapeUnit(value) {
+  return Math.round(Math.min(1, Math.max(0, value)) * 255);
+}
+
+function writeShapeChannels(random, driftScale) {
+  const isBroad = random.next() < broadShare;
+  const drift = encodeShapeUnit(
+    Math.min(1, Math.max(-1, random.range(-1, 1) * driftScale)) * 0.5 + 0.5,
+  );
+  const taper = encodeShapeUnit(
+    isBroad ? random.range(0.72, 1) : random.range(0, 0.55),
+  );
+  const damage = encodeShapeUnit(
+    random.next() < damageShare ? random.range(0.4, 1) : 0,
+  );
+  const bend = encodeShapeUnit(
+    Math.min(1, Math.max(0, 0.5 + (random.next() - 0.5) * 1.5)),
+  );
+  return { isBroad, drift, taper, damage, bend };
+}
+
+{
+  const random = new SeededRandom(0x51ed270b);
+  const samples = 200_000;
+  let driftSum = 0;
+  let broadCount = 0;
+  let damageCount = 0;
+  let leftLean = 0;
+  const taperBuckets = [0, 0, 0, 0];
+  for (let index = 0; index < samples; index += 1) {
+    const shape = writeShapeChannels(random, understoryDriftScale);
+    const drift = (shape.drift / 255) * 2 - 1;
+    driftSum += drift;
+    if (drift < 0) {
+      leftLean += 1;
+    }
+    if (shape.isBroad) {
+      broadCount += 1;
+    }
+    if (shape.damage > 0) {
+      damageCount += 1;
+    }
+    // The shader reads this byte as mix(0.42, 1.20, byte/255).
+    const exponent = 0.42 + (0.78 * shape.taper) / 255;
+    taperBuckets[Math.min(3, Math.floor(((exponent - 0.42) / 0.78) * 4))] += 1;
+  }
+
+  const driftMean = driftSum / samples;
+  assert(
+    Math.abs(driftMean) < 0.02,
+    `Tip drift must be zero-mean or the whole meadow leans: mean ${driftMean.toFixed(4)}.`,
+  );
+  assert(
+    Math.abs(leftLean / samples - 0.5) < 0.01,
+    "Tip drift must be as likely to fall left as right.",
+  );
+
+  const observedBroad = broadCount / samples;
+  assert(
+    Math.abs(observedBroad / broadShare - 1) < 0.1,
+    `Broad blades must match grassBroadBladeShare: ${observedBroad.toFixed(4)} against ${broadShare}.`,
+  );
+  const observedDamage = damageCount / samples;
+  assert(
+    Math.abs(observedDamage / damageShare - 1) < 0.1,
+    `Damaged blades must match grassBladeDamageShare: ${observedDamage.toFixed(4)} against ${damageShare}.`,
+  );
+
+  // The taper exponent has to straddle the source blade's own 0.72, or every
+  // blade is narrower than the geometry it instances (or every blade wider) and
+  // the population is uniform again in a new way.
+  assert(
+    taperBuckets.every((count) => count > samples * 0.02),
+    `Taper exponents must span their range: ${taperBuckets.join("/")}.`,
+  );
+  const lanceolate = taperBuckets[0] + taperBuckets[1];
+  assert(
+    lanceolate > samples * 0.5,
+    "Most blades must stay lance-like; broad ones are the minority.",
+  );
+
+  // Byte quantisation must be invisible: an eighth of a millimetre of apex
+  // position against a blade a few centimetres wide.
+  const quantisationMetres =
+    (tipDriftConfig * readYamlNumber(read("public/config/grass.yaml"), "bladeWidthMax")) /
+    255;
+  assert(
+    quantisationMetres < 0.0005,
+    `Shape bytes must quantise below visibility: ${(quantisationMetres * 1000).toFixed(3)} mm.`,
+  );
+
+  console.log(
+    `[grass-placement] shape channels over ${samples} draws: drift mean ` +
+      `${driftMean.toFixed(4)} (${((leftLean / samples) * 100).toFixed(1)}% left), ` +
+      `${(observedBroad * 100).toFixed(2)}% broad against ${(broadShare * 100).toFixed(2)}%, ` +
+      `${(observedDamage * 100).toFixed(2)}% damaged against ${(damageShare * 100).toFixed(2)}%, ` +
+      `taper spread ${taperBuckets.join("/")}, quantised to ` +
+      `${(quantisationMetres * 1000).toFixed(3)} mm.`,
+  );
+}
+
+/**
+ * Rosette density conservation.
+ *
+ * Rosettes emit several blades from one placement cell. If the coverage each
+ * blade is written with did not fall by the same expected factor, raising
+ * `grassRosetteChance` would silently multiply the meadow's blade count —
+ * which is a frame-time change disguised as an art control.
+ */
+{
+  const expansion = 1 + rosetteChance * 2.5;
+  const random = new SeededRandom(0x2f6a88d1);
+  const cells = 400_000;
+  // The coverage a cell would have written before rosettes existed.
+  const baseCoverage = 0.62;
+  const scaledCoverage = baseCoverage / expansion;
+  let survivors = 0;
+  for (let cell = 0; cell < cells; cell += 1) {
+    if (random.next() < scaledCoverage) {
+      survivors += 1;
+    }
+    if (random.next() < rosetteChance) {
+      const leaves = 1 + Math.floor(random.next() * 4);
+      for (let leaf = 0; leaf < leaves; leaf += 1) {
+        if (random.next() < scaledCoverage) {
+          survivors += 1;
+        }
+      }
+    }
+  }
+  const ratio = survivors / (cells * baseCoverage);
+  assert(
+    Math.abs(ratio - 1) < 0.01,
+    `Rosettes must not change the blade count: ${ratio.toFixed(4)} of the pre-rosette field.`,
+  );
+
+  assert(
+    factorySource.includes("this.rosetteExpansion") &&
+      factorySource.includes("/\n        this.rosetteExpansion;"),
+    "Per-blade coverage must divide by the rosette expansion.",
+  );
+  assert(
+    factorySource.includes("job.bladeCount < job.capacity"),
+    "The placement loop and the leaf loop must both be bounded by capacity, not by the cell count.",
+  );
+  assert(
+    factorySource.includes(
+      "Math.ceil(requestedCount * this.rosetteExpansion)",
+    ),
+    "Buffers must reserve the rosette expansion.",
+  );
+  assert(
+    allocationSource.includes("resolveGrassRosetteExpansion(rosetteChance)"),
+    "The allocation ceiling must charge the rosette expansion too.",
+  );
+  assert(
+    rosetteFan > 0.1 && rosetteFan * 4 < Math.PI,
+    "A four-leaf fan must stay inside a half turn or the rosette folds onto itself.",
+  );
+
+  console.log(
+    `[grass-placement] rosettes at ${(rosetteChance * 100).toFixed(0)}% expand ` +
+      `placement by ${expansion.toFixed(3)}x and hold the blade count to ` +
+      `${(ratio * 100).toFixed(2)}% of the pre-rosette field; leaves fan ` +
+      `${rosetteFan} rad apart and drift ${rosetteDriftScale} against ` +
+      `${understoryDriftScale} in the open.`,
+  );
+}
+
+/**
+ * The shape bytes must not be derived from the LOD dither.
+ *
+ * The mid layer reproduces that dither bit-exactly on the CPU to truncate its
+ * draw, so it must carry no per-instance term. Deriving morphology from it
+ * would also make a blade's shape depend on which blades the LOD kept.
+ */
+{
+  const body = factorySource.slice(
+    factorySource.indexOf("private writeShapeChannels("),
+  );
+  const generator = body.slice(0, body.indexOf("\n  }"));
+  assert(
+    generator.includes("job.random") &&
+      !generator.includes("dither") &&
+      !generator.includes("job.variations") &&
+      !generator.includes("job.coverages"),
+    "Blade shape must be drawn from the job's random stream alone, never from the LOD dither or coverage.",
+  );
+}
+assert(
+  nearMaterialSource.includes("attribute vec4 instanceShape;") &&
+    nearMaterialSource.includes("uniform float uGrassShapeTipDrift;") &&
+    nearMaterialSource.includes(
+      "transformed = grassShapeCenter + grassShapeArm * grassShapeWidth;",
+    ),
+  "The near material must declare and apply the shape attribute.",
+);
+// The source blade is tapered at build time; the shader replaces that profile
+// rather than compounding a second one on top of it.
+assert(
+  nearMaterialSource.includes("pow(grassShapeHead, 0.72)") &&
+    factorySource.includes("Math.pow(1 - amount, 0.72)"),
+  "The shader's taper correction must use the exponent the source geometry was built with.",
 );

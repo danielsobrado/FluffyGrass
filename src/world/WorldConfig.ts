@@ -253,6 +253,27 @@ export interface WorldConfig {
   grassCanopyDepthAo: number;
   /** How much darker a blade near the centre of its own tuft is. */
   grassClumpCoreAo: number;
+  /**
+   * Per-blade silhouette.
+   *
+   * Every near blade is an affine copy of one cached source triangle, with its
+   * apex at local x = 0 — so the whole population is symmetric isoceles
+   * triangles differing only in width, height, yaw and lean. These four give a
+   * blade a shape of its own without adding a draw call or a source geometry.
+   */
+  grassBladeTipDrift: number;
+  grassBroadBladeShare: number;
+  grassBroadBladeWidthScale: number;
+  grassBladeDamageShare: number;
+  /**
+   * A tuft is not N independent blades that happen to be close; it is one plant
+   * with several leaves off one crown. These emit the extra leaves from a
+   * placement cell that already paid for its field sampling, which is the
+   * expensive part — so the cluster costs a few matrix composes, not a second
+   * ecology lookup.
+   */
+  grassRosetteChance: number;
+  grassRosetteFanRadians: number;
   /** World metres covered by one repeat of the generated surface-noise map. */
   terrainGroundNoiseWorldSize: number;
   terrainGroundMesoStrength: number;

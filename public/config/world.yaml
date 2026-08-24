@@ -374,6 +374,43 @@ grassCanopyDepthAo: 0.26
 # And blades near a tuft's centre are more occluded than blades at its rim.
 grassClumpCoreAo: 0.12
 
+# Per-blade silhouette.
+#
+# Every near blade instances one cached source triangle, and its apex sits at
+# local x = 0 — so the entire near population is symmetric isoceles triangles
+# differing only in width, height, yaw and lean. That is the "many identical thin
+# triangles" read, and no amount of density or palette work touches it, because
+# the missing information is shape.
+#
+# All four are applied in the vertex shader against the shared source, so the
+# population still draws in one call per tile.
+#
+# How far a blade's apex may fall sideways, in source half-widths. Grows
+# quadratically along the blade, so roots stay put and only the silhouette's
+# upper half leans — this is what breaks the mirrored read.
+grassBladeTipDrift: 0.9
+# A minority of blades are broad and blunt rather than lance-like.
+grassBroadBladeShare: 0.09
+grassBroadBladeWidthScale: 1.75
+# And a few are broken: blunt at the tip rather than shorter with a point.
+grassBladeDamageShare: 0.07
+
+# Rosette clusters.
+#
+# Grass does not grow as evenly spaced single blades; it grows as tufts, and a
+# tuft is one crown with several leaves fanned off it. The clump lattice already
+# gathers blades into tufts, but each blade in one is still an independent
+# plant, which is why a tuft reads as a handful of separate spikes rather than
+# one plant.
+#
+# The extra leaves are emitted from a cell that has already sampled its ecology,
+# so they cost a matrix compose each. Raising the chance does NOT densify the
+# meadow: per-blade coverage divides by the same expected factor, so the field
+# trades single blades for fewer, fuller plants at a constant blade count.
+grassRosetteChance: 0.22
+# Angle between neighbouring leaves in a fan, in radians.
+grassRosetteFanRadians: 0.42
+
 # Shared ground/grass procedural surface.
 terrainGroundNoiseWorldSize: 64
 terrainGroundMesoStrength: 0.18

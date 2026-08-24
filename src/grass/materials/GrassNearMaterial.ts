@@ -1,3 +1,4 @@
+import { GRASS_SHAPE_BEND_FRACTION } from "../../world/grass/GrassRuntimeMath";
 import type { GUI } from "dat.gui";
 import * as THREE from "three";
 import type {
@@ -311,6 +312,70 @@ varying float vGrassRootAo;
 flat varying float vGrassBiome;
 varying float vGrassGust;
 `;
+
+
+const VERTEX_SHAPE_DECLARATIONS = `
+attribute vec4 instanceShape;
+attribute float grassBladeWidth;
+uniform float uGrassShapeTipDrift;
+`;
+
+/**
+ * Gives each blade a silhouette of its own.
+ *
+ * Every near blade instances one cached source triangle, so without this the
+ * whole population is that one outline under an affine transform: the same
+ * taper, the same intact point, the apex always directly over the root. That is
+ * the "many identical thin triangles" read, and it is a shape problem — no
+ * amount of density or palette work reaches it.
+ *
+ * Injected after the normal chunk, which is where grassWidthAxis and grassSide
+ * come from, and before the wind, because wind has to bend the *shaped* blade
+ * rather than a straight one that is reshaped afterwards.
+ */
+const VERTEX_SHAPE = `
+float grassShapeDrift = instanceShape.x * 2.0 - 1.0;
+float grassShapeTaper = mix(0.42, 1.20, instanceShape.y);
+float grassShapeDamage = instanceShape.z;
+float grassShapeBend = instanceShape.w * 2.0 - 1.0;
+
+// Rebuild the centre line so the half-width can be *replaced* rather than
+// added to. A row's two vertices sit either side of it along the width axis,
+// and the apex is on it — uv.x is 0.5 there, so grassSide is zero and the
+// reconstruction costs nothing at the one vertex where the width is zero.
+float grassShapeHead = max(1.0 - grassProgress, 0.0);
+vec3 grassShapeArm = grassWidthAxis * grassSide;
+vec3 grassShapeCenter =
+  transformed - grassShapeArm * (grassBladeWidth * pow(grassShapeHead, 0.72));
+
+// 0.72 is the exponent baked into the source blade at build time. Tapering
+// again would compound the two, so the new profile replaces it outright.
+float grassShapeWidth = grassBladeWidth * pow(grassShapeHead, grassShapeTaper);
+// A broken blade is blunt, not shorter-with-a-point: it holds width where an
+// intact one would have almost none, and gives up the last of its rise.
+grassShapeWidth = max(
+  grassShapeWidth,
+  grassBladeWidth * 0.55 * grassShapeDamage *
+    smoothstep(0.5, 0.85, grassProgress)
+);
+grassShapeCenter.y *= 1.0 -
+  0.1 * grassShapeDamage * smoothstep(0.9, 1.0, grassProgress);
+
+// Tip drift grows quadratically, so the root stays planted and only the upper
+// half leans. This is the term that breaks the mirrored-isoceles read.
+grassShapeCenter += grassWidthAxis * (
+  grassShapeDrift * uGrassShapeTipDrift * grassBladeWidth *
+  grassProgress * grassProgress
+);
+// Extra flop along the blade's own depth axis, as a fraction of the height it
+// has reached rather than a fixed distance, so a short blade bends short.
+grassShapeCenter += normalize(cross(grassWidthAxis, vec3(0.0, 1.0, 0.0))) * (
+  grassShapeBend * GRASS_SHAPE_BEND * grassShapeCenter.y *
+  pow(grassProgress, 1.6)
+);
+
+transformed = grassShapeCenter + grassShapeArm * grassShapeWidth;
+`.replace("GRASS_SHAPE_BEND", GRASS_SHAPE_BEND_FRACTION.toFixed(3));
 
 const VERTEX_WIND = `
 // The instance's translation is its fourth column; multiplying the full matrix
@@ -943,6 +1008,14 @@ export interface GrassNearMaterialOptions {
    */
   instanceFreeDither?: boolean;
   /**
+   * Give every instance its own silhouette from `instanceShape`.
+   *
+   * Compile-time so only the world's near layers pay for it: the mid and far
+   * populations draw a few pixels each and the island regression scene has one
+   * source clump, so both keep the plain source blade.
+   */
+  shapeVariation?: boolean;
+  /**
    * Sample the shared scrolling wind-noise field instead of the sine gust
    * front. Costs one vertex texture fetch; compact profiles compile the sine.
    */
@@ -993,6 +1066,8 @@ export class GrassNearMaterial {
   private nearNormalUpScale = 1;
   private readonly uniforms = {
     uGrassTime: { value: 0 },
+    /** Tip drift, in source root half-widths. See setShapeTipDrift. */
+    uGrassShapeTipDrift: { value: 0 },
     uGrassWindDirection: { value: new THREE.Vector2(0.8, 0.35).normalize() },
     uGrassWindStrength: { value: 0.14 },
     uGrassGustScale: { value: 0.08 },
@@ -1105,6 +1180,7 @@ export class GrassNearMaterial {
     const noiseWind = options.noiseWind === true;
     const microWind = options.microWind !== false;
     const instanceFreeDither = options.instanceFreeDither === true;
+    const shapeVariation = options.shapeVariation === true;
     // Selected at compile time rather than branched on a uniform: this is the
     // hottest code in the scene and the choice never varies for a material.
     const keepLod = worldLod
@@ -1122,6 +1198,8 @@ export class GrassNearMaterial {
           }${
             subPixelWidth ? VERTEX_SUBPIXEL_DECLARATIONS : ""
           }${
+            shapeVariation ? VERTEX_SHAPE_DECLARATIONS : ""
+          }${
             noiseWind ? VERTEX_WIND_NOISE_DECLARATIONS : ""
           }${
             vertexPalette
@@ -1135,7 +1213,9 @@ export class GrassNearMaterial {
         )
         .replace(
           "#include <begin_vertex>",
-          `#include <begin_vertex>${VERTEX_WIND.replace(
+          `#include <begin_vertex>${
+            shapeVariation ? VERTEX_SHAPE : ""
+          }${VERTEX_WIND.replace(
             "GRASS_KEEP_LOD",
             keepLod,
           )
@@ -1290,6 +1370,17 @@ export class GrassNearMaterial {
   }
 
   /** Configured by the world; 1 restores the old single-value behaviour. */
+  /**
+   * How far a blade's apex may fall sideways, in source root half-widths.
+   *
+   * Set from configuration on every near layer at once — the layers share
+   * placement data, so a blade drawn by two of them has to be the same shape in
+   * both or it doubles rather than blends.
+   */
+  setShapeTipDrift(drift: number): void {
+    this.uniforms.uGrassShapeTipDrift.value = Math.max(0, drift);
+  }
+
   setNearNormalUpScale(scale: number): void {
     this.nearNormalUpScale = Number.isFinite(scale)
       ? Math.min(1, Math.max(0, scale))

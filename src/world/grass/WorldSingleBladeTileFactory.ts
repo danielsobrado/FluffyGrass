@@ -51,6 +51,8 @@ import {
 import {
   calculateGrassBladeCurveReach,
   calculateGrassSingleBladeRootBoundsRadius,
+  GRASS_SHAPE_BEND_FRACTION,
+  resolveGrassRosetteExpansion,
   resolveGrassBladeArcPoint,
 } from "./GrassRuntimeMath";
 import {
@@ -97,6 +99,11 @@ export interface WorldSingleBladeTileBuildJob {
   stage: TileBuildStage;
   cachedPlacement?: WorldSingleBladePlacement;
   requestedCount: number;
+  /**
+   * Blades the buffers can hold. Larger than {@link requestedCount}, which is
+   * the placement *cell* count: a rosette cell emits several leaves.
+   */
+  capacity: number;
   columns: number;
   rows: number;
   cellWidth: number;
@@ -108,6 +115,17 @@ export interface WorldSingleBladeTileBuildJob {
   random: SeededRandom;
   matrixValues: Float32Array;
   variations: Float32Array;
+  /**
+   * Per-blade silhouette, four normalized bytes: tip drift, width profile, tip
+   * damage, curve scale.
+   *
+   * Bytes rather than floats because none of these needs 32-bit precision. Tip
+   * drift quantises to about a third of a millimetre of apex position against a
+   * 36 mm half-width, and the taper exponent to 0.003. A float vec4 would cost
+   * sixteen bytes an instance for precision nothing can see -- several megabytes
+   * at peak residency, and four times the tile-build upload.
+   */
+  shapes: Uint8Array;
   coverages: Float32Array;
   biomes: Float32Array;
   bounds: THREE.Box3;
@@ -127,6 +145,7 @@ export interface WorldSingleBladeTileBuildJob {
   reorderVisited?: Uint8Array;
   reorderMatrixScratch?: Float32Array;
   reorderVariationScratch?: Float32Array;
+  reorderShapeScratch?: Uint8Array;
   reorderCycleStart?: number;
   reorderCycleTarget?: number;
   reorderCoverageScratch?: number;
@@ -199,7 +218,14 @@ function resolveClumpMaxCellOffset(config: WorldConfig): number {
 const HEIGHT_LATTICE_SPACING = TERRAIN_NORMAL_STEP * 0.5;
 const LATTICE_SUITABILITY_TOLERANCE = 0.05;
 const DEADLINE_CHECK_INTERVAL = 256;
-const INSTANCE_HORIZONTAL_SCALE_MAX = 1.2;
+/**
+ * Widest a blade may be scaled, as a multiple of its source width.
+ *
+ * Raised from 1.2 for the broad-blade minority. It feeds the reserved bounds
+ * radius directly, so this is the number the culling envelope is charged for --
+ * `verify-lod-continuity` reproduces that calculation from it.
+ */
+const INSTANCE_HORIZONTAL_SCALE_MAX = 1.9;
 const INSTANCE_VERTICAL_SCALE_MIN = 0.3;
 const INSTANCE_VERTICAL_SCALE_MAX = 1.22;
 const UNDERSTORY_WIDTH_SCALE = 1.15;
@@ -214,8 +240,24 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // 0.5 * 0.754877666 + 0.5 * 0.569840296 — the constant part of the vertex
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
+
+/**
+ * Drift allowed to a blade that stands in the open, as a share of the config.
+ *
+ * Understory blades take the full amount: they are the ones lying over under
+ * their neighbours, and the ones a camera at head height sees end-on.
+ */
+const UNDERSTORY_FREE_DRIFT_SCALE = 0.74;
+/** Leaves off one crown lean more, and drift more, than a blade on its own. */
+const ROSETTE_DRIFT_SCALE = 0.92;
+const ROSETTE_LEAN_GROWTH = 0.34;
+
+/** Quantises a unit shape channel into the normalized byte the shader reads. */
+function encodeShapeUnit(value: number): number {
+  return Math.round(Math.min(1, Math.max(0, value)) * 255);
+}
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 14;
+const GRASS_PLACEMENT_VERSION = 15;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -233,6 +275,7 @@ type TileBuildStage =
 interface TileBuildBuffers {
   matrixValues: Float32Array;
   variations: Float32Array;
+  shapes: Uint8Array;
   coverages: Float32Array;
   biomes: Float32Array;
 }
@@ -243,6 +286,7 @@ interface WorldSingleBladePlacement extends TileBuildBuffers {
   sortedDithers: Float32Array;
   instanceMatrix: THREE.InstancedBufferAttribute;
   variationAttribute: THREE.InstancedBufferAttribute;
+  shapeAttribute: THREE.InstancedBufferAttribute;
   coverageAttribute: THREE.InstancedBufferAttribute;
   biomeAttribute: THREE.InstancedBufferAttribute;
   origin: THREE.Vector3;
@@ -277,6 +321,7 @@ export class WorldSingleBladeTileFactory {
   private readonly buildBufferPool = new Map<number, TileBuildBuffers[]>();
   private readonly latticePool: TerrainHeightLattice[] = [];
   private readonly sourceBladeHeight: number;
+  private readonly rosetteExpansion: number;
 
   constructor(
     private readonly field: TerrainField,
@@ -288,6 +333,9 @@ export class WorldSingleBladeTileFactory {
       (grassConfig.geometry.bladeHeightMin +
         grassConfig.geometry.bladeHeightMax) *
       0.5;
+    this.rosetteExpansion = resolveGrassRosetteExpansion(
+      worldConfig.grassRosetteChance,
+    );
   }
 
   beginBuild(
@@ -331,6 +379,7 @@ export class WorldSingleBladeTileFactory {
         stage: "mesh",
         cachedPlacement,
         requestedCount,
+        capacity: this.resolveBladeCapacity(requestedCount),
         columns: 0,
         rows: 0,
         cellWidth: 0,
@@ -342,6 +391,7 @@ export class WorldSingleBladeTileFactory {
         random: new SeededRandom(0),
         matrixValues: cachedPlacement.matrixValues,
         variations: cachedPlacement.variations,
+        shapes: cachedPlacement.shapes,
         coverages: cachedPlacement.coverages,
         biomes: cachedPlacement.biomes,
         bounds: cachedPlacement.localBounds,
@@ -382,6 +432,7 @@ export class WorldSingleBladeTileFactory {
       placementKey,
       stage: "lattice",
       requestedCount,
+      capacity: this.resolveBladeCapacity(requestedCount),
       columns,
       rows,
       cellWidth,
@@ -399,6 +450,7 @@ export class WorldSingleBladeTileFactory {
       ),
       matrixValues: buffers.matrixValues,
       variations: buffers.variations,
+      shapes: buffers.shapes,
       coverages: buffers.coverages,
       biomes: buffers.biomes,
       bounds: new THREE.Box3(),
@@ -461,6 +513,11 @@ export class WorldSingleBladeTileFactory {
     let processed = 0;
     while (
       job.nextIndex < job.requestedCount &&
+      // Rosettes make the blade count run ahead of the cell count, so the
+      // buffers -- not the grid -- are what the loop is bounded by. The
+      // expansion is an expectation, and a tile whose rosettes all rolled four
+      // leaves would otherwise write past the reservation.
+      job.bladeCount < job.capacity &&
       (processed === 0 ||
         processed % DEADLINE_CHECK_INTERVAL !== 0 ||
         performance.now() < deadline)
@@ -756,10 +813,19 @@ export class WorldSingleBladeTileFactory {
         INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
       );
+      const isBroadBlade = this.writeShapeChannels(
+        job,
+        job.bladeCount,
+        isUnderstoryBlade ? 1 : UNDERSTORY_FREE_DRIFT_SCALE,
+      );
+      const broadWidthScale = isBroadBlade
+        ? this.worldConfig.grassBroadBladeWidthScale
+        : 1;
       const horizontalScale = THREE.MathUtils.clamp(
         this.clusterProfile.heightScale *
           job.random.range(...biomeProfile.widthBand) *
           this.clusterProfile.widthScale *
+            broadWidthScale *
           (isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1),
         0.76,
         INSTANCE_HORIZONTAL_SCALE_MAX,
@@ -771,6 +837,7 @@ export class WorldSingleBladeTileFactory {
           this.clusterProfile.heightScale *
             job.random.range(...biomeProfile.widthBand) *
             this.clusterProfile.widthScale *
+            broadWidthScale *
             (isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1),
           0.76,
           INSTANCE_HORIZONTAL_SCALE_MAX,
@@ -829,16 +896,92 @@ export class WorldSingleBladeTileFactory {
         sampleAngle,
         gapIdentity,
       );
-      job.coverages[job.bladeCount] =
-        this.habitatSample.density *
-        (pioneer > 0 ? this.worldConfig.grassPathPioneerCoverage : pathMask) *
-        stoneMask *
-        clusterCoverage;
+      // Divided by the rosette expansion: a rosette cell emits several
+      // blades, so without this the field densifies by exactly that factor as
+      // soon as the chance is non-zero. Every blade pays it, not just the
+      // rosettes, because the expansion is an expectation over all cells.
+      const bladeCoverage =
+        (this.habitatSample.density *
+          (pioneer > 0 ? this.worldConfig.grassPathPioneerCoverage : pathMask) *
+          stoneMask *
+          clusterCoverage) /
+        this.rosetteExpansion;
+      job.coverages[job.bladeCount] = bladeCoverage;
       job.biomes[job.bladeCount] = biomeIndex;
+      const parentVariationOffset = variationOffset;
       job.bladeCount += 1;
+
+      /**
+       * The rest of the plant.
+       *
+       * The expensive part of placement is the field sampling above — ecology,
+       * habitat, community, stone clearance, the height lattice. Emitting the
+       * remaining leaves of one crown from that single sample is nearly free,
+       * and it is also the more correct model: these leaves share a root, a
+       * soil and a light budget, so they should share the sampled values and
+       * re-roll only their presentation.
+       */
+      if (
+        !isAccentBlade &&
+        job.random.next() < this.worldConfig.grassRosetteChance
+      ) {
+        const leaves = 1 + Math.floor(job.random.next() * 4);
+        for (
+          let leaf = 0;
+          leaf < leaves && job.bladeCount < job.capacity;
+          leaf += 1
+        ) {
+          const fan =
+            (leaf + 1) *
+            this.worldConfig.grassRosetteFanRadians *
+            (leaf % 2 === 0 ? 1 : -1);
+          // Re-derived from the terrain normal rather than accumulated onto:
+          // multiplying into this.align leaf after leaf would drift the whole
+          // rosette off the ground plane by the last one.
+          this.align.setFromUnitVectors(this.up, this.normal);
+          this.yaw.setFromAxisAngle(this.up, planeYaw + fan);
+          // Outer leaves in a rosette lie flatter than the crown's centre.
+          this.lean.setFromAxisAngle(
+            this.leanAxis,
+            leanRotation * (1 + ROSETTE_LEAN_GROWTH * (leaf + 1)),
+          );
+          this.align.multiply(this.lean).multiply(this.yaw);
+          const leafBroad = this.writeShapeChannels(
+            job,
+            job.bladeCount,
+            ROSETTE_DRIFT_SCALE,
+          );
+          const leafWidth =
+            horizontalScale *
+            (leafBroad ? this.worldConfig.grassBroadBladeWidthScale : 1) *
+            job.random.range(0.86, 1.08);
+          this.scale.set(
+            leafWidth,
+            verticalScale * job.random.range(0.74, 1.08),
+            leafWidth,
+          );
+          this.matrix.compose(this.localPosition, this.align, this.scale);
+          this.matrix.toArray(job.matrixValues, job.bladeCount * 16);
+          const leafOffset = job.bladeCount * 4;
+          job.variations.copyWithin(
+            leafOffset,
+            parentVariationOffset,
+            parentVariationOffset + 4,
+          );
+          // Everything else about a leaf is inherited from its crown, but the
+          // dither must not be: the LOD keeps a blade when its dither is under
+          // the coverage, so copied dithers would make a whole rosette appear
+          // and disappear as one instead of thinning leaf by leaf.
+          job.variations[leafOffset] = job.random.next();
+          job.coverages[job.bladeCount] = bladeCoverage;
+          job.biomes[job.bladeCount] = biomeIndex;
+          job.bladeCount += 1;
+        }
+      }
     }
 
-    return job.nextIndex >= job.requestedCount;
+    // Either every cell was visited or the buffers filled; both are done.
+    return job.nextIndex >= job.requestedCount || job.bladeCount >= job.capacity;
   }
 
   private advanceFinalize(
@@ -966,6 +1109,7 @@ export class WorldSingleBladeTileFactory {
         job.reorderVisited = new Uint8Array(job.bladeCount);
         job.reorderMatrixScratch = new Float32Array(16);
         job.reorderVariationScratch = new Float32Array(4);
+    job.reorderShapeScratch = new Uint8Array(4);
         job.stage = "reorder";
       }
       return this.continueBuild(job, deadline);
@@ -1026,13 +1170,15 @@ export class WorldSingleBladeTileFactory {
     const visited = job.reorderVisited;
     const tempMatrix = job.reorderMatrixScratch;
     const tempVariation = job.reorderVariationScratch;
+    const tempShape = job.reorderShapeScratch;
     if (
       !order ||
       !dithers ||
       !sortedDithers ||
       !visited ||
       !tempMatrix ||
-      !tempVariation
+      !tempVariation ||
+      !tempShape
     ) {
       throw new Error(`Grass tile ${job.options.key} has no reorder state.`);
     }
@@ -1061,6 +1207,7 @@ export class WorldSingleBladeTileFactory {
         }
         for (let component = 0; component < 4; component += 1) {
           tempVariation[component] = job.variations[start * 4 + component];
+          tempShape[component] = job.shapes[start * 4 + component];
         }
         job.reorderCoverageScratch = job.coverages[start];
         job.reorderBiomeScratch = job.biomes[start];
@@ -1079,6 +1226,7 @@ export class WorldSingleBladeTileFactory {
       if (source === start) {
         job.matrixValues.set(tempMatrix, target * 16);
         job.variations.set(tempVariation, target * 4);
+        job.shapes.set(tempShape, target * 4);
         job.coverages[target] = job.reorderCoverageScratch ?? 1;
         job.biomes[target] = job.reorderBiomeScratch ?? 0;
         job.reorderCycleStart = undefined;
@@ -1088,6 +1236,7 @@ export class WorldSingleBladeTileFactory {
       } else {
         job.matrixValues.copyWithin(target * 16, source * 16, source * 16 + 16);
         job.variations.copyWithin(target * 4, source * 4, source * 4 + 4);
+        job.shapes.copyWithin(target * 4, source * 4, source * 4 + 4);
         job.coverages[target] = job.coverages[source];
         job.biomes[target] = job.biomes[source];
         job.reorderCycleTarget = source;
@@ -1123,6 +1272,13 @@ export class WorldSingleBladeTileFactory {
       job.variations.subarray(0, job.bladeCount * 4),
       4,
     );
+    // Normalized: the shader reads all four channels in 0..1 and decodes the
+    // signed ones itself.
+    const shapeAttribute = new THREE.InstancedBufferAttribute(
+      job.shapes.subarray(0, job.bladeCount * 4),
+      4,
+      true,
+    );
     const coverageAttribute = new THREE.InstancedBufferAttribute(
       job.coverages.subarray(0, job.bladeCount),
       1,
@@ -1135,12 +1291,14 @@ export class WorldSingleBladeTileFactory {
       key: job.placementKey,
       matrixValues: job.matrixValues,
       variations: job.variations,
+      shapes: job.shapes,
       coverages: job.coverages,
       biomes: job.biomes,
       bladeCount: job.bladeCount,
       sortedDithers,
       instanceMatrix,
       variationAttribute,
+      shapeAttribute,
       coverageAttribute,
       biomeAttribute,
       origin,
@@ -1176,6 +1334,7 @@ export class WorldSingleBladeTileFactory {
       placement.coverages.subarray(0, placement.bladeCount),
       {
         variation: placement.variationAttribute,
+        shape: placement.shapeAttribute,
         coverage: placement.coverageAttribute,
         biome: placement.biomeAttribute,
       },
@@ -1250,6 +1409,11 @@ export class WorldSingleBladeTileFactory {
       placement.variations.subarray(0, bladeCount * 4),
       4,
     );
+    placement.shapeAttribute = new THREE.InstancedBufferAttribute(
+      placement.shapes.subarray(0, bladeCount * 4),
+      4,
+      true,
+    );
     placement.coverageAttribute = new THREE.InstancedBufferAttribute(
       placement.coverages.subarray(0, bladeCount),
       1,
@@ -1299,17 +1463,30 @@ export class WorldSingleBladeTileFactory {
     }
   }
 
+  /**
+   * Blades a tile with this many placement cells has to be able to hold.
+   *
+   * Rosettes emit extra leaves from a cell, so the reservation is the cell
+   * count times the expansion. Per-blade coverage divides by the same number,
+   * so the *expected* population is unchanged and only the peak grows.
+   */
+  private resolveBladeCapacity(requestedCount: number): number {
+    return Math.ceil(requestedCount * this.rosetteExpansion);
+  }
+
   private acquireBuildBuffers(requestedCount: number): TileBuildBuffers {
+    const capacity = this.resolveBladeCapacity(requestedCount);
     const pool = this.buildBufferPool.get(requestedCount);
     const buffers = pool?.pop();
     if (buffers) {
       return buffers;
     }
     return {
-      matrixValues: new Float32Array(requestedCount * 16),
-      variations: new Float32Array(requestedCount * 4),
-      coverages: new Float32Array(requestedCount),
-      biomes: new Float32Array(requestedCount),
+      matrixValues: new Float32Array(capacity * 16),
+      variations: new Float32Array(capacity * 4),
+      shapes: new Uint8Array(capacity * 4),
+      coverages: new Float32Array(capacity),
+      biomes: new Float32Array(capacity),
     };
   }
 
@@ -1326,10 +1503,62 @@ export class WorldSingleBladeTileFactory {
       pool.push({
         matrixValues: buffers.matrixValues,
         variations: buffers.variations,
+        shapes: buffers.shapes,
         coverages: buffers.coverages,
         biomes: buffers.biomes,
       });
     }
+  }
+
+  /**
+   * Four numbers that give one blade a silhouette of its own.
+   *
+   * The source geometry is a single cached triangle, so without these the whole
+   * near population differs only by an affine transform: the same symmetric
+   * outline, the same taper, the same intact point, the apex always over the
+   * root. These are what a blade actually varies in — which way its tip falls,
+   * how fast it narrows, whether it is whole, and how far it bends.
+   *
+   * Drawn from `job.random` and never from the LOD dither. The mid layer's
+   * draw truncation reproduces that dither bit-exactly on the CPU and depends
+   * on it carrying no per-instance term; deriving morphology from it would make
+   * a blade's shape a function of which blades the LOD happens to keep.
+   *
+   * Returns whether this blade is one of the broad minority, which the caller
+   * needs for its instance width.
+   */
+  private writeShapeChannels(
+    job: WorldSingleBladeTileBuildJob,
+    index: number,
+    driftScale: number,
+  ): boolean {
+    const offset = index * 4;
+    const isBroadBlade =
+      job.random.next() < this.worldConfig.grassBroadBladeShare;
+    // A unit signed value: the metric scale lives in uGrassShapeTipDrift, so
+    // applying the configured drift here as well would square it.
+    job.shapes[offset] = encodeShapeUnit(
+      THREE.MathUtils.clamp(job.random.range(-1, 1) * driftScale, -1, 1) * 0.5 +
+        0.5,
+    );
+    job.shapes[offset + 1] = encodeShapeUnit(
+      isBroadBlade ? job.random.range(0.72, 1) : job.random.range(0, 0.55),
+    );
+    job.shapes[offset + 2] = encodeShapeUnit(
+      job.random.next() < this.worldConfig.grassBladeDamageShare
+        ? job.random.range(0.4, 1)
+        : 0,
+    );
+    job.shapes[offset + 3] = encodeShapeUnit(
+      THREE.MathUtils.clamp(
+        0.5 +
+          (job.random.next() - 0.5) * 1.5 +
+          this.clusterProfile.leanTowardMax * 0.3,
+        0,
+        1,
+      ),
+    );
+    return isBroadBlade;
   }
 
   private getSourceGeometry(bladeSegments: number): THREE.BufferGeometry {
@@ -1351,6 +1580,12 @@ export class WorldSingleBladeTileFactory {
         this.grassConfig.geometry.bladeHeightMax,
         this.grassConfig.geometry.bladeCurve,
       ),
+      // Charging drift and bend together is deliberately conservative: they
+      // peak at different points along the blade and never sum in practice.
+      shapeReach:
+        this.grassConfig.geometry.bladeWidthMax *
+          this.worldConfig.grassBladeTipDrift +
+        this.grassConfig.geometry.bladeHeightMax * GRASS_SHAPE_BEND_FRACTION,
       maximumHorizontalScale: INSTANCE_HORIZONTAL_SCALE_MAX,
       maximumVerticalScale: INSTANCE_VERTICAL_SCALE_MAX,
       windStrength: this.grassConfig.wind.strength,
@@ -1378,6 +1613,7 @@ export class WorldSingleBladeTileFactory {
     const positions: number[] = [];
     const uvs: number[] = [];
     const progress: number[] = [];
+    const widths: number[] = [];
     const phases: number[] = [];
     const shades: number[] = [];
     const indices: number[] = [];
@@ -1398,6 +1634,7 @@ export class WorldSingleBladeTileFactory {
       );
       uvs.push(0, amount, 1, amount);
       progress.push(amount, amount);
+      widths.push(width * 0.5, width * 0.5);
       phases.push(0.5, 0.5);
       shades.push(0.5, 0.5);
     }
@@ -1407,6 +1644,7 @@ export class WorldSingleBladeTileFactory {
     positions.push(0, tip.y, tip.z);
     uvs.push(0.5, 1);
     progress.push(1);
+    widths.push(width * 0.5);
     phases.push(0.5);
     shades.push(0.5);
 
@@ -1426,6 +1664,10 @@ export class WorldSingleBladeTileFactory {
     geometry.setAttribute(
       "grassProgress",
       new THREE.Float32BufferAttribute(progress, 1),
+    );
+    geometry.setAttribute(
+      "grassBladeWidth",
+      new THREE.Float32BufferAttribute(widths, 1),
     );
     geometry.setAttribute(
       "grassPhase",

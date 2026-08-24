@@ -8,6 +8,33 @@ export interface GrassImpostorBoundsParameters {
   safetyMargin: number;
 }
 
+/**
+ * How far a blade's tip may flop along its own depth axis beyond the rest arc,
+ * as a fraction of the height it has reached.
+ *
+ * Lives here rather than in the shader alone because it is the one shape term
+ * that grows the culling envelope: the vertex chunk interpolates this constant
+ * into its GLSL, and the reserved bounds below charge for it, so a bend tuned
+ * in one place cannot outgrow the box that culls it.
+ */
+export const GRASS_SHAPE_BEND_FRACTION = 0.18;
+
+/** Leaves a rosette emits beyond its own blade, averaged over the four cases. */
+const GRASS_ROSETTE_MEAN_LEAVES = 2.5;
+
+/**
+ * How much more than one blade per placement cell a rosette-bearing field
+ * emits, in expectation.
+ *
+ * Read by three places that must agree or the field silently changes density:
+ * the buffer allocation, which has to reserve the peak; the coverage written
+ * per blade, which divides by it so the *expected* blade count is unchanged;
+ * and the configuration validator's stacked-blade ceiling.
+ */
+export function resolveGrassRosetteExpansion(chance: number): number {
+  return 1 + Math.max(0, chance) * GRASS_ROSETTE_MEAN_LEAVES;
+}
+
 /** Below this total turn the arc is a straight blade to within float precision. */
 const GRASS_BLADE_ARC_EPSILON = 1e-4;
 
@@ -56,6 +83,13 @@ export interface GrassSingleBladeBoundsParameters {
   bladeLean: number;
   /** Horizontal reach of the rest curve; see {@link calculateGrassBladeCurveReach}. */
   bladeCurveReach: number;
+  /**
+   * Extra object-space horizontal reach the per-blade silhouette adds: the tip
+   * drift sideways plus the bend forward. Zero for layers that do not compile
+   * the shape chunk. Charged inside the horizontal scale because the instance
+   * matrix stretches it exactly as it does lean and width.
+   */
+  shapeReach: number;
   maximumHorizontalScale: number;
   maximumVerticalScale: number;
   windStrength: number;
@@ -111,7 +145,8 @@ export function calculateGrassSingleBladeRootBoundsRadius(
   const horizontalExtent =
     (parameters.bladeLean +
       parameters.bladeWidth +
-      parameters.bladeCurveReach) *
+      parameters.bladeCurveReach +
+      parameters.shapeReach) *
     parameters.maximumHorizontalScale;
   const verticalExtent =
     parameters.bladeHeight * parameters.maximumVerticalScale;

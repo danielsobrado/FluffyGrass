@@ -1,3 +1,4 @@
+import { resolveGrassRosetteExpansion } from "./grass/GrassRuntimeMath";
 import type { WorldConfig } from "./WorldConfig";
 
 /**
@@ -47,11 +48,13 @@ export function validateWorldGrassAllocationConfig(config: WorldConfig): void {
     config.grassNearTileSize,
     config.grassNearBladesPerSquareMeterDesktop,
     config.grassUltraNearDensityMultiplier,
+    config.grassRosetteChance,
   );
   const compactNearStack = resolveNearStackedBladeCount(
     config.grassNearTileSize,
     config.grassNearBladesPerSquareMeterCompact,
     config.grassUltraNearDensityMultiplierCompact,
+    config.grassRosetteChance,
   );
   const nearStackedBlades = Math.max(desktopNearStack, compactNearStack);
   if (nearStackedBlades > MAX_NEAR_GRASS_STACKED_BLADES_PER_TILE) {
@@ -65,12 +68,23 @@ function resolveNearStackedBladeCount(
   tileSize: number,
   density: number,
   ultraMultiplier: number,
+  rosetteChance: number,
 ): number {
   // Base population, plus the extra ultra-near blades, plus the same extra
   // population carried outward by the one-triangle density-boost layer.
   // When the multiplier is 1 there is no extra population and no boost field.
+  //
+  // Rosettes emit several leaves from one placement cell, so the buffers a
+  // tile reserves are the cell count times the expansion, not the cell count.
+  // The ceiling has to charge the reservation rather than the expected
+  // survivors, which coverage scaling holds constant.
   return Math.max(
     1,
-    Math.round(tileSize ** 2 * density * (2 * ultraMultiplier - 1)),
+    Math.round(
+      tileSize ** 2 *
+        density *
+        (2 * ultraMultiplier - 1) *
+        resolveGrassRosetteExpansion(rosetteChance),
+    ),
   );
 }

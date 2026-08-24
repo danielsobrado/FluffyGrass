@@ -333,6 +333,8 @@ export class WorldDetailFoliageFactory {
       bladeLean: 0,
       // Accent cards are flat crossed quads; only real blades carry a rest arc.
       bladeCurveReach: 0,
+      // Nor a per-blade silhouette: accents draw an atlas cell, not a triangle.
+      shapeReach: 0,
       maximumHorizontalScale: 1,
       maximumVerticalScale: 1,
       // The card's sway is the shear factor times the configured wind strength,

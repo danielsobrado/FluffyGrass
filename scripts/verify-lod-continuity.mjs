@@ -677,7 +677,16 @@ const nearBoundsRadius =
       bladeHeightMax,
       readYamlNumber(grassConfig, "bladeCurve"),
     ),
-    maximumHorizontalScale: 1.2,
+    // The shaped blade reaches past the source it instances: the tip drifts
+    // sideways and the bend carries it forward. Reproduced from configuration
+    // here so a drift raised in world.yaml cannot outgrow the culling envelope
+    // without this failing.
+    shapeReach:
+      readYamlNumber(grassConfig, "bladeWidthMax") *
+        readYamlNumber(worldConfig, "grassBladeTipDrift") +
+      bladeHeightMax * runtimeMathModule.GRASS_SHAPE_BEND_FRACTION,
+    // Raised with the broad-blade minority; see INSTANCE_HORIZONTAL_SCALE_MAX.
+    maximumHorizontalScale: 1.9,
     maximumVerticalScale: 1.22,
     windStrength,
     flutterStrength: readYamlNumber(grassConfig, "flutterStrength"),

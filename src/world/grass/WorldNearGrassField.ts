@@ -876,11 +876,12 @@ function createNearGrassResources(
     const windMode = profile.compact ? "sine" : "noise";
     const baseMaterial = new GrassNearMaterial({
       name: "world-grass-single-blade-material",
-      cacheKey: `grass-near-material-v27-base-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v28-shape-base-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
       interactive: true,
+      shapeVariation: true,
       subPixelWidth: true,
       noiseWind: !profile.compact,
       microWind: !profile.compact,
@@ -888,11 +889,12 @@ function createNearGrassResources(
     created.push(baseMaterial);
     const bridgeMaterial = new GrassNearMaterial({
       name: "world-grass-near-bridge-material",
-      cacheKey: `grass-near-material-v27-bridge-vertex-palette-${windMode}`,
+      cacheKey: `grass-near-material-v28-shape-bridge-vertex-palette-${windMode}`,
       detailMode: 1,
       ditherSeed: BASE_SEED_SALT,
       vertexPalette: true,
       interactive: true,
+      shapeVariation: true,
       subPixelWidth: true,
       sheen: false,
       noiseWind: !profile.compact,
@@ -901,20 +903,22 @@ function createNearGrassResources(
     created.push(bridgeMaterial);
     const baseDetailMaterial = new GrassNearMaterial({
       name: "world-grass-base-detail-material",
-      cacheKey: `grass-near-material-v27-detail-${windMode}`,
+      cacheKey: `grass-near-material-v28-shape-detail-${windMode}`,
       detailMode: 2,
       ditherSeed: BASE_SEED_SALT,
       interactive: true,
+      shapeVariation: true,
       noiseWind: !profile.compact,
       microWind: !profile.compact,
     });
     created.push(baseDetailMaterial);
     const ultraNearMaterial = new GrassNearMaterial({
       name: "world-grass-ultra-near-single-blade-material",
-      cacheKey: `grass-near-material-v27-ultra-${windMode}`,
+      cacheKey: `grass-near-material-v28-shape-ultra-${windMode}`,
       detailMode: 0,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       interactive: true,
+      shapeVariation: true,
       noiseWind: !profile.compact,
       microWind: !profile.compact,
     });
@@ -925,11 +929,12 @@ function createNearGrassResources(
     // the placement salt its field is built from.
     const densityBoostMaterial = new GrassNearMaterial({
       name: "world-grass-near-density-boost-material",
-      cacheKey: `grass-near-material-v27-density-boost-${windMode}`,
+      cacheKey: `grass-near-material-v28-shape-density-boost-${windMode}`,
       detailMode: 1,
       ditherSeed: ULTRA_NEAR_SEED_SALT,
       vertexPalette: true,
       interactive: true,
+      shapeVariation: true,
       subPixelWidth: true,
       noiseWind: !profile.compact,
       microWind: !profile.compact,
@@ -940,6 +945,7 @@ function createNearGrassResources(
     // distance here is what produced the 6-7 m brightness ring.
     for (const material of created) {
       material.setNearNormalUpScale(worldConfig.grassNearNormalUpScale);
+      material.setShapeTipDrift(worldConfig.grassBladeTipDrift);
       material.setMicroDetailFadeRange(
         worldConfig.grassMicroDetailFadeStart,
         worldConfig.grassMicroDetailFadeEnd,
