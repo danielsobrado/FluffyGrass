@@ -40,6 +40,7 @@ const MIN_BOUNDARY_WANDER = 0.35;
  * still lands only a few thousand samples on a path.
  */
 const PIONEER_SAMPLES = 600_000;
+const PATH_PIONEER_SALT = 0x3f;
 
 function fail(message) {
   throw new Error(`[path-verge] ${message}`);
@@ -75,6 +76,9 @@ try {
   );
   const { samplePathEdgeNoise, PATH_EDGE_PERIOD } = await server.ssrLoadModule(
     "/src/grass/GrassFieldVariation.ts",
+  );
+  const { sampleGrassClumpValue } = await server.ssrLoadModule(
+    "/src/world/grass/GrassClumpLattice.ts",
   );
   const { TERRAIN_DETAIL_COLOR } = await server.ssrLoadModule(
     "/src/world/TerrainMaterialShader.ts",
@@ -219,7 +223,12 @@ try {
           config.grassPathPioneerChance *
           (1 - core) *
           (1 - closing * closing * (3 - 2 * closing));
-        const roll = pioneerRoll(x, z, config.seed);
+        const roll = sampleGrassClumpValue(
+          Math.round(x * 100),
+          Math.round(z * 100),
+          config.seed,
+          PATH_PIONEER_SALT,
+        );
         if (roll < chance) {
           survivors += 1;
           if (core > 0.85) {
@@ -248,7 +257,7 @@ try {
     );
   }
 
-  // --- The factory must use a world-stable roll, not the job's random stream ---
+  // --- The factory must carry a selected pioneer through placement ---
   {
     const factory = read("src/world/grass/WorldSingleBladeTileFactory.ts");
     assert(
@@ -259,22 +268,15 @@ try {
       !/PATH_PIONEER_SALT[\s\S]{0,200}job\.random/.test(factory),
       "Pioneer survival must not be drawn from the job random stream, or the same blades will not survive across a tile rebuild.",
     );
+    assert(
+      factory.includes("Math.max(pathMask, pioneer)"),
+      "A pioneer selected inside the tread must bypass the zero path mask during placement suitability; otherwise every pioneer is rejected before its coverage and morphology are written.",
+    );
   }
 
   console.log(
-    `[path-verge] boundary wander ${crossingDeviation.toFixed(3)} m over ${crossings} crossings; shared edge field, pioneer share and walkable core verified.`,
+    `[path-verge] boundary wander ${crossingDeviation.toFixed(3)} m over ${crossings} crossings; shared edge field, pioneer placement and walkable core verified.`,
   );
 } finally {
   await server.close();
-}
-
-/** Mirrors the tile factory's stable clump hash for the pioneer decision. */
-function pioneerRoll(x, z, seed) {
-  const salted = (seed ^ 0x3f) >>> 0;
-  let value =
-    Math.imul(Math.round(x * 100), 374761393) +
-    Math.imul(Math.round(z * 100), 668265263) +
-    salted;
-  value = Math.imul(value ^ (value >>> 13), 1274126177);
-  return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
 }
