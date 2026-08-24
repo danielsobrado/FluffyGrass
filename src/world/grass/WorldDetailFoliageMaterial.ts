@@ -51,6 +51,16 @@ import type { WorldDetailFoliageAtlas } from "./WorldDetailFoliageAtlasFactory";
 const DETAIL_FOLIAGE_ALPHA_CUTOFF = 0.42;
 /** How high the wind ramp bites: 0 at the root, 1 at the card top. */
 const DETAIL_FOLIAGE_WIND_RAMP_POWER = 1.5;
+/** Groundcover rises slightly instead of standing as a camera-facing wall. */
+const DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT = 0.36;
+const DETAIL_FOLIAGE_GROUNDCOVER_FORWARD_COMPONENT = Math.sqrt(
+  1 - DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT ** 2,
+);
+const DETAIL_FOLIAGE_GROUNDCOVER_EDGE_DARKENING = 0.13;
+const DETAIL_FOLIAGE_GROUNDCOVER_EDGE_RANGE = 0.25;
+const DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_START = 8;
+const DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_END = 24;
+const DETAIL_FOLIAGE_GROUNDCOVER_MASK_GLSL = createGroundcoverMaskGlsl();
 /**
  * Card sway as a fraction of card height per unit of configured wind strength.
  * The placement bounds charge for this exact product, so the two must move
@@ -58,6 +68,16 @@ const DETAIL_FOLIAGE_WIND_RAMP_POWER = 1.5;
  * literal, the same discipline the impostor shear factor is under.
  */
 export const DETAIL_FOLIAGE_WIND_SHEAR_FACTOR = 0.4;
+
+function createGroundcoverMaskGlsl(): string {
+  const terms = GRASS_ACCENT_SPECIES.filter(
+    (species) => species.category === "groundcover",
+  ).map(
+    (species) =>
+      `step(abs(speciesIndex - ${species.index.toFixed(1)}), 0.25)`,
+  );
+  return terms.length === 0 ? "0.0" : `clamp(${terms.join(" + ")}, 0.0, 1.0)`;
+}
 
 const VERTEX_SHADER = `
 #include <common>
@@ -82,6 +102,7 @@ flat varying vec2 vCell;
 flat varying float vTint;
 flat varying float vBiome;
 flat varying float vPhenotype;
+flat varying float vGroundcover;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
@@ -94,9 +115,13 @@ void main() {
   mat4 instanceModel = modelMatrix * instanceMatrix;
   vec3 axisX = instanceModel[0].xyz;
   vec3 axisY = instanceModel[1].xyz;
+  vec3 axisZ = instanceModel[2].xyz;
   float scaleX = max(length(axisX), 0.0001);
   float scaleY = max(length(axisY), 0.0001);
+  float scaleZ = max(length(axisZ), 0.0001);
   vec3 cardUp = axisY / scaleY;
+  vec3 instanceRight = axisX / scaleX;
+  vec3 instanceForward = axisZ / scaleZ;
   vec3 root = (instanceModel * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
   vec3 center = root + cardUp * scaleY * 0.5;
   float cameraDistance = distance(cameraPosition, center);
@@ -126,11 +151,14 @@ void main() {
   vPhenotype = fract(
     instanceVariation.x * 7.317 + speciesIndex * 0.173 + variantRow * 0.347
   );
+  float groundcover = ${DETAIL_FOLIAGE_GROUNDCOVER_MASK_GLSL};
+  vGroundcover = groundcover;
 
-  // Upright, yaw-only billboard. A card with a fixed facing vanishes edge-on,
-  // which at this density reads as flowers blinking out as the camera turns;
-  // pitching one to face the camera instead lifts it off the ground. Rotating
-  // about world up is the only orientation that avoids both.
+  // Upright species remain yaw-only billboards so flowers and ferns cannot
+  // disappear edge-on. Groundcover is different: making every low card face
+  // the camera maximises overlap and turns clover/litter colonies into opaque
+  // green slabs. Keep their deterministic instance yaw and splay them along the
+  // terrain instead, with only enough rise to preserve leaf-layer parallax.
   vec3 toCamera = cameraPosition - root;
   vec3 flatToCamera = vec3(toCamera.x, 0.0, toCamera.z);
   float flatLength = length(flatToCamera);
@@ -138,6 +166,10 @@ void main() {
     ? vec3(0.0, 0.0, 1.0)
     : flatToCamera / flatLength;
   vec3 cardRight = normalize(cross(vec3(0.0, 1.0, 0.0), cardForward));
+  vec3 groundcoverAxis = normalize(
+    instanceForward * ${DETAIL_FOLIAGE_GROUNDCOVER_FORWARD_COMPONENT.toFixed(4)} +
+    cardUp * ${DETAIL_FOLIAGE_GROUNDCOVER_UP_COMPONENT.toFixed(4)}
+  );
 
   vec2 windDirection = uWindDirection;
   #ifdef GRASS_NOISE_WIND
@@ -155,9 +187,13 @@ void main() {
     })}
   #endif
 
-  vec3 worldPosition = root +
+  vec3 uprightPosition = root +
     cardRight * position.x * scaleX +
     cardUp * position.y * scaleY;
+  vec3 groundcoverPosition = root +
+    instanceRight * position.x * scaleX +
+    groundcoverAxis * position.y * scaleY;
+  vec3 worldPosition = mix(uprightPosition, groundcoverPosition, groundcover);
   int speciesRow = int(clamp(
     speciesIndex,
     0.0,
@@ -169,14 +205,16 @@ void main() {
     ${DETAIL_FOLIAGE_WIND_SHEAR_FACTOR.toFixed(2)} *
     uSpeciesWind[speciesRow] * instanceVariation.y * weather;
   worldPosition += vec3(windDirection.x, 0.0, windDirection.y) *
-    sway * windRamp * scaleY;
+    sway * windRamp * scaleY * mix(1.0, 0.3, groundcover);
 
   vec4 mvPosition = viewMatrix * vec4(worldPosition, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Same lighting shape as the impostor cards: a card normal blended towards
-  // the terrain up axis, evaluated once per vertex against the scene lights.
-  vec3 accentWorldNormal = normalize(mix(cardForward, cardUp, uNormalUp));
+  // Same lighting shape as the impostor cards. Groundcover uses the terrain
+  // normal rather than the camera-facing billboard normal so a colony does not
+  // change brightness merely because the player turns around it.
+  vec3 surfaceNormal = normalize(mix(cardForward, cardUp, groundcover));
+  vec3 accentWorldNormal = normalize(mix(surfaceNormal, cardUp, uNormalUp));
   vec3 accentViewNormal = normalize(mat3(viewMatrix) * accentWorldNormal);
   vec3 irradiance = ambientLightColor;
   #if NUM_HEMI_LIGHTS > 0
@@ -234,6 +272,7 @@ flat varying vec2 vCell;
 flat varying float vTint;
 flat varying float vBiome;
 flat varying float vPhenotype;
+flat varying float vGroundcover;
 varying float vDryness;
 varying float vRootAo;
 varying float vCameraDistance;
@@ -288,6 +327,36 @@ void main() {
     0.0,
     float(${GRASS_MAX_ACCENT_TINTS} - 1)
   ) + 0.5);
+
+  // Groundcover already encodes per-leaf/per-fragment shade in the atlas, but
+  // the shared grass palette deliberately compresses that range. Restore local
+  // contrast near the camera and darken only the antialiased silhouette fringe;
+  // this separates overlapping leaflets without adding geometry or texture taps.
+  float groundcoverDetailFade = 1.0 - smoothstep(
+    ${DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_START.toFixed(1)},
+    ${DETAIL_FOLIAGE_GROUNDCOVER_DETAIL_FADE_END.toFixed(1)},
+    vCameraDistance
+  );
+  float groundcoverShade = mix(
+    0.82,
+    1.12,
+    smoothstep(0.24, 0.58, accentData.g)
+  );
+  float groundcoverInterior = smoothstep(
+    cutoff,
+    min(0.96, cutoff + ${DETAIL_FOLIAGE_GROUNDCOVER_EDGE_RANGE.toFixed(2)}),
+    atlasColor.a
+  );
+  float groundcoverEdge = mix(
+    ${(1 - DETAIL_FOLIAGE_GROUNDCOVER_EDGE_DARKENING).toFixed(2)},
+    1.0,
+    groundcoverInterior
+  );
+  color *= mix(
+    1.0,
+    groundcoverShade * groundcoverEdge,
+    vGroundcover * groundcoverDetailFade
+  );
 
   // Petal tint used to replace the semantic atlas colour completely whenever
   // B reached one, flattening every flower into one RGB patch. Shade the tint
