@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { samplePathEdgeNoise } from "../grass/GrassFieldVariation";
 import { CanopyShadeField } from "./ecology/CanopyShadeField";
 import {
   createTerrainLandform,
@@ -154,6 +155,8 @@ export class TerrainField {
   private readonly pathHalfWidthBranch: number;
   /** Where grass starts again: the tread plus its ragged edge and clearance. */
   private readonly pathGrassHalfWidthMain: number;
+  private readonly pathEdgeRoughness: number;
+  private readonly pathGrassEdgeRoughness: number;
   private readonly pathGrassHalfWidthBranch: number;
   private readonly pathValueCutoff: number;
   private readonly pathAltitudeFadeStart: number;
@@ -190,13 +193,18 @@ export class TerrainField {
     this.pathHalfWidthMain = config.pathWidth * 0.5;
     this.pathHalfWidthBranch = config.pathBranchWidth * 0.5;
     const grassMargin = config.pathEdgeRoughness + config.pathGrassClearance;
+    this.pathEdgeRoughness = config.pathEdgeRoughness;
+    this.pathGrassEdgeRoughness = config.pathGrassEdgeRoughness;
     this.pathGrassHalfWidthMain = this.pathHalfWidthMain + grassMargin;
     this.pathGrassHalfWidthBranch = this.pathHalfWidthBranch + grassMargin;
 
     const candidateDistance =
       Math.max(this.pathGrassHalfWidthMain, this.pathGrassHalfWidthBranch) +
       PATH_MAX_CLEARANCE_RADIUS +
-      PATH_GRASS_FEATHER;
+      PATH_GRASS_FEATHER +
+      // The roughened boundary can push the vegetation edge this much further
+      // out, and a point the early rejection discards is never re-examined.
+      config.pathGrassEdgeRoughness * 0.5;
     const warpStretch = 1 + PATH_WANDER * 1.5 * PATH_WARP_SCALE;
     this.pathValueCutoff =
       PATH_CUTOFF_SAFETY *
@@ -449,7 +457,35 @@ export class TerrainField {
     radius = 0,
   ): number {
     this.samplePathDistances(x, z, this.pathScratch);
-    return this.resolvePathGrassMask(this.pathScratch, height, radius);
+    return this.resolvePathGrassMask(this.pathScratch, height, radius, x, z);
+  }
+
+  /**
+   * How completely the tread has taken this ground, in [0, 1].
+   *
+   * Mirrors the terrain shader's own `terrainPathCore`, and exists so the blade
+   * layer can ask the same question the ground answers: a pioneer blade may
+   * stand in the verge and at the edge of the tread, but not in the middle of a
+   * walked path, and the two layers have to agree on where that middle is.
+   */
+  samplePathCoreAmount(x: number, z: number, height: number): number {
+    this.samplePathDistances(x, z, this.pathScratch);
+    const edge = samplePathEdgeNoise(x, z) * this.pathEdgeRoughness;
+    const main =
+      1 -
+      smoothstep(
+        Math.abs(this.pathScratch.x) + edge,
+        Math.max(0, this.pathHalfWidthMain - 0.12),
+        this.pathHalfWidthMain + 0.28,
+      );
+    const branch =
+      1 -
+      smoothstep(
+        Math.abs(this.pathScratch.y) + edge,
+        Math.max(0, this.pathHalfWidthBranch - 0.12),
+        this.pathHalfWidthBranch + 0.28,
+      );
+    return Math.max(main, branch) * this.samplePathVisibility(height);
   }
 
   /**
@@ -461,15 +497,34 @@ export class TerrainField {
     distances: THREE.Vector2,
     height: number,
     radius = 0,
+    x?: number,
+    z?: number,
   ): number {
     const clearance = Math.min(radius, PATH_MAX_CLEARANCE_RADIUS);
+    /**
+     * The vegetation boundary is roughened by the same field the dirt core is.
+     *
+     * Only the core used to be ragged; the grass edge around it was a clean
+     * offset curve, so a ragged patch of dirt sat inside a smooth green cut-out
+     * and the verge read as a stencil laid over the meadow rather than as
+     * anything that grew. Roughening it more than the mineral edge is what
+     * trampling actually produces.
+     *
+     * Position is optional because a few callers hold pre-sampled distances and
+     * nothing else; those get the old smooth boundary, which is conservative --
+     * they use the mask as a clearance test rather than to place anything.
+     */
+    const edge =
+      x === undefined || z === undefined
+        ? 0
+        : samplePathEdgeNoise(x, z) * this.pathGrassEdgeRoughness;
     const main = smoothstep(
-      Math.abs(distances.x),
+      Math.abs(distances.x) + edge,
       this.pathGrassHalfWidthMain + clearance,
       this.pathGrassHalfWidthMain + clearance + PATH_GRASS_FEATHER,
     );
     const branch = smoothstep(
-      Math.abs(distances.y),
+      Math.abs(distances.y) + edge,
       this.pathGrassHalfWidthBranch + clearance,
       this.pathGrassHalfWidthBranch + clearance + PATH_GRASS_FEATHER,
     );

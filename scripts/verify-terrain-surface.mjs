@@ -58,6 +58,9 @@ try {
     TERRAIN_DETAIL_NORMAL,
     TERRAIN_DETAIL_VERTEX,
   } = await server.ssrLoadModule("/src/world/TerrainMaterialShader.ts");
+  const { samplePathEdgeNoise } = await server.ssrLoadModule(
+    "/src/grass/GrassFieldVariation.ts",
+  );
   const { setStoneClearanceField } = await server.ssrLoadModule(
     "/src/world/stones/StoneClearance.ts",
   );
@@ -426,8 +429,13 @@ try {
   const verifyPathParity = (x, z) => {
     const height = terrain.sampleHeight(x, z);
     terrain.samplePathDistances(x, z, pathDistance);
+    // Both boundaries are roughened by one shared world-space field now, so
+    // the reproduction has to carry it too -- otherwise this parity check would
+    // pass only where the noise happens to be near zero.
+    const grassEdge =
+      samplePathEdgeNoise(x, z) * rawConfig.pathGrassEdgeRoughness;
     const main = smoothstep(
-      Math.abs(pathDistance.x),
+      Math.abs(pathDistance.x) + grassEdge,
       rawConfig.pathWidth * 0.5 +
         rawConfig.pathEdgeRoughness +
         rawConfig.pathGrassClearance,
@@ -437,7 +445,7 @@ try {
         PATH_GRASS_FEATHER,
     );
     const branch = smoothstep(
-      Math.abs(pathDistance.y),
+      Math.abs(pathDistance.y) + grassEdge,
       rawConfig.pathBranchWidth * 0.5 +
         rawConfig.pathEdgeRoughness +
         rawConfig.pathGrassClearance,

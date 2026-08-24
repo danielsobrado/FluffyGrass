@@ -1,4 +1,8 @@
 import { GRASS_MAX_BIOMES } from "../grass/biome/GrassBiomeProfile";
+import {
+  PATH_EDGE_PERIOD,
+  PATH_EDGE_SEED,
+} from "../grass/GrassFieldVariation";
 import { TERRAIN_ROCK_FUNCTIONS } from "./terrain/TerrainRockShader";
 import {
   TERRAIN_MACRO_FIELD_APPLY,
@@ -110,6 +114,8 @@ uniform vec2 uTerrainPathHalfWidth;
 uniform float uTerrainPathEdge;
 uniform float uTerrainPathClearance;
 uniform float uTerrainPathGrassFeather;
+uniform float uTerrainPathGrassEdge;
+uniform float uTerrainVergeFleckStrength;
 uniform float uTerrainPathCoreDarkening;
 uniform float uTerrainPathVergeDryness;
 uniform float uTerrainWetSheenStrength;
@@ -284,13 +290,33 @@ float terrainStoneClearance = saturate(vTerrainEnvironment.w);
 float terrainRootScale = saturate(vTerrainBiomeBase.a);
 ${TERRAIN_MACRO_FIELD_APPLY}
 
+/**
+ * One roughness field for both path boundaries, shared with the CPU.
+ *
+ * This used to mix the 64 m and 29.5 m surface-noise channels — the wrong scale
+ * for a boundary whose features are about a metre across, by more than an order
+ * of magnitude — and worse, a field the blade layer could not sample. So the
+ * painted dirt and the standing grass were roughened by different things and
+ * could only agree on average. The shared 6 m field is what lets them agree
+ * pixel by blade.
+ */
+float terrainEdgeNoise = grassPatchNoise(
+  vTerrainWorldPosition.xz,
+  ${PATH_EDGE_PERIOD.toFixed(1)},
+  ${PATH_EDGE_SEED}u
+) - 0.5;
+
+// The vegetation boundary is roughened too, and more than the mineral one.
+// Only the core used to be ragged, so a torn patch of earth sat inside a
+// cleanly-offset green cut-out and the verge read as a stencil laid over the
+// meadow. Trampling makes the plant edge the more irregular of the two.
 vec2 terrainPathGrassHalfWidth = uTerrainPathHalfWidth + vec2(
   uTerrainPathEdge + uTerrainPathClearance
 );
 vec2 terrainPathGrassBands = smoothstep(
   terrainPathGrassHalfWidth,
   terrainPathGrassHalfWidth + vec2(uTerrainPathGrassFeather),
-  abs(vTerrainPath.xy)
+  abs(vTerrainPath.xy) + uTerrainPathGrassEdge * terrainEdgeNoise
 );
 float terrainPathVisibility = saturate(vTerrainPath.z);
 float terrainPathGrassMask = mix(
@@ -300,12 +326,6 @@ float terrainPathGrassMask = mix(
 );
 float terrainPathExposure = 1.0 - terrainPathGrassMask;
 
-float terrainEdgeNoise = clamp(
-  (terrainBaseNoise.r - 0.5) * 1.35 +
-    (terrainMesoNoise.g - 0.5) * terrainMesoWeight,
-  -0.5,
-  0.5
-);
 vec2 terrainCoreDistance = abs(vTerrainPath.xy) +
   uTerrainPathEdge * terrainEdgeNoise;
 vec2 terrainCoreBands = vec2(1.0) - smoothstep(
@@ -358,6 +378,26 @@ vec3 terrainSurfaceColor = mix(
   terrainUnderlayer,
   terrainUnderlayerAmount
 );
+// Mineral soil carried up into the vegetation beside a tread.
+//
+// Without it the verge is two flat fields meeting at a line -- intact meadow on
+// one side, bare earth on the other -- and no amount of roughening the boundary
+// fixes that, because the problem is that nothing crosses it. Traffic throws
+// soil metres into the grass, so the transition is a gradient of exposure
+// rather than a change of material.
+//
+// Deliberately not mean-preserved: it belongs to the near-field verge, and
+// terrainPathShoulder is already vanishing well before the meso weight fades.
+float terrainVergeFleck = smoothstep(0.58, 0.86, terrainMesoNoise.r) *
+  terrainMesoWeight;
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  uTerrainPathDust,
+  saturate(
+    terrainPathShoulder * uTerrainVergeFleckStrength * terrainVergeFleck
+  )
+);
+
 vec3 terrainThatch = mix(uTerrainSoilDry, vTerrainBiomeDry, 0.48) * 0.7;
 terrainSurfaceColor = mix(
   terrainSurfaceColor,
@@ -598,8 +638,10 @@ vec3 terrainPathColor = mix(
   uTerrainPathDust,
   terrainPathGrain
 );
+// Depth-shaped rather than flat: a way is most compacted down its middle, and
+// squaring a value that rarely reaches 1 is not the same as shaping it.
 terrainPathColor *= 1.0 -
-  uTerrainPathCoreDarkening * terrainPathCore * terrainPathCore;
+  uTerrainPathCoreDarkening * smoothstep(0.15, 1.0, terrainPathCore);
 // Mean-preserved, for the same reason the dry fibre pulse above is: this pulse
 // is strictly positive, so weighting it by the micro fade removed *brightness*
 // as the fade closed rather than only removing speckle. Paths lightened across

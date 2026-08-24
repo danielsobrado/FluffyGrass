@@ -161,6 +161,31 @@ export function resolveGrassClearingThreshold(coverage: number): number {
  * `suitability` and `vigor` are both in [0, 1], so the result is bounded by
  * `[1 - CANOPY_AO_STRENGTH, 1]` and cannot drive the palette negative.
  */
+/**
+ * Metres per lattice cell of the path-edge field.
+ *
+ * Far shorter than the other macro periods because it roughens a boundary whose
+ * feature size is about a metre. The terrain shader used to roughen the path
+ * core with its 64 m and 29.5 m surface-noise channels, which is the wrong
+ * scale for the job by more than an order of magnitude -- and, worse, was a
+ * field the CPU could not sample, so the blades and the painted ground were
+ * roughened by different things and could only agree on average.
+ */
+export const PATH_EDGE_PERIOD = 6;
+export const PATH_EDGE_SEED = 0x1c_2d_8f_43;
+
+/**
+ * Roughness for a path boundary, zero-mean in [-0.5, 0.5].
+ *
+ * Read identically by the terrain field when it decides where blades stop and
+ * by the terrain shader when it decides where dirt starts. That sharing is the
+ * whole point: a ragged dirt core inside a cleanly-offset grass edge is what
+ * makes a verge read as a stencil laid over the meadow.
+ */
+export function samplePathEdgeNoise(x: number, z: number): number {
+  return patchNoise(x, z, PATH_EDGE_PERIOD, PATH_EDGE_SEED) - 0.5;
+}
+
 export function resolveGrassCanopyAo(vigor: number, suitability: number): number {
   return 1 - CANOPY_AO_STRENGTH * vigor * suitability;
 }

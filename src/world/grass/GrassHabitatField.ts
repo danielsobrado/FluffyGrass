@@ -215,7 +215,7 @@ export function sampleGrassHabitat(
         community.height *
         (1 + moisture * fertility * config.grassWetHeightBoost) *
         (1 - (1 - moisture) * config.grassDryHeightReduction) *
-        (1 - disturbance * 0.28) *
+        (1 - disturbance * config.grassDisturbanceHeightReduction) *
         (1 - rockiness * 0.16),
     ),
   );

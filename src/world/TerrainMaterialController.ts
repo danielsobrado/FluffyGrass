@@ -18,7 +18,7 @@ import {
   resolveTerrainMacroFieldExtent,
 } from "./terrain/TerrainMacroFieldTexture";
 
-const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v13-communities";
+const MATERIAL_CACHE_KEY = "world-terrain-ecosystem-surface-v14-verge";
 
 export class TerrainMaterialController {
   readonly material: THREE.MeshLambertMaterial;
@@ -120,6 +120,10 @@ export class TerrainMaterialController {
         uTerrainPathEdge: { value: config.pathEdgeRoughness },
         uTerrainPathClearance: { value: config.pathGrassClearance },
         uTerrainPathGrassFeather: { value: PATH_GRASS_FEATHER },
+        uTerrainPathGrassEdge: { value: config.pathGrassEdgeRoughness },
+        uTerrainVergeFleckStrength: {
+          value: config.terrainVergeFleckStrength,
+        },
         uTerrainPathCoreDarkening: { value: config.terrainPathCoreDarkening },
         uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
         uTerrainWetSheenStrength: { value: 0.55 },

@@ -126,6 +126,11 @@ export function validateWorldConfig(config: WorldConfig): void {
   ) {
     throw new Error("Grass streaming radius must not exceed terrain radius.");
   }
+  if (config.pathGrassEdgeRoughness <= config.pathEdgeRoughness) {
+    throw new Error(
+      "pathGrassEdgeRoughness must exceed pathEdgeRoughness: trampling makes the vegetation boundary more irregular than the mineral one, not less.",
+    );
+  }
   if (config.pathBranchWidth > config.pathWidth) {
     throw new Error("pathBranchWidth must not exceed pathWidth.");
   }

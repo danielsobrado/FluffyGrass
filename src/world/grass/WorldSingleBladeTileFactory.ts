@@ -165,6 +165,16 @@ const CLUMP_ASYMMETRY_SALT = 0xc9;
 const CLUMP_HOLE_SALT = 0xdb;
 const CLUMP_HEIGHT_SALT = 0x4f;
 const CLUMP_PLANE_SALT = 0xed;
+/** Decides which blades stand in a tread. Stable in world space, never per job. */
+const PATH_PIONEER_SALT = 0x3f;
+/** Where pioneer survival begins closing, and where it reaches zero. */
+const PATH_PIONEER_CORE_START = 0.6;
+const PATH_PIONEER_CORE_END = 0.85;
+
+function smoothstep01(value: number, edge0: number, edge1: number): number {
+  const amount = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return amount * amount * (3 - 2 * amount);
+}
 /**
  * Furthest a blade can end up from the cell that enumerated it, in cells: half
  * the block it belongs to, plus the tuft centre's own wander, plus the tuft's
@@ -201,7 +211,7 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 12;
+const GRASS_PLACEMENT_VERSION = 13;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -510,8 +520,41 @@ export class WorldSingleBladeTileFactory {
         continue;
       }
       const pathMask = this.field.samplePathGrassMask(x, z, height);
+      /**
+       * A used way is not sterile.
+       *
+       * Rejecting every blade the moment the mask reaches zero drew a clean
+       * biological line where a worn edge should be: grass simply stopped,
+       * which is most of why the verge read as a painted polygon rather than
+       * as ground something had walked over. A small share survives in the
+       * tread — shorter, flattened, and thinning toward the compacted middle.
+       *
+       * The roll is a stable world-space hash rather than the job's random
+       * stream, so the same pioneers survive at every LOD and across a tile
+       * rebuild. Drawing it from `job.random` would make them flicker as the
+       * player walked past.
+       */
+      let pioneer = 0;
       if (pathMask <= 0) {
-        continue;
+        const core = this.field.samplePathCoreAmount(x, z, height);
+        // Closes to exactly zero before the core does. Scaling by (1 - core)
+        // alone leaves a small chance right down the middle of a way, and a
+        // blade standing in the compacted tread is the one place a pioneer
+        // reads as an error rather than as life.
+        const chance =
+          this.worldConfig.grassPathPioneerChance *
+          (1 - core) *
+          (1 - smoothstep01(core, PATH_PIONEER_CORE_START, PATH_PIONEER_CORE_END));
+        if (
+          this.clumpValue(
+            Math.round(x * 100),
+            Math.round(z * 100),
+            PATH_PIONEER_SALT,
+          ) >= chance
+        ) {
+          continue;
+        }
+        pioneer = 1;
       }
       const stoneMask = sampleStoneGrassClearance(x, z);
       if (stoneMask <= 0.02) {
@@ -552,6 +595,14 @@ export class WorldSingleBladeTileFactory {
         this.worldConfig,
         this.habitatSample,
       );
+      if (pioneer > 0) {
+        // Trodden, so it uses the flattened clump morphology that already exists
+        // rather than needing a sixth archetype of its own.
+        this.habitatSample.directionalLean = Math.max(
+          this.habitatSample.directionalLean,
+          0.62,
+        );
+      }
       const archetype = resolveGrassClusterArchetype(
         this.habitatSample,
         communityIndex,
@@ -674,6 +725,8 @@ export class WorldSingleBladeTileFactory {
       const sideHeight =
         1 - this.clusterProfile.asymmetry * Math.max(0, side);
       const heightJitter = this.worldConfig.grassBladeHeightJitter;
+      const pioneerHeight =
+        1 - pioneer * this.worldConfig.grassPathPioneerHeightLoss;
       const stoneContactHeight =
         STONE_CONTACT_HEIGHT_FLOOR +
         (1 - STONE_CONTACT_HEIGHT_FLOOR) * stoneMask;
@@ -682,6 +735,7 @@ export class WorldSingleBladeTileFactory {
           tierScale *
           sideHeight *
           stoneContactHeight *
+          pioneerHeight *
           job.random.range(1 - heightJitter, 1 + heightJitter),
         INSTANCE_VERTICAL_SCALE_MIN,
         INSTANCE_VERTICAL_SCALE_MAX,
@@ -739,7 +793,7 @@ export class WorldSingleBladeTileFactory {
       );
       job.coverages[job.bladeCount] =
         this.habitatSample.density *
-        pathMask *
+        (pioneer > 0 ? this.worldConfig.grassPathPioneerCoverage : pathMask) *
         stoneMask *
         clusterCoverage;
       job.biomes[job.bladeCount] = biomeIndex;

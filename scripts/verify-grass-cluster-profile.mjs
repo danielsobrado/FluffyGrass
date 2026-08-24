@@ -125,7 +125,7 @@ assert(
     shapedLeanPattern.test(nearFactorySource) &&
     leanDistancePattern.test(nearFactorySource) &&
     nearFactorySource.includes("CLUMP_PLANE_SALT") &&
-    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 12") &&
+    nearFactorySource.includes("GRASS_PLACEMENT_VERSION = 13") &&
     nearFactorySource.includes("STONE_FRINGE_UNDERSTORY_SHARE") &&
     nearFactorySource.includes("isUnderstoryBlade ? UNDERSTORY_WIDTH_SCALE : 1"),
   "Near grass must consume the shared clump profile, including absolute flattened-rest lean, and version its placement cache.",

@@ -210,6 +210,21 @@ export interface WorldConfig {
   pathSpacing: number;
   pathEdgeRoughness: number;
   pathGrassClearance: number;
+  /**
+   * How far the *vegetation* boundary wanders, against pathEdgeRoughness for the
+   * mineral one. Must exceed it: trampling makes the plant edge more irregular
+   * than the dirt it exposes, and a ragged core inside a clean green cut-out is
+   * what made a verge read as a stencil.
+   */
+  pathGrassEdgeRoughness: number;
+  /** Share of blades that survive in the tread itself. */
+  grassPathPioneerChance: number;
+  grassPathPioneerHeightLoss: number;
+  grassPathPioneerCoverage: number;
+  /** How far trampling shortens blades approaching a way. */
+  grassDisturbanceHeightReduction: number;
+  /** Mineral soil carried up into the vegetation beside a tread. */
+  terrainVergeFleckStrength: number;
   /** World metres covered by one repeat of the generated surface-noise map. */
   terrainGroundNoiseWorldSize: number;
   terrainGroundMesoStrength: number;

@@ -306,6 +306,25 @@ pathBranchWidth: 1.7
 pathSpacing: 640
 pathEdgeRoughness: 0.5
 pathGrassClearance: 0.15
+# How far the vegetation boundary wanders, against pathEdgeRoughness (0.5) for
+# the mineral one. Deliberately larger: only the dirt core used to be ragged, so
+# a torn patch of earth sat inside a cleanly-offset green cut-out and the verge
+# read as a stencil laid over the meadow. Trampling makes the plant edge the more
+# irregular of the two, not the less.
+pathGrassEdgeRoughness: 0.9
+# A used way is not sterile. This share of blades survives in the tread itself,
+# shorter and flattened, thinning toward the compacted middle -- which is what
+# stops the verge reading as a cut rather than a gradient.
+grassPathPioneerChance: 0.06
+grassPathPioneerHeightLoss: 0.45
+grassPathPioneerCoverage: 0.55
+# How far trampling shortens blades approaching a way. Was a 0.28 literal inside
+# the habitat mapper, which is too weak to read at walking height.
+grassDisturbanceHeightReduction: 0.52
+# Mineral soil carried up into the vegetation beside a tread. Without it the
+# verge is two flat fields meeting at a line; with it the boundary is a gradient
+# of exposure, which is what the eye reads as a worn edge.
+terrainVergeFleckStrength: 0.34
 
 # Shared ground/grass procedural surface.
 terrainGroundNoiseWorldSize: 64
