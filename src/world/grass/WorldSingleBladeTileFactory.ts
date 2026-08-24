@@ -34,6 +34,14 @@ import {
   type GrassHabitatSample,
 } from "./GrassHabitatField";
 import {
+  GRASS_CLUMP_CELLS,
+  GRASS_CLUMP_CENTER_JITTER,
+  GRASS_CLUMP_CENTER_X_SALT,
+  GRASS_CLUMP_CENTER_Z_SALT,
+  resolveGrassPlacementGrid,
+  sampleGrassClumpValue,
+} from "./GrassClumpLattice";
+import {
   createGrassClusterProfile,
   mixGrassAngle,
   resolveGrassClusterCoverage,
@@ -147,14 +155,10 @@ const MIN_SUITABILITY = 0.08;
  */
 const STONE_CONTACT_HEIGHT_FLOOR = 0.46;
 /**
- * Cells per axis in a tuft. Grass does not grow on a lattice: it grows in
- * tufts whose blades share a root, fan outwards, and match each other in
- * height. A jittered grid of independently oriented blades is uniform at every
- * scale above one blade, and that uniformity is the single largest structural
- * difference between this field and a hand-authored one.
+ * Cells per axis in a tuft. Exported for compatibility; the shared lattice
+ * contract lives in GrassClumpLattice so terrain and placement cannot drift.
  */
-export const CLUMP_CELLS = 3;
-const CLUMP_CENTER_JITTER = 0.15;
+export const CLUMP_CELLS = GRASS_CLUMP_CELLS;
 const CLUMP_RADIUS_SALT = 0x5b;
 const CLUMP_ASPECT_SALT = 0x6d;
 const CLUMP_ELLIPSE_ANGLE_SALT = 0x7f;
@@ -188,7 +192,7 @@ function resolveClumpMaxCellOffset(config: WorldConfig): number {
   );
   return (
     (CLUMP_CELLS - 1) * 0.5 +
-    CLUMP_CENTER_JITTER * CLUMP_CELLS +
+    GRASS_CLUMP_CENTER_JITTER * CLUMP_CELLS +
     config.grassClumpRadiusScaleMax * CLUMP_CELLS * longestAxis
   );
 }
@@ -211,7 +215,7 @@ const BOUNDS_SAFETY_MARGIN = 0.08;
 // shader's dither for single-blade geometry, whose shade and phase are both 0.5.
 const SINGLE_BLADE_DITHER_BIAS = 0.662358981;
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 13;
+const GRASS_PLACEMENT_VERSION = 14;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 
@@ -298,12 +302,18 @@ export class WorldSingleBladeTileFactory {
     const baseDensity = this.profile.compact
       ? this.worldConfig.grassNearBladesPerSquareMeterCompact
       : this.worldConfig.grassNearBladesPerSquareMeterDesktop;
-    const requestedCount = Math.max(
-      1,
-      Math.round(
-        tileSize * tileSize * baseDensity * options.densityMultiplier,
-      ),
+    const grid = resolveGrassPlacementGrid(
+      tileSize,
+      baseDensity,
+      options.densityMultiplier,
     );
+    const {
+      requestedCount,
+      columns,
+      rows,
+      cellWidth,
+      cellDepth,
+    } = grid;
     const placementKey = this.createPlacementKey(options);
     let cachedPlacement = this.placementCache.get(placementKey);
     if (!cachedPlacement) {
@@ -350,10 +360,6 @@ export class WorldSingleBladeTileFactory {
     if (cachedOnly) {
       return undefined;
     }
-    const columns = Math.ceil(Math.sqrt(requestedCount));
-    const rows = Math.ceil(requestedCount / columns);
-    const cellWidth = tileSize / columns;
-    const cellDepth = tileSize / rows;
     const originX = options.tileX * tileSize;
     const originZ = options.tileZ * tileSize;
     const tileCenterX = originX + tileSize * 0.5;
@@ -472,15 +478,25 @@ export class WorldSingleBladeTileFactory {
       const clumpSpanZ = job.cellDepth * CLUMP_CELLS;
       const clumpCenterX =
         (clumpColumn + 0.5) * clumpSpanX +
-        (this.clumpValue(clumpColumn, clumpRow, 0x1f) - 0.5) *
+        (this.clumpValue(
+          clumpColumn,
+          clumpRow,
+          GRASS_CLUMP_CENTER_X_SALT,
+        ) -
+          0.5) *
           2 *
-          CLUMP_CENTER_JITTER *
+          GRASS_CLUMP_CENTER_JITTER *
           clumpSpanX;
       const clumpCenterZ =
         (clumpRow + 0.5) * clumpSpanZ +
-        (this.clumpValue(clumpColumn, clumpRow, 0x2b) - 0.5) *
+        (this.clumpValue(
+          clumpColumn,
+          clumpRow,
+          GRASS_CLUMP_CENTER_Z_SALT,
+        ) -
+          0.5) *
           2 *
-          CLUMP_CENTER_JITTER *
+          GRASS_CLUMP_CENTER_JITTER *
           clumpSpanZ;
       const radiusScale =
         this.worldConfig.grassClumpRadiusScaleMin +
@@ -564,7 +580,7 @@ export class WorldSingleBladeTileFactory {
       const suitability =
         this.field.sampleGrassSlopeMask(this.normal) *
         suitabilityWithoutSlope *
-        pathMask *
+        Math.max(pathMask, pioneer) *
         stoneMask;
       if (suitability < MIN_SUITABILITY - LATTICE_SUITABILITY_TOLERANCE) {
         continue;
@@ -1405,9 +1421,11 @@ export class WorldSingleBladeTileFactory {
   }
 
   private clumpValue(clumpX: number, clumpZ: number, salt: number): number {
-    return (
-      this.hash(clumpX, clumpZ, (this.worldConfig.seed ^ salt) >>> 0) /
-      4294967296
+    return sampleGrassClumpValue(
+      clumpX,
+      clumpZ,
+      this.worldConfig.seed,
+      salt,
     );
   }
 
