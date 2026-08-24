@@ -51,6 +51,13 @@ export interface LodSchedule {
   end: number;
   scheduleClass: LodScheduleClass;
   /**
+   * True only when the runtime applies `GrassLodBanding` to this schedule.
+   * Registry verification must model the shader that actually ships; applying
+   * synthetic wander to a raw camera-distance schedule can hide a collision the
+   * renderer itself would still draw.
+   */
+  worldSpaceJitter?: boolean;
+  /**
    * True when this schedule's effect on the composite response is cancelled:
    * either a partner layer picks the population up, or the survivors are
    * widened and recoloured to repay the area the thinning gave up.
@@ -138,6 +145,7 @@ export function resolveLodSchedules(
       start: DETAIL_FOLIAGE_FADE_DISTANCE - DETAIL_FOLIAGE_FADE_TRANSITION,
       end: DETAIL_FOLIAGE_FADE_DISTANCE + DETAIL_FOLIAGE_FADE_TRANSITION,
       scheduleClass: LodScheduleClass.Coverage,
+      worldSpaceJitter: true,
       neutral: false,
     },
     {
@@ -166,6 +174,7 @@ export function resolveLodSchedules(
       start: config.terrainMicroDetailStart,
       end: config.terrainMicroDetailEnd,
       scheduleClass: LodScheduleClass.DetailPreserved,
+      worldSpaceJitter: true,
       neutral: true,
     },
     {
@@ -173,6 +182,7 @@ export function resolveLodSchedules(
       start: config.terrainMesoDetailStart,
       end: config.terrainMesoDetailEnd,
       scheduleClass: LodScheduleClass.DetailPreserved,
+      worldSpaceJitter: true,
       neutral: true,
     },
     {
@@ -182,6 +192,7 @@ export function resolveLodSchedules(
       start: config.terrainCanopyMergeStart,
       end: config.terrainCanopyMergeEnd,
       scheduleClass: LodScheduleClass.MeanAlbedo,
+      worldSpaceJitter: true,
       neutral: false,
     },
   ];
