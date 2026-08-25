@@ -101,6 +101,10 @@ export interface WorldConfig {
    * those are the numbers a visual tuning pass edits.
    */
   grassCommunityWorldSize: number;
+  /** Scale of the large historical territory/warp lattice, in metres. */
+  grassCommunityWarpWorldSize: number;
+  /** Maximum displacement of composition coordinates, in metres. */
+  grassCommunityWarpDistance: number;
   grassCommunityEcologyStrength: number;
   grassCommunityStrength: number;
   grassCommunityBorderWidth: number;

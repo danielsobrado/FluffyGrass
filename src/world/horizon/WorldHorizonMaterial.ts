@@ -1,14 +1,17 @@
 import * as THREE from "three";
 import type { WorldHorizonCoverage } from "./WorldHorizonCoverage";
 import { WORLD_HORIZON_SINK_DEPTH } from "./WorldHorizonTuning";
+import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
 
-const MATERIAL_CACHE_KEY = "world-horizon-shell-v3";
-
+const MATERIAL_CACHE_KEY = "world-horizon-shell-v4";
+const HORIZON_SUN_DIRECTION = new THREE.Vector3(...WORLD_SUN_DIRECTION).normalize();
 const HORIZON_VERTEX = /* glsl */ `
   uniform float uHorizonSinkDepth;
   uniform vec2 uHorizonSinkFade;
   uniform vec2 uHorizonSinkFocus;
   varying vec2 vHorizonWorldXZ;
+  uniform vec3 uHorizonSunDirection;
+  varying float vHorizonFaceGrade;
 `;
 
 const HORIZON_POSITION = /* glsl */ `
@@ -21,6 +24,13 @@ const HORIZON_POSITION = /* glsl */ `
   );
   transformed.y -= uHorizonSinkDepth * horizonBuried;
   vHorizonWorldXZ = transformed.xz;
+  vec3 horizonWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+  float horizonSunFacing = dot(horizonWorldNormal, uHorizonSunDirection);
+  vHorizonFaceGrade = mix(
+    0.88,
+    1.04,
+    smoothstep(-0.15, 0.35, horizonSunFacing)
+  );
 `;
 
 const HORIZON_FRAGMENT = /* glsl */ `
@@ -28,8 +38,12 @@ const HORIZON_FRAGMENT = /* glsl */ `
   uniform float uTerrainCoverageHalfExtent;
   uniform float uTerrainCoverageWorldSize;
   varying vec2 vHorizonWorldXZ;
+  varying float vHorizonFaceGrade;
 `;
 
+const HORIZON_FACE_GRADE = /* glsl */ `
+  diffuseColor.rgb *= vHorizonFaceGrade;
+`;
 const HORIZON_COVERAGE_DISCARD = /* glsl */ `
   vec2 horizonCoverageUv =
     (vHorizonWorldXZ + vec2(uTerrainCoverageHalfExtent)) /
@@ -68,6 +82,7 @@ export class WorldHorizonMaterial {
       shader.uniforms.uHorizonSinkDepth = { value: WORLD_HORIZON_SINK_DEPTH };
       shader.uniforms.uHorizonSinkFade = { value: this.sinkFade };
       shader.uniforms.uHorizonSinkFocus = { value: this.sinkFocus };
+      shader.uniforms.uHorizonSunDirection = { value: HORIZON_SUN_DIRECTION };
       shader.uniforms.uTerrainCoverage = { value: coverage.texture };
       shader.uniforms.uTerrainCoverageHalfExtent = {
         value: coverage.worldHalfExtent,
@@ -81,6 +96,10 @@ export class WorldHorizonMaterial {
         );
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", `#include <common>${HORIZON_FRAGMENT}`)
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>${HORIZON_FACE_GRADE}`,
+        )
         .replace(
           "#include <clipping_planes_fragment>",
           `#include <clipping_planes_fragment>${HORIZON_COVERAGE_DISCARD}`,

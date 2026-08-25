@@ -4,6 +4,7 @@ import {
   scoreStoneRotationalSymmetry,
   scoreStoneSilhouette,
 } from "./StoneSilhouetteQuality";
+import { measureStoneSilhouetteStraightness } from "./StoneSilhouetteStraightness";
 import {
   STONE_ARCHETYPE_IDS,
   resolveStoneRecipe,
@@ -32,6 +33,15 @@ const SEVERE_SYMMETRY = 0.45;
 const SEVERE_SYMMETRY_BUDGET = 0.04;
 const SILHOUETTE_FLOOR = -0.2;
 const TRANSFORM_SCORE_EPSILON = 1e-4;
+/** Outlier ceilings calibrated after shallow roof articulation was introduced. */
+const DOMINANT_EDGE_CEILING = 0.34;
+const STRAIGHT_CHAIN_CEILING = 0.39;
+
+function percentile(values: readonly number[], share: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))];
+}
 
 function fail(message: string): never {
   throw new Error(`[stone-silhouette] ${message}`);
@@ -84,6 +94,12 @@ export function verifyStoneSilhouetteQuality(): string {
   let rawCornerTotal = 0;
   let meaningfulCornerTotal = 0;
   let maximumMeaningfulCorners = 0;
+  let dominantEdgeTotal = 0;
+  let dominantEdgeWorst = 0;
+  let straightChainTotal = 0;
+  let straightChainWorst = 0;
+  const meanStraightChains: number[] = [];
+  const worstStraightChains: number[] = [];
   let bodies = 0;
   let severe = 0;
 
@@ -94,6 +110,7 @@ export function verifyStoneSilhouetteQuality(): string {
       const faces = shippedBody(resolveQualityStoneRecipe(archetype, seed));
       const symmetry = scoreStoneRotationalSymmetry(faces);
       const complexity = measureStoneSilhouetteComplexity(faces);
+      const straightness = measureStoneSilhouetteStraightness(faces);
       symmetryTotal += symmetry;
       rawCornerTotal += complexity.meanRawCorners;
       meaningfulCornerTotal += complexity.meanMeaningfulCorners;
@@ -101,6 +118,18 @@ export function verifyStoneSilhouetteQuality(): string {
         maximumMeaningfulCorners,
         complexity.maximumMeaningfulCorners,
       );
+      dominantEdgeTotal += straightness.meanDominantEdgeShare;
+      dominantEdgeWorst = Math.max(
+        dominantEdgeWorst,
+        straightness.worstDominantEdgeShare,
+      );
+      straightChainTotal += straightness.meanStraightChainShare;
+      straightChainWorst = Math.max(
+        straightChainWorst,
+        straightness.worstStraightChainShare,
+      );
+      meanStraightChains.push(straightness.meanStraightChainShare);
+      worstStraightChains.push(straightness.worstStraightChainShare);
       if (symmetry > SEVERE_SYMMETRY) severe += 1;
       silhouetteTotal += scoreStoneSilhouette(faces);
       bodies += 1;
@@ -117,6 +146,14 @@ export function verifyStoneSilhouetteQuality(): string {
     silhouette >= SILHOUETTE_FLOOR,
     `Population silhouette score fell to ${silhouette.toFixed(3)}, under the ${SILHOUETTE_FLOOR} floor.`,
   );
+  assert(
+    dominantEdgeWorst <= DOMINANT_EDGE_CEILING,
+    `A projected edge occupies ${dominantEdgeWorst.toFixed(3)} of its outline, over the ${DOMINANT_EDGE_CEILING} ceiling.`,
+  );
+  assert(
+    straightChainWorst <= STRAIGHT_CHAIN_CEILING,
+    `A projected straight chain occupies ${straightChainWorst.toFixed(3)} of its outline, over the ${STRAIGHT_CHAIN_CEILING} ceiling.`,
+  );
   const severeShare = severe / bodies;
   assert(
     severeShare <= SEVERE_SYMMETRY_BUDGET,
@@ -125,6 +162,9 @@ export function verifyStoneSilhouetteQuality(): string {
 
   return (
     `silhouette ${silhouette.toFixed(3)} · ${severe}/${bodies} periodic · ` +
-    `corners ${(rawCornerTotal / bodies).toFixed(1)}→${(meaningfulCornerTotal / bodies).toFixed(1)} (max ${maximumMeaningfulCorners}) · transformed-body guard`
+    `corners ${(rawCornerTotal / bodies).toFixed(1)}→${(meaningfulCornerTotal / bodies).toFixed(1)} (max ${maximumMeaningfulCorners}) · ` +
+    `straight edge ${(dominantEdgeTotal / bodies).toFixed(3)}/${dominantEdgeWorst.toFixed(3)} · ` +
+    `chain ${(straightChainTotal / bodies).toFixed(3)}/${straightChainWorst.toFixed(3)} ` +
+    `(p90 ${percentile(meanStraightChains, 0.9).toFixed(3)}/${percentile(worstStraightChains, 0.9).toFixed(3)}) · transformed-body guard`
   );
 }

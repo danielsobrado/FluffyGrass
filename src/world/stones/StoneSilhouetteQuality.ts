@@ -15,6 +15,8 @@ const VIEW_PITCHES: readonly number[] = [0.31, 0.52];
 const VIEW_AZIMUTHS = 8;
 /** Corners that count as carrying the outline's structure. */
 const DOMINANT_CORNERS = 4;
+/** Three broad outline edges are useful, but beyond half the perimeter they dominate. */
+const BROAD_RUN_REWARD_LIMIT = 0.5;
 /** Weight on the least flattering view, against the average of them all. */
 const WORST_VIEW_WEIGHT = 0.35;
 /** 5 degree steps, so common rotational periods land on whole samples. */
@@ -30,12 +32,12 @@ const HULL_EPSILON = 1e-9;
  */
 const SILHOUETTE_SIMPLIFY_PERIMETER_RATIO = 0.01;
 
-interface Point2 {
+export interface StoneProjectedPoint {
   readonly x: number;
   readonly y: number;
 }
 
-interface IndexedPoint2 extends Point2 {
+interface IndexedPoint2 extends StoneProjectedPoint {
   readonly sourceIndex: number;
 }
 
@@ -57,7 +59,7 @@ export function scoreStoneSilhouette(faces: readonly StonePolygon[]): number {
   let total = 0;
   let worst = Number.POSITIVE_INFINITY;
   let views = 0;
-  visitProjectedHulls(points, (hull) => {
+  visitStoneProjectedHulls(points, (hull) => {
     const score = scoreOutline(hull);
     total += score;
     worst = Math.min(worst, score);
@@ -92,7 +94,7 @@ export function measureStoneSilhouetteComplexity(
   let rawTotal = 0;
   let meaningfulTotal = 0;
   let maximumMeaningfulCorners = 0;
-  visitProjectedHulls(points, (hull) => {
+  visitStoneProjectedHulls(points, (hull) => {
     const meaningful = simplifyClosedHull(hull);
     rawTotal += hull.length;
     meaningfulTotal += meaningful.length;
@@ -166,9 +168,10 @@ function collectPoints(faces: readonly StonePolygon[]): StoneVec3[] {
   return points;
 }
 
-function visitProjectedHulls(
+/** Visit the same projected outlines used by every gameplay-view quality metric. */
+export function visitStoneProjectedHulls(
   points: readonly StoneVec3[],
-  visit: (hull: readonly Point2[]) => void,
+  visit: (hull: readonly StoneProjectedPoint[]) => void,
 ): void {
   for (const pitch of VIEW_PITCHES) {
     const cosPitch = Math.cos(pitch);
@@ -183,7 +186,7 @@ function visitProjectedHulls(
       const upY = cosPitch;
       const upZ = -sinPitch * sinAzimuth;
 
-      const projected: Point2[] = points.map((point) => ({
+      const projected: StoneProjectedPoint[] = points.map((point) => ({
         x: point.x * rightX + point.z * rightZ,
         y: point.x * upX + point.y * upY + point.z * upZ,
       }));
@@ -192,7 +195,7 @@ function visitProjectedHulls(
   }
 }
 
-function scoreOutline(hull: readonly Point2[]): number {
+function scoreOutline(hull: readonly StoneProjectedPoint[]): number {
   if (hull.length < 3) return 0;
   const edges: number[] = [];
   const turns: number[] = [];
@@ -231,7 +234,7 @@ function scoreOutline(hull: readonly Point2[]): number {
   for (let index = 0; index < runs; index += 1) {
     longRun += edges[index];
   }
-  longRun /= perimeter;
+  longRun = Math.min(BROAD_RUN_REWARD_LIMIT, longRun / perimeter);
 
   const area = Math.abs(doubleArea) * 0.5;
   const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
@@ -250,7 +253,9 @@ function scoreOutline(hull: readonly Point2[]): number {
  * diagnose. Each candidate therefore checks every original point that would be
  * represented by the replacement segment.
  */
-function simplifyClosedHull(hull: readonly Point2[]): Point2[] {
+function simplifyClosedHull(
+  hull: readonly StoneProjectedPoint[],
+): StoneProjectedPoint[] {
   if (hull.length <= 3) return [...hull];
   const simplified: IndexedPoint2[] = hull.map((point, sourceIndex) => ({
     ...point,
@@ -292,11 +297,11 @@ function simplifyClosedHull(hull: readonly Point2[]): Point2[] {
 }
 
 function maximumSourceArcError(
-  source: readonly Point2[],
+  source: readonly StoneProjectedPoint[],
   startIndex: number,
   endIndex: number,
-  start: Point2,
-  end: Point2,
+  start: StoneProjectedPoint,
+  end: StoneProjectedPoint,
 ): number {
   let maximum = 0;
   let index = (startIndex + 1) % source.length;
@@ -310,7 +315,11 @@ function maximumSourceArcError(
   return maximum;
 }
 
-function pointSegmentDistance(point: Point2, a: Point2, b: Point2): number {
+function pointSegmentDistance(
+  point: StoneProjectedPoint,
+  a: StoneProjectedPoint,
+  b: StoneProjectedPoint,
+): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const lengthSquared = dx * dx + dy * dy;
@@ -325,13 +334,17 @@ function pointSegmentDistance(point: Point2, a: Point2, b: Point2): number {
 }
 
 /** Monotone chain, counter-clockwise, without collinear runs. */
-function convexHull(points: readonly Point2[]): Point2[] {
+function convexHull(
+  points: readonly StoneProjectedPoint[],
+): StoneProjectedPoint[] {
   if (points.length < 3) return [...points];
   const sorted = [...points].sort(
     (left, right) => left.x - right.x || left.y - right.y,
   );
-  const build = (source: readonly Point2[]): Point2[] => {
-    const chain: Point2[] = [];
+  const build = (
+    source: readonly StoneProjectedPoint[],
+  ): StoneProjectedPoint[] => {
+    const chain: StoneProjectedPoint[] = [];
     for (const point of source) {
       while (chain.length >= 2) {
         const a = chain[chain.length - 2];

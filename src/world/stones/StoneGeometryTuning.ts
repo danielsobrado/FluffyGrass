@@ -10,7 +10,7 @@ export const STONE_DEGENERATE_NORMAL_LENGTH = 1e-12;
  * should pin the rock to the soil for a few centimetres, not paint a belt
  * around the whole base.
  */
-export const STONE_CONTACT_SHADE_FLOOR = 0.78;
+export const STONE_CONTACT_SHADE_FLOOR = 0.72;
 export const STONE_CONTACT_SHADE_HEIGHT = 0.055;
 export const STONE_MOSS_CLIMB = 0.42;
 

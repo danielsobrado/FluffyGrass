@@ -30,7 +30,7 @@ attribute vec4 terrainBiome;
 // Community index and how strongly it expresses itself. Carried per vertex
 // because a 26 m field resolves at the far ring's 10.67 m spacing; the 19 m
 // vigour field does not, which is why that one is evaluated per fragment.
-attribute vec2 terrainCommunity;
+attribute vec4 terrainCommunityGround;
 attribute vec4 terrainStoneInfluence;
 attribute vec2 terrainStoneOcclusionCenter;
 attribute float terrainStoneOcclusion;
@@ -49,7 +49,7 @@ varying vec4 vTerrainStoneInfluence;
 varying vec2 vTerrainStoneOcclusionCenter;
 varying float vTerrainStoneOcclusion;
 varying float vTerrainMacroDryness;
-varying vec2 vTerrainCommunity;
+varying vec4 vTerrainCommunityGround;
 
 int terrainResolveBiomeRow(float biome) {
   return int(clamp(biome, 0.0, float(TERRAIN_MAX_BIOMES - 1)) + 0.5);
@@ -65,7 +65,7 @@ vTerrainStoneInfluence = terrainStoneInfluence;
 vTerrainStoneOcclusionCenter = terrainStoneOcclusionCenter;
 vTerrainStoneOcclusion = terrainStoneOcclusion;
 vTerrainMacroDryness = terrainBiome.w;
-vTerrainCommunity = terrainCommunity;
+vTerrainCommunityGround = terrainCommunityGround;
 int terrainBiomeA = terrainResolveBiomeRow(terrainBiome.x);
 int terrainBiomeB = terrainResolveBiomeRow(terrainBiome.y);
 float terrainBiomeBlend = saturate(terrainBiome.z);
@@ -159,7 +159,7 @@ varying vec4 vTerrainStoneInfluence;
 varying vec2 vTerrainStoneOcclusionCenter;
 varying float vTerrainStoneOcclusion;
 varying float vTerrainMacroDryness;
-varying vec2 vTerrainCommunity;
+varying vec4 vTerrainCommunityGround;
 ${TERRAIN_ROCK_FUNCTIONS}
 ${TERRAIN_MACRO_FIELD_FUNCTIONS}
 ${GRASS_CLUMP_LATTICE_GLSL}
@@ -420,14 +420,27 @@ float terrainSoilHue = grassPatchNoise(
   uTerrainSoilHuePeriod,
   uTerrainSoilHueSeed
 );
-vec3 terrainSoilVariant = terrainSoilHue < 0.42
-  ? uTerrainSoilGrey
-  : (terrainSoilHue > 0.74 ? uTerrainSoilRich : uTerrainSoilDry);
-vec3 terrainSoil = mix(
-  mix(uTerrainSoilDry, uTerrainSoilRich, terrainHumidity),
-  terrainSoilVariant,
-  uTerrainSoilHueStrength
+float terrainParentRich = smoothstep(0.52, 0.84, terrainSoilHue) *
+  (0.35 + terrainHumidity * 0.65);
+float terrainParentDry = smoothstep(0.48, 0.82, 1.0 - terrainSoilHue) *
+  (0.3 + terrainDryness * 0.7);
+vec3 terrainSoilVariant = mix(
+  uTerrainSoilGrey,
+  uTerrainSoilRich,
+  terrainParentRich
 );
+terrainSoilVariant = mix(
+  terrainSoilVariant,
+  uTerrainSoilDry,
+  terrainParentDry
+);
+vec3 terrainSoil = mix(
+  uTerrainSoilGrey,
+  uTerrainSoilRich,
+  terrainHumidity * 0.7
+);
+terrainSoil = mix(terrainSoil, uTerrainSoilDry, terrainDryness * 0.52);
+terrainSoil = mix(terrainSoil, terrainSoilVariant, uTerrainSoilHueStrength);
 terrainSoil *= mix(1.0, 0.62, terrainWaterProximity * 0.78);
 terrainSoil *= 1.0 + terrainMacroVariation * 0.45 + terrainMesoVariation;
 
@@ -500,36 +513,21 @@ terrainSurfaceColor = mix(
  * change gets the same answer near and far instead of depending on triangle
  * size in pixels.
  */
-float terrainWorldGradient = max(
-  length(dFdx(vTerrainWorldPosition.xz)),
-  length(dFdy(vTerrainWorldPosition.xz))
-);
-float terrainCommunityIndexGradient = max(
-  abs(dFdx(vTerrainCommunity.x)),
-  abs(dFdy(vTerrainCommunity.x))
-);
-float terrainCommunityIndexSlope =
-  terrainCommunityIndexGradient / max(1e-4, terrainWorldGradient);
-float terrainCommunityCoherence =
-  1.0 - smoothstep(0.01, 0.08, terrainCommunityIndexSlope);
-int terrainCommunity = int(vTerrainCommunity.x + 0.5);
-vec3 terrainCommunityTint = terrainSurfaceColor;
-if (terrainCommunity == 2) {
-  // Bare break: soil, not thinned green.
-  terrainCommunityTint = uTerrainSoilDry;
-} else if (terrainCommunity == 4) {
-  // Broadleaf understory: damp organic ground under a closed leaf layer.
-  terrainCommunityTint = uTerrainMoss;
-} else if (terrainCommunity == 0) {
-  // Short sward: drier and paler than the meadow it sits in.
-  terrainCommunityTint = mix(terrainSurfaceColor, vTerrainBiomeDry, 0.34);
-}
+vec4 terrainCommunityGround = saturate(vTerrainCommunityGround);
 terrainSurfaceColor = mix(
   terrainSurfaceColor,
-  terrainCommunityTint,
-  saturate(vTerrainCommunity.y) *
-    terrainCommunityCoherence *
-    uTerrainCommunityTintStrength
+  uTerrainSoilDry,
+  terrainCommunityGround.x * uTerrainCommunityTintStrength
+);
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  uTerrainMoss,
+  terrainCommunityGround.y * uTerrainCommunityTintStrength
+);
+terrainSurfaceColor = mix(
+  terrainSurfaceColor,
+  vTerrainBiomeDry,
+  terrainCommunityGround.z * uTerrainCommunityTintStrength * 0.6
 );
 
 vec3 terrainCanopy = vTerrainBiomeCanopy;
@@ -543,6 +541,13 @@ terrainSurfaceColor = mix(
   terrainSurfaceColor,
   terrainCanopy,
   terrainFarMerge * terrainCoverage * uTerrainCanopyMergeStrength
+);
+
+// Descriptor coherence below is measured in world units so interpolation
+// guards behave identically across the terrain LOD rings.
+float terrainWorldGradient = max(
+  length(dFdx(vTerrainWorldPosition.xz)),
+  length(dFdy(vTerrainWorldPosition.xz))
 );
 
 /**

@@ -2,6 +2,7 @@ import {
   scoreStoneRotationalSymmetry,
   scoreStoneSilhouette,
 } from "./StoneSilhouetteQuality";
+import { measureStoneSilhouetteStraightness } from "./StoneSilhouetteStraightness";
 import {
   buildStonePolyhedron,
   type StonePolygon,
@@ -35,6 +36,12 @@ const SILHOUETTE_WEIGHT = 3;
 const ROTATIONAL_SYMMETRY_PENALTY = 1.5;
 /** Long near-horizontal or near-vertical runs are the strongest masonry cue. */
 const RECTILINEAR_EDGE_PENALTY = 2.4;
+/** Reject only the outlying projected runs, not the broad planes themselves. */
+const DOMINANT_STRAIGHTNESS_PENALTY = 1.8;
+const MEAN_STRAIGHTNESS_PENALTY_START = 0.235;
+const MEAN_STRAIGHTNESS_PENALTY_FULL = 0.29;
+const WORST_STRAIGHTNESS_PENALTY_START = 0.34;
+const WORST_STRAIGHTNESS_PENALTY_FULL = 0.43;
 const QUALITY_CACHE_LIMIT = 256;
 const QUALITY_SEED_SALT = 0x41727479;
 const TWO_PI = Math.PI * 2;
@@ -196,6 +203,11 @@ function profileArtDirection(recipe: StoneRecipe): number {
 function alignmentWeight(value: number, start: number): number {
   if (value <= start) return 0;
   const amount = Math.min(1, (value - start) / (1 - start));
+  return amount * amount * (3 - 2 * amount);
+}
+
+function smoothstep(value: number, start: number, end: number): number {
+  const amount = Math.min(1, Math.max(0, (value - start) / (end - start)));
   return amount * amount * (3 - 2 * amount);
 }
 
@@ -374,6 +386,20 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
   const stumpPenalty = longWallShare * topDeficit;
   const dominantPlaneScore = Math.min(1, primaryFour / 0.42);
   const rectilinear = rectilinearEdgeShare(faces);
+  const straightness = measureStoneSilhouetteStraightness(body);
+  const dominantStraightness =
+    smoothstep(
+      straightness.meanStraightChainShare,
+      MEAN_STRAIGHTNESS_PENALTY_START,
+      MEAN_STRAIGHTNESS_PENALTY_FULL,
+    ) *
+      0.65 +
+    smoothstep(
+      straightness.worstStraightChainShare,
+      WORST_STRAIGHTNESS_PENALTY_START,
+      WORST_STRAIGHTNESS_PENALTY_FULL,
+    ) *
+      0.35;
 
   return (
     primarySix * 4.2 +
@@ -382,7 +408,8 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
     Math.abs(topShare - targetTop) * 2 -
     longWallShare * 5.2 -
     stumpPenalty * 5 -
-    rectilinear * RECTILINEAR_EDGE_PENALTY +
+    rectilinear * RECTILINEAR_EDGE_PENALTY -
+    dominantStraightness * DOMINANT_STRAIGHTNESS_PENALTY +
     Math.min(mediumCount, 9) * 0.05 +
     Math.min(asymmetry, 0.28) * 2.15 +
     profileArtDirection(recipe) +

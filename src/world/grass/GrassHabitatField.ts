@@ -151,10 +151,25 @@ export function sampleGrassHabitat(
   // is; the floor exists to stop *climate* zeroing a meadow, not to stop
   // composition doing it.
   density *= community.density;
-  density *= 1 + moisture * fertility * config.grassWetDensityBoost;
+  // Ecology decides whether a community belongs here, but ordinary moisture
+  // variation is only a bounded suitability bias. Letting the full wet boost
+  // draw coverage made every contour of the landform visible from the air.
+  density *=
+    1 +
+    (moisture * fertility - 0.5) *
+      Math.min(config.grassWetDensityBoost, 0.1) *
+      2;
+  // Genuine dry stress still opens the meadow, but the independent macro field
+  // perturbs its onset. The edge therefore meanders through the terrain instead
+  // of tracing one moisture isoline around an entire hill.
+  const dryStress = smoothstep(
+    0.48 + (patch - 0.5) * 0.2,
+    0.88 + (patch - 0.5) * 0.12,
+    1 - moisture,
+  );
   density *=
     1 -
-    (1 - moisture) *
+    dryStress *
       config.grassDryDensityReduction *
       (0.62 + 0.38 * exposure);
   density *= patchMul;
@@ -178,11 +193,21 @@ export function sampleGrassHabitat(
   const clearingThreshold = resolveGrassClearingThreshold(
     clamp01(config.grassClearingCoverage),
   );
-  const openness = smoothstep(
+  const rawOpenness = smoothstep(
     clearingThreshold - 0.07,
     clearingThreshold + 0.07,
     sampleGrassMacroClearing(x, z),
   );
+  // Small clearings are subordinate to the community instead of interrupting
+  // every habitat equally. The 20% floor preserves occasional pioneers and
+  // raggedness in closed colonies without perforating them from the air.
+  const clearingExpression = lerp(
+    0.2,
+    1,
+    clamp01(community.clearingAffinity),
+  );
+  const openness = rawOpenness * clearingExpression;
+  const clearingBorder = clamp01(4 * openness * (1 - openness));
   // Kept before the clearing is applied, because a clearing is bare of blades
   // and not of ground: the sub-canopy species are what should still be
   // standing in one. This does not bind in a fertile meadow, where
@@ -210,6 +235,8 @@ export function sampleGrassHabitat(
         (1 - rockiness * 0.16),
     ),
   );
+  // Ecotones carry short pioneers before the canopy gives way completely.
+  target.height *= 1 - clearingBorder * 0.22;
 
   target.dryness = clamp01(
     (1 - moisture) * 0.58 +

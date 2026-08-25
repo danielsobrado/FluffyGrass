@@ -4,6 +4,7 @@ import type { WorldConfig } from "../WorldConfig";
 import { resolveTerrainMacroFieldExtent } from "./TerrainMacroFieldTexture";
 import type { GrassPlacementGrid } from "../grass/GrassClumpLattice";
 import type { TerrainSurfacePalette } from "./TerrainSurfacePalette";
+import surfaceArt from "./TerrainSurfacePalette.json";
 
 export interface TerrainSurfaceUniformSources {
   config: WorldConfig;
@@ -82,14 +83,14 @@ export function createTerrainSurfaceUniforms({
      * beside it and the canopy above it or the broadleaf community reads as
      * more of the same green.
      */
-    uTerrainMoss: { value: new THREE.Color("#4a5f34") },
+    uTerrainMoss: { value: new THREE.Color(surfaceArt.moss) },
     /**
      * The third soil tone. Grey-brown rather than warm, because two tones
      * mixed on one axis can only ever be one hue at two brightnesses --
      * which is what let the ground read as a single mustard fill wherever
      * the grass opened up.
      */
-    uTerrainSoilGrey: { value: new THREE.Color("#7a6f5c") },
+    uTerrainSoilGrey: { value: new THREE.Color(surfaceArt.soilNormal) },
     uTerrainSoilHuePeriod: { value: config.terrainSoilHueWorldSize },
     uTerrainSoilHueSeed: { value: (config.seed ^ 0x5a_3d_11_07) >>> 0 },
     uTerrainSoilHueStrength: { value: config.terrainSoilHueStrength },
@@ -138,29 +139,31 @@ export function createTerrainSurfaceUniforms({
     uTerrainPathVergeDryness: { value: config.terrainPathVergeDryness },
     uTerrainWetSheenStrength: { value: 0.55 },
     uTerrainWetSheenPower: { value: 42 },
-    uTerrainSoilRich: { value: new THREE.Color("#544433") },
-    uTerrainSoilDry: { value: new THREE.Color("#8d7550") },
-    uTerrainPathSoil: { value: new THREE.Color("#795a38") },
-    uTerrainPathDust: { value: new THREE.Color("#b8926a") },
-    uTerrainPathGrit: { value: new THREE.Color("#b7a47f") },
+    uTerrainSoilRich: { value: new THREE.Color(surfaceArt.soilRich) },
+    uTerrainSoilDry: { value: new THREE.Color(surfaceArt.soilDry) },
+    uTerrainPathSoil: { value: new THREE.Color(surfaceArt.pathSoil) },
+    uTerrainPathDust: { value: new THREE.Color(surfaceArt.pathDust) },
+    uTerrainPathGrit: { value: new THREE.Color(surfaceArt.pathGrit) },
     /**
      * Ground worked over by a stone sitting in it. Darker and less red than
      * uTerrainSoilRich because it is soil in permanent shade holding
      * moisture, not open topsoil; the dry side of the mix in the shader
      * borrows uTerrainPathGrit for the mineral fines instead.
      */
-    uTerrainStoneContactSoil: { value: new THREE.Color("#4a3626") },
+    uTerrainStoneContactSoil: {
+      value: new THREE.Color(surfaceArt.stoneContactSoil),
+    },
     uTerrainStoneContactReach: { value: 1.35 },
-    uTerrainStoneContactDarkening: { value: 0.26 },
-    uTerrainStoneOcclusionStrength: { value: 0.3 },
+    uTerrainStoneContactDarkening: { value: 0.34 },
+    uTerrainStoneOcclusionStrength: { value: 0.4 },
     /**
      * Cliff rock. Two tones close together on purpose: a wide span between
      * a near-black and a pale grey turns every wisp of the continuous noise
      * into a marble vein, which is exactly how the first pass at this read.
      * Lithology supplies the variation now, and it needs far less range.
      */
-    uTerrainRockBase: { value: new THREE.Color("#6f604d") },
-    uTerrainRockWarm: { value: new THREE.Color("#91704e") },
+    uTerrainRockBase: { value: new THREE.Color(surfaceArt.rockBase) },
+    uTerrainRockWarm: { value: new THREE.Color(surfaceArt.rockWarm) },
     uTerrainRockReliefStrength: { value: 0.85 },
     uTerrainBiomeBase: { value: palette.base },
     uTerrainBiomeTip: { value: palette.tip },

@@ -33,7 +33,7 @@ export const COMMUNITY_FLOWER_MEADOW = 3;
 export const COMMUNITY_BROADLEAF_UNDERSTORY = 4;
 export const COMMUNITY_COUNT = 5;
 
-export const WORLD_COMMUNITY_VERSION = 2;
+export const WORLD_COMMUNITY_VERSION = 3;
 
 /**
  * The ecology channels a community is scored against.
@@ -72,6 +72,12 @@ export interface CommunityResponse {
   /** Multiplier on `GrassHabitatSample.underlayer`. */
   understory: number;
   clumpScale: number;
+  /** How strongly the small clearing field may interrupt this community. */
+  clearingAffinity: number;
+  /** Continuous semantic channels consumed by the terrain material. */
+  groundExposure: number;
+  organicCover: number;
+  dryGroundBias: number;
 }
 
 export interface CommunityProfile {
@@ -101,6 +107,10 @@ const RESPONSE_KEYS = [
   "accentChance",
   "understory",
   "clumpScale",
+  "clearingAffinity",
+  "groundExposure",
+  "organicCover",
+  "dryGroundBias",
 ] as const;
 
 function fail(message: string): never {
@@ -263,4 +273,8 @@ export const NEUTRAL_COMMUNITY_RESPONSE: CommunityResponse = Object.freeze({
   accentChance: 1,
   understory: 1,
   clumpScale: 1,
+  clearingAffinity: 0.5,
+  groundExposure: 0,
+  organicCover: 0,
+  dryGroundBias: 0,
 });

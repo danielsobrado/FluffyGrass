@@ -496,6 +496,14 @@ function validateCommunityField(config: WorldConfig): void {
       "grassCommunityWorldSize and grassMacroPatchWorldSize must differ by at least 25%.",
     );
   }
+  if (
+    config.grassCommunityWarpDistance >=
+    config.grassCommunityWorldSize * 0.75
+  ) {
+    throw new Error(
+      "grassCommunityWarpDistance must stay below 75% of grassCommunityWorldSize.",
+    );
+  }
 }
 
 function validateHorizonShell(config: WorldConfig): void {

@@ -259,7 +259,7 @@ function encodeShapeUnit(value: number): number {
   return Math.round(Math.min(1, Math.max(0, value)) * 255);
 }
 /** Bump whenever placement transforms or stable per-blade morphology changes. */
-const GRASS_PLACEMENT_VERSION = 15;
+const GRASS_PLACEMENT_VERSION = 16;
 const EMPTY_PLACEMENT_CACHE_LIMIT = 4096;
 const PLACEMENT_LRU_LIMIT = 12;
 

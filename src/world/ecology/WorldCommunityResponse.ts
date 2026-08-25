@@ -61,6 +61,10 @@ export function resolveCommunityResponse(
   let accentChance = 0;
   let understory = 0;
   let clumpScale = 0;
+  let clearingAffinity = 0;
+  let groundExposure = 0;
+  let organicCover = 0;
+  let dryGroundBias = 0;
   let shareSum = 0;
   for (let index = 0; index < sample.weights.length; index += 1) {
     const share = sample.weights[index];
@@ -76,6 +80,10 @@ export function resolveCommunityResponse(
     accentChance += row.accentChance * share;
     understory += row.understory * share;
     clumpScale += row.clumpScale * share;
+    clearingAffinity += row.clearingAffinity * share;
+    groundExposure += row.groundExposure * share;
+    organicCover += row.organicCover * share;
+    dryGroundBias += row.dryGroundBias * share;
     shareSum += share;
   }
   if (shareSum <= 0) {
@@ -88,6 +96,14 @@ export function resolveCommunityResponse(
   target.accentChance = lerp(1, accentChance / shareSum, expression);
   target.understory = lerp(1, understory / shareSum, expression);
   target.clumpScale = lerp(1, clumpScale / shareSum, expression);
+  target.clearingAffinity = lerp(
+    NEUTRAL_COMMUNITY_RESPONSE.clearingAffinity,
+    clearingAffinity / shareSum,
+    expression,
+  );
+  target.groundExposure = (groundExposure / shareSum) * expression;
+  target.organicCover = (organicCover / shareSum) * expression;
+  target.dryGroundBias = (dryGroundBias / shareSum) * expression;
 
   const quiet = clamp01(sample.quiet) * clamp01(config.grassCommunityQuietStrength);
   target.accentChance *= 1 - quiet;

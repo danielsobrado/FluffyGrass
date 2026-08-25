@@ -104,6 +104,12 @@ const RIDGE_CHANCE: Record<StoneRecipe["archetype"], number> = {
   shard: 0,
   outcrop: 0.88,
 };
+/** Broad boulder crowns increasingly need a second plane to avoid a sawn lid. */
+const BOULDER_BROAD_ROOF_RIDGE_BOOST = 0.55;
+const BOULDER_TOP_SCALE_MIN = 0.74;
+const BOULDER_TOP_SCALE_MAX = 0.94;
+/** Capstones retain a broad roof; this is only a shallow geological hinge. */
+const CAPSTONE_ROOF_BREAK_STRENGTH = 0.08;
 
 function normalizePlane(
   nx: number,
@@ -141,54 +147,91 @@ function profileHeights(recipe: StoneRecipe, side: number): number[] {
   return heights;
 }
 
-function addTopPlanes(planes: StonePlane[], recipe: StoneRecipe): void {
-  // The capstone family gets its identity from one broad planar roof. Splitting
-  // that roof into the usual low ridge turns it back into the rounded family
-  // even when the upper profile is wide enough.
-  if (recipe.silhouetteVariant === "capstone") {
-    planes.push(
-      normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
-    );
-    return;
-  }
-  const ridgeRoll =
-    hashStoneCell(recipe.seed, 0x52696467, 0x546f7052) / 4294967296;
-  if (ridgeRoll >= RIDGE_CHANCE[recipe.archetype]) {
-    planes.push(
-      normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
-    );
-    return;
-  }
-
+function resolveTopBreakAxis(recipe: StoneRecipe): readonly [number, number] {
   const axisRoll =
     hashStoneCell(recipe.seed, 0x41786973, 0x52696467) / 4294967296;
   const acrossAngle =
     recipe.archetype === "slab" || recipe.archetype === "outcrop"
       ? (axisRoll - 0.5) * 0.55
       : axisRoll * Math.PI * 2;
-  const acrossX = Math.cos(acrossAngle);
-  const acrossZ = Math.sin(acrossAngle);
-  const familyStrength =
-    recipe.archetype === "slab" || recipe.archetype === "outcrop" ? 0.19 : 0.13;
-  const ridgeSlope = familyStrength * (0.72 + ridgeRoll * 0.72);
+  return [Math.cos(acrossAngle), Math.sin(acrossAngle)];
+}
+
+function addPairedTopPlanes(
+  planes: StonePlane[],
+  recipe: StoneRecipe,
+  slope: number,
+  idPrefix: string,
+  centerHinge = false,
+): void {
+  const [acrossX, acrossZ] = resolveTopBreakAxis(recipe);
+  const topRing = recipe.profileRings[recipe.profileRings.length - 1];
+  // Put the hinge through the authored crown centre. A ridge through object
+  // origin can leave one plane as a tiny sliver after profile centre-wander.
+  const hingeOffset = centerHinge
+    ? slope * (acrossX * topRing.centerX + acrossZ * topRing.centerZ)
+    : 0;
   planes.push(
     normalizePlane(
-      recipe.topTiltX + acrossX * ridgeSlope,
+      recipe.topTiltX + acrossX * slope,
       1,
-      recipe.topTiltZ + acrossZ * ridgeSlope,
-      1,
-      "top-ridge:0",
+      recipe.topTiltZ + acrossZ * slope,
+      1 + hingeOffset,
+      `${idPrefix}:0`,
       "top",
     ),
     normalizePlane(
-      recipe.topTiltX - acrossX * ridgeSlope,
+      recipe.topTiltX - acrossX * slope,
       1,
-      recipe.topTiltZ - acrossZ * ridgeSlope,
-      1,
-      "top-ridge:1",
+      recipe.topTiltZ - acrossZ * slope,
+      1 - hingeOffset,
+      `${idPrefix}:1`,
       "top",
     ),
   );
+}
+
+function addTopPlanes(planes: StonePlane[], recipe: StoneRecipe): void {
+  const ridgeRoll =
+    hashStoneCell(recipe.seed, 0x52696467, 0x546f7052) / 4294967296;
+
+  // A capstone still reads as one broad, flattened crown. The shallow paired
+  // planes only remove the uninterrupted horizontal cut that made it look
+  // manufactured; they are deliberately much weaker than a slab ridge.
+  if (recipe.silhouetteVariant === "capstone") {
+    addPairedTopPlanes(
+      planes,
+      recipe,
+      CAPSTONE_ROOF_BREAK_STRENGTH * (0.85 + ridgeRoll * 0.3),
+      "top-capstone-break",
+      true,
+    );
+    return;
+  }
+
+  let ridgeChance = RIDGE_CHANCE[recipe.archetype];
+  if (recipe.archetype === "boulder") {
+    const broadness = Math.min(
+      1,
+      Math.max(
+        0,
+        (recipe.topScale - BOULDER_TOP_SCALE_MIN) /
+          (BOULDER_TOP_SCALE_MAX - BOULDER_TOP_SCALE_MIN),
+      ),
+    );
+    ridgeChance += broadness * BOULDER_BROAD_ROOF_RIDGE_BOOST;
+  }
+  if (ridgeRoll >= ridgeChance) {
+    planes.push(
+      normalizePlane(recipe.topTiltX, 1, recipe.topTiltZ, 1, "top", "top"),
+    );
+    return;
+  }
+
+  const familyStrength =
+    recipe.archetype === "slab" || recipe.archetype === "outcrop" ? 0.19 : 0.13;
+  const ridgeSlope = familyStrength * (0.72 + ridgeRoll * 0.72);
+  addPairedTopPlanes(planes, recipe, ridgeSlope, "top-ridge");
 }
 
 /**

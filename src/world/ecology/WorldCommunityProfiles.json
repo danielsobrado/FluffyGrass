@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "communities": {
     "short-sward": {
       "index": 0,
@@ -37,7 +37,11 @@
         "height": 0.72,
         "accentChance": 0.35,
         "understory": 0.55,
-        "clumpScale": 0.88
+        "clumpScale": 0.88,
+        "clearingAffinity": 0.75,
+        "groundExposure": 0.55,
+        "organicCover": 0.12,
+        "dryGroundBias": 0.55
       }
     },
     "tall-colony": {
@@ -76,7 +80,11 @@
         "height": 1.22,
         "accentChance": 0.55,
         "understory": 0.8,
-        "clumpScale": 1.18
+        "clumpScale": 1.18,
+        "clearingAffinity": 0.18,
+        "groundExposure": 0.12,
+        "organicCover": 0.45,
+        "dryGroundBias": 0.08
       }
     },
     "bare-break": {
@@ -115,7 +123,11 @@
         "height": 0.8,
         "accentChance": 0.3,
         "understory": 0.4,
-        "clumpScale": 0.7
+        "clumpScale": 0.7,
+        "clearingAffinity": 1.0,
+        "groundExposure": 1.0,
+        "organicCover": 0.05,
+        "dryGroundBias": 0.85
       }
     },
     "flower-meadow": {
@@ -154,7 +166,11 @@
         "height": 0.98,
         "accentChance": 2.1,
         "understory": 1.05,
-        "clumpScale": 1
+        "clumpScale": 1,
+        "clearingAffinity": 0.45,
+        "groundExposure": 0.25,
+        "organicCover": 0.25,
+        "dryGroundBias": 0.15
       }
     },
     "broadleaf-understory": {
@@ -193,7 +209,11 @@
         "height": 0.92,
         "accentChance": 1.7,
         "understory": 1.35,
-        "clumpScale": 1.06
+        "clumpScale": 1.06,
+        "clearingAffinity": 0.12,
+        "groundExposure": 0.12,
+        "organicCover": 1.0,
+        "dryGroundBias": 0.05
       }
     }
   },

@@ -101,7 +101,7 @@ grassBladeHeightJitter: 0.04
 # Macro grass habitat. These modulate ecology rather than inventing a second field.
 # Strength is the look: wet banks, dry crowns, rock, and paths must read from
 # a standing camera, not only from a habitat debug overlay.
-grassMacroPatchWorldSize: 36
+grassMacroPatchWorldSize: 84
 # Reduced from 0.52 with the community field. This 36 m patch field responds to
 # the same ecology the communities now do, so at its old strength the two fought:
 # a doubled structure at two nearby scales reads as mud rather than as either.
@@ -144,6 +144,10 @@ grassPaletteDesaturation: 0.14
 # camera, and above twice the coarsest terrain vertex spacing so the ground can
 # still carry the field at the far ring. The validator enforces that floor.
 grassCommunityWorldSize: 26
+# Large historical territories distort the local community lattice without
+# moving the real ecology sampled at a point.
+grassCommunityWarpWorldSize: 96
+grassCommunityWarpDistance: 14
 # How much ecology constrains the choice. At 1 the communities follow moisture
 # and slope isolines and read as a contour map; at 0 they are pure noise, which
 # is the scatter this field replaces. 0.78 leaves noise enough room to break up
@@ -336,8 +340,8 @@ terrainVergeFleckStrength: 0.34
 #
 # Metres per cell of the independent soil-tone field, and how far it overrides
 # the humidity mix.
-terrainSoilHueWorldSize: 14
-terrainSoilHueStrength: 0.38
+terrainSoilHueWorldSize: 72
+terrainSoilHueStrength: 0.68
 # A 2-5 m mottle. The existing octaves sit at 64, 29.5 and 7.4 m, so nothing
 # occupied the band a walking camera reads as soil texture.
 terrainGroundFleckStrength: 0.16
@@ -440,12 +444,12 @@ terrainMesoDetailEnd: 100
 # the one that most needed its own schedule: it now begins past the mid layer's
 # density falloff (74 m), where the blades have genuinely thinned, rather than
 # at the 28 m near handoff where they have not.
-terrainCanopyMergeStart: 64
-terrainCanopyMergeEnd: 136
+terrainCanopyMergeStart: 70
+terrainCanopyMergeEnd: 160
 # And it no longer completes. Ground fully replaced by canopy colour is a claim
 # the impostor cards are already making; the ground only needs to agree with
 # them, not to become them.
-terrainCanopyMergeStrength: 0.62
+terrainCanopyMergeStrength: 1.0
 
 # Share of a distance schedule's own transition width spent wandering in world
 # space. Separating the edges stops the fades stacking; this stops each

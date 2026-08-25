@@ -77,7 +77,7 @@ export interface TerrainSurfaceTargets {
    *
    * Optional so isolated probes need not supply it; runtime terrain always does.
    */
-  community?: THREE.Vector2;
+  communityGround?: THREE.Vector4;
 }
 
 function clamp01(value: number): number {
@@ -191,7 +191,12 @@ export class TerrainSurfaceField {
       influence.occlusionCenterZ,
     );
     targets.stoneOcclusionRadius = influence.occlusionRadius;
-    targets.community?.set(this.communitySample.index, this.communitySample.core);
+    targets.communityGround?.set(
+      Math.max(this.communityResponse.groundExposure, this.habitatSample.openness * 0.85),
+      this.communityResponse.organicCover,
+      this.communityResponse.dryGroundBias,
+      this.communitySample.core,
+    );
     targets.biome.set(
       biome.indexA,
       biome.indexB,

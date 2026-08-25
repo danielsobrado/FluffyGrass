@@ -71,6 +71,7 @@ uniform float uNearDistance;
 uniform float uMidDistance;
 uniform float uFarDistance;
 uniform float uTransitionDistance;
+uniform vec2 uCanopyTransferRange;
 uniform float uMidImpostorUnderfill;
 uniform float uNormalUp;
 uniform float uArtDensityScale;
@@ -204,7 +205,14 @@ void main() {
       ? mix(inverseCards, 1.0, fullFarEntry)
       : inverseCards * (1.0 - fullFarEntry);
   }
-  vFieldCoverage = instanceCoverage * cardWeight;
+  float canopyTransfer = smoothstep(
+    uCanopyTransferRange.x,
+    uCanopyTransferRange.y,
+    cameraDistance
+  );
+  // Terrain progressively takes responsibility for the meadow's visual mean;
+  // a residual card population keeps wind and silhouette without far stipple.
+  vFieldCoverage = instanceCoverage * cardWeight * mix(1.0, 0.2, canopyTransfer);
   float effectiveCoverage =
     vFarEntry * min(vFieldCoverage * uArtDensityScale, 1.0);
 
@@ -626,6 +634,8 @@ export class WorldGrassImpostorMaterial {
     materialConfig: GrassMaterialConfig,
     windConfig: GrassWindConfig,
     lodConfig: GrassLodConfig,
+    canopyTransferStart: number,
+    canopyTransferEnd: number,
     blendViews: boolean,
     cardsPerPatch = 1,
     noiseWind = blendViews,
@@ -662,6 +672,9 @@ export class WorldGrassImpostorMaterial {
         uMidDistance: { value: lodConfig.midMaxDistance },
         uFarDistance: { value: lodConfig.farMaxDistance },
         uTransitionDistance: { value: lodConfig.transitionDistance },
+        uCanopyTransferRange: {
+          value: new THREE.Vector2(canopyTransferStart, canopyTransferEnd),
+        },
         uMidImpostorUnderfill: { value: GRASS_MID_IMPOSTOR_UNDERFILL },
         uTime: { value: 0 },
         uWindDirection: {

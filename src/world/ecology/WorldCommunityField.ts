@@ -5,6 +5,11 @@ import {
   COMMUNITY_PROFILES,
   type CommunityPreferences,
 } from "./WorldCommunityProfiles";
+import {
+  createCommunityTopologySample,
+  resolveCommunityTerritoryBias,
+  sampleCommunityTopology,
+} from "./WorldCommunityTopologyField";
 
 /**
  * Which vegetation community grows here.
@@ -101,6 +106,7 @@ const COMMUNITY_CHANNEL_SALTS = [
 ] as const;
 const COMMUNITY_QUIET_SALT = 0x94_d0_49_bb;
 const COMMUNITY_FIELD_SALT = 0x7e_1a_44_9d;
+const communityTopologySample = createCommunityTopologySample();
 /**
  * Floor under the noise term.
  *
@@ -226,10 +232,18 @@ export function sampleWorldCommunity(
   config: WorldConfig,
   target: WorldCommunitySample,
 ): WorldCommunitySample {
+  // Ecology passed to this function belongs to the real (x, z). Only the
+  // compositional history is warped, preserving environmental causality.
+  const topology = sampleCommunityTopology(
+    x,
+    z,
+    config,
+    communityTopologySample,
+  );
   const period = Math.max(config.grassCommunityWorldSize, 1);
   const seed = (config.seed ^ COMMUNITY_FIELD_SALT) >>> 0;
-  const u = x / period;
-  const v = z / period;
+  const u = topology.warpedX / period;
+  const v = topology.warpedZ / period;
   const cellX = Math.floor(u);
   const cellZ = Math.floor(v);
   const fractionX = u - cellX;
@@ -262,7 +276,12 @@ export function sampleWorldCommunity(
     const score =
       profile.weight *
       Math.pow(fit, strength * ECOLOGY_EXPONENT) *
-      (NOISE_FLOOR + (1 - NOISE_FLOOR) * noise);
+      (NOISE_FLOOR + (1 - NOISE_FLOOR) * noise) *
+      resolveCommunityTerritoryBias(
+        topology.territory,
+        index,
+        COMMUNITY_COUNT,
+      );
     target.weights[index] = score;
     if (score > bestScore) {
       secondScore = bestScore;

@@ -47,14 +47,30 @@ export function verifyStoneProfiles(): string {
       const isCapstone = recipe.silhouetteVariant === "capstone";
       if (isCapstone) {
         capstonesChecked += 1;
+        const topPlanes = planes.filter((plane) => plane.role === "top");
+        const roofBreakAngle =
+          topPlanes.length === 2
+            ? Math.acos(
+                Math.min(
+                  1,
+                  Math.max(
+                    -1,
+                    topPlanes[0].nx * topPlanes[1].nx +
+                      topPlanes[0].ny * topPlanes[1].ny +
+                      topPlanes[0].nz * topPlanes[1].nz,
+                  ),
+                ),
+              )
+            : Number.POSITIVE_INFINITY;
         assert(
           archetype === "boulder" || archetype === "slab" || archetype === "outcrop",
           `${archetype}:${seed} selected an unsupported capstone silhouette.`,
         );
         assert(
           recipe.topBevelHeight <= 0.150001 &&
-            planes.filter((plane) => plane.role === "top").length === 1,
-          `${archetype}:${seed} capstone lost its short bevel or single planar roof.`,
+            topPlanes.length === 2 &&
+            roofBreakAngle <= 0.2,
+          `${archetype}:${seed} capstone lost its short bevel or shallow paired roof.`,
         );
       }
 

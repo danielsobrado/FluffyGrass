@@ -626,6 +626,8 @@ export class WorldGrassSystem {
         grassConfig.material,
         grassConfig.wind,
         lodConfig,
+        this.worldConfig.terrainCanopyMergeStart,
+        this.worldConfig.terrainCanopyMergeEnd,
         !this.profile.compact,
         this.worldConfig.grassFarImpostorsPerPatch,
         !this.profile.compact,
