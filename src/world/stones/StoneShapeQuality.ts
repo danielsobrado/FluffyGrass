@@ -9,6 +9,7 @@ import {
   type StoneVec3,
 } from "./StoneClipper";
 import { resolveStoneProfileHeights } from "./StoneProfile";
+import { calculateStonePolygonAreaAndNormal } from "./StoneMeshTopology";
 import { hashStoneCell, hashStoneLabel } from "./StoneRandom";
 import {
   resolveStoneRecipe,
@@ -38,6 +39,15 @@ const ROTATIONAL_SYMMETRY_PENALTY = 1.5;
 const RECTILINEAR_EDGE_PENALTY = 2.4;
 /** Reject only the outlying projected runs, not the broad planes themselves. */
 const DOMINANT_STRAIGHTNESS_PENALTY = 1.8;
+const MASONRY_WALL_PENALTY = 5.2;
+const VERTICAL_CHAIN_PENALTY = 1.35;
+const HORIZONTAL_CHAIN_PENALTY = 0.75;
+const VERTICAL_CHAIN_PENALTY_START = 0.25;
+const VERTICAL_CHAIN_PENALTY_FULL = 0.34;
+const HORIZONTAL_CHAIN_PENALTY_START = 0.29;
+const HORIZONTAL_CHAIN_PENALTY_FULL = 0.39;
+/** Keep quality selection from buying cleaner outlines with extra clip faces. */
+const BODY_FACE_PENALTY = 0.075;
 const MEAN_STRAIGHTNESS_PENALTY_START = 0.235;
 const MEAN_STRAIGHTNESS_PENALTY_FULL = 0.29;
 const WORST_STRAIGHTNESS_PENALTY_START = 0.34;
@@ -47,20 +57,6 @@ const QUALITY_SEED_SALT = 0x41727479;
 const TWO_PI = Math.PI * 2;
 const qualityRecipeCache = new Map<string, StoneRecipe>();
 
-function polygonArea(face: StonePolygon): number {
-  let x = 0;
-  let y = 0;
-  let z = 0;
-  for (let index = 0; index < face.points.length; index += 1) {
-    const a = face.points[index];
-    const b = face.points[(index + 1) % face.points.length];
-    x += (a.y - b.y) * (a.z + b.z);
-    y += (a.z - b.z) * (a.x + b.x);
-    z += (a.x - b.x) * (a.y + b.y);
-  }
-  return Math.hypot(x, y, z) * 0.5;
-}
-
 function verticalSpan(face: StonePolygon): number {
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
@@ -69,6 +65,58 @@ function verticalSpan(face: StonePolygon): number {
     maximum = Math.max(maximum, point.y);
   }
   return maximum - minimum;
+}
+
+function bodyHeight(faces: readonly StonePolygon[]): number {
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const face of faces) {
+    for (const point of face.points) {
+      minimum = Math.min(minimum, point.y);
+      maximum = Math.max(maximum, point.y);
+    }
+  }
+  return Math.max(1e-4, maximum - minimum);
+}
+
+function visibleScoringFaces(faces: readonly StonePolygon[]): StonePolygon[] {
+  return faces.filter(
+    (face) =>
+      face.role !== "bottom" &&
+      face.role !== "contact-bevel" &&
+      face.role !== "edge-bevel",
+  );
+}
+
+/** Share of visible surface that is both tall and close to a plumb wall. */
+export function measureStoneMasonryWallScore(
+  body: readonly StonePolygon[],
+): number {
+  const faces = visibleScoringFaces(body);
+  const height = bodyHeight(faces);
+  const entries = faces.map((face) => {
+    const [area, , normalY] = calculateStonePolygonAreaAndNormal(face);
+    return { face, area, normalY };
+  });
+  const totalArea = entries.reduce((sum, entry) => sum + entry.area, 0);
+  if (!(totalArea > 0)) return 0;
+
+  return entries.reduce((score, entry) => {
+    const roleWeight =
+      entry.face.role === "side"
+        ? 1
+        : entry.face.role === "top-bevel"
+          ? 0.4
+          : 0;
+    if (roleWeight === 0) return score;
+    const spanRatio = verticalSpan(entry.face) / height;
+    const tallness = smoothstep(spanRatio, 0.42, 0.72);
+    const uprightness = 1 - smoothstep(Math.abs(entry.normalY), 0.08, 0.38);
+    return (
+      score +
+      (entry.area / totalArea) * tallness * uprightness * roleWeight
+    );
+  }, 0);
 }
 
 function ringSupport(
@@ -327,13 +375,11 @@ function shapedBody(recipe: StoneRecipe): StonePolygon[] {
 /** Scores the final macro body, before optional near-range chips. */
 export function scoreStoneShape(recipe: StoneRecipe): number {
   const body = shapedBody(recipe);
-  const faces = body.filter(
-    (face) =>
-      face.role !== "bottom" &&
-      face.role !== "contact-bevel" &&
-      face.role !== "edge-bevel",
-  );
-  const entries = faces.map((face) => ({ face, area: polygonArea(face) }));
+  const faces = visibleScoringFaces(body);
+  const entries = faces.map((face) => ({
+    face,
+    area: calculateStonePolygonAreaAndNormal(face)[0],
+  }));
   const total = entries.reduce((sum, entry) => sum + entry.area, 0);
   if (!(total > 0)) return -100;
 
@@ -352,13 +398,7 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
     entries
       .filter((entry) => entry.face.role === "top")
       .reduce((sum, entry) => sum + entry.area, 0) / total;
-  const longWallShare =
-    entries
-      .filter(
-        (entry) =>
-          entry.face.role === "side" && verticalSpan(entry.face) > 0.46,
-      )
-      .reduce((sum, entry) => sum + entry.area, 0) / total;
+  const masonryWallScore = measureStoneMasonryWallScore(faces);
 
   const mean =
     recipe.sideRadii.reduce((sum, value) => sum + value, 0) /
@@ -383,7 +423,7 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
   // measurement is sufficient alone: tall blocks are valid, and broad low tops
   // are valid, but their combination is the cut-masonry silhouette to avoid.
   const topDeficit = Math.max(0, targetTop - topShare) / targetTop;
-  const stumpPenalty = longWallShare * topDeficit;
+  const stumpPenalty = masonryWallScore * topDeficit;
   const dominantPlaneScore = Math.min(1, primaryFour / 0.42);
   const rectilinear = rectilinearEdgeShare(faces);
   const straightness = measureStoneSilhouetteStraightness(body);
@@ -400,16 +440,29 @@ export function scoreStoneShape(recipe: StoneRecipe): number {
       WORST_STRAIGHTNESS_PENALTY_FULL,
     ) *
       0.35;
+  const projectedVerticalPenalty = smoothstep(
+    straightness.worstVerticalChainShare,
+    VERTICAL_CHAIN_PENALTY_START,
+    VERTICAL_CHAIN_PENALTY_FULL,
+  );
+  const projectedHorizontalPenalty = smoothstep(
+    straightness.worstHorizontalChainShare,
+    HORIZONTAL_CHAIN_PENALTY_START,
+    HORIZONTAL_CHAIN_PENALTY_FULL,
+  );
 
   return (
     primarySix * 4.2 +
     dominantPlaneScore * 0.55 -
     tiny * 7.5 -
     Math.abs(topShare - targetTop) * 2 -
-    longWallShare * 5.2 -
+    masonryWallScore * MASONRY_WALL_PENALTY -
     stumpPenalty * 5 -
     rectilinear * RECTILINEAR_EDGE_PENALTY -
-    dominantStraightness * DOMINANT_STRAIGHTNESS_PENALTY +
+    dominantStraightness * DOMINANT_STRAIGHTNESS_PENALTY -
+    projectedVerticalPenalty * VERTICAL_CHAIN_PENALTY -
+    projectedHorizontalPenalty * HORIZONTAL_CHAIN_PENALTY -
+    faces.length * BODY_FACE_PENALTY +
     Math.min(mediumCount, 9) * 0.05 +
     Math.min(asymmetry, 0.28) * 2.15 +
     profileArtDirection(recipe) +

@@ -18,6 +18,8 @@ const LENGTH_EPSILON = 1e-9;
 interface StoneStraightnessViewMetrics {
   readonly dominantEdgeShare: number;
   readonly dominantStraightChainShare: number;
+  readonly horizontalChainShare: number;
+  readonly verticalChainShare: number;
 }
 
 export interface StoneStraightnessMetrics {
@@ -26,6 +28,19 @@ export interface StoneStraightnessMetrics {
   readonly worstDominantEdgeShare: number;
   readonly meanStraightChainShare: number;
   readonly worstStraightChainShare: number;
+  readonly meanHorizontalChainShare: number;
+  readonly worstHorizontalChainShare: number;
+  readonly meanVerticalChainShare: number;
+  readonly worstVerticalChainShare: number;
+}
+
+function smoothstep(value: number, start: number, end: number): number {
+  const amount = Math.min(1, Math.max(0, (value - start) / (end - start)));
+  return amount * amount * (3 - 2 * amount);
+}
+
+function alignmentWeight(value: number): number {
+  return smoothstep(value, 0.9, 0.985);
 }
 
 function collectVisiblePoints(faces: readonly StonePolygon[]): StoneVec3[] {
@@ -57,7 +72,12 @@ function measureView(
   hull: readonly StoneProjectedPoint[],
 ): StoneStraightnessViewMetrics {
   if (hull.length < 3) {
-    return { dominantEdgeShare: 0, dominantStraightChainShare: 0 };
+    return {
+      dominantEdgeShare: 0,
+      dominantStraightChainShare: 0,
+      horizontalChainShare: 0,
+      verticalChainShare: 0,
+    };
   }
 
   const edgeLengths = hull.map((point, index) => {
@@ -66,14 +86,25 @@ function measureView(
   });
   const perimeter = edgeLengths.reduce((sum, length) => sum + length, 0);
   if (!(perimeter > LENGTH_EPSILON)) {
-    return { dominantEdgeShare: 0, dominantStraightChainShare: 0 };
+    return {
+      dominantEdgeShare: 0,
+      dominantStraightChainShare: 0,
+      horizontalChainShare: 0,
+      verticalChainShare: 0,
+    };
   }
 
   let longestEdge = 0;
   let longestChain = 0;
+  let largestHorizontalChainShare = 0;
+  let largestVerticalChainShare = 0;
   for (let start = 0; start < hull.length; start += 1) {
     longestEdge = Math.max(longestEdge, edgeLengths[start]);
     let chainLength = edgeLengths[start];
+    const first = hull[start];
+    const firstNext = hull[(start + 1) % hull.length];
+    let chainDx = firstNext.x - first.x;
+    let chainDy = firstNext.y - first.y;
     for (let step = 1; step < hull.length; step += 1) {
       const junction = (start + step) % hull.length;
       const previous = hull[(junction + hull.length - 1) % hull.length];
@@ -81,13 +112,35 @@ function measureView(
       const next = hull[(junction + 1) % hull.length];
       if (edgeTurn(previous, current, next) > STRAIGHT_CHAIN_MAX_TURN) break;
       chainLength += edgeLengths[junction];
+      chainDx += next.x - current.x;
+      chainDy += next.y - current.y;
     }
     longestChain = Math.max(longestChain, chainLength);
+    const chainShare = chainLength / perimeter;
+    const directionLength = Math.hypot(chainDx, chainDy);
+    const horizontalAlignment =
+      directionLength > LENGTH_EPSILON
+        ? Math.abs(chainDx) / directionLength
+        : 0;
+    const verticalAlignment =
+      directionLength > LENGTH_EPSILON
+        ? Math.abs(chainDy) / directionLength
+        : 0;
+    largestHorizontalChainShare = Math.max(
+      largestHorizontalChainShare,
+      chainShare * alignmentWeight(horizontalAlignment),
+    );
+    largestVerticalChainShare = Math.max(
+      largestVerticalChainShare,
+      chainShare * alignmentWeight(verticalAlignment),
+    );
   }
 
   return {
     dominantEdgeShare: longestEdge / perimeter,
     dominantStraightChainShare: longestChain / perimeter,
+    horizontalChainShare: largestHorizontalChainShare,
+    verticalChainShare: largestVerticalChainShare,
   };
 }
 
@@ -99,13 +152,19 @@ export function measureStoneSilhouetteStraightness(
   let views = 0;
   let edgeTotal = 0;
   let chainTotal = 0;
+  let horizontalTotal = 0;
+  let verticalTotal = 0;
   let worstDominantEdgeShare = 0;
   let worstStraightChainShare = 0;
+  let worstHorizontalChainShare = 0;
+  let worstVerticalChainShare = 0;
 
   visitStoneProjectedHulls(points, (hull) => {
     const metrics = measureView(hull);
     edgeTotal += metrics.dominantEdgeShare;
     chainTotal += metrics.dominantStraightChainShare;
+    horizontalTotal += metrics.horizontalChainShare;
+    verticalTotal += metrics.verticalChainShare;
     worstDominantEdgeShare = Math.max(
       worstDominantEdgeShare,
       metrics.dominantEdgeShare,
@@ -113,6 +172,14 @@ export function measureStoneSilhouetteStraightness(
     worstStraightChainShare = Math.max(
       worstStraightChainShare,
       metrics.dominantStraightChainShare,
+    );
+    worstHorizontalChainShare = Math.max(
+      worstHorizontalChainShare,
+      metrics.horizontalChainShare,
+    );
+    worstVerticalChainShare = Math.max(
+      worstVerticalChainShare,
+      metrics.verticalChainShare,
     );
     views += 1;
   });
@@ -123,5 +190,9 @@ export function measureStoneSilhouetteStraightness(
     worstDominantEdgeShare,
     meanStraightChainShare: views > 0 ? chainTotal / views : 0,
     worstStraightChainShare,
+    meanHorizontalChainShare: views > 0 ? horizontalTotal / views : 0,
+    worstHorizontalChainShare,
+    meanVerticalChainShare: views > 0 ? verticalTotal / views : 0,
+    worstVerticalChainShare,
   };
 }

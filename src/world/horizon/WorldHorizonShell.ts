@@ -90,6 +90,7 @@ export class WorldHorizonShell {
       materialController = new WorldHorizonMaterial(
         radius * config.chunkSize,
         (radius + 1) * config.chunkSize,
+        config.worldSize * 0.5,
         this.coverage,
       );
       this.materialController = materialController;

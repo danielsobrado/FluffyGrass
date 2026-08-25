@@ -86,6 +86,19 @@ const AB_MEADOW: WorldVisualPoint = {
   riverFallStep: 0,
 };
 
+/**
+ * A verified closed-canopy lowland core rather than merely suitable meadow.
+ * Every 4 m habitat sample in an 8 m radius retains at least 99% density and
+ * less than 1% openness, making this the stable proof that the world can still
+ * produce a genuinely lush destination while clearings remain intentional.
+ */
+const LUSH_MEADOW: WorldVisualPoint = {
+  ...AB_MEADOW,
+  x: 692,
+  y: -6.45,
+  z: 384,
+};
+
 function abMeadowPoses(): WorldVisualPose[] {
   // Front-lit: the sun is behind the camera, so what the frame shows is albedo
   // and coverage rather than transmission. The ring is a diffuse-shading and
@@ -119,6 +132,14 @@ function canopyEvaluationPoses(): WorldVisualPose[] {
     look("g11-canopy-blade-height", AB_MEADOW, 9, 1.05, lit.x, lit.z),
     // atan((9.55 - LOOK_HEIGHT) / 12) = 35 degrees.
     look("g11-canopy-elevated-35deg", AB_MEADOW, 12, 9.55, lit.x, lit.z),
+  ];
+}
+
+function lushMeadowPoses(): WorldVisualPose[] {
+  const lit = { x: -WORLD_SUN_XZ.x, z: -WORLD_SUN_XZ.z };
+  return [
+    look("g12-lush-core-third-person", LUSH_MEADOW, 7.5, 2.4, lit.x, lit.z),
+    look("g12-lush-core-elevated", LUSH_MEADOW, 11, 7.5, lit.x, lit.z),
   ];
 }
 
@@ -248,6 +269,7 @@ export function createWorldVisualPoses(
     ...stoneDistancePoses(),
     ...abMeadowPoses(),
     ...canopyEvaluationPoses(),
+    ...lushMeadowPoses(),
     ...meadowReviewPoses(locations),
     ...distancePoses(AB_MEADOW),
     look("g10-meadow", AB_MEADOW, 7.5, 2.4, 0.55, 0.55),

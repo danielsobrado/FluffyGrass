@@ -32,7 +32,7 @@ desktopCloudDetailWindX: -2
 desktopCloudDetailWindZ: 7
 desktopCloudSelfShadowStrength: 0.28
 desktopCloudSilverLiningStrength: 1.35
-desktopCloudShadowStrength: 0.14
+desktopCloudShadowStrength: 0.10
 desktopCloudShadowSampleRadius: 24
 # One shared low-resolution cloud-plane transmittance field. It modulates direct
 # sunlight only; ambient/sky lighting is deliberately never multiplied by it.
@@ -42,7 +42,7 @@ desktopCloudShadowSteps: 4
 desktopCloudShadowEdgeFade: 0.08
 desktopCloudShadowDistanceFadeStart: 420
 desktopCloudShadowDistanceFadeEnd: 1200
-desktopCloudMinimumDirectTransmittance: 0.86
+desktopCloudMinimumDirectTransmittance: 0.90
 desktopCloudLightResponseRate: 0.7
 desktopCloudWeatherGradeStrength: 0.24
 desktopCloudVolumetricEnabled: true

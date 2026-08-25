@@ -41,6 +41,7 @@ interface ProfileFamily {
   readonly slopeTurn: number;
   readonly directionalCompression: Range;
   readonly shoulderBreak: Range;
+  readonly bodyTurn: Range;
   /**
    * How tightly the compression and shoulder-break lobes are focused.
    *
@@ -88,6 +89,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.025,
     directionalCompression: { min: 0, max: 0 },
     shoulderBreak: { min: 0, max: 0 },
+    bodyTurn: { min: 0, max: 0 },
     lobeSharpness: 1,
     maximumRise: 0,
     crownStraightness: 0,
@@ -105,6 +107,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.04,
     directionalCompression: { min: 0.22, max: 0.4 },
     shoulderBreak: { min: 0.18, max: 0.34 },
+    bodyTurn: { min: 0.04, max: 0.08 },
     lobeSharpness: 3.4,
     maximumRise: 0.1,
     crownStraightness: 0.68,
@@ -119,6 +122,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.05,
     directionalCompression: { min: 0.03, max: 0.08 },
     shoulderBreak: { min: 0.02, max: 0.075 },
+    bodyTurn: { min: 0, max: 0 },
     lobeSharpness: 2.1,
     maximumRise: 0.08,
     crownStraightness: 0.4,
@@ -133,6 +137,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.04,
     directionalCompression: { min: 0.04, max: 0.1 },
     shoulderBreak: { min: 0.03, max: 0.09 },
+    bodyTurn: { min: 0, max: 0 },
     lobeSharpness: 2.2,
     maximumRise: 0.1,
     crownStraightness: 0.38,
@@ -147,6 +152,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.045,
     directionalCompression: { min: 0.025, max: 0.07 },
     shoulderBreak: { min: 0.02, max: 0.065 },
+    bodyTurn: { min: 0, max: 0 },
     lobeSharpness: 2.4,
     maximumRise: 0.06,
     crownStraightness: 0.35,
@@ -161,6 +167,7 @@ const PROFILE_FAMILIES: Record<StoneArchetypeId, ProfileFamily> = {
     slopeTurn: 0.035,
     directionalCompression: { min: 0.08, max: 0.17 },
     shoulderBreak: { min: 0.06, max: 0.14 },
+    bodyTurn: { min: 0, max: 0 },
     lobeSharpness: 2.8,
     maximumRise: 0.12,
     crownStraightness: 0.7,
@@ -335,6 +342,13 @@ export function resolveStoneProfile(
   const compressionAngle = primaryAngle + massing.range(2.1, 4.2);
   const shoulderBreakAngle =
     compressionAngle + massing.range(0.8, 1.55) * (massing.chance(0.5) ? 1 : -1);
+  // Resolve the added macro turn after the established massing values so the
+  // existing compression and fracture choices retain their seeded results.
+  const bodyTurnStrength = massing.range(
+    family.bodyTurn.min,
+    family.bodyTurn.max,
+  );
+  const bodyTurnAngle = compressionAngle + massing.signed(0.35);
   const desired: number[][] = [[], [], [], [], []];
   const heightOffsets: number[][] = [[], [], [], [], []];
 
@@ -347,6 +361,8 @@ export function resolveStoneProfile(
     const shoulderBreak =
       directionalLobe(angle, shoulderBreakAngle, family.lobeSharpness) *
       shoulderBreakStrength;
+    const bodyTurn =
+      directionalLobe(angle, bodyTurnAngle, 1.7) * bodyTurnStrength;
     const contactVariation = smoothSectorVariation(
       input.seed,
       side,
@@ -382,14 +398,15 @@ export function resolveStoneProfile(
         (1 +
           bellyBulge +
           bellyVariation * family.bellyVariation -
-          compression * 0.28),
+          compression * 0.28 +
+          bodyTurn * 0.4),
     );
     const shoulderRadius = Math.max(
       MIN_RADIUS,
       base -
         input.taper * shoulderHeight * 0.48 +
         base * shoulderVariation * family.shoulderVariation -
-        base * (compression * 0.72 + shoulderBreak),
+        base * (compression * 0.72 + shoulderBreak + bodyTurn * 0.6),
     );
     const topRadius = Math.max(
       MIN_RADIUS,

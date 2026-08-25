@@ -1,61 +1,22 @@
 import * as THREE from "three";
 import type { WorldHorizonCoverage } from "./WorldHorizonCoverage";
 import { WORLD_HORIZON_SINK_DEPTH } from "./WorldHorizonTuning";
-import { WORLD_SUN_DIRECTION } from "../../app/WorldEnvironmentTuning";
+import {
+  WORLD_SKY_HAZE,
+  WORLD_SUN_DIRECTION,
+} from "../../app/WorldEnvironmentTuning";
+import {
+  WORLD_HORIZON_APRON_HAZE_DISTANCE,
+  WORLD_HORIZON_COVERAGE_DISCARD,
+  WORLD_HORIZON_FACE_GRADE,
+  WORLD_HORIZON_FRAGMENT,
+  WORLD_HORIZON_POSITION,
+  WORLD_HORIZON_VERTEX,
+} from "./WorldHorizonShader";
 
-const MATERIAL_CACHE_KEY = "world-horizon-shell-v4";
+const MATERIAL_CACHE_KEY = "world-horizon-shell-v5";
 const HORIZON_SUN_DIRECTION = new THREE.Vector3(...WORLD_SUN_DIRECTION).normalize();
-const HORIZON_VERTEX = /* glsl */ `
-  uniform float uHorizonSinkDepth;
-  uniform vec2 uHorizonSinkFade;
-  uniform vec2 uHorizonSinkFocus;
-  varying vec2 vHorizonWorldXZ;
-  uniform vec3 uHorizonSunDirection;
-  varying float vHorizonFaceGrade;
-`;
-
-const HORIZON_POSITION = /* glsl */ `
-  vec2 horizonToFocus = abs(transformed.xz - uHorizonSinkFocus);
-  float horizonRingDistance = max(horizonToFocus.x, horizonToFocus.y);
-  float horizonBuried = 1.0 - smoothstep(
-    uHorizonSinkFade.x,
-    uHorizonSinkFade.y,
-    horizonRingDistance
-  );
-  transformed.y -= uHorizonSinkDepth * horizonBuried;
-  vHorizonWorldXZ = transformed.xz;
-  vec3 horizonWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
-  float horizonSunFacing = dot(horizonWorldNormal, uHorizonSunDirection);
-  vHorizonFaceGrade = mix(
-    0.88,
-    1.04,
-    smoothstep(-0.15, 0.35, horizonSunFacing)
-  );
-`;
-
-const HORIZON_FRAGMENT = /* glsl */ `
-  uniform sampler2D uTerrainCoverage;
-  uniform float uTerrainCoverageHalfExtent;
-  uniform float uTerrainCoverageWorldSize;
-  varying vec2 vHorizonWorldXZ;
-  varying float vHorizonFaceGrade;
-`;
-
-const HORIZON_FACE_GRADE = /* glsl */ `
-  diffuseColor.rgb *= vHorizonFaceGrade;
-`;
-const HORIZON_COVERAGE_DISCARD = /* glsl */ `
-  vec2 horizonCoverageUv =
-    (vHorizonWorldXZ + vec2(uTerrainCoverageHalfExtent)) /
-    uTerrainCoverageWorldSize;
-  if (
-    horizonCoverageUv.x >= 0.0 && horizonCoverageUv.y >= 0.0 &&
-    horizonCoverageUv.x < 1.0 && horizonCoverageUv.y < 1.0 &&
-    texture2D(uTerrainCoverage, horizonCoverageUv).r > 0.5
-  ) {
-    discard;
-  }
-`;
+const HORIZON_HAZE_COLOR = new THREE.Color(WORLD_SKY_HAZE);
 
 /**
  * Cheap far-terrain material with exact streamed-chunk ownership.
@@ -73,6 +34,7 @@ export class WorldHorizonMaterial {
   constructor(
     ringGuaranteedRadius: number,
     ringOuterRadius: number,
+    worldHalfExtent: number,
     coverage: WorldHorizonCoverage,
   ) {
     this.sinkFade.set(ringGuaranteedRadius, ringOuterRadius);
@@ -83,26 +45,31 @@ export class WorldHorizonMaterial {
       shader.uniforms.uHorizonSinkFade = { value: this.sinkFade };
       shader.uniforms.uHorizonSinkFocus = { value: this.sinkFocus };
       shader.uniforms.uHorizonSunDirection = { value: HORIZON_SUN_DIRECTION };
+      shader.uniforms.uHorizonWorldHalfExtent = { value: worldHalfExtent };
+      shader.uniforms.uHorizonApronHazeDistance = {
+        value: WORLD_HORIZON_APRON_HAZE_DISTANCE,
+      };
+      shader.uniforms.uHorizonHazeColor = { value: HORIZON_HAZE_COLOR };
       shader.uniforms.uTerrainCoverage = { value: coverage.texture };
       shader.uniforms.uTerrainCoverageHalfExtent = {
         value: coverage.worldHalfExtent,
       };
       shader.uniforms.uTerrainCoverageWorldSize = { value: coverage.worldSize };
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", `#include <common>${HORIZON_VERTEX}`)
+        .replace("#include <common>", `#include <common>${WORLD_HORIZON_VERTEX}`)
         .replace(
           "#include <begin_vertex>",
-          `#include <begin_vertex>${HORIZON_POSITION}`,
+          `#include <begin_vertex>${WORLD_HORIZON_POSITION}`,
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>${HORIZON_FRAGMENT}`)
+        .replace("#include <common>", `#include <common>${WORLD_HORIZON_FRAGMENT}`)
         .replace(
           "#include <color_fragment>",
-          `#include <color_fragment>${HORIZON_FACE_GRADE}`,
+          `#include <color_fragment>${WORLD_HORIZON_FACE_GRADE}`,
         )
         .replace(
           "#include <clipping_planes_fragment>",
-          `#include <clipping_planes_fragment>${HORIZON_COVERAGE_DISCARD}`,
+          `#include <clipping_planes_fragment>${WORLD_HORIZON_COVERAGE_DISCARD}`,
         );
     };
     this.material.customProgramCacheKey = () => MATERIAL_CACHE_KEY;

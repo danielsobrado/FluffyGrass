@@ -71,8 +71,12 @@ export function createWorldHorizonAxis(
 
   const worldHalfExtent = worldSize * 0.5;
   const apronOffsets = createApronOffsets(spacing, apronRings, apronGrowth);
-  const outerHalfExtent =
-    worldHalfExtent + (apronOffsets[apronOffsets.length - 1] ?? 0);
+  // Positions are stored as float32 for upload. Publish the same quantized
+  // endpoint so bounds and symmetry checks describe the actual mesh rather
+  // than a nearby float64 value that no vertex can represent.
+  const outerHalfExtent = Math.fround(
+    worldHalfExtent + (apronOffsets[apronOffsets.length - 1] ?? 0),
+  );
   const positions = new Float32Array(size);
 
   // Descending apron below the world, so the axis stays ascending overall.

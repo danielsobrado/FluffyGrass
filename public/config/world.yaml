@@ -16,15 +16,17 @@ grassChunksPerFrame: 1
 
 # Permanent horizon shell. One static draw call covering the whole world plus an
 # apron beyond its edge, so nothing capable of breaking the skyline is ever
-# absent. 16 m spacing misses the true surface by 0.33 m on average and 1.98 m
-# at the 99th percentile — about four pixels at the range the shell first
-# becomes visible. The apron carries the ground out to ~3.8 km, well past the
-# 1.9 km at which this world's fog closes, so the horizon is always haze rather
-# than an edge.
+# absent. 10.67 m spacing follows the far-chunk lattice (six cells per 64 m
+# chunk), putting 50% more vertices into distant ridge silhouettes without
+# adding a draw call. Twenty-six gently growing apron rings spend the remainder
+# of the 120k-triangle horizon budget breaking up the long planar bands that a
+# handful of aggressively growing outer rings produced. The apron still carries
+# the ground well past the distance at which fog closes, so the horizon is haze
+# rather than an edge.
 horizonEnabled: 1
-horizonSpacing: 16
-horizonApronRings: 16
-horizonApronGrowth: 1.25
+horizonSpacing: 10.666666666666666
+horizonApronRings: 26
+horizonApronGrowth: 1.121
 
 # Multi-blade patches are used only by the mid and far grass LODs.
 grassPatchSize: 4

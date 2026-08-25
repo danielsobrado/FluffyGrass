@@ -36,6 +36,9 @@ export function verifyStoneProfiles(): string {
   let weatheredUpperRatio = 0;
   let weatheredUpperSamples = 0;
   let groundedPlanes = 0;
+  let boulderBodyTurnProfiles = 0;
+  let boulderBodyTurnGaps = 0;
+  let boulderBodyTurnPlanes = 0;
 
   for (const archetype of STONE_ARCHETYPE_IDS) {
     for (let seed = 0; seed < SEEDS_PER_ARCHETYPE; seed += 1) {
@@ -45,6 +48,8 @@ export function verifyStoneProfiles(): string {
       const planes = buildStonePlanes(recipe);
       const planesById = new Map(planes.map((plane) => [plane.id, plane]));
       const isCapstone = recipe.silhouetteVariant === "capstone";
+      const hasBoulderBodyTurn = archetype === "boulder";
+      if (hasBoulderBodyTurn) boulderBodyTurnProfiles += 1;
       if (isCapstone) {
         capstonesChecked += 1;
         const topPlanes = planes.filter((plane) => plane.role === "top");
@@ -95,6 +100,7 @@ export function verifyStoneProfiles(): string {
               heights[ring] - heights[ring - 1] >= MINIMUM_HEIGHT_GAP,
               `${archetype}:${seed}:${side} profile rings collapsed vertically.`,
             );
+            if (hasBoulderBodyTurn) boulderBodyTurnGaps += 1;
           }
         }
 
@@ -177,6 +183,7 @@ export function verifyStoneProfiles(): string {
             `${archetype}:${seed}:${side}:${segment} plane diverges from profile without grounding (${lowerSigned}/${upperSigned}).`,
           );
           if (grounded) groundedPlanes += 1;
+          if (hasBoulderBodyTurn) boulderBodyTurnPlanes += 1;
         }
       }
       profilesChecked += 1;
@@ -184,6 +191,12 @@ export function verifyStoneProfiles(): string {
   }
 
   assert(capstonesChecked > 0, "Capstone silhouette family was not exercised.");
+  assert(
+    boulderBodyTurnProfiles === SEEDS_PER_ARCHETYPE &&
+      boulderBodyTurnGaps > 0 &&
+      boulderBodyTurnPlanes > 0,
+    "Boulder body-turn profiles did not receive ring-gap and profile-plane coverage.",
+  );
   const averageCapstoneUpperRatio = capstoneUpperRatio / capstoneUpperSamples;
   const averageWeatheredUpperRatio = weatheredUpperRatio / weatheredUpperSamples;
   assert(

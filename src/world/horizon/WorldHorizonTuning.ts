@@ -1,10 +1,10 @@
 /**
  * How far the shell sinks beneath the streamed ring, in metres.
  *
- * The shell samples the same height field as the streamed chunks but at 16 m
+ * The shell samples the same height field as the streamed chunks but at 10.67 m
  * where the near chunks use 2.67 m, so between shared lattice points it misses
- * the true surface. Measured across the shipped world that miss is 0.33 m on
- * average and 1.98 m at the 99th percentile, with a 17.6 m worst case confined
+ * the true surface. Measured across the shipped world, the current shell stays
+ * within 1.18 m at the 99th percentile; the remaining worst cases are confined
  * to the steepest mountain faces. Sinking by three metres buries the shell
  * under the streamed terrain everywhere the two overlap in ordinary ground,
  * which is what stops the coarse mesh poking through the fine one.
